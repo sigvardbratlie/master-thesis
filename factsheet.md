@@ -1,26 +1,26 @@
-**Fact sheet (last updated: \[date\])**
+# **Fact sheet (last updated: \[date\])**
 
-- **PARTIES**
+##  **PARTIES**
 
-**BAHR client**
+### **BAHR client**
 
 - **Full Legal Name**
 - **Role in Dispute:** \[Plaintiff/Defendant/Claimant/Respondent\]
 - **Entity Type:** \[Individual/Company/Government\]
 - **Key Contact:** \[Name, title, contact details\]
 
-**Opposing Party(ies)**
+### **Opposing Party(ies)**
 
 - **Full Legal Name:**
 - **Role in Dispute:**
 - **Entity Type:**
 - **Legal Representation:** \[Law firm and key lawyers\]
 
-**Third Parties/Intervenors**
+### **Third Parties/Intervenors**
 
 - \[List any other relevant parties, witnesses, experts\]
 
-- **FACTUAL BACKGROUND**
+## **FACTUAL BACKGROUND**
 
 **Summary (2-3 paragraphs)**
 
@@ -52,15 +52,15 @@
 - \[Fact agreed by all parties\]
 - \[Fact agreed by all parties\]
 - \[Fact agreed by all parties\]
-- **LEGAL FRAMEWORK**
+## **LEGAL FRAMEWORK**
 
-**Governing Law**
+### **Governing Law**
 
 - **Primary Jurisdiction**: \[Specific law that governs\]
 - **Choice of Law Clause**: \[If applicable, reference agreement clause\]
 - **International Elements**: \[If cross-border, note conflicts of law issues\]
 
-**Key Areas of Law**
+### **Key Areas of Law**
 
 - **\[Area 1 - e.g., Contract Law\]**
   - Relevant Statute/Case Law: \[Citations\]
@@ -68,14 +68,14 @@
   - Application to Our Matter: \[How this applies\]
 - **\[Add additional areas as needed\]**
 
-**Procedural Law**
+### **Procedural Law**
 
 - **Applicable Rules**: \[e.g., Civil Procedure Rules, Arbitration Rules\]
 - **Key Procedural Issues**: \[Discovery limits, evidence rules, etc.\]
 
-- **CLAIMS AND CAUSES OF ACTION**
+##  **CLAIMS AND CAUSES OF ACTION**
 
-**Our Claims (If Plaintiff)**
+### **Our Claims (If Plaintiff)**
 
 - \[**Claim 1 - e.g., Breach of contract**\]
   - Legal Basis: \[Statute\]
@@ -83,7 +83,7 @@
   - Relief Sought: \[Damages/injunction/specific performance\]
   - Strength Assessment: \[Strong/Moderate/Weak and why\]
 
-**Their Claims (If Defendant)**
+### **Their Claims (If Defendant)**
 
 - **\[Claim Against Us\]**
   - Legal Basis:
@@ -92,13 +92,13 @@
   - Our Defense: \[How we defend this\]
   - Defense Strength: \[Strong/Moderate/Weak and why\]
 
-**Counterclaims**
+### **Counterclaims**
 
 \[If applicable, list any counterclaims we have asserted\]
 
-- **KEY AGREEMENTS AND DOCUMENTS**
+## **KEY AGREEMENTS AND DOCUMENTS**
 
-**Key agreements**
+### **Key agreements**
 
 - \[**Agreement** **Name**\]
   - Date: \[Execution date\]
@@ -111,7 +111,7 @@
 - \[**Agreement Name**\]
   - \[Same structure as above\]
 
-**Critical Correspondence**
+###**Critical Correspondence**
 
 - **\[Description - e.g., Letter of Termination\]**
   - Date: \[Date\]
@@ -121,7 +121,7 @@
   - \[Same structure as above\]
 - **PROCEDURAL HISTORY**
 
-**Proceedings to Date**
+### **Proceedings to Date**
 
 - \[**Date**\] - \[Action taken, e.g., Statement of Claim filed\]
   - Document:
@@ -130,43 +130,43 @@
   - Document: \[Reference\]
   - Outcome/Next Step: \[Result\]
 
-**Outstanding Procedural Matters**
+### **Outstanding Procedural Matters**
 
 - \[Action needed - e.g., Response to discovery request due \[date\]\]
 - \[Action needed\]
 - \[Action needed\]
 
-**Upcoming Deadlines**
+### **Upcoming Deadlines**
 
 | **Date** | **Deadline** | **Responsible** | **Status** |
 | --- | --- | --- | --- |
 | \[Date\] | \[Description\] | \[Party\] |     |
 
-- **LEGAL ANALYSIS**
+## **LEGAL ANALYSIS**
 
-**Our Strengths**
+### **Our Strengths**
 
 - **\[Strength 1\]:** \[Brief explanation\]
 - **\[Strength 2\]:** \[Brief explanation\]
 - **\[Strength 3\]:** \[Brief explanation\]
 
-**Our Weaknesses/Risks**
+### **Our Weaknesses/Risks**
 
 - **\[Weakness 1\]:** \[Brief explanation and mitigation strategy\]
 - **\[Weakness 2\]:** \[Brief explanation and mitigation strategy\]
 
-**Opponent's Arguments**
+### **Opponent's Arguments**
 
 - **\[Argument 1\]:** \[What they'll say and our counter\]
 - **\[Argument 2\]:** \[What they'll say and our counter\]
 
-**Critical Legal Issues to Resolve**
+### **Critical Legal Issues to Resolve**
 
 - **\[Issue 1\]:** \[Description and why it matters\]
 - **\[Issue 2\]:** \[Description and why it matters\]
 - **DAMAGES AND QUANTUM**
 
-**Our Claimed Damages (If Claimant)**
+### **Our Claimed Damages (If Claimant)**
 
 | **Category** | **Amount** | **Basis** | **Supporting Evidence** |
 | --- | --- | --- | --- |
@@ -174,7 +174,7 @@
 | Interest | \[Amount\] | \[Rate and period\] | \[Legal basis\] |
 | **TOTAL** | **\[Amount\]** |     |     |
 
-**Their Claimed Damages (If Defending)**
+### **Their Claimed Damages (If Defending)**
 
 | **Category** | **Amount** | **Basis** | **Supporting Evidence** |
 | --- | --- | --- | --- |
