@@ -14,9 +14,11 @@ data/
 
 *.log
 *.env
+*.json
 
 secrets.toml
 
 **/examples.ipynb
 
 playground.ipynb
+
