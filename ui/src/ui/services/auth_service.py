@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import logging
 from typing import Optional
-from models import StreamlitUserInfo, TokenResponse
+from ui.models import StreamlitUserInfo, TokenResponse
 
 logger = logging.getLogger(__name__)
 

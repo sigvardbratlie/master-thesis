@@ -2,9 +2,9 @@ import streamlit as st
 import math
 from typing import Optional
 from uuid import uuid4
-from services.session_service import SessionService
-from utils import init_state
-from ui_components.attachments import view_attachment
+from ui.services.session_service import SessionService
+from ui.utils import init_state
+from ui.ui_components.attachments import view_attachment
 
 def render_first_question() -> Optional[str]:
     """

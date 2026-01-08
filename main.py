@@ -1,27 +1,23 @@
 from uuid import uuid4
 import streamlit as st
-import json
-import pandas as pd
-from dotenv import load_dotenv
-from pathlib import Path
 import os
 import logging
 
 # Import models
-from models import AskAgentRequest, ToolResultEvent
+from ui.models import AskAgentRequest, ToolResultEvent
 
 # Import services
-from services.auth_service import AuthService
-from services.session_service import SessionService
-from services.streaming_service import StreamingService
+from ui.services.auth_service import AuthService
+from ui.services.session_service import SessionService
+from ui.services.streaming_service import StreamingService
 
 # Import UI components
-from ui_components.renders import render_first_question, render_chat_input,render_sidebar
-from ui_components.tool_results import handle_tool_result
-from ui_components.attachments import mk_attachment_payload, view_uploaded_file, view_attachment
+from ui.ui_components.renders import render_first_question, render_chat_input,render_sidebar
+from ui.ui_components.tool_results import handle_tool_result
+from ui.ui_components.attachments import mk_attachment_payload, view_uploaded_file, view_attachment
 
 # Import utils
-from utils import init_state, load_custom_css
+from ui.utils import init_state, load_custom_css
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

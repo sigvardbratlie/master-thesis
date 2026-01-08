@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import logging
 from typing import Optional
-from models import SessionHistoryResponse, SessionInfo
+from ui.models import SessionHistoryResponse, SessionInfo
 
 logger = logging.getLogger(__name__)
 

@@ -1,49 +1,29 @@
-# agent/src/company_agent.py
-#from src.langchain_firestore import FirestoreSaver
 import os
-from pydantic import BaseModel
 from typing import Literal,List
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessageChunk
-from google.cloud import bigquery
-from langchain_openai import ChatOpenAI
-from langchain_tavily import TavilySearch
-from langchain_google_vertexai import ChatVertexAI
-import json
 from datetime import datetime, timedelta
-import requests
 import pandas as pd
 from langchain.tools import tool
 from dotenv import load_dotenv
-import logging
-import json
-from langgraph.graph import StateGraph,END
 from typing import Dict,TypedDict,List,Union,Annotated,Sequence,Optional, Literal, Tuple, Any
-import ast
+import os
+import tiktoken
+import logging
+import base64
+
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessageChunk
 from langgraph.graph.message import add_messages
 from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMessage,ToolMessage,AIMessageChunk
 from langchain_core.tools import tool
 from langchain_core.language_models.chat_models import BaseChatModel
-import os
-import tiktoken
-import logging
-from geopy.geocoders import Nominatim
-from google.cloud import firestore
-from google.cloud.firestore import SERVER_TIMESTAMP
-from langchain_openai import OpenAIEmbeddings
 from langchain_core.messages import message_to_dict,messages_to_dict
 from langchain_core.documents import Document
-from langchain_chroma import Chroma
-import hashlib
-from google.cloud import storage
-from langchain_google_vertexai.embeddings import VertexAIEmbeddings
-from langchain_google_community import BigQueryVectorStore
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from io import BytesIO
-from PyPDF2 import PdfReader
-import base64
-from src.utils import COMPANY_TOOLS
-from src.agent_modules import AttachmentReader,VectorSearch, Summarizer,AttachmentManager,ConversationManager,ContextManager, ToolManager
+from langgraph.graph import StateGraph,END
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
+
+from agent.utils import TOOLS
+from agent.agent_modules import AttachmentReader,VectorSearch, Summarizer,ConversationManager,ContextManager, ToolManager
 
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -52,19 +32,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-llms = {"google" : {"fast": ChatVertexAI(project = project_id , model="gemini-2.5-flash"),
-                     "expert": ChatVertexAI(project = project_id ,model="gemini-2.5-pro"), },
-        "openai" : {"fast" : ChatOpenAI(model = "gpt-4o-mini"),
-                    "expert" : ChatOpenAI(model = "gpt-4o")},
-        # "claude" : {"fast" : ChatAnthropic(model = "claude-3-opus-latest"),
-        #             "expert" : ChatAnthropic(model = "claude-3-opus-latest")},
-        }
-
 def add_tool_results(existing: list, new: list) -> list:
     return existing + new
 
-# def add_attachments(existing: list, new: list) -> list:
-#     return existing + new
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
@@ -108,8 +78,8 @@ class CompanyDataAgent:
 
         self.summary = ""
         if not llms:
-            llms = {"google" : {"fast": ChatVertexAI(project = project_id , model="gemini-2.5-flash"),
-                     "expert": ChatVertexAI(project = project_id ,model="gemini-2.5-pro"), },
+            llms = {"google" : {"fast": ChatGoogleGenerativeAI(project = project_id , model="gemini-2.5-flash"),
+                     "expert": ChatGoogleGenerativeAI(project = project_id ,model="gemini-2.5-pro"), },
                         "openai" : {"fast" : ChatOpenAI(model = "gpt-4o-mini"),
                                     "expert" : ChatOpenAI(model = "gpt-4o")},
                         # "claude" : {"fast" : ChatAnthropic(model = "claude-3-opus-latest"),

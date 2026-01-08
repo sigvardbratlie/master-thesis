@@ -3,7 +3,7 @@ import requests
 import streamlit as st
 import logging
 from typing import Generator, Callable, Optional
-from models import AskAgentRequest, AIEvent, ToolResultEvent
+from ui.models import AskAgentRequest, AIEvent, ToolResultEvent
 
 logger = logging.getLogger(__name__)
 

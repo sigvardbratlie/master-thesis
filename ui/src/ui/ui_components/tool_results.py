@@ -4,8 +4,7 @@ import json
 import logging
 from uuid import uuid4
 from typing import Any, Optional
-from models import ToolResultEvent
-from widgets.company_widget import company_dashboard
+from ui.models import ToolResultEvent
 
 logger = logging.getLogger(__name__)
 

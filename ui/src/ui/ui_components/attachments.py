@@ -8,7 +8,7 @@ from typing import Optional
 from io import StringIO, BytesIO
 from google.cloud import storage
 from google.oauth2 import service_account
-from models import AttachmentModel
+from ui.models import AttachmentModel
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 logger = logging.getLogger(__name__)

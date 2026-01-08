@@ -1,35 +1,29 @@
-import os
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessageChunk
-from google.cloud import bigquery
-from langchain_openai import ChatOpenAI
-from langchain_tavily import TavilySearch
-from langchain_google_vertexai import ChatVertexAI
-from datetime import datetime, timedelta
-import pandas as pd
-from langchain.tools import tool
-from dotenv import load_dotenv
 import json
 from typing import Dict,TypedDict,List,Union,Annotated,Sequence,Optional, Literal, Tuple, Any
-from langgraph.graph.message import add_messages
-from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMessage,ToolMessage,AIMessageChunk
-from langchain_core.tools import tool
-from langchain_core.language_models.chat_models import BaseChatModel
-from google.cloud import bigquery
 import os
-from google.cloud.firestore import SERVER_TIMESTAMP
-from langchain_core.documents import Document
-from google.cloud import storage
-from langchain_google_vertexai.embeddings import VertexAIEmbeddings
-from langchain_google_community import BigQueryVectorStore
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from io import BytesIO
 from PyPDF2 import PdfReader
-import base64
-from google.cloud import firestore
 import tiktoken
-from datetime import datetime
 import logging
+
+from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMessage,ToolMessage,AIMessageChunk
+from langchain_core.tools import tool
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from langchain_openai import ChatOpenAI
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_google_community import BigQueryVectorStore
+
+from google.cloud import bigquery
+from google.cloud import storage
+from google.cloud import bigquery
+from google.cloud import firestore
+
+
+
+
+
 logger = logging.getLogger(__name__)
 
 class Summarizer:
@@ -57,7 +51,7 @@ class VectorSearch:
         self.dataset = dataset
         self.region = region
         self.project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-        self.embedding = VertexAIEmbeddings(model_name=model_name)
+        self.embedding = GoogleGenerativeAIEmbeddings(model_name=model_name)
 
     def init_vector_store(self, table_name : str) -> BigQueryVectorStore:
         PROJECT_ID = self.project_id
@@ -154,7 +148,6 @@ class VectorSearch:
         result = client.query(query).result()
         return [row["content"] for row in result]
         
-    
 class AttachmentReader:
 
     def __init__(self):
@@ -199,7 +192,6 @@ class AttachmentReader:
             logger.info(f"Attachment saved to GCS at {bucket_path}")
         except Exception as e:
             logger.error(f"Error saving attachment to GCS: {e}")
-
 
 class ConversationManager:
     def __init__(self, db=None):
@@ -263,7 +255,7 @@ class ConversationManager:
             session_ref.set({
                 "events": all_events, 
                 "attachments": all_attachments,
-                "last_updated": SERVER_TIMESTAMP,
+                "last_updated": firestore.SERVER_TIMESTAMP,
                 "domain": self.domain,
                 "agent_type": agent_type,
                 "llm_provider": llm_provider,
@@ -274,13 +266,6 @@ class ConversationManager:
             logger.info(f"Session saved with {len(all_events)} total events")
         except Exception as e:
             logger.error(f"Error saving final state: {e}", exc_info=True)
-
-
-class AttachmentManager:
-    def __init__(self, vector_search: VectorSearch, attachment_reader: AttachmentReader, ):
-        self.vs = vector_search
-        self.ar = attachment_reader
-
     
 class ContextManager:
     def __init__(self):
@@ -331,9 +316,6 @@ class ContextManager:
             truncated.pop()
         
         return truncated
-
-
-    
 
 class ToolManager:
     def __init__(self):
