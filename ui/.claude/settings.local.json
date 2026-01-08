@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile:*)",
+      "Bash(python:*)",
+      "Bash(streamlit:*)",
+      "Bash(timeout 10 streamlit run:*)"
+    ]
+  }
+}

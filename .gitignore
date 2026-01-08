@@ -12,3 +12,8 @@ wheels/
 *.DS_Store
 data/
 
+*.log
+
+secrets.toml
+
+**/examples.ipynb
