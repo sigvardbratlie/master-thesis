@@ -17,3 +17,5 @@ data/
 secrets.toml
 
 **/examples.ipynb
+
+playground.ipynb
