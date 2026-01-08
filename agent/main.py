@@ -1,42 +1,47 @@
-import os
 from dotenv import load_dotenv
+
+import os
 from pathlib import Path
-load_dotenv()
-cred_filename = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_FILENAME")
-
-if cred_filename:
-    print(f'RUNNING LOCAL. ADAPTING LOADING PROCESS')
-    project_root = Path(__file__).parent
-    os.chdir(project_root)
-    dotenv_path = project_root.parent / '.env'
-    load_dotenv(dotenv_path=dotenv_path)
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(project_root.parent / cred_filename)
-
+from pathlib import Path
 from typing import Optional,Literal
 import asyncio
 import json
+from pydantic import BaseModel
+import uvicorn
+
+import logging
+
+from fastapi import FastAPI,HTTPException,status,Depends
 from fastapi import FastAPI,HTTPException,status,Depends
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import uvicorn
-from pathlib import Path
-from langchain_google_vertexai import ChatVertexAI
+
 from langchain_openai import ChatOpenAI
 from google.cloud import firestore
-from fastapi import FastAPI,HTTPException,status,Depends
-from src.google_auth import GoogleAuth
-import logging
-from agent.src.agent import COMPANY_TOOLS, PROMPT, CompanyDataAgent,llms
-from src.langchain_firestore import FirestoreSaver
 
+load_dotenv()
+from agent.agent import Agent,PROMPT,llms
+try:
+    from agent.utils import TOOLS
+except Exception:
+    load_dotenv()
+    cred_filename = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_FILENAME")
+    if cred_filename:
+        print(f'RUNNING LOCAL. ADAPTING LOADING PROCESS')
+        project_root = Path(__file__).parent
+        os.chdir(project_root)
+        dotenv_path = project_root.parent / '.env'
+        load_dotenv(dotenv_path=dotenv_path)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(project_root.parent / cred_filename)
+    from agent.utils import TOOLS
+from agent.langchain_firestore import FirestoreSaver
+from agent.google_auth import GoogleAuth
+    
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 # ===== SETUP FASTAPI & AGENT =======
-#from src.company_agent import company_agent
 app = FastAPI()
 
 origins = [
@@ -48,8 +53,6 @@ origins = [
     "http://127.0.0.1",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8080",
-
-    # Deployerte sider
 ]
 
 app.add_middleware(
@@ -64,16 +67,10 @@ project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 db = firestore.Client(project=project_id,database="(default)")
 checkpointer = FirestoreSaver(project_id=project_id,database_id="(default)")
 auth = GoogleAuth(secret_key=os.getenv("SECRET_KEY"), db = db)
-llms = {"google" : {"fast": ChatVertexAI(project = project_id , model="gemini-2.5-flash"),
-                     "expert": ChatVertexAI(project = project_id ,model="gemini-2.5-pro"), },
-        "openai" : {"fast" : ChatOpenAI(model = "gpt-4o-mini"),
-                    "expert" : ChatOpenAI(model = "gpt-4o")},
-        # "claude" : {"fast" : ChatAnthropic(model = "claude-3-opus-latest"),
-        #             "expert" : ChatAnthropic(model = "claude-3-opus-latest")},
-        }
 
-agent = CompanyDataAgent(
-    tools=COMPANY_TOOLS,
+
+agent = Agent(
+    tools=TOOLS,
     llms=llms,
     prompt=PROMPT,
     checkpointer=checkpointer,

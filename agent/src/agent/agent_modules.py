@@ -20,10 +20,6 @@ from google.cloud import storage
 from google.cloud import bigquery
 from google.cloud import firestore
 
-
-
-
-
 logger = logging.getLogger(__name__)
 
 class Summarizer:

@@ -3,8 +3,6 @@ from typing import Optional, Literal
 from datetime import datetime
 import uuid
 
-
-
 class Contact(BaseModel):
     name: str = Field(description="Full name of contact person")
     title: Optional[str] = None

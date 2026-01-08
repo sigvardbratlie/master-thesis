@@ -1,12 +1,7 @@
-# src/auth.py
-#import os
-#import bcrypt
 from google.cloud import firestore
-from google.auth.transport import requests as google_requests
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import Optional
-from google.oauth2 import id_token
 from datetime import datetime, timedelta
 import jwt
 from fastapi import Depends, HTTPException, status
