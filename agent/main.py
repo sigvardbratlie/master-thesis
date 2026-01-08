@@ -27,7 +27,7 @@ from google.cloud import firestore
 from fastapi import FastAPI,HTTPException,status,Depends
 from src.google_auth import GoogleAuth
 import logging
-from src.company_agent import COMPANY_TOOLS, PROMPT, CompanyDataAgent,llms
+from agent.src.agent import COMPANY_TOOLS, PROMPT, CompanyDataAgent,llms
 from src.langchain_firestore import FirestoreSaver
 
 
