@@ -15,16 +15,16 @@ class Party(BaseModel):
     party_id : str = Field(default_factory = lambda : str(uuid.uuid4()))
     role: Literal["plaintiff", "defendant", "claimant", "respondent","witness", "expert","other"]
     entity_type: Literal["individual", "company", "government"]
-    key_contact: Contact
+    key_contact: Optional[Contact] = None
     legal_representation: Optional[str] = Field(
-        None, description="Law firm and key lawyers representing this party"
+        None, description="Law firm representing this party"
     )
 
 
 class Deadline(BaseModel):
     date: datetime
     description: str
-    file_id: Optional[str] = Field(None, description="Related document reference")
+    file_id: Optional[str] = Field(None, description="Related attachment reference")
     responsible_party: str
 
 
@@ -43,24 +43,28 @@ class Event(BaseModel):
     disputed: bool
 
 
-class Document(BaseModel):
-    file_id: str 
-    filename: str = Field(description="Original filename")
-    path: str 
-    summary: str 
+class AttachmentExtracted(BaseModel):    
+    summary: str  = Field(description="Concise summary of the document content")
     key_provisions: Optional[list[str]] = Field(None, description="Important clauses or sections (for agreements)")
-    file_type: Literal["application/pdf", "text/plain", "application/msword",]
-    size: int
-    party: Literal["plaintiff", "defendant", "claimant", "respondent"]
+    events: Optional[list[Event]] = Field(None, description="Key events mentioned in the document")
+    party: Optional[Literal["plaintiff", "defendant", "claimant", "respondent"]] = None
+    date : Optional[datetime] = None
     category: Literal[
         "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
         "court_order", "invoice", "expert_report", "witness_statement", "internal_memo",
         "legal_opinion", "settlement_proposal", "power_of_attorney", "other"
     ]
-    event_id: str
-    query_id: str
-    deadline: Optional[Deadline]
+    deadline: Optional[Deadline] = Field(None, description="Relevant deadline if the document sets one")
     significance: Literal["high", "medium", "low"]
+
+class Attachment(AttachmentExtracted):
+    file_id: str = Field(default_factory = lambda : str(uuid.uuid4()))
+    filename: str = Field(description="Original filename") #system generated
+    path: str 
+    file_type: Literal["application/pdf", "text/plain", "application/msword",] #system generated
+    size: int #system generated
+    event_id: str #system generated id
+    query_id: str ##system generated id
 
 class GoverningLaw(BaseModel):
     primary_jurisdiction: str = Field(description="Which law governs (e.g., Norwegian law)")
@@ -92,12 +96,20 @@ class Damage(BaseModel):
     party: Party
 
 
-class FactSheet(BaseModel):
-    """Condensed case overview - detailed info stored in Document objects"""
+class InitialInput(BaseModel):
     # Factual background
     parties: list[Party]
     third_parties: list[Party]
     background: str
+
+
+class FactSheet(InitialInput):
+    """Structured representation of case facts for legal analysis."""
+    # Factual background
+    #parties: list[Party]
+    #third_parties: list[Party]
+    #background: str = Field(description="A brief overview of the case background")
+    
     timeline: list[Event]
     disputed_facts: str
     undisputed_facts: str

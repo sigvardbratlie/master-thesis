@@ -12,6 +12,7 @@ from langchain_tavily import TavilySearch
 from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool
 
+
 from agent.agent_modules import AttachmentReader, VectorSearch
 
 
@@ -126,6 +127,16 @@ def read_attachment(file_id : str, config : RunnableConfig):
     return reader.read_attachment(session_id=session_id,
                                      user_id=user_id,
                                      file_id=file_id)
+
+def analyze_doc(content : str) -> str:
+    '''
+    Analyze the content of a document and extract key information.
+    Args:
+        content (str): The content of the document to analyze.
+    Returns:
+        str: A message confirming that the data has been sent for analysis.
+    '''
+    return "Document content sent for analysis."
 
 TOOLS = [
         tavily_search,

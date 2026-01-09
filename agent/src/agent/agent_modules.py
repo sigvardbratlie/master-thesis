@@ -11,15 +11,20 @@ from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMes
 from langchain_core.tools import tool
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.language_models.chat_models import BaseChatModel
+
 
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_google_community import BigQueryVectorStore
 
+
 from google.cloud import bigquery
 from google.cloud import storage
 from google.cloud import bigquery
 from google.cloud import firestore
+
+from agent.basemodels import Attachment,AttachmentExtracted,InitialInput,Event
 
 logger = logging.getLogger(__name__)
 
@@ -265,8 +270,8 @@ class ConversationManager:
             logger.error(f"Error saving final state: {e}", exc_info=True)
     
 class ContextManager:
-    def __init__(self):
-        pass
+    def __init__(self, llm : BaseChatModel):
+        self.llm = llm
 
     def truncate_tokens(self, messages, max_tokens=7000):
         """Truncate messages to fit within max_tokens while preserving tool-call structure."""
@@ -314,6 +319,37 @@ class ContextManager:
         
         return truncated
 
+    def analyze_init_input(self, init_input : str) -> InitialInput:
+        structured_llm = self.llm.with_structured_output(InitialInput)
+        prompt = f'Analyze the following case introduction and extract key information into the InitialInput structure:\n\n{init_input}'
+        return structured_llm.invoke(prompt)
+    
+    def analyze_doc(self, initial_input : InitialInput ,content: str, file_id : str, filename: str, path: str, file_type: str, size: int, event_id: str, query_id: str) -> Attachment:
+        ''' Use LLM to analyze document content and extract structured data as Attachment '''
+
+        structured_llm = self.llm.with_structured_output(AttachmentExtracted)
+        init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
+        prompt = init_prompt + f'Analyze the following document content and extract key information into the Attachment structure:\n\n{content}'
+        response = structured_llm.invoke(prompt)
+        return Attachment(**response.model_dump(),
+                            file_id=file_id,
+                            filename=filename,
+                            path=path,
+                            file_type=file_type,
+                            size=size,
+                            event_id=event_id,
+                            query_id=query_id
+                        )
+    
+    def analyze_events(self, initial_input : InitialInput, attachments: list[Attachment]) -> list[Event]:
+        prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
+        prompt += 'Based on the following attachments, extract key events into Event structures:\n\n'
+        for att in attachments:
+            prompt += f'Attachment: {att.model_dump()}\n\n'
+        structured_llm = self.llm.with_structured_output(List[Event])
+        response = structured_llm.invoke(prompt)
+        return response
+
 class ToolManager:
     def __init__(self):
         pass
@@ -325,4 +361,5 @@ class ToolManager:
             except (TypeError, ValueError):
                 pass
         return str(result)
+
 
