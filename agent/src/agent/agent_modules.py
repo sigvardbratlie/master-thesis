@@ -24,7 +24,7 @@ from google.cloud import storage
 from google.cloud import bigquery
 from google.cloud import firestore
 
-from agent.basemodels import Attachment,AttachmentExtracted,InitialInput,Event
+from agent.basemodels import Attachment,AttachmentExtracted,InitialInput,GoverningLaw,Claim,Damage,Event
 
 logger = logging.getLogger(__name__)
 
@@ -340,15 +340,36 @@ class ContextManager:
                             event_id=event_id,
                             query_id=query_id
                         )
+        
+    def run_single(self, initial_input : InitialInput, content: str, filename: str, path: str, file_id: str, file_type: str, size: int, query_id: str, ) -> dict:
+        logger.info(f"Processing file: {filename}")
+        events = []
+        doc = self.analyze_doc(
+                initial_input=initial_input, content=content, file_id=file_id, 
+                file_type=file_type, 
+                size=size, 
+                query_id=query_id,
+                filename=filename, 
+                path=path)
+        for event in doc.events:
+            event.file_id = file_id
+            events.append(event)
+        logger.info(f'Extracted {len(doc.events) if doc.events else 0} events from {filename}. Total events so far: {len(events)}')
+        return {"events": events,"file" : doc}
+
+    def analyze_governing_law(self, events : list[Event],rag_content_law : str) -> GoverningLaw:
+        structured_llm = self.llm.with_structured_output(GoverningLaw)
+        prompt = f'Based on the following case events, analyze and extract governing law information:\n\n{events}'
+        return structured_llm.invoke(prompt)
     
-    def analyze_events(self, initial_input : InitialInput, attachments: list[Attachment]) -> list[Event]:
-        prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
-        prompt += 'Based on the following attachments, extract key events into Event structures:\n\n'
-        for att in attachments:
-            prompt += f'Attachment: {att.model_dump()}\n\n'
-        structured_llm = self.llm.with_structured_output(List[Event])
-        response = structured_llm.invoke(prompt)
-        return response
+    def analyze_events(self, events : list[Event], task : Literal["claim","damage"]) -> GoverningLaw | list[Claim] | Damage:
+        mapping = {
+            "claim": Claim,
+            "damage": Damage
+        }
+        structured_llm = self.llm.with_structured_output(mapping[task])
+        prompt = f'Based on the following case events, analyze and extract {task} information:\n\n{events}'
+        return structured_llm.invoke(prompt)
 
 class ToolManager:
     def __init__(self):

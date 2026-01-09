@@ -29,10 +29,11 @@ class Deadline(BaseModel):
 
 
 class Event(BaseModel):
-    event_id: str
+    event_id: str = Field(default_factory = lambda : str(uuid.uuid4()))
+    file_id: Optional[str] = Field(None, description="Related attachment reference")
+    event_name: str
     date: datetime 
     description: str
-    file_id: Optional[str]
     category: Literal[
         "contract_signed", "breach_occurred", "notice_sent", "payment_due",
         "payment_made", "termination", "meeting", "court_filing", "court_hearing",
@@ -47,7 +48,7 @@ class AttachmentExtracted(BaseModel):
     summary: str  = Field(description="Concise summary of the document content")
     key_provisions: Optional[list[str]] = Field(None, description="Important clauses or sections (for agreements)")
     events: Optional[list[Event]] = Field(None, description="Key events mentioned in the document")
-    party: Optional[Literal["plaintiff", "defendant", "claimant", "respondent"]] = None
+    party: Optional[list[Literal["plaintiff", "defendant", "claimant", "respondent"]]] = None
     date : Optional[datetime] = None
     category: Literal[
         "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
@@ -63,7 +64,7 @@ class Attachment(AttachmentExtracted):
     path: str 
     file_type: Literal["application/pdf", "text/plain", "application/msword",] #system generated
     size: int #system generated
-    event_id: str #system generated id
+    #event_id: str #system generated id
     query_id: str ##system generated id
 
 class GoverningLaw(BaseModel):
