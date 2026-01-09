@@ -44,29 +44,6 @@ class Event(BaseModel):
     disputed: bool
 
 
-class AttachmentExtracted(BaseModel):    
-    summary: str  = Field(description="Concise summary of the document content")
-    key_provisions: Optional[list[str]] = Field(None, description="Important clauses or sections (for agreements)")
-    events: Optional[list[Event]] = Field(None, description="Key events mentioned in the document")
-    party: Optional[list[Literal["plaintiff", "defendant", "claimant", "respondent"]]] = None
-    date : Optional[datetime] = None
-    category: Literal[
-        "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
-        "court_order", "invoice", "expert_report", "witness_statement", "internal_memo",
-        "legal_opinion", "settlement_proposal", "power_of_attorney", "other"
-    ]
-    deadline: Optional[Deadline] = Field(None, description="Relevant deadline if the document sets one")
-    significance: Literal["high", "medium", "low"]
-
-class Attachment(AttachmentExtracted):
-    file_id: str = Field(default_factory = lambda : str(uuid.uuid4()))
-    filename: str = Field(description="Original filename") #system generated
-    path: str 
-    file_type: Literal["application/pdf", "text/plain", "application/msword",] #system generated
-    size: int #system generated
-    #event_id: str #system generated id
-    query_id: str ##system generated id
-
 class GoverningLaw(BaseModel):
     primary_jurisdiction: str = Field(description="Which law governs (e.g., Norwegian law)")
     key_areas: list[str] = Field(description="Relevant legal areas (contract law, tort, etc)")
@@ -102,6 +79,32 @@ class InitialInput(BaseModel):
     parties: list[Party]
     third_parties: list[Party]
     background: str
+
+
+
+class AttachmentExtracted(BaseModel):    
+    summary: str  = Field(description="Concise summary of the document content")
+    key_provisions: Optional[list[str]] = Field(None, description="Important clauses or sections (for agreements)")
+    events: Optional[list[Event]] = Field(None, description="Key events mentioned in the document")
+    party: Optional[list[Literal["plaintiff", "defendant", "claimant", "respondent","expert","witness","other"]]] = None
+    date : Optional[datetime] = None
+    category: Literal[
+        "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
+        "court_order", "invoice", "expert_report", "witness_statement", "internal_memo",
+        "legal_opinion", "settlement_proposal", "power_of_attorney", "other"
+    ]
+    deadline: Optional[list[Deadline]] = Field(None, description="Relevant deadline if the document sets one")
+    damage : Optional[list[Damage]] = Field(None, description="Damage information if applicable")
+    claim : Optional[list[Claim]] = Field(None, description="Claim information if applicable")
+    significance: Literal["high", "medium", "low"]
+
+class Attachment(AttachmentExtracted):
+    file_id: str = Field(default_factory = lambda : str(uuid.uuid4()))
+    filename: str = Field(description="Original filename") #system generated
+    path: str 
+    file_type: Literal["application/pdf", "text/plain", "application/msword",] #system generated
+    size: int #system generated
+    query_id: str ##system generated id
 
 
 class FactSheet(InitialInput):

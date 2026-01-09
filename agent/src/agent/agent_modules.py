@@ -359,16 +359,18 @@ class ContextManager:
 
     def analyze_governing_law(self, events : list[Event],rag_content_law : str) -> GoverningLaw:
         structured_llm = self.llm.with_structured_output(GoverningLaw)
-        prompt = f'Based on the following case events, analyze and extract governing law information:\n\n{events}'
+        law_context = f'Extracted legal context:\n\n{rag_content_law}\n\n' if rag_content_law else ''
+        prompt = law_context + f'Based on the following case events, analyze and extract governing law information:\n\n{events}'
         return structured_llm.invoke(prompt)
     
-    def analyze_events(self, events : list[Event], task : Literal["claim","damage"]) -> GoverningLaw | list[Claim] | Damage:
+    def analyze_events(self, events : list[Event], initial_input : InitialInput, task : Literal["claim","damage"]) -> list[Claim] | Damage:
         mapping = {
             "claim": Claim,
             "damage": Damage
         }
         structured_llm = self.llm.with_structured_output(mapping[task])
-        prompt = f'Based on the following case events, analyze and extract {task} information:\n\n{events}'
+        init = f'Initial case input: {initial_input.model_dump()}\n\n'
+        prompt = init + f'Based on the following case events, analyze and extract {task} information:\n\n{events}'
         return structured_llm.invoke(prompt)
 
 class ToolManager:
