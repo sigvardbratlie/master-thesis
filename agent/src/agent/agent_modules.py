@@ -1,4 +1,5 @@
 import json
+from pyexpat import model
 from typing import Dict,TypedDict,List,Union,Annotated,Sequence,Optional, Literal, Tuple, Any
 import os
 from io import BytesIO
@@ -47,7 +48,7 @@ class VectorSearch:
         self.dataset = dataset
         self.region = region
         self.project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-        self.embedding = GoogleGenerativeAIEmbeddings(model_name=model_name)
+        self.embedding = GoogleGenerativeAIEmbeddings(model=model_name)
 
     def init_vector_store(self, table_name : str) -> BigQueryVectorStore:
         PROJECT_ID = self.project_id

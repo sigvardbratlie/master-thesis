@@ -17,7 +17,7 @@ from ui.ui_components.tool_results import handle_tool_result
 from ui.ui_components.attachments import mk_attachment_payload, view_uploaded_file, view_attachment
 
 # Import utils
-from ui.utils import init_state, load_custom_css
+from ui.utils import init_state #, load_custom_css
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # Page configuration
 st.set_page_config(page_title="Company Agent", layout="wide")
 init_state()
-load_custom_css()
+#load_custom_css()
 
 st.markdown("<style>.status-box{opacity:.85}</style>", unsafe_allow_html=True)
 
