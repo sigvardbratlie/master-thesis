@@ -29,10 +29,8 @@ def render_first_question() -> Optional[str]:
     with start_container:
         max_per_row = 4
         questions = [
-            "Equinor",
-            "DNB",
-            "Gi meg en liste over alle byggentreprenører i Oslo med omsetning over 10 millioner.",
-            "Hva er gjennomsnittlig omsetning og resultat for IT-konsulentselskaper i Norge?",
+            "Spørsmål 1",
+            "Spørsmål 2",
         ]
 
         rows = math.ceil(len(questions) / max_per_row)
