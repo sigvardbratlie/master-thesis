@@ -21,6 +21,7 @@ from langchain_openai import ChatOpenAI
 
 from agent.utils import TOOLS
 from agent.agent_modules import AttachmentReader,VectorSearch, Summarizer,ConversationManager,ContextManager, ToolManager
+from agent.basemodels import FactSheet
 
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -313,6 +314,17 @@ class Agent:
         return docs
 
     def handle_attachments(self, att, session_id: str, user_id: str, query_id : str):
+            '''Function to handle attachment processing, saving to vector store and file storage.
+            
+            Args:
+                att (dict): Attachment dictionary containing file information and content.
+                session_id (str): The session ID for the current conversation.
+                user_id (str): The user ID of the person uploading the attachment.
+                query_id (str): The query ID for tracking the request.
+            Returns:
+                str: Concatenated string of processed document contents from the attachment.
+            '''
+            
             vs_attachments = self.vs.init_vector_store(table_name="attachments")
             file_id = att.get("file_id", "")
 
@@ -339,14 +351,13 @@ class Agent:
 
             # VECTOR STORE
             vs_attachments.add_documents(docs) # Save in vector store
-
             att.pop("content", None) #remove content after processing
 
-
+            return " ".join([doc.page_content for doc in docs])
 
     # =================================
     #       STREAM RESPONSE
-    # ================================
+    # =================================
     async def stream_response(self, user_input: str, 
                               attachments: list[dict],
                               session_id: str, user_id: str,
@@ -381,10 +392,10 @@ class Agent:
         if attachments:
             for att in attachments:
                 self.handle_attachments(att, session_id=session_id, user_id=user_id,query_id=query_id)
-                att.pop("content", None) #remove content if still present
+                #att.pop("content", None) #remove content if still present
 
         
-        [att.pop("content", None) for att in attachments] if attachments else None
+        #[att.pop("content", None) for att in attachments] if attachments else None
         #add attachments without content to user message
         user_msg["data"]["attachments"] = attachments if attachments else []
         event = {
@@ -499,6 +510,80 @@ class Agent:
             event_counter += 1
             #token_stream = ""
             return payload
+
+    # =================================
+    #       INITIAL PROJECT SCAN
+    # ================================= 
+    async def initial_project_scan(self, user_input: str, 
+                              attachments: list[dict],
+                              session_id: str, user_id: str,
+                              agent_type: Literal["fast", "expert"],
+                              llm_provider: Literal["google", "openai", "claude"],
+                              query_id : str,
+                              project_id: Optional[str] = None):
+        '''Initial project scan to generate FactSheet from initial input and attachments'''
+        events = []
+        damages = []
+        claims = []
+        deadlines = []
+        files = []
+        
+        initial_input = self.context_manager.extract_initial_input(user_input)
+        for att in attachments:
+            content_txt = self.handle_attachments(att, session_id=session_id, user_id=user_id,query_id=query_id)
+            
+            # content = att.get("content", "") #b64 or human readable text
+            # file_type = att.get("file_type", "")
+            # if att.get("file_type") == "application/pdf":
+            #     content_bytes = base64.b64decode(content)
+            #     content_txt = self.attachment_reader.extract_text_from_pdf(content_bytes)
+            # else:
+            #     content_txt = content
+            
+            #save attachment to vector store and file storage
+            
+            result = self.context_manager.analyze_doc(initial_input, content_txt, 
+                                                            file_id=att.get("file_id",""),
+                                                            filename=att.get("filename",""),
+                                                            path="",
+                                                            file_type=att.get("file_type",""),
+                                                            size=len(content_txt),
+                                                            )
+            analyzed_doc = result.get("file")
+
+            # Collect results from analyzed documents
+            files.append(analyzed_doc)
+            damages.extend(analyzed_doc.damage) if analyzed_doc.damage else None
+            claims.extend(analyzed_doc.claim) if analyzed_doc.claim else None
+            deadlines.extend(analyzed_doc.deadline) if analyzed_doc.deadline else None
+
+            events.extend(result.get("events", [])) if result.get("events") else None
+        
+        factual_facts = self.context_manager.analyze_factual_facts(initial_input, events)
+        governing_law = self.context_manager.analyze_governing_law(events)
+        
+        result = FactSheet(timeline=events,
+                           damages=damages,
+                           claims=claims,
+                           deadlines=deadlines,
+                           governing_law=governing_law,
+                           **factual_facts.model_dump(),
+                           **initial_input.model_dump(),
+                           )
+        
+        self.conversation_manager.save_init_scan(factsheet=result,
+                                                 files=files,
+                                                 user_id=user_id,
+                                                 session_id=session_id,
+                                                 agent_type=agent_type,
+                                                 llm_provider=llm_provider,
+                                                 session_id=session_id,
+                                                 query_id=query_id,
+                                                 project_id=project_id if project_id else None)
+        return result
+
+
+
 
 PROMPT = """
 You are CompanyAgent — a concise, capable business assistant that uses our internal BigQuery datasets (`agent.*`, `brreg.*` and `enin.*`) to answer precisely and act when needed.
