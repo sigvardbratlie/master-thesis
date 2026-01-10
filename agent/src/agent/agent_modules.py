@@ -292,21 +292,26 @@ class ConversationManager:
         '''
 
         ref = self.db.collection("projects").document(project_id)
-        ref.set({
-            "user_id": user_id,
-            "created_session_id": session_id,
-            "created_query_id": query_id,
-            "created_at": firestore.SERVER_TIMESTAMP,
-            "agent_type": agent_type,
-            "llm_provider": llm_provider,
-            "factsheet": factsheet.model_dump(),
-            "attachments": [file.model_dump() for file in files]
-        })
+        try:
+            ref.set({
+                "user_id": user_id,
+                "created_session_id": session_id,
+                "created_query_id": query_id,
+                "created_at": firestore.SERVER_TIMESTAMP,
+                "agent_type": agent_type,
+                "llm_provider": llm_provider,
+                "factsheet": factsheet.model_dump(),
+                "attachments": [file.model_dump() for file in files]
+            })
+            logger.info(f"Initial case scan saved for project {project_id}")
+        except Exception as e:
+            logger.error(f"Error saving initial case scan: {e}", exc_info=True)
 
 class ContextManager:
     def __init__(self, llm : BaseChatModel):
         self.llm = llm
 
+    # ===== TRUNCATION HELPERS =====
     def truncate_tokens(self, messages, max_tokens=7000):
         """Truncate messages to fit within max_tokens while preserving tool-call structure."""
         enc = tiktoken.encoding_for_model("gpt-4o-mini")
@@ -353,6 +358,7 @@ class ContextManager:
         
         return truncated
 
+    # ===== FUNCTIONS FOR INITIAL FACTSHEET CREATION =====
     def analyze_init_input(self, init_input : str) -> InitialInput:
         structured_llm = self.llm.with_structured_output(InitialInput)
         prompt = f'Analyze the following case introduction and extract key information into the InitialInput structure:\n\n{init_input}'
@@ -384,7 +390,7 @@ class ContextManager:
                     path: str, 
                     file_type: str, 
                     size: int, 
-                    query_id: str) -> Attachment:
+                    ) -> dict:
         ''' Function to analyze document content and extract structured data as Attachment.
         
         Args:
@@ -412,7 +418,6 @@ class ContextManager:
                             file_type=file_type,
                             size=size,
                             event_ids=[event.event_id for event in events],
-                            query_id=query_id,
                         )
         return {"file": file, "events": events}
     
@@ -442,7 +447,103 @@ class ContextManager:
         prompt = init + f'Based on the following case events, extract disputed and undisputed facts:\n\n{events}'
         return structured_llm.invoke(prompt)
     
+    # ===== FUNCTIONS FOR UPDATING EXISTING FACTSHEET =====
+    def consider_new_events(self,
+                            factsheet : FactSheet,
+                         new_content : str,
+                         new_user_input : str,
+                         file_id : str
+                         ) -> list[Event]:
+        structured_llm = self.llm.with_structured_output(List[Event])
+        init_prompt = f'Existing factsheet:\n\n{factsheet.model_dump()}\n\n'
+        prompt = init_prompt + f'Analyze the following document content and extract key main events:\n\n{new_content}' + f'\n\nNew user input:\n\n{new_user_input}\n\n'
+        response = structured_llm.invoke(prompt)
+        for event in response:
+            event.file_id = file_id
+        return response
+    
+    def consider_new_doc(self,
+                            factsheet : FactSheet,
+                         new_content : str,
+                         new_user_input : str,
+                         file_id : str,
+                         filename : str,
+                         path : str,
+                         file_type : str,
+                         size : int,
+                         ) -> dict:
+        '''Function to analyze new document content in relation to existing FactSheet.
+        Args:
+            factsheet (FactSheet): The existing FactSheet object.
+            content (str): The new document content to analyze.
+            file_id (str): The unique identifier for the file.
+            filename (str): The name of the file.
+            path (str): The storage path of the file.
+            file_type (str): The MIME type of the file.
+            size (int): The size of the file in bytes.
 
+        Returns:
+            dict: A dictionary indicating relevance and suggested updates.
+        '''
+        prompt = f'Existing factsheet:\n\n{factsheet.model_dump()}\n\n'
+        prompt += f'Analyze the following document content and extract key information into the Attachment structure:\n\n{new_content}' + f'\n\nNew user input:\n\n{new_user_input}\n\n'
+
+        structured_llm = self.llm.with_structured_output(AttachmentExtracted)
+        response = structured_llm.invoke(prompt)
+        events = self.consider_new_events(factsheet, new_content, new_user_input, file_id)
+        file = Attachment(**response.model_dump(),
+                            file_id=file_id,
+                            filename=filename,
+                            path=path,
+                            file_type=file_type,
+                            size=size,
+                            event_ids=[event.event_id for event in events],
+                        )
+        return {"file": file, "events": events}
+
+    def update_factsheet(self,
+                         factsheet : FactSheet,
+                         new_user_input : str,
+                         new_content : Optional[str] = "",
+                         file_id : Optional[str] = None,
+                         filename : Optional[str] = None,
+                         path : Optional[str] = None,
+                         file_type : Optional[str] = None,
+                         size : Optional[int] = None,
+                         
+                         ) -> FactSheet:
+        '''Function to update an existing FactSheet with new input data.
+        
+        Args:
+            factsheet (FactSheet): The existing FactSheet to update.
+            new_user_input (str): The new input query or information from the user.
+            new_content (str, optional): New document content to consider for updating the factsheet.
+            file_id (str, optional): The unique identifier for the new document.
+            filename (str, optional): The name of the new document.
+            path (str, optional): The storage path of the new document.
+            file_type (str, optional): The MIME type of the new document.
+            size (int, optional): The size of the new document in bytes.
+        
+        Returns:
+            FactSheet: The updated FactSheet object.
+        '''
+        existing_facts = f"Existing factsheet:\n\n{factsheet.model_dump()}"
+        prompt = existing_facts + f'Return True if the following new input is relevant to update the existing factsheet, else return False:\n\n{new_user_input}'
+        structured_llm = self.llm.with_structured_output(RelevanceCheck)  
+        relevant = structured_llm.invoke(prompt)
+        if relevant.is_relevant:
+            result = self.consider_new_doc(new_content=new_content,
+                                           new_user_input=new_user_input,
+                                           factsheet=factsheet,
+                                           file_id=file_id,
+                                           filename=filename,
+                                           path=path,
+                                           file_type=file_type,
+                                           size=size,)
+            return result
+
+            
+        
 class ToolManager:
     def __init__(self):
         pass
