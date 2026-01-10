@@ -64,14 +64,14 @@ class Claim(BaseModel):
         description="Assessment of claim strength"
     )
     defense: Optional[str] = Field(None, description="Defense strategy if defending")
-
+    party : str = Field(description="Party_ID of the claimant")
 
 class Damage(BaseModel):
     category: Literal["direct_losses", "interest", "consequential", "punitive"]
     amount: int
     basis: str
     supporting_evidence: list[str]
-    party: Party
+    party: str = Field(description="Party_ID of the claimant")
 
 
 class InitialInput(BaseModel):
@@ -85,7 +85,7 @@ class InitialInput(BaseModel):
 class AttachmentExtracted(BaseModel):    
     summary: str  = Field(description="Concise summary of the document content")
     key_provisions: Optional[list[str]] = Field(None, description="Important clauses or sections (for agreements)")
-    events: Optional[list[Event]] = Field(None, description="Key events mentioned in the document")
+    #events: Optional[list[Event]] = Field(None, description="Key events mentioned in the document")
     party: Optional[list[Literal["plaintiff", "defendant", "claimant", "respondent","expert","witness","other"]]] = None
     date : Optional[datetime] = None
     category: Literal[
@@ -100,33 +100,40 @@ class AttachmentExtracted(BaseModel):
 
 class Attachment(AttachmentExtracted):
     file_id: str = Field(default_factory = lambda : str(uuid.uuid4()))
-    filename: str = Field(description="Original filename") #system generated
+    filename: str
     path: str 
     file_type: Literal["application/pdf", "text/plain", "application/msword",] #system generated
     size: int #system generated
     query_id: str ##system generated id
+    events: Optional[list[Event]] = Field(None, description="Key events mentioned in the document")
 
 
-class FactSheet(InitialInput):
+class FactualFacts(BaseModel):
+    disputed_facts: list[str]
+    undisputed_facts: list[str]
+
+class FactSheet(InitialInput,FactualFacts):
     """Structured representation of case facts for legal analysis."""
-    # Factual background
+    # Inherited from InitialInput
     #parties: list[Party]
     #third_parties: list[Party]
     #background: str = Field(description="A brief overview of the case background")
+
+    # Inherited from FactualFacts
+    #disputed_facts: list[str]
+    #undisputed_facts: list[str]
     
     timeline: list[Event]
-    disputed_facts: str
-    undisputed_facts: str
     
     # Law
     governing_law: GoverningLaw 
     
     # Claims
-    our_claims: list[Claim] 
-    their_claims: list[Claim] 
-    counter_claims: list[Claim] 
+    claims: list[Claim]
     # Damages
     damages: list[Damage]
+    # Deadlines
+    deadlines: list[Deadline]
 
     #metadata
     case_id: str = Field(default_factory= lambda : str(uuid.uuid4()))
