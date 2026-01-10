@@ -89,7 +89,15 @@ class StreamlitUserInfo(BaseModel):
     name: str
     picture: Optional[str] = None
 
-async def stream_generator(question: str, attachments: list[Attachment], session_id: str, agent_type: str, llm_provider: str, domain: str, query_id: str, user_id: str = Depends(auth.get_current_user)):
+async def stream_generator(question: str, 
+                           attachments: list[Attachment], 
+                           session_id: str, 
+                           agent_type: str, 
+                           llm_provider: str, 
+                           domain: str, 
+                           query_id: str, 
+                           project_id: Optional[str] = None,
+                           user_id: str = Depends(auth.get_current_user)):
     """
     Call the agent's streaming method and format output
     for Server-Sent Events (SSE) expected by the frontend.
@@ -130,12 +138,35 @@ async def ask_agent_endpoint(query: Query, user_id: str = Depends(auth.get_curre
                             agent_type = query.agent_type,
                             llm_provider = query.llm_provider,
                             domain = query.domain,
-                            query_id = query.query_id
+                            query_id = query.query_id,
+                            project_id = query.project_id if query.project_id else None
                             ),
             media_type="text/event-stream"
         )
     except Exception as e:
         logger.error(f"Error in /ask-agent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/init-scan")
+async def init_scan_endpoint(query: Query, user_id: str = Depends(auth.get_current_user)):
+    """
+    Endpoint to initialize scanning and processing of attachments.
+    """
+    attachments = [att.model_dump() for att in query.attachments] if query.attachments else None
+    try:
+        scan_result = await agent.initialize_scan(
+            attachments=attachments,
+            session_id=query.session_id,
+            user_id=user_id,
+            agent_type=query.agent_type,
+            llm_provider=query.llm_provider,
+            domain=query.domain,
+            query_id=query.query_id,
+            project_id=query.project_id if query.project_id else None
+        )
+        return scan_result
+    except Exception as e:
+        logger.error(f"Error in /init-scan: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/load-session-history/{user_id}/{session_id}")
@@ -287,6 +318,9 @@ async def generate_token_from_streamlit(user_info: StreamlitUserInfo):
 @app.get("/", include_in_schema=False)
 def root():
     return {"message": "Welcome to the CompanyAgent API, developed by Sibr AS."}
+
+
+
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT",8080))
