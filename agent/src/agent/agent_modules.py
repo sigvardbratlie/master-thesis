@@ -24,7 +24,7 @@ from google.cloud import storage
 from google.cloud import bigquery
 from google.cloud import firestore
 
-from agent.basemodels import Attachment,AttachmentExtracted,InitialInput,GoverningLaw,Claim,Damage,Event
+from agent.basemodels import *
 
 logger = logging.getLogger(__name__)
 
@@ -199,12 +199,13 @@ class ConversationManager:
     def __init__(self, db=None):
         self.db = firestore.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT"), database="(default)") if not db else db
         self.summarizer = Summarizer()
-        self.domain = "company"
+        self.domain = "legal"
         
     def save_stream(self, 
                     events : list, 
                     attachments : list,
                     user_id : str, 
+                    project_id : Optional[str],
                     session_id : str, 
                     agent_type : Literal["fast", "expert"] = "fast", 
                     llm_provider : Literal["google", "openai", "claude"] = "google", 
@@ -269,6 +270,39 @@ class ConversationManager:
         except Exception as e:
             logger.error(f"Error saving final state: {e}", exc_info=True)
     
+    def save_init_scan(self,
+                       factsheet : FactSheet,
+                       files  : list[Attachment],
+                       user_id : str,
+                       project_id : str,
+                       session_id : str,
+                       agent_type : Literal["fast", "expert"] = "fast",
+                       llm_provider : Literal["google", "openai", "claude"] = "google",
+                       query_id : str = ""
+
+                       ):
+        ''' Save the initial case scan to Firestore
+        
+        Args:
+            factsheet (FactSheet): The factsheet object to save.
+            files (list): List of attachment objects to save.
+
+        Returns:
+            None
+        '''
+
+        ref = self.db.collection("projects").document(project_id)
+        ref.set({
+            "user_id": user_id,
+            "created_session_id": session_id,
+            "created_query_id": query_id,
+            "created_at": firestore.SERVER_TIMESTAMP,
+            "agent_type": agent_type,
+            "llm_provider": llm_provider,
+            "factsheet": factsheet.model_dump(),
+            "attachments": [file.model_dump() for file in files]
+        })
+
 class ContextManager:
     def __init__(self, llm : BaseChatModel):
         self.llm = llm
@@ -324,54 +358,90 @@ class ContextManager:
         prompt = f'Analyze the following case introduction and extract key information into the InitialInput structure:\n\n{init_input}'
         return structured_llm.invoke(prompt)
     
-    def analyze_doc(self, initial_input : InitialInput ,content: str, file_id : str, filename: str, path: str, file_type: str, size: int, event_id: str, query_id: str) -> Attachment:
-        ''' Use LLM to analyze document content and extract structured data as Attachment '''
+    def analyze_events(self, initial_input : InitialInput , content : str,file_id: str) -> list[Event]:
+        '''Analyzes document content to extract a list of events.
+        
+        Args:
+            initial_input (InitialInput): The initial case input data.
+            content (str): The document content to analyze.
 
+        Returns:
+            list[Event]: A list of extracted Event objects.
+        '''
+        structured_llm = self.llm.with_structured_output(List[Event])
+        init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
+        prompt = init_prompt + f'Analyze the following document content and extract key main events:\n\n{content}'
+        response = structured_llm.invoke(prompt)
+        for event in response:
+            event.file_id = file_id
+        return response
+    
+    def analyze_doc(self, 
+                    initial_input : InitialInput ,
+                    content: str, 
+                    file_id : str, 
+                    filename: str, 
+                    path: str, 
+                    file_type: str, 
+                    size: int, 
+                    query_id: str) -> Attachment:
+        ''' Function to analyze document content and extract structured data as Attachment.
+        
+        Args:
+            initial_input (InitialInput): The initial case input data.
+            content (str): The document content to analyze.
+            file_id (str): The unique identifier for the file.
+            filename (str): The name of the file.
+            path (str): The storage path of the file.
+            file_type (str): The MIME type of the file.
+            size (int): The size of the file in bytes.
+            query_id (str): The query identifier.   
+            
+            Returns:    
+            Attachment: The structured Attachment object with extracted data.
+        '''
         structured_llm = self.llm.with_structured_output(AttachmentExtracted)
         init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
         prompt = init_prompt + f'Analyze the following document content and extract key information into the Attachment structure:\n\n{content}'
+        events = self.analyze_events(initial_input, content)
         response = structured_llm.invoke(prompt)
-        return Attachment(**response.model_dump(),
+        file = Attachment(**response.model_dump(),
                             file_id=file_id,
                             filename=filename,
                             path=path,
                             file_type=file_type,
                             size=size,
-                            event_id=event_id,
-                            query_id=query_id
+                            event_ids=[event.event_id for event in events],
+                            query_id=query_id,
                         )
-        
-    def run_single(self, initial_input : InitialInput, content: str, filename: str, path: str, file_id: str, file_type: str, size: int, query_id: str, ) -> dict:
-        logger.info(f"Processing file: {filename}")
-        events = []
-        doc = self.analyze_doc(
-                initial_input=initial_input, content=content, file_id=file_id, 
-                file_type=file_type, 
-                size=size, 
-                query_id=query_id,
-                filename=filename, 
-                path=path)
-        for event in doc.events:
-            event.file_id = file_id
-            events.append(event)
-        logger.info(f'Extracted {len(doc.events) if doc.events else 0} events from {filename}. Total events so far: {len(events)}')
-        return {"events": events,"file" : doc}
-
+        return {"file": file, "events": events}
+    
     def analyze_governing_law(self, events : list[Event],rag_content_law : str) -> GoverningLaw:
         structured_llm = self.llm.with_structured_output(GoverningLaw)
         law_context = f'Extracted legal context:\n\n{rag_content_law}\n\n' if rag_content_law else ''
         prompt = law_context + f'Based on the following case events, analyze and extract governing law information:\n\n{events}'
         return structured_llm.invoke(prompt)
-    
-    def analyze_events(self, events : list[Event], initial_input : InitialInput, task : Literal["claim","damage"]) -> list[Claim] | Damage:
-        mapping = {
-            "claim": Claim,
-            "damage": Damage
-        }
-        structured_llm = self.llm.with_structured_output(mapping[task])
+        
+    def analyze_factual_facts(self, 
+                              initial_input : InitialInput, 
+                              events : list[Event], 
+                              #claims : list[Claim], 
+                              #damages: list[Damage]
+                              ) -> FactualFacts:
+        '''Function to analyze case events and extract disputed and undisputed facts.
+        
+        Args:
+            initial_input (InitialInput): The initial case input data.
+            events (list[Event]): The list of case events.
+        
+        Returns: 
+            FactualFacts : The structured FactualFacts object with disputed and undisputed facts.
+        '''
+        structured_llm = self.llm.with_structured_output(FactualFacts)
         init = f'Initial case input: {initial_input.model_dump()}\n\n'
-        prompt = init + f'Based on the following case events, analyze and extract {task} information:\n\n{events}'
+        prompt = init + f'Based on the following case events, extract disputed and undisputed facts:\n\n{events}'
         return structured_llm.invoke(prompt)
+    
 
 class ToolManager:
     def __init__(self):
