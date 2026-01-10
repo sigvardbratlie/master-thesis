@@ -9,7 +9,6 @@ class Contact(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
 
-
 class Party(BaseModel):
     legal_name: str
     party_id : str = Field(default_factory = lambda : str(uuid.uuid4()))
@@ -20,13 +19,11 @@ class Party(BaseModel):
         None, description="Law firm representing this party"
     )
 
-
 class Deadline(BaseModel):
     date: datetime
     description: str
     file_id: Optional[str] = Field(None, description="Related attachment reference")
     responsible_party: str
-
 
 class Event(BaseModel):
     event_id: str = Field(default_factory = lambda : str(uuid.uuid4()))
@@ -43,7 +40,6 @@ class Event(BaseModel):
     significance: Literal["high", "medium", "low"]
     disputed: bool
 
-
 class GoverningLaw(BaseModel):
     primary_jurisdiction: str = Field(description="Which law governs (e.g., Norwegian law)")
     key_areas: list[str] = Field(description="Relevant legal areas (contract law, tort, etc)")
@@ -54,7 +50,6 @@ class GoverningLaw(BaseModel):
         "tvisteloven", "straffeprosessloven", "arbeidstvistloven", "voldgiftsloven",
         "forvaltningsloven", "domstolloven"
     ] 
-
 
 class Claim(BaseModel):
     legal_basis: str = Field(description="Statutory basis (e.g., avtaleloven §36)")
@@ -73,14 +68,12 @@ class Damage(BaseModel):
     supporting_evidence: list[str]
     party: str = Field(description="Party_ID of the claimant")
 
-
 class InitialInput(BaseModel):
     # Factual background
     parties: list[Party]
     third_parties: list[Party]
     background: str
-
-
+    title : str = Field(description="Title of the case or matter")
 
 class AttachmentExtracted(BaseModel):    
     summary: str  = Field(description="Concise summary of the document content")
@@ -104,8 +97,7 @@ class Attachment(AttachmentExtracted):
     path: str 
     file_type: Literal["application/pdf", "text/plain", "application/msword",] #system generated
     size: int #system generated
-    query_id: str ##system generated id
-    events: Optional[list[Event]] = Field(None, description="Key events mentioned in the document")
+    events: Optional[list[str]] = Field(None, description="event IDs mentioned in the document")
 
 
 class FactualFacts(BaseModel):
@@ -136,6 +128,10 @@ class FactSheet(InitialInput,FactualFacts):
     deadlines: list[Deadline]
 
     #metadata
-    case_id: str = Field(default_factory= lambda : str(uuid.uuid4()))
-    created_at: datetime = Field(default_factory=datetime.now().isoformat())
-    updated_at: datetime = Field(default_factory=datetime.now().isoformat())
+    # case_id: str = Field(default_factory= lambda : str(uuid.uuid4()))
+    # created_at: datetime = Field(default_factory=datetime.now().isoformat())
+    # updated_at: datetime = Field(default_factory=datetime.now().isoformat())
+
+class RelevanceCheck(BaseModel):
+    is_relevant: bool
+    reasoning: str
