@@ -43,37 +43,36 @@ def add_tool_results(existing: list, new: list) -> list:
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    tool_results: Annotated[list, add_tool_results]
-    attachments : Annotated[list, add_tool_results]
+    fact_sheet : Optional[FactSheet]
+    #attachments : Annotated[list, add_tool_results]
 
 
 class Agent:
-    
+    '''Main Agent class handling the agent operations'''
     def __init__(self,
                  tools : List[tool],
                  prompt : str,
                  domain : str,
                  llms : dict,
                  checkpointer = None,
-                 db = None,
                  ):
         """
+        Initializes the Agent with tools, prompt, domain, LLMs, and checkpointer.
         Args:
-            tools (List[tool]): A list of tools the agent can use.
-            prompt (str): The prompt template for the agent.
-            domain (str): The domain of the agent.
-            llms (dict, optional): A dictionary mapping agent types to LLM models. Defaults to None.
-            checkpointer (optional): The checkpointer instance. Defaults to None.
-            db (optional): The Firestore client instance. Defaults to None.
-            embeddings (optional): The embeddings instance. Defaults to None.
+            tools (List[tool]): List of tools available to the agent.
+            prompt (str): The system prompt guiding the agent's behavior.
+            domain (str): The domain or context in which the agent operates.
+            llms (dict): Dictionary of LLMs available for the agent.
+            checkpointer: Optional checkpointer for saving agent state.
+        Returns:
+            None
 
         """
-
         self.tools = tools
         self.domain = domain
         self.prompt = prompt
         self.checkpointer = checkpointer
-        #self.db = firestore.Client(project=project_id,database="(default)") if not db else db
+
         self.vs = VectorSearch()
         self.summarizer = Summarizer()
         self.attachment_reader = AttachmentReader()
@@ -81,8 +80,9 @@ class Agent:
         self.context_manager = ContextManager()
         self.tool_manager = ToolManager()
 
-        self.summary = ""
+        self.summary = "" #rolling summary for long conversations
         self.llms = llms
+    
     # =================================
     #         GRAPH ELEMENTS
     # ================================
@@ -102,10 +102,26 @@ class Agent:
         payload = [SystemMessage(content=self.prompt)]
         attachment_state = []
 
-        # ---- ATTACHMENT HANDLING ----
+        
+        
+
+        # ---- ATTACHMENT HANDLING AND FACTSHEET UPDATING ----
         if isinstance(msg, HumanMessage) and msg.additional_kwargs.get("attachments"): #if user has added attachments
             attachment_txt = ""
             for att in msg.additional_kwargs.get("attachments",[]):
+
+                result = self.context_manager.update_factsheet(factsheet=state.get("fact_sheet", None),
+                                                new_user_input= state["messages"][-1].content if msg else "",
+                                                new_content= attachment_txt,
+                                                file_id= att.get("file_id",""),
+                                                filename= att.get("filename",""),
+                                                path= att.get("path",""),
+                                                file_type= att.get("file_type",""),
+                                                size= att.get("size",0),
+                                                )
+                
+
+                #ATTACHMENT HANDLING
                 attachment_state.append(att)
                 prefix = "-- NEW FILE -- "+"file id: " + att.get("file_id","") + "filename: " + att.get("filename","") +"query_id: " + query_id + "\n"
 
@@ -117,6 +133,10 @@ class Agent:
                                                                          conditions={"file_id" : att.get("file_id",""),
                                                                                     "session_id" : msg.additional_kwargs.get("session_id","")} ) + "\n\n"
                     
+                
+                if result:
+                    state["fact_sheet"].get("events").extend(result.get("events", [])) if result.get("events") else None
+                    
             if msg.content:
                 att_txt =  "Extracted relevant content based on user query: " + attachment_txt
             else:
@@ -125,6 +145,7 @@ class Agent:
             msg = HumanMessage(content= [{"type" : "text", "text" : "Attachment text: " + att_txt},
                                          {"type" : "text", "text" : "User query: " + msg.content}])  #list[dict] for handling of multi content messages
         
+            
         # ----- LONG CONVERSATION HANDLING -----
         sum_rate = 8
         messages = state["messages"][1:-1] + [msg] if msg else state["messages"][1:]
@@ -146,7 +167,7 @@ class Agent:
             print(f"{msg.type}: {msg.content[:100]}")
 
         try:
-            message = llm_with_tools.invoke(payload)
+            message = llm_with_tools.invoke(payload) #ADD FACTSHEET TO PAYLOAD! 
             return {'messages': [message], "tool_results": [], "attachments": attachment_state}
         except Exception as e:
             logger.error(f"Error invoking LLM: {e}", exc_info=True)
