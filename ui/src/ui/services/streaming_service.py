@@ -143,3 +143,22 @@ class StreamingService:
             st.error(f"En feil oppstod: {e}")
             logger.error(f"Streaming request failed: {e}")
             raise
+
+    def init_project(self, payload: AskAgentRequest) -> requests.Response:
+        """
+        Initialize a new project in the backend.
+
+        Args:
+            payload: AskAgentRequest model with project details
+
+        Returns:
+            Response object from the initialization request
+        """
+        response = requests.post(
+            url=f"{self.backend_url}/init-scan",
+            json=payload.model_dump(),
+            headers=self.headers,
+            #stream=True,
+        )
+        return response
+
