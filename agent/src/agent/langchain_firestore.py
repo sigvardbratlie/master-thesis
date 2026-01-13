@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from typing import Any, Iterator, List, Optional, Tuple, AsyncIterator
 import asyncio
+import base64
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
@@ -24,19 +25,36 @@ class FirestoreSerializer:
         self._inner_serde = inner_serde
 
     def dumps(self, obj: Any) -> str:
-        return self._inner_serde.dumps(obj).decode('utf-8')
+        # JsonPlusSerializer har dumps_typed, ikke dumps
+        type_, data = self._inner_serde.dumps_typed(obj)
+        # data er binære bytes, konverter til base64 string for Firestore
+        if isinstance(data, bytes):
+            data_str = base64.b64encode(data).decode('ascii')
+        else:
+            data_str = data
+        # Lagre type som prefix så vi kan dekode riktig senere
+        return f"{type_}:{data_str}"
 
     def loads(self, s: str) -> Any:
-        return self._inner_serde.loads(s.encode('utf-8'))
+        # Splitt type og data
+        type_, data_str = s.split(":", 1)
+        # Konverter base64 string tilbake til bytes
+        data = base64.b64decode(data_str) if isinstance(data_str, str) else data_str
+        return self._inner_serde.loads_typed((type_, data))
 
     def dumps_typed(self, obj: Any) -> Tuple[str, str]:
-        if isinstance(obj, dict) and "v" in obj and "id" in obj:
-            return "checkpoint", self.dumps(obj)
-        return type(obj).__name__, self.dumps(obj)
+        # Bruk inner_serde.dumps_typed direkte
+        type_, data = self._inner_serde.dumps_typed(obj)
+        # data er binære bytes, konverter til base64 string for Firestore
+        if isinstance(data, bytes):
+            return type_, base64.b64encode(data).decode('ascii')
+        return type_, data
 
     def loads_typed(self, typed_obj: Tuple[str, str]) -> Any:
-        # Denne funksjonen må kanskje justeres basert på din faktiske logikk
-        return self.loads(typed_obj[1])
+        type_str, data_str = typed_obj
+        # Konverter base64 string tilbake til bytes for inner_serde
+        data = base64.b64decode(data_str) if isinstance(data_str, str) else data_str
+        return self._inner_serde.loads_typed((type_str, data))
 
 
 class FirestoreSaver(BaseCheckpointSaver):
