@@ -22,6 +22,7 @@ class AskAgentRequest(BaseModel):
     agent_type: Literal["fast", "expert"]
     llm_provider: Literal["google", "openai", "claude"]
     query_id: str
+    project_id: Optional[str] = None
 
 
 class StreamlitUserInfo(BaseModel):
@@ -143,3 +144,4 @@ class SessionState(TypedDict, total=False):
 
     # Misc
     valuation_doc_count: int
+
