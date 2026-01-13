@@ -25,8 +25,9 @@ def init_state():
     # User info
     st.session_state.setdefault("user_id", None)
     st.session_state.setdefault("session_id", str(uuid.uuid4()))
+    st.session_state.setdefault("project_id", None)
     st.session_state.setdefault("session_title", None)
-    st.session_state.setdefault("domain", "company")
+    st.session_state.setdefault("domain", "legal")
 
     # Messages & history
     st.session_state.setdefault("messages", [])
@@ -51,8 +52,7 @@ def init_state():
 
     # Tool results
     st.session_state.setdefault("tool_results", {})
-    st.session_state.setdefault("company_data", None)
-    st.session_state.setdefault("industry_data", None)
+    st.session_state.setdefault("factsheet", None)
 
 
 # @st.cache_data(show_spinner=False)
