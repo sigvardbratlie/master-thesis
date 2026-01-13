@@ -209,10 +209,10 @@ class ConversationManager:
                     events : list, 
                     attachments : list,
                     user_id : str, 
-                    project_id : Optional[str],
                     session_id : str, 
                     agent_type : Literal["fast", "expert"] = "fast", 
                     llm_provider : Literal["google", "openai", "claude"] = "google", 
+                    project_id : Optional[str] = None,
                     query_id : str = ""): 
         ''' Save the final state of the conversation session to Firestore 
         
@@ -264,6 +264,7 @@ class ConversationManager:
                 "attachments": all_attachments,
                 "last_updated": firestore.SERVER_TIMESTAMP,
                 "domain": self.domain,
+                "project_id": project_id,
                 "agent_type": agent_type,
                 "llm_provider": llm_provider,
                 "last_query_id": query_id,
@@ -312,7 +313,8 @@ class ConversationManager:
             logger.error(f"Error saving initial case scan: {e}", exc_info=True)
 
 class ContextManager:
-    def __init__(self, llm : BaseChatModel):
+    def __init__(self, llm: BaseChatModel,
+                 ):
         self.llm = llm
 
     # ===== TRUNCATION HELPERS =====
