@@ -153,13 +153,14 @@ async def init_scan_endpoint(query: Query, user_id: str = Depends(auth.get_curre
     """
     attachments = [att.model_dump() for att in query.attachments] if query.attachments else None
     try:
-        scan_result = await agent.initialize_scan(
+        scan_result = await agent.initialize_project(
+            user_input=query.question,
             attachments=attachments,
             session_id=query.session_id,
             user_id=user_id,
             agent_type=query.agent_type,
             llm_provider=query.llm_provider,
-            domain=query.domain,
+            #domain=query.domain,
             query_id=query.query_id,
             project_id=query.project_id if query.project_id else None
         )
@@ -268,6 +269,65 @@ async def load_user_sessions(user_id: str, domain: str):
     
     except Exception as e:
         logger.error(f'Could not load sessions for user {user_id}: {e}')
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/load-project/{user_id}/{project_id}")
+async def load_project(user_id: str, project_id: str):
+    try:
+        factsheet_ref = (
+            db.collection("projects")
+              .document(user_id)
+              .collection("factsheets")
+              .document(project_id)
+        )
+        
+        factsheet_doc = factsheet_ref.get()
+        
+        if not factsheet_doc.exists:
+            logger.warning(f"No factsheet found for project_id: {project_id}")
+            return {"error": "Factsheet not found"}
+        
+        factsheet_data = factsheet_doc.to_dict()
+        
+        return factsheet_data
+    
+    except Exception as e:
+        logger.error(f"Error loading factsheet: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/load-projects/{user_id}")
+async def load_projects(user_id: str):
+    try:
+        projects_ref = (
+            db.collection("projects")
+              .document(user_id)
+              .collection("factsheets")
+        )
+        
+        projects_docs = projects_ref.stream()
+        
+        all_projects = []
+        
+        for project_doc in projects_docs:
+            project_data = project_doc.to_dict()
+            project_id = project_doc.id
+            
+            all_projects.append({
+                "project_id": project_id,
+                "title": project_data.get("title", ""),
+                "created_at": project_data.get("created_at"),
+            })
+        
+        # Sorter etter created_at (nyeste først)
+        all_projects.sort(
+            key=lambda x: x.get("created_at") or "", 
+            reverse=True
+        )
+        
+        return all_projects
+    
+    except Exception as e:
+        logger.error(f'Could not load projects for user {user_id}: {e}')
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/token-from-streamlit")
