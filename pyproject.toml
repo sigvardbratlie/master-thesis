@@ -11,4 +11,5 @@ dependencies = [
 members = [
     "ui",
     "agent",
+    "data",
 ]
