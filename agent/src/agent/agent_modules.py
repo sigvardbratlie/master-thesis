@@ -49,11 +49,12 @@ class Summarizer:
         return title
 
 class VectorSearch:
-    def __init__(self, dataset: str = "vector_store", region: str = "europe-west1",model_name: str = "text-embedding-005"):
+    def __init__(self, dataset: str = "vector_store", region: str = "europe-north2",model_name: str = "text-embedding-004"):
         self.dataset = dataset
         self.region = region
         self.project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
         self.embedding = GoogleGenerativeAIEmbeddings(model=model_name)
+        self.splitter = RecursiveCharacterTextSplitter(chunk_size = 1000, chunk_overlap=200)
 
     def init_vector_store(self, table_name : str) -> BigQueryVectorStore:
         PROJECT_ID = self.project_id
@@ -90,21 +91,24 @@ class VectorSearch:
         return docs
 
     def parse_txt(self, txt_content: str, metadata : dict) -> list[Document]:
-        #print(f"TEXT TO PARSE: {txt_content[:500]}...")
-        splitter = RecursiveCharacterTextSplitter(chunk_size = 1000, chunk_overlap=200)
-        texts = splitter.split_text(txt_content)
+        texts = self.splitter.split_text(txt_content)
         docs = []
-        for t in texts:
+        for i, page in enumerate(texts):
+            doc_meta = metadata | {
+                "page": i + 1,
+                "total_pages": len(texts),
+            }
             doc = Document(
-                page_content=t,
-                metadata=metadata
+                page_content=page,
+                metadata=doc_meta
             )
             docs.append(doc)
         return docs
     
-    def query(self, query : str, table_name : str, filters : dict) -> list[Document]:
+    
+    def query(self, query : str, table_name : str,n_results = 3) -> list[Document]:
         vector_store = self.init_vector_store(table_name)
-        retriever = vector_store.as_retriever(search_kwargs={"k": 3})
+        retriever = vector_store.as_retriever(search_kwargs={"k": n_results})
         results = retriever.invoke(query)
         return [doc.model_dump_json() for doc in results]
 
