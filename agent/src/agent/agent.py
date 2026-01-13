@@ -538,7 +538,7 @@ class Agent:
     # =================================
     #       INITIAL PROJECT SCAN
     # ================================= 
-    async def initial_project_scan(self, user_input: str, 
+    async def initialize_project(self, user_input: str, 
                               attachments: list[dict],
                               session_id: str, user_id: str,
                               agent_type: Literal["fast", "expert"],
@@ -552,7 +552,7 @@ class Agent:
         deadlines = []
         files = []
         
-        initial_input = self.context_manager.extract_initial_input(user_input)
+        initial_input = self.context_manager.analyze_init_input(user_input)
         for att in attachments:
             content_txt = self.handle_attachments(att, session_id=session_id, user_id=user_id,query_id=query_id)
             
@@ -584,7 +584,9 @@ class Agent:
             events.extend(result.get("events", [])) if result.get("events") else None
         
         factual_facts = self.context_manager.analyze_factual_facts(initial_input, events)
-        governing_law = self.context_manager.analyze_governing_law(events)
+
+        rag_content_law = self.vs.query(query = events, table = "laws", top_k=5) #Implement query based on initial input
+        governing_law = self.context_manager.analyze_governing_law(events = events, rag_content_law=rag_content_law) #IMplementer
         
         result = FactSheet(timeline=events,
                            damages=damages,
