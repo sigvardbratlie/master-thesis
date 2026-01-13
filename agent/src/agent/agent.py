@@ -10,11 +10,12 @@ import tiktoken
 import logging
 import base64
 
-from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMessage,ToolMessage,AIMessageChunk,add_messages,message_to_dict,messages_to_dict
+from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMessage,ToolMessage,AIMessageChunk,message_to_dict,messages_to_dict
 from langchain_core.tools import tool
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.documents import Document
 from langgraph.graph import StateGraph,END
+from langgraph.graph.message import add_messages
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
@@ -31,10 +32,10 @@ logger = logging.getLogger(__name__)
 
 llms = {"google" : {"fast": ChatGoogleGenerativeAI(project = project_id , model="gemini-2.5-flash"),
                      "expert": ChatGoogleGenerativeAI(project = project_id ,model="gemini-2.5-pro"), },
-                        "openai" : {"fast" : ChatOpenAI(model = "gpt-4o-mini"),
-                                    "expert" : ChatOpenAI(model = "gpt-4o")},
-                        # "claude" : {"fast" : ChatAnthropic(model = "claude-3-opus-latest"),
-                        #             "expert" : ChatAnthropic(model = "claude-3-opus-latest")},
+        "openai" : {"fast" : ChatOpenAI(model = "gpt-4o-mini"),
+                    "expert" : ChatOpenAI(model = "gpt-4o")},
+        # "claude" : {"fast" : ChatAnthropic(model = "claude-3-opus-latest"),
+        #             "expert" : ChatAnthropic(model = "claude-3-opus-latest")},
                         }
 
 def add_tool_results(existing: list, new: list) -> list:
@@ -55,6 +56,8 @@ class Agent:
                  domain : str,
                  llms : dict,
                  checkpointer = None,
+                 agent_type : Literal["fast","expert"] = "fast",
+                 llm_provider : Literal["google","openai","claude"] = "google",
                  ):
         """
         Initializes the Agent with tools, prompt, domain, LLMs, and checkpointer.
@@ -73,15 +76,16 @@ class Agent:
         self.prompt = prompt
         self.checkpointer = checkpointer
 
+        self.summary = "" #rolling summary for long conversations
+        self.llms = llms
+        self.llm = llms.get(llm_provider, llms["google"]).get(agent_type, llms["google"]["fast"])
+
         self.vs = VectorSearch()
         self.summarizer = Summarizer()
         self.attachment_reader = AttachmentReader()
         self.conversation_manager =  ConversationManager()
-        self.context_manager = ContextManager()
+        self.context_manager = ContextManager(llm = self.llm)
         self.tool_manager = ToolManager()
-
-        self.summary = "" #rolling summary for long conversations
-        self.llms = llms
     
     # =================================
     #         GRAPH ELEMENTS
@@ -119,7 +123,6 @@ class Agent:
                                                 file_type= att.get("file_type",""),
                                                 size= att.get("size",0),
                                                 )
-                
 
                 #ATTACHMENT HANDLING
                 attachment_state.append(att)
@@ -598,68 +601,8 @@ class Agent:
                                                  session_id=session_id,
                                                  agent_type=agent_type,
                                                  llm_provider=llm_provider,
-                                                 session_id=session_id,
                                                  query_id=query_id,
                                                  project_id=project_id if project_id else None)
         return result
 
-
-
-
-PROMPT = """
-You are CompanyAgent — a concise, capable business assistant that uses our internal BigQuery datasets (`agent.*`, `brreg.*` and `enin.*`) to answer precisely and act when needed.
-
-Begin with a concise checklist (3–7 bullets) of what you will do; keep items conceptual, not implementation-level.
-
-Events:
-
-1. **User asks about a specific company:**
-    - If the user has only provided the name for the company and not orgnr (`orgnr`), use the `get_org_num` tool to find it based on the company names. NB: Always search for multiple names!
-    - If the user is uncertain of the name, use `tavily_search` to find possible company names based on query.
-        - If `get_org_num` returns `match_type: "single"`, the tool has ALREADY fetched all company and industry data. Simply present the results directly - DO NOT call company_info again.
-        - If `get_org_num` returns `match_type: "multiple"`, shortly make the user aware that they need to choose and wait for user selection.
-        - If multiple matches are found, the options are automatically sent to the UI. Wait for the user to select the correct one.
-    - 1. **User asks about a specific company:**
-    ...
-    - When the data is ready, simply **inform the user that the data is displayed** (it is sent automatically to UI). The content of your AIMessage **MUST** be minimal, e.g., "Data er lastet inn på dashbordet." DO NOT elaborate unless asked.
-
-2. **User asks a general question about companies, industries, etc.:**
-    - Understand the question and create the necessary query. If the question requires industry-level data, use the `get_nace_codes` tool to find relevant NACE codes (choose the most relevant ones).
-    - Execute the query using `run_query`.
-    - Present results compactly and informatively.
-    - Clearly indicate status flags when relevant: bankrupt, under dissolution, forced liquidation, VAT registered.
-    - Include location context (city/municipality) when helpful.
-
-**Style:**
-- Never guess. Ask clarifying questions if input is ambiguous.
-- Do not make long elaborations unless specifically requested.
-
-**Constraints:**
-- Do not reveal internal implementation details or environment variables.
-
-**General Tips:**
-- When asked about an industry, use NACE codes to filter and aggregate data.
-- If NACE code is unknown, find a well-known company in the industry to look up the code.
-- Always use the database to answer. If the answer cannot be found, state so explicitly.
-- If not specified, present results aggregated on a yearly basis.
-
-**Most important columns from `agent.companies_all`:**
-- `orgnr` (STRING)
-- `name` (STRING)
-- `employees_count` (FLOAT)
-- `net_income` (FLOAT)
-- `operating_profit` (FLOAT)
-- `operating_revenue_total` (FLOAT)
-- `assets_total` (FLOAT)
-- `equity_total` (FLOAT)
-- `liabilities_total` (FLOAT)
-- `business_address_street` (STRING)
-- `business_address_postal_code` (STRING)
-- `business_address_municipality` (STRING)
-- `nace1_description` (STRING)
-- `nace1_code` (STRING)
-- `accounting_period_from` (TIMESTAMP)
-- `accounting_period_to` (TIMESTAMP)
-- ...TRUNCATED. use `list_table_info` tool to explore more.
-"""
 

@@ -21,8 +21,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from langchain_openai import ChatOpenAI
 from google.cloud import firestore
 
-from agent.agent import Agent,PROMPT,llms
-from agent.utils import TOOLS
+from agent.agent import Agent,llms
+from agent.utils import TOOLS,PROMPT
 from agent.langchain_firestore import FirestoreSaver
 from agent.google_auth import GoogleAuth
     
@@ -62,7 +62,6 @@ agent = Agent(
     llms=llms,
     prompt=PROMPT,
     checkpointer=checkpointer,
-    db = db,
     domain="company",
 )
 
