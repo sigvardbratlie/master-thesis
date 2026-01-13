@@ -296,7 +296,7 @@ class ConversationManager:
             None
         '''
 
-        ref = self.db.collection("projects").document(project_id)
+        ref = self.db.collection("projects").document(user_id).collection("factsheets").document(project_id)
         try:
             ref.set({
                 "user_id": user_id,
@@ -316,6 +316,7 @@ class ContextManager:
     def __init__(self, llm: BaseChatModel,
                  ):
         self.llm = llm
+        #self.vector_search = VectorSearch()
 
     # ===== TRUNCATION HELPERS =====
     def truncate_tokens(self, messages, max_tokens=7000):
@@ -415,7 +416,9 @@ class ContextManager:
         structured_llm = self.llm.with_structured_output(AttachmentExtracted)
         init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
         prompt = init_prompt + f'Analyze the following document content and extract key information into the Attachment structure:\n\n{content}'
-        events = self.analyze_events(initial_input, content)
+        events = self.analyze_events(initial_input=initial_input, 
+                                     content = content, 
+                                     file_id = file_id)
         response = structured_llm.invoke(prompt)
         file = Attachment(**response.model_dump(),
                             file_id=file_id,
@@ -428,6 +431,15 @@ class ContextManager:
         return {"file": file, "events": events}
     
     def analyze_governing_law(self, events : list[Event],rag_content_law : str) -> GoverningLaw:
+        '''Function to analyze case events and extract governing law information.
+        
+        Args:
+            events (list[Event]): The list of case events.
+            rag_content_law (str): Relevant legal context retrieved via RAG.
+            
+        Returns:
+            GoverningLaw : The structured GoverningLaw object with extracted information.
+        '''
         structured_llm = self.llm.with_structured_output(GoverningLaw)
         law_context = f'Extracted legal context:\n\n{rag_content_law}\n\n' if rag_content_law else ''
         prompt = law_context + f'Based on the following case events, analyze and extract governing law information:\n\n{events}'
