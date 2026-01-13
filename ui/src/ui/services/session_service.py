@@ -14,7 +14,7 @@ class SessionService:
         self.backend_url = backend_url
         self.user_id = user_id
 
-    def load_session_history(self, session_id: str) -> Optional[SessionHistoryResponse]:
+    def load_session_history(_self, session_id: str) -> Optional[SessionHistoryResponse]:
         """
         Load session history from backend.
 
@@ -26,7 +26,7 @@ class SessionService:
         """
         try:
             response = requests.get(
-                f'{self.backend_url}/load-session-history/{self.user_id}/{session_id}'
+                f'{_self.backend_url}/load-session-history/{_self.user_id}/{session_id}'
             )
             response.raise_for_status()
 
@@ -40,6 +40,30 @@ class SessionService:
             st.error(f'Error when loading chat history: {e}')
             logger.error(f"Failed to load session history: {e}")
             return None
+
+    @st.cache_data(show_spinner=False)
+    def load_projects(_self, ) -> Optional[SessionHistoryResponse]:
+        """
+        Load session history from backend.
+        """
+        try:
+            response = requests.get(
+                f'{_self.backend_url}/load-projects/{_self.user_id}'
+            )
+            response.raise_for_status()
+
+            if not response:
+                st.error(f'Error when loading chat history: {response}')
+                return None
+
+            return response.json()
+
+        except requests.exceptions.RequestException as e:
+            st.error(f'Error when loading chat history: {e}')
+            logger.error(f"Failed to load session history: {e}")
+            return None
+
+
 
     @st.cache_data(show_spinner=False)
     def load_user_sessions(_self, domain: str) -> list[SessionInfo]:
@@ -68,3 +92,24 @@ class SessionService:
             st.error(f'Error when loading user sessions: {e}')
             logger.error(f"Failed to load user sessions: {e}")
             return []
+
+    def load_factsheet(_self,) -> Optional[dict]:
+        """
+        Load factsheet for a given project.
+        """
+        try:
+            response = requests.get(
+                f'{_self.backend_url}/load-factsheet/{_self.user_id}/{st.session_state.project_id}'
+            )
+            response.raise_for_status()
+
+            if not response:
+                st.error(f'Error when loading factsheet: {response}')
+                return None
+
+            return response.json()
+
+        except requests.exceptions.RequestException as e:
+            st.error(f'Error when loading factsheet: {e}')
+            logger.error(f"Failed to load factsheet: {e}")
+            return None
