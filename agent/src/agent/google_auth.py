@@ -31,22 +31,16 @@ class GoogleAuth:
         encoded_jwt = jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
         return encoded_jwt
 
-    # def verify_google_token(self, token: str) -> dict:
-    #     """
-    #     Verifiserer ID-tokenet fra Google og returnerer brukerinformasjon.
-    #     """
-    #     try:
-    #         # Verifiser tokenet
-    #         idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), os.getenv("GOOGLE_CLIENT_ID"))
-    #         return idinfo
-    #     except ValueError as e:
-    #         # Tokenet er ugyldig
-    #         raise ValueError(f"Invalid Google token: {e}")
-
     def get_or_create_user(self, google_user_info: dict) -> str:
         """
-        Finner en bruker basert på Google User ID, eller oppretter en ny hvis den ikke finnes.
-        Returnerer appens interne user_id (dokument-ID i Firestore).
+        Finds a user based on Google User ID, or creates a new one if it doesn't exist.
+        Returns the app's internal user_id (document ID in Firestore).
+        
+        Args:
+            google_user_info (dict): Dictionary containing Google user information with keys like 'sub', 'email', 'name', 'picture'.
+        
+        Returns:
+            str: The internal user ID (Firestore document ID).
         """
         google_user_id = google_user_info['sub']
 

@@ -94,7 +94,7 @@ def render_sidebar(session_service: SessionService):
     """
     with st.sidebar:
         # Session history
-        sessions = session_service.load_user_sessions(st.session_state.domain)
+        sessions = session_service.load_user_sessions()
         st.session_state.sessions_loaded = True
 
         chat_history = st.container(height=300, border=False)

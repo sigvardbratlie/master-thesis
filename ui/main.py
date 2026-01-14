@@ -231,15 +231,16 @@ def handle_new_question():
 
 if st.user.is_logged_in:
     # Authenticate with backend
-    auth_service = AuthService(st.session_state.backend_url)
+    auth_service = AuthService(backend_url=st.session_state.backend_url)
     if not auth_service.authenticate_with_backend():
         st.error("Authentication failed")
         st.stop()
 
     # Create session service
     session_service = SessionService(
-        st.session_state.backend_url,
-        st.session_state.user_id
+        backend_url=st.session_state.backend_url,
+        user_id=st.session_state.user_id,
+        access_token=st.session_state.access_token
     )
 
     # Render sidebar
