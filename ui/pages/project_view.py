@@ -30,7 +30,7 @@ if not auth_service.authenticate_with_backend():
 
 # ================== MAIN PAGE ==================
 
-st.title("Project View Page")
+
 
 streaming_service = StreamingService(
                     st.session_state.backend_url,
@@ -42,30 +42,52 @@ session_service = SessionService(
                     access_token=st.session_state.access_token
                 )
 
+def on_project_select(project : dict):
+    st.session_state.session_id = None
+    st.session_state.project_id = project['project_id']
+    st.session_state.session_title = project.get('session_title', None)
+    logger.info(f"Selected project: {st.session_state.project_id}")
+
+    # Load the factsheet for the selected project
+    project_data = session_service.load_project()
+    #st.json(project_data)
+    if project_data:
+        st.session_state.factsheet = project_data.get('factsheet')
+        st.session_state.attachments = project_data.get('attachments', [])
+        logger.info(f"Loaded factsheet for project: {st.session_state.project_id}")
+    else:
+        st.session_state.factsheet = None
+        st.session_state.attachments = []
+        logger.warning(f"No factsheet found for project: {st.session_state.project_id}")
+
+    #st.rerun()
+
 def render_select_projects():
     st.header("Select Project")
     projects = session_service.load_projects()
     if projects:
         with st.expander("Projects", expanded=True):
             for project in projects:
-                if st.button(f"Project ID: {project['project_id']} - {project.get('session_title', 'No Title')}"):
-                    st.session_state.project_id = project['project_id']
-                    st.session_state.session_title = project.get('session_title', None)
-                    st.session_state.domain = project.get('domain', 'legal')
-                    logger.info(f"Selected project: {st.session_state.project_id}")
+                st.button(f"Project ID: {project['project_id']} - {project.get('session_title', 'No Title')}", on_click=lambda p=project: on_project_select(p))
+                # if st.button(f"Project ID: {project['project_id']} - {project.get('session_title', 'No Title')}", on_click=lambda p=project: on_project_select(p)):
+                #     st.session_state.session_id = None
+                #     st.session_state.project_id = project['project_id']
+                #     st.session_state.session_title = project.get('session_title', None)
+                #     logger.info(f"Selected project: {st.session_state.project_id}")
 
-                    # Load the factsheet for the selected project
-                    project_data = session_service.load_project()
-                    st.json(project_data)
-                    if project_data:
-                        st.session_state.factsheet = project_data.get('factsheet')
-                        st.session_state.attachments = project_data.get('attachments', [])
-                        logger.info(f"Loaded factsheet for project: {st.session_state.project_id}")
-                    else:
-                        st.session_state.factsheet = None
-                        logger.warning(f"No factsheet found for project: {st.session_state.project_id}")
+                #     # Load the factsheet for the selected project
+                #     project_data = session_service.load_project()
+                #     st.json(project_data)
+                #     if project_data:
+                #         st.session_state.factsheet = project_data.get('factsheet')
+                #         st.session_state.attachments = project_data.get('attachments', [])
+                #         logger.info(f"Loaded factsheet for project: {st.session_state.project_id}")
+                #     else:
+                #         st.session_state.factsheet = None
+                #         st.session_state.attachments = []
+                #         logger.warning(f"No factsheet found for project: {st.session_state.project_id}")
 
-                    st.rerun()
+                #     st.rerun()
     else:
         st.info("No projects found. Please initialize a new project.")
 
@@ -121,15 +143,33 @@ def render_selected_project():
         background = factsheet.get('background', 'No background information available.')
         st.markdown(background)
 
-    
+def render_project_sessions():
+    st.header("Project Sessions")
+    sessions = session_service.load_project_sessions()
+    if sessions:
+        for session in sessions:
+            st.markdown(f"- **Session ID**: {session.session_id}, **Title**: {session.session_title}, **Last Updated**: {session.last_updated}")
+    else:
+        st.info("No sessions found for this project.")
 
 with st.sidebar:
+    new_project = st.button("Initialize New Project", icon="🆕")
+    if new_project:
+        st.session_state.clear()
+        st.rerun()
+
+    st.divider()
     render_select_projects()
     st.divider()
-    render_selected_project()
+    if st.session_state.get('project_id', None):
+        render_project_sessions()
+        st.divider()
+        render_selected_project()
+
 
 
 if not st.session_state.project_id:
+    st.title("Project View Page")
     with st.container():
         user_input = st.text_area("Project details", 
                               placeholder="Describe your project here...",
@@ -164,7 +204,6 @@ if not st.session_state.project_id:
             question=user_input,
             attachments=attachments,
             session_id=st.session_state.session_id,
-            domain = st.session_state.domain,
             query_id=query_id,
             agent_type=st.session_state.agent_type,
             llm_provider=st.session_state.llm_provider,
@@ -195,8 +234,8 @@ if not st.session_state.project_id:
                 logger.exception("Exception during project initialization")
 
 else:
-    st.success(f"Project ID: {st.session_state.project_id} is initialized.")
-    st.markdown("You can now start asking questions related to your project in the chat interface.")
+    #st.success(f"Project ID: {st.session_state.project_id} is initialized.")
+    #st.markdown("You can now start asking questions related to your project in the chat interface.")
 
     # Load factsheet if not already in session state
     if 'project_data' not in st.session_state or st.session_state.project_data is None:
