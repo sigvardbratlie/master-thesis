@@ -10,10 +10,18 @@ logger = logging.getLogger(__name__)
 class SessionService:
     """Handles session loading and management"""
 
-    def __init__(self, backend_url: str, user_id: str):
+    def __init__(self, backend_url: str, user_id: str, access_token: str):
         self.backend_url = backend_url
         self.user_id = user_id
+        self.access_token = access_token
+        self.headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream',
+            'Authorization': f'Bearer {access_token}'
+        }
 
+    # ================== SESSION METHODS ==================
+    
     def load_session_history(_self, session_id: str) -> Optional[SessionHistoryResponse]:
         """
         Load session history from backend.
@@ -26,7 +34,8 @@ class SessionService:
         """
         try:
             response = requests.get(
-                f'{_self.backend_url}/load-session-history/{_self.user_id}/{session_id}'
+                f'{_self.backend_url}/load-session-history/{session_id}',
+                headers=_self.headers,
             )
             response.raise_for_status()
 
@@ -42,13 +51,45 @@ class SessionService:
             return None
 
     @st.cache_data(show_spinner=False)
+    def load_user_sessions(_self,) -> list[SessionInfo]:
+        """
+        Load all user sessions for a given domain.
+
+        Args:
+            domain: Domain to filter sessions (e.g., "company")
+
+        Returns:
+            List of SessionInfo objects, empty list if error
+        """
+        try:
+            response = requests.get(
+                f'{_self.backend_url}/load-user-sessions',
+                headers=_self.headers,
+            )
+            response.raise_for_status()
+
+            if not response:
+                st.error(f'Error when loading user sessions: {response}')
+                return []
+
+            return [SessionInfo(**s) for s in response.json()]
+
+        except requests.exceptions.RequestException as e:
+            st.error(f'Error when loading user sessions: {e}')
+            logger.error(f"Failed to load user sessions: {e}")
+            return []
+
+    # ================== PROJECT METHODS ==================
+
+    @st.cache_data(show_spinner=False)
     def load_projects(_self, ) -> Optional[SessionHistoryResponse]:
         """
         Load session history from backend.
         """
         try:
             response = requests.get(
-                f'{_self.backend_url}/load-projects/{_self.user_id}'
+                f'{_self.backend_url}/load-projects',
+                headers=_self.headers,
             )
             response.raise_for_status()
 
@@ -64,42 +105,14 @@ class SessionService:
             return None
 
 
-
-    @st.cache_data(show_spinner=False)
-    def load_user_sessions(_self, domain: str) -> list[SessionInfo]:
-        """
-        Load all user sessions for a given domain.
-
-        Args:
-            domain: Domain to filter sessions (e.g., "company")
-
-        Returns:
-            List of SessionInfo objects, empty list if error
-        """
-        try:
-            response = requests.get(
-                f'{_self.backend_url}/load-user-sessions/{_self.user_id}/{domain}'
-            )
-            response.raise_for_status()
-
-            if not response:
-                st.error(f'Error when loading user sessions: {response}')
-                return []
-
-            return [SessionInfo(**s) for s in response.json()]
-
-        except requests.exceptions.RequestException as e:
-            st.error(f'Error when loading user sessions: {e}')
-            logger.error(f"Failed to load user sessions: {e}")
-            return []
-
-    def load_factsheet(_self,) -> Optional[dict]:
+    def load_project(_self,) -> Optional[dict]:
         """
         Load factsheet for a given project.
         """
         try:
             response = requests.get(
-                f'{_self.backend_url}/load-factsheet/{_self.user_id}/{st.session_state.project_id}'
+                f'{_self.backend_url}/load-project/{st.session_state.project_id}',
+                headers=_self.headers,
             )
             response.raise_for_status()
 

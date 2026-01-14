@@ -169,8 +169,8 @@ async def init_scan_endpoint(query: Query, user_id: str = Depends(auth.get_curre
         logger.error(f"Error in /init-scan: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/load-session-history/{user_id}/{session_id}")
-async def load_session_history(user_id: str, session_id: str):
+@app.get("/load-session-history/{session_id}")
+async def load_session_history(session_id: str, user_id: str = Depends(auth.get_current_user)):
     try:
         session_ref = (
             db.collection("chat_history")
@@ -214,8 +214,8 @@ async def load_session_history(user_id: str, session_id: str):
         logger.error(f"Error loading session history: {e}")
         return {"error": str(e)}
 
-@app.get("/load-user-sessions/{user_id}/{domain}")
-async def load_user_sessions(user_id: str, domain: str):
+@app.get("/load-user-sessions")
+async def load_user_sessions(user_id: str = Depends(auth.get_current_user)):
     try:
         # Hent alle sessions for brukeren
         sessions_ref = (
@@ -230,7 +230,6 @@ async def load_user_sessions(user_id: str, domain: str):
         
         for session_doc in sessions_docs:
             session_data = session_doc.to_dict()
-            #print(f'Session data: {session_data}')
             session_id = session_doc.id
             
             # Sjekk om session har events
@@ -238,12 +237,7 @@ async def load_user_sessions(user_id: str, domain: str):
             title = session_data.get("title", "")
             if not events:
                 continue  # Skip tomme sessions
-            
-            # Filter by domain
-            session_domain = session_data.get("domain", "company")
-            if session_domain != domain:
-                continue
-            
+                        
             # Hent timestamp for sortering
             timestamp = session_data.get("last_updated")
             
@@ -271,8 +265,8 @@ async def load_user_sessions(user_id: str, domain: str):
         logger.error(f'Could not load sessions for user {user_id}: {e}')
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/load-project/{user_id}/{project_id}")
-async def load_project(user_id: str, project_id: str):
+@app.get("/load-project/{project_id}")
+async def load_project(project_id: str, user_id: str = Depends(auth.get_current_user)):
     try:
         factsheet_ref = (
             db.collection("projects")
@@ -295,8 +289,8 @@ async def load_project(user_id: str, project_id: str):
         logger.error(f"Error loading factsheet: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/load-projects/{user_id}")
-async def load_projects(user_id: str):
+@app.get("/load-projects")
+async def load_projects(user_id: str = Depends(auth.get_current_user)):
     try:
         projects_ref = (
             db.collection("projects")

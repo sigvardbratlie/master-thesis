@@ -216,8 +216,9 @@ def handle_new_question():
             if not st.session_state.session_title or st.session_state.session_title == "Ny samtale":
                 st.cache_data.clear()
                 session_service = SessionService(
-                    st.session_state.backend_url,
-                    st.session_state.user_id
+                    backend_url=st.session_state.backend_url,
+                    user_id=st.session_state.user_id,
+                    access_token=st.session_state.access_token
                 )
                 response = session_service.load_session_history(st.session_state.session_id)
                 if response:

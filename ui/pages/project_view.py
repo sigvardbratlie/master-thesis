@@ -25,8 +25,9 @@ streaming_service = StreamingService(
                 )
 #st.info(st.session_state.access_token)
 session_service = SessionService(
-                    st.session_state.backend_url,
-                    st.session_state.user_id
+                    backend_url=st.session_state.backend_url,
+                    user_id=st.session_state.user_id,
+                    access_token=st.session_state.access_token
                 )
 st.info(st.session_state.access_token)
 
