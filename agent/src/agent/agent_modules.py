@@ -315,9 +315,16 @@ class ConversationManager:
 class ContextManager:
     def __init__(self, llm: BaseChatModel,
                  ):
-        self.llm = llm
+        self._llm = llm
         #self.vector_search = VectorSearch()
 
+    @property
+    def llm(self):
+        return self._llm
+    @llm.setter
+    def llm(self, value: BaseChatModel):
+        self._llm = value
+    
     # ===== TRUNCATION HELPERS =====
     def truncate_tokens(self, messages, max_tokens=7000):
         """Truncate messages to fit within max_tokens while preserving tool-call structure."""
@@ -366,12 +373,12 @@ class ContextManager:
         return truncated
 
     # ===== FUNCTIONS FOR INITIAL FACTSHEET CREATION =====
-    def analyze_init_input(self, init_input : str) -> InitialInput:
+    async def analyze_init_input(self, init_input : str) -> InitialInput:
         structured_llm = self.llm.with_structured_output(InitialInput)
         prompt = f'Analyze the following case introduction and extract key information into the InitialInput structure:\n\n{init_input}'
-        return structured_llm.invoke(prompt)
+        return await structured_llm.ainvoke(prompt)
     
-    def analyze_events(self, initial_input : InitialInput , content : str,file_id: str) -> list[Event]:
+    async def analyze_events(self, initial_input : InitialInput , content : str,file_id: str) -> Events:
         '''Analyzes document content to extract a list of events.
         
         Args:
@@ -381,15 +388,15 @@ class ContextManager:
         Returns:
             list[Event]: A list of extracted Event objects.
         '''
-        structured_llm = self.llm.with_structured_output(List[Event])
+        structured_llm = self.llm.with_structured_output(Events)
         init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
         prompt = init_prompt + f'Analyze the following document content and extract key main events:\n\n{content}'
-        response = structured_llm.invoke(prompt)
-        for event in response:
+        response = await structured_llm.ainvoke(prompt)
+        for event in response.events:
             event.file_id = file_id
         return response
     
-    def analyze_doc(self, 
+    async def analyze_doc(self, 
                     initial_input : InitialInput ,
                     content: str, 
                     file_id : str, 
@@ -416,10 +423,12 @@ class ContextManager:
         structured_llm = self.llm.with_structured_output(AttachmentExtracted)
         init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
         prompt = init_prompt + f'Analyze the following document content and extract key information into the Attachment structure:\n\n{content}'
-        events = self.analyze_events(initial_input=initial_input, 
+        response_events = await self.analyze_events(initial_input=initial_input, 
                                      content = content, 
                                      file_id = file_id)
-        response = structured_llm.invoke(prompt)
+        events = response_events.events
+        
+        response = await structured_llm.ainvoke(prompt)
         file = Attachment(**response.model_dump(),
                             file_id=file_id,
                             filename=filename,
@@ -430,7 +439,7 @@ class ContextManager:
                         )
         return {"file": file, "events": events}
     
-    def analyze_governing_law(self, events : list[Event],rag_content_law : str) -> GoverningLaw:
+    async def analyze_governing_law(self, events : list[Event],rag_content_law : str) -> GoverningLaw:
         '''Function to analyze case events and extract governing law information.
         
         Args:
@@ -443,9 +452,9 @@ class ContextManager:
         structured_llm = self.llm.with_structured_output(GoverningLaw)
         law_context = f'Extracted legal context:\n\n{rag_content_law}\n\n' if rag_content_law else ''
         prompt = law_context + f'Based on the following case events, analyze and extract governing law information:\n\n{events}'
-        return structured_llm.invoke(prompt)
+        return await structured_llm.ainvoke(prompt)
         
-    def analyze_factual_facts(self, 
+    async def analyze_factual_facts(self, 
                               initial_input : InitialInput, 
                               events : list[Event], 
                               #claims : list[Claim], 
@@ -463,24 +472,24 @@ class ContextManager:
         structured_llm = self.llm.with_structured_output(FactualFacts)
         init = f'Initial case input: {initial_input.model_dump()}\n\n'
         prompt = init + f'Based on the following case events, extract disputed and undisputed facts:\n\n{events}'
-        return structured_llm.invoke(prompt)
+        return await structured_llm.ainvoke(prompt)
     
     # ===== FUNCTIONS FOR UPDATING EXISTING FACTSHEET =====
-    def consider_new_events(self,
+    async def consider_new_events(self,
                             factsheet : FactSheet,
                          new_content : str,
                          new_user_input : str,
                          file_id : str
                          ) -> list[Event]:
-        structured_llm = self.llm.with_structured_output(List[Event])
+        structured_llm = self.llm.with_structured_output(Events)
         init_prompt = f'Existing factsheet:\n\n{factsheet.model_dump()}\n\n'
         prompt = init_prompt + f'Analyze the following document content and extract key main events:\n\n{new_content}' + f'\n\nNew user input:\n\n{new_user_input}\n\n'
-        response = structured_llm.invoke(prompt)
-        for event in response:
+        response = await structured_llm.ainvoke(prompt)
+        for event in response.events:
             event.file_id = file_id
         return response
     
-    def consider_new_doc(self,
+    async def consider_new_doc(self,
                             factsheet : FactSheet,
                          new_content : str,
                          new_user_input : str,
@@ -507,8 +516,8 @@ class ContextManager:
         prompt += f'Analyze the following document content and extract key information into the Attachment structure:\n\n{new_content}' + f'\n\nNew user input:\n\n{new_user_input}\n\n'
 
         structured_llm = self.llm.with_structured_output(AttachmentExtracted)
-        response = structured_llm.invoke(prompt)
-        events = self.consider_new_events(factsheet, new_content, new_user_input, file_id)
+        response = await structured_llm.ainvoke(prompt)
+        events = await self.consider_new_events(factsheet, new_content, new_user_input, file_id)
         file = Attachment(**response.model_dump(),
                             file_id=file_id,
                             filename=filename,
@@ -519,7 +528,7 @@ class ContextManager:
                         )
         return {"file": file, "events": events}
 
-    def update_factsheet(self,
+    async def update_factsheet(self,
                          factsheet : FactSheet,
                          new_user_input : str,
                          new_content : Optional[str] = "",
@@ -529,7 +538,7 @@ class ContextManager:
                          file_type : Optional[str] = None,
                          size : Optional[int] = None,
                          
-                         ) -> FactSheet:
+                         ) -> dict[Attachment, Events]:
         '''Function to update an existing FactSheet with new input data.
         
         Args:
@@ -548,9 +557,9 @@ class ContextManager:
         existing_facts = f"Existing factsheet:\n\n{factsheet.model_dump()}"
         prompt = existing_facts + f'Return True if the following new input is relevant to update the existing factsheet, else return False:\n\n{new_user_input}'
         structured_llm = self.llm.with_structured_output(RelevanceCheck)  
-        relevant = structured_llm.invoke(prompt)
+        relevant = await structured_llm.ainvoke(prompt)
         if relevant.is_relevant:
-            result = self.consider_new_doc(new_content=new_content,
+            result = await self.consider_new_doc(new_content=new_content,
                                            new_user_input=new_user_input,
                                            factsheet=factsheet,
                                            file_id=file_id,

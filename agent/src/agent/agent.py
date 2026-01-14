@@ -384,7 +384,8 @@ class Agent:
     # =================================
     async def stream_response(self, user_input: str, 
                               attachments: list[dict],
-                              session_id: str, user_id: str,
+                              session_id: str, 
+                              user_id: str,
                               agent_type: Literal["fast", "expert"],
                               llm_provider: Literal["google", "openai", "claude"],
                               query_id : str):
@@ -540,33 +541,35 @@ class Agent:
     # ================================= 
     async def initialize_project(self, user_input: str, 
                               attachments: list[dict],
-                              session_id: str, user_id: str,
+                              session_id: str, 
+                              user_id: str,
                               agent_type: Literal["fast", "expert"],
                               llm_provider: Literal["google", "openai", "claude"],
                               query_id : str,
                               project_id: Optional[str] = None):
         '''Initial project scan to generate FactSheet from initial input and attachments'''
+        
+        thread = {"configurable":
+                      {"thread_id": session_id,
+                       "user_id": user_id,
+                       "domain": self.domain}
+                  }
+        agent_instance = self._compile_agent(agent_type=agent_type, llm_provider=llm_provider, query_id=query_id)
+        # NEW OR EXISTING CONVERSATION
+        await self.load_or_create_conversation(agent_instance, thread, session_id)
+
+        
         events = []
         damages = []
         claims = []
         deadlines = []
         files = []
-        
-        initial_input = self.context_manager.analyze_init_input(user_input)
+
+        initial_input = await self.context_manager.analyze_init_input(user_input)
         for att in attachments:
-            content_txt = self.handle_attachments(att, session_id=session_id, user_id=user_id,query_id=query_id)
-            
-            # content = att.get("content", "") #b64 or human readable text
-            # file_type = att.get("file_type", "")
-            # if att.get("file_type") == "application/pdf":
-            #     content_bytes = base64.b64decode(content)
-            #     content_txt = self.attachment_reader.extract_text_from_pdf(content_bytes)
-            # else:
-            #     content_txt = content
-            
-            #save attachment to vector store and file storage
-            
-            result = self.context_manager.analyze_doc(initial_input, content_txt, 
+            content_txt = self.handle_attachments(att, session_id=session_id, user_id=user_id, query_id=query_id)
+            logger.debug(f"Analyzing attachment: {att.get('filename','')} (ID: {att.get('file_id','')})")
+            result = await self.context_manager.analyze_doc(initial_input, content_txt, 
                                                             file_id=att.get("file_id",""),
                                                             filename=att.get("filename",""),
                                                             path="",
@@ -574,6 +577,7 @@ class Agent:
                                                             size=len(content_txt),
                                                             )
             analyzed_doc = result.get("file")
+            logger.debug(f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()}")
 
             # Collect results from analyzed documents
             files.append(analyzed_doc)
@@ -582,20 +586,20 @@ class Agent:
             deadlines.extend(analyzed_doc.deadline) if analyzed_doc.deadline else None
 
             events.extend(result.get("events", [])) if result.get("events") else None
-        
-        factual_facts = self.context_manager.analyze_factual_facts(initial_input, events)
 
-        rag_content_law = self.vs.query(query = events, table = "laws", top_k=5) #Implement query based on initial input
-        governing_law = self.context_manager.analyze_governing_law(events = events, rag_content_law=rag_content_law) #IMplementer
-        
+        factual_facts = await self.context_manager.analyze_factual_facts(initial_input, events)
+
+        events_txt = " ".join([f"- {event.description} (Date: {event.date}" for event in events])
+        rag_content_law = self.vs.query(query = events_txt, table_name = "laws", n_results=2) #Implement query based on initial input
+        governing_law = await self.context_manager.analyze_governing_law(events = events, rag_content_law=rag_content_law) #IMplementer
         result = FactSheet(timeline=events,
-                           damages=damages,
-                           claims=claims,
-                           deadlines=deadlines,
-                           governing_law=governing_law,
-                           **factual_facts.model_dump(),
-                           **initial_input.model_dump(),
-                           )
+                            damages=damages,
+                            claims=claims,
+                            deadlines=deadlines,
+                            governing_law=governing_law,
+                            **factual_facts.model_dump(),
+                            **initial_input.model_dump(),
+                            )
         
         self.conversation_manager.save_init_scan(factsheet=result,
                                                  files=files,

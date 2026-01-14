@@ -40,6 +40,9 @@ class Event(BaseModel):
     significance: Literal["high", "medium", "low"]
     disputed: bool
 
+class Events(BaseModel):
+    events: list[Event]
+
 class GoverningLaw(BaseModel):
     primary_jurisdiction: str = Field(description="Which law governs (e.g., Norwegian law)")
     key_areas: list[str] = Field(description="Relevant legal areas (contract law, tort, etc)")
@@ -63,9 +66,9 @@ class Claim(BaseModel):
 
 class Damage(BaseModel):
     category: Literal["direct_losses", "interest", "consequential", "punitive"]
-    amount: int
+    amount: Optional[int | float] = Field(None, description="Monetary amount if amount is known and mentioned, else None")
     basis: str
-    supporting_evidence: list[str]
+    supporting_evidence: list[str] = Field(description="File_IDs supporting the damage claim")
     party: str = Field(description="Party_ID of the claimant")
 
 class InitialInput(BaseModel):
@@ -121,11 +124,11 @@ class FactSheet(InitialInput,FactualFacts):
     governing_law: GoverningLaw 
     
     # Claims
-    claims: list[Claim]
+    claims: Optional[list[Claim]] = None
     # Damages
-    damages: list[Damage]
+    damages: Optional[list[Damage]] = None
     # Deadlines
-    deadlines: list[Deadline]
+    deadlines: Optional[list[Deadline]] = None
 
     #metadata
     # case_id: str = Field(default_factory= lambda : str(uuid.uuid4()))
