@@ -25,6 +25,7 @@ from google.cloud import bigquery
 from google.cloud import firestore
 
 from agent.basemodels import *
+from fastapi import FastAPI,HTTPException,status,Depends
 
 logger = logging.getLogger(__name__)
 
@@ -203,8 +204,206 @@ class ConversationManager:
     def __init__(self, db=None):
         self.db = firestore.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT"), database="(default)") if not db else db
         self.summarizer = Summarizer()
-        self.domain = "legal"
         
+    def load_project(self, user_id: str, project_id: str):
+        try:
+            factsheet_ref = (
+                self.db.collection("projects")
+                .document(user_id)
+                .collection("factsheets")
+                .document(project_id)
+            )
+            
+            factsheet_doc = factsheet_ref.get()
+            
+            if not factsheet_doc.exists:
+                logger.warning(f"No factsheet found for project_id: {project_id}")
+                return {"error": "Factsheet not found"}
+            
+            factsheet_data = factsheet_doc.to_dict()
+            return factsheet_data
+        
+        except Exception as e:
+            logger.error(f"Error loading factsheet: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    def load_projects(self,user_id: str):
+        try:
+            projects_ref = (
+                self.db.collection("projects")
+                .document(user_id)
+                .collection("factsheets")
+            )
+            
+            projects_docs = projects_ref.stream()
+            
+            all_projects = []
+            
+            for project_doc in projects_docs:
+                project_data = project_doc.to_dict()
+                project_id = project_doc.id
+                
+                all_projects.append({
+                    "project_id": project_id,
+                    "title": project_data.get("factsheet",{}).get("title", ""),
+                    "created_at": project_data.get("created_at"),
+                })
+            
+            # Sorter etter created_at (nyeste først)
+            all_projects.sort(
+                key=lambda x: x.get("created_at") or "", 
+                reverse=True
+            )
+            
+            return all_projects
+        
+        except Exception as e:
+            logger.error(f'Could not load projects for user {user_id}: {e}')
+            raise HTTPException(status_code=500, detail=str(e))
+
+    def load_user_sessions(self, user_id: str):
+        try:
+            # Hent alle sessions for brukeren
+            sessions_ref = (
+                self.db.collection("chat_history")
+                .document(user_id)
+                .collection("sessions")
+            )
+            
+            sessions_docs = sessions_ref.stream()
+            
+            all_sessions = []
+            
+            for session_doc in sessions_docs:
+                session_data = session_doc.to_dict()
+                session_id = session_doc.id
+                
+                # Sjekk om session har events
+                events = session_data.get("events", [])
+                title = session_data.get("title", "")
+                if not events:
+                    continue  # Skip tomme sessions
+                            
+                # Hent timestamp for sortering
+                timestamp = session_data.get("last_updated")
+                
+                all_sessions.append({
+                    "session_id": session_id,
+                    "title": title,
+                    "timestamp": timestamp,
+                    "agent_type": session_data.get("agent_type"),
+                    "llm_provider": session_data.get("llm_provider"),
+                })
+            
+            # Sorter etter timestamp (nyeste først)
+            all_sessions.sort(
+                key=lambda x: x.get("timestamp") or "", 
+                reverse=True
+            )
+            
+            # Fjern timestamp fra response (ikke nødvendig for UI)
+            for session in all_sessions:
+                session.pop("timestamp", None)
+            
+            return all_sessions
+        
+        except Exception as e:
+            logger.error(f'Could not load sessions for user {user_id}: {e}')
+            raise HTTPException(status_code=500, detail=str(e))
+
+    def load_session_history(self, session_id: str, user_id: str):
+        try:
+            session_ref = (
+                self.db.collection("chat_history")
+                .document(user_id)
+                .collection("sessions")
+                .document(session_id)
+            )
+            
+            session_doc = session_ref.get()
+            
+            if not session_doc.exists:
+                logger.warning(f"No session found for session_id: {session_id}")
+                return {
+                    "events": [],
+                    "title": "Ny samtale",
+                }
+            
+            session_data = session_doc.to_dict()
+            
+            events = session_data.get("events", [])
+            title = session_data.get("title", "")
+            
+            if not events:
+                return {
+                    "events": [],
+                    "title": "Ny samtale",
+                }
+            
+            return {
+                "events": events,  
+                "title": title, 
+                "agent_type": session_data.get("agent_type"),
+                "llm_provider": session_data.get("llm_provider"),
+                "last_updated": session_data.get("last_updated"),
+            }
+        
+        except Exception as e:
+            logger.error(f"Error loading session history: {e}")
+            return {"error": str(e)}
+
+    def load_project_sessions(self, user_id: str, project_id: str):
+        try:
+            # Hent alle sessions for brukeren
+            sessions_ref = (
+                self.db.collection("chat_history")
+                .document(user_id)
+                .collection("sessions")
+                .where("project_id", "==", project_id)
+            )
+            
+            sessions_docs = sessions_ref.stream()
+            
+            all_sessions = []
+            
+            for session_doc in sessions_docs:
+                session_data = session_doc.to_dict()
+                session_id = session_doc.id
+                
+                # Sjekk om session har events
+                events = session_data.get("events", [])
+                title = session_data.get("title", "")
+                if not events:
+                    continue  # Skip tomme sessions
+                            
+                # Hent timestamp for sortering
+                timestamp = session_data.get("last_updated")
+                
+                all_sessions.append({
+                    "session_id": session_id,
+                    "title": title,
+                    "timestamp": timestamp,
+                    "agent_type": session_data.get("agent_type"),
+                    "llm_provider": session_data.get("llm_provider"),
+                })
+            
+            # Sorter etter timestamp (nyeste først)
+            all_sessions.sort(
+                key=lambda x: x.get("timestamp") or "", 
+                reverse=True
+            )
+            
+            # Fjern timestamp fra response (ikke nødvendig for UI)
+            for session in all_sessions:
+                session.pop("timestamp", None)
+            
+            return all_sessions
+        
+        except Exception as e:
+            logger.error(f'Could not load sessions for user {user_id}: {e}')
+            raise HTTPException(status_code=500, detail=str(e))
+
+
     def save_stream(self, 
                     events : list, 
                     attachments : list,
@@ -263,7 +462,6 @@ class ConversationManager:
                 "events": all_events, 
                 "attachments": all_attachments,
                 "last_updated": firestore.SERVER_TIMESTAMP,
-                "domain": self.domain,
                 "project_id": project_id,
                 "agent_type": agent_type,
                 "llm_provider": llm_provider,

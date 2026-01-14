@@ -25,10 +25,8 @@ from agent.agent import Agent,llms
 from agent.utils import TOOLS,PROMPT
 from agent.langchain_firestore import FirestoreSaver
 from agent.google_auth import GoogleAuth
+from agent.agent_modules import ConversationManager
     
-
-
-
 # ===== SETUP FASTAPI & AGENT =======
 app = FastAPI()
 
@@ -62,8 +60,8 @@ agent = Agent(
     llms=llms,
     prompt=PROMPT,
     checkpointer=checkpointer,
-    domain="company",
 )
+conversation_manager = ConversationManager()
 
 class Attachment(BaseModel):
     filename: str
@@ -76,7 +74,6 @@ class Query(BaseModel):
     question: str
     attachments: Optional[list[Attachment]] = None
     session_id: str
-    domain: str
     project_id: Optional[str] = None
     agent_type: str # Literal["fast","expert"]
     llm_provider: str #Literal["google","openai","claude"]
@@ -93,7 +90,6 @@ async def stream_generator(question: str,
                            session_id: str, 
                            agent_type: str, 
                            llm_provider: str, 
-                           domain: str, 
                            query_id: str, 
                            project_id: Optional[str] = None,
                            user_id: str = Depends(auth.get_current_user)):
@@ -102,10 +98,6 @@ async def stream_generator(question: str,
     for Server-Sent Events (SSE) expected by the frontend.
     """
 
-    # if domain=="company":
-    #     agent = company_agent
-    # else:
-    #     raise ValueError(f'Invalid domain: {domain}. Expecting "company"')
 
     async for response_part in agent.stream_response(user_input = question, 
                                                      attachments = attachments, 
@@ -113,11 +105,14 @@ async def stream_generator(question: str,
                                                      user_id = user_id,
                                                      agent_type = agent_type, 
                                                      llm_provider = llm_provider, 
+                                                     project_id= project_id,
                                                      query_id = query_id):
         data_string = json.dumps(response_part)
         yield f"data: {data_string}\n\n"
         await asyncio.sleep(0.01)
 
+# ================== API ENDPOINTS ==================
+# MAIN ENDPOINTS
 @app.post("/ask-agent")
 async def ask_agent_endpoint(query: Query, user_id: str = Depends(auth.get_current_user)):
     """
@@ -136,7 +131,6 @@ async def ask_agent_endpoint(query: Query, user_id: str = Depends(auth.get_curre
                             user_id = user_id,
                             agent_type = query.agent_type,
                             llm_provider = query.llm_provider,
-                            domain = query.domain,
                             query_id = query.query_id,
                             project_id = query.project_id if query.project_id else None
                             ),
@@ -160,7 +154,6 @@ async def init_scan_endpoint(query: Query, user_id: str = Depends(auth.get_curre
             user_id=user_id,
             agent_type=query.agent_type,
             llm_provider=query.llm_provider,
-            #domain=query.domain,
             query_id=query.query_id,
             project_id=query.project_id if query.project_id else None
         )
@@ -169,161 +162,29 @@ async def init_scan_endpoint(query: Query, user_id: str = Depends(auth.get_curre
         logger.error(f"Error in /init-scan: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# READING FROM FIRESTORE
 @app.get("/load-session-history/{session_id}")
 async def load_session_history(session_id: str, user_id: str = Depends(auth.get_current_user)):
-    try:
-        session_ref = (
-            db.collection("chat_history")
-              .document(user_id)
-              .collection("sessions")
-              .document(session_id)
-        )
-        
-        session_doc = session_ref.get()
-        
-        if not session_doc.exists:
-            logger.warning(f"No session found for session_id: {session_id}")
-            return {
-                "events": [],
-                "title": "Ny samtale",
-                "domain": "company"
-            }
-        
-        session_data = session_doc.to_dict()
-        
-        events = session_data.get("events", [])
-        title = session_data.get("title", "")
-        
-        if not events:
-            return {
-                "events": [],
-                "title": "Ny samtale",
-                "domain": session_data.get("domain", "company")
-            }
-        
-        return {
-            "events": events,  
-            "title": title, 
-            "domain": session_data.get("domain", "company"),
-            "agent_type": session_data.get("agent_type"),
-            "llm_provider": session_data.get("llm_provider"),
-            "last_updated": session_data.get("last_updated"),
-        }
-    
-    except Exception as e:
-        logger.error(f"Error loading session history: {e}")
-        return {"error": str(e)}
+    return conversation_manager.load_session_history(user_id=user_id, session_id=session_id)
 
 @app.get("/load-user-sessions")
 async def load_user_sessions(user_id: str = Depends(auth.get_current_user)):
-    try:
-        # Hent alle sessions for brukeren
-        sessions_ref = (
-            db.collection("chat_history")
-              .document(user_id)
-              .collection("sessions")
-        )
-        
-        sessions_docs = sessions_ref.stream()
-        
-        all_sessions = []
-        
-        for session_doc in sessions_docs:
-            session_data = session_doc.to_dict()
-            session_id = session_doc.id
-            
-            # Sjekk om session har events
-            events = session_data.get("events", [])
-            title = session_data.get("title", "")
-            if not events:
-                continue  # Skip tomme sessions
-                        
-            # Hent timestamp for sortering
-            timestamp = session_data.get("last_updated")
-            
-            all_sessions.append({
-                "session_id": session_id,
-                "title": title,
-                "timestamp": timestamp,
-                "agent_type": session_data.get("agent_type"),
-                "llm_provider": session_data.get("llm_provider"),
-            })
-        
-        # Sorter etter timestamp (nyeste først)
-        all_sessions.sort(
-            key=lambda x: x.get("timestamp") or "", 
-            reverse=True
-        )
-        
-        # Fjern timestamp fra response (ikke nødvendig for UI)
-        for session in all_sessions:
-            session.pop("timestamp", None)
-        
-        return all_sessions
-    
-    except Exception as e:
-        logger.error(f'Could not load sessions for user {user_id}: {e}')
-        raise HTTPException(status_code=500, detail=str(e))
+    return conversation_manager.load_user_sessions(user_id=user_id)
 
 @app.get("/load-project/{project_id}")
 async def load_project(project_id: str, user_id: str = Depends(auth.get_current_user)):
-    try:
-        factsheet_ref = (
-            db.collection("projects")
-              .document(user_id)
-              .collection("factsheets")
-              .document(project_id)
-        )
-        
-        factsheet_doc = factsheet_ref.get()
-        
-        if not factsheet_doc.exists:
-            logger.warning(f"No factsheet found for project_id: {project_id}")
-            return {"error": "Factsheet not found"}
-        
-        factsheet_data = factsheet_doc.to_dict()
-        
-        return factsheet_data
-    
-    except Exception as e:
-        logger.error(f"Error loading factsheet: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    return conversation_manager.load_project(user_id=user_id, project_id=project_id)
 
 @app.get("/load-projects")
 async def load_projects(user_id: str = Depends(auth.get_current_user)):
-    try:
-        projects_ref = (
-            db.collection("projects")
-              .document(user_id)
-              .collection("factsheets")
-        )
-        
-        projects_docs = projects_ref.stream()
-        
-        all_projects = []
-        
-        for project_doc in projects_docs:
-            project_data = project_doc.to_dict()
-            project_id = project_doc.id
-            
-            all_projects.append({
-                "project_id": project_id,
-                "title": project_data.get("title", ""),
-                "created_at": project_data.get("created_at"),
-            })
-        
-        # Sorter etter created_at (nyeste først)
-        all_projects.sort(
-            key=lambda x: x.get("created_at") or "", 
-            reverse=True
-        )
-        
-        return all_projects
-    
-    except Exception as e:
-        logger.error(f'Could not load projects for user {user_id}: {e}')
-        raise HTTPException(status_code=500, detail=str(e))
+    return conversation_manager.load_projects(user_id=user_id)
 
+@app.get("/load-project-sessions/{project_id}")
+async def load_project_sessions(project_id: str, user_id: str = Depends(auth.get_current_user)):
+    return conversation_manager.load_project_sessions(user_id=user_id, project_id=project_id)
+
+# AUTHENTICATION ENDPOINTS
 @app.post("/token-from-streamlit")
 async def generate_token_from_streamlit(user_info: StreamlitUserInfo):
     """
@@ -368,11 +229,11 @@ async def generate_token_from_streamlit(user_info: StreamlitUserInfo):
             detail=f"Failed to process user info: {e}"
         )
 
+
+
 @app.get("/", include_in_schema=False)
 def root():
     return {"message": "Welcome to the CompanyAgent API, developed by Sibr AS."}
-
-
 
 
 if __name__ == "__main__":
