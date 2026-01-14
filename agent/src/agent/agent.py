@@ -54,18 +54,16 @@ class Agent:
     def __init__(self,
                  tools : List[tool],
                  prompt : str,
-                 domain : str,
                  llms : dict,
                  checkpointer = None,
                  agent_type : Literal["fast","expert"] = "fast",
                  llm_provider : Literal["google","openai","claude"] = "google",
                  ):
         """
-        Initializes the Agent with tools, prompt, domain, LLMs, and checkpointer.
+        Initializes the Agent with tools, prompt, LLMs, and checkpointer.
         Args:
             tools (List[tool]): List of tools available to the agent.
             prompt (str): The system prompt guiding the agent's behavior.
-            domain (str): The domain or context in which the agent operates.
             llms (dict): Dictionary of LLMs available for the agent.
             checkpointer: Optional checkpointer for saving agent state.
         Returns:
@@ -73,7 +71,6 @@ class Agent:
 
         """
         self.tools = tools
-        self.domain = domain
         self.prompt = prompt
         self.checkpointer = checkpointer
 
@@ -397,7 +394,9 @@ class Agent:
                               user_id: str,
                               agent_type: Literal["fast", "expert"],
                               llm_provider: Literal["google", "openai", "claude"],
-                              query_id : str):
+                                query_id : str,
+                              project_id: Optional[str] = None,
+                             ):
         """
         This is a generator function that yields status updates and the final response.
         """
@@ -409,12 +408,18 @@ class Agent:
         thread = {"configurable":
                       {"thread_id": session_id,
                        "user_id": user_id,
-                       "domain": self.domain}
+                       "custom_project_id": project_id}
                   }
         agent_instance = self._compile_agent(agent_type=agent_type, llm_provider=llm_provider, query_id=query_id)
         
         # NEW OR EXISTING CONVERSATION
         await self.load_or_create_conversation(agent_instance, thread, session_id)
+        if project_id:
+            project_data = self.conversation_manager.load_project(user_id=user_id,
+                                                                project_id=project_id,)
+            if project_data and project_data.get("factsheet"):
+                await agent_instance.aupdate_state(thread, {"factsheet": project_data.get("factsheet")})
+                                                            
         
         #HANDLE USER QUERY
         events = []
