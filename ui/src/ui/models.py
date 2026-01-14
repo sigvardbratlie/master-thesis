@@ -18,7 +18,6 @@ class AskAgentRequest(BaseModel):
     question: str
     attachments: list[AttachmentModel]
     session_id: str
-    domain: str
     agent_type: Literal["fast", "expert"]
     llm_provider: Literal["google", "openai", "claude"]
     query_id: str
@@ -55,7 +54,6 @@ class SessionHistoryResponse(BaseModel):
     """GET /load-session-history response"""
     events: list[dict[str, Any]]
     title: str
-    domain: str
     agent_type: Optional[str] = None
     llm_provider: Optional[str] = None
     last_updated: Optional[str] = None
@@ -117,7 +115,6 @@ class SessionState(TypedDict, total=False):
     # Session info
     session_id: str
     session_title: Optional[str]
-    domain: str
 
     # Messages & history
     messages: list[dict[str, Any]]

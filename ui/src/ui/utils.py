@@ -27,7 +27,6 @@ def init_state():
     st.session_state.setdefault("session_id", str(uuid.uuid4()))
     st.session_state.setdefault("project_id", None)
     st.session_state.setdefault("session_title", None)
-    st.session_state.setdefault("domain", "legal")
 
     # Messages & history
     st.session_state.setdefault("messages", [])
