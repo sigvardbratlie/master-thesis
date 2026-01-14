@@ -9,6 +9,7 @@ import os
 import tiktoken
 import logging
 import base64
+import json
 
 from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMessage,ToolMessage,AIMessageChunk,message_to_dict,messages_to_dict
 from langchain_core.tools import tool
@@ -44,7 +45,7 @@ def add_tool_results(existing: list, new: list) -> list:
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    fact_sheet : Optional[FactSheet]
+    factsheet : Optional[FactSheet]
     #attachments : Annotated[list, add_tool_results]
 
 
@@ -106,15 +107,13 @@ class Agent:
         payload = [SystemMessage(content=self.prompt)]
         attachment_state = []
 
-        
-        
-
         # ---- ATTACHMENT HANDLING AND FACTSHEET UPDATING ----
         if isinstance(msg, HumanMessage) and msg.additional_kwargs.get("attachments"): #if user has added attachments
             attachment_txt = ""
             for att in msg.additional_kwargs.get("attachments",[]):
-
-                result = self.context_manager.update_factsheet(factsheet=state.get("fact_sheet", None),
+                
+                #====FACTSHEET UPDATE======
+                result = self.context_manager.analyze_new_input(factsheet=state.get("factsheet", None),
                                                 new_user_input= state["messages"][-1].content if msg else "",
                                                 new_content= attachment_txt,
                                                 file_id= att.get("file_id",""),
@@ -123,8 +122,14 @@ class Agent:
                                                 file_type= att.get("file_type",""),
                                                 size= att.get("size",0),
                                                 )
+                #result_dict = result.model_
+                if result:
+                    state["factsheet"].get("events").extend(result.get("events", []).model_dump()) if result.get("events") else None
+                    state["factsheet"].get("damages").extend(result.get("damage", []).model_dump()) if result.get("damage") else None
+                    state["factsheet"].get("deadlines").extend(result.get("deadline", []).model_dump()) if result.get("deadline") else None
+                    state["factsheet"].get("claims").extend(result.get("claim", []).model_dump()) if result.get("claim") else None
 
-                #ATTACHMENT HANDLING
+                #====ATTACHMENT HANDLING======
                 attachment_state.append(att)
                 prefix = "-- NEW FILE -- "+"file id: " + att.get("file_id","") + "filename: " + att.get("filename","") +"query_id: " + query_id + "\n"
 
@@ -137,9 +142,8 @@ class Agent:
                                                                                     "session_id" : msg.additional_kwargs.get("session_id","")} ) + "\n\n"
                     
                 
-                if result:
-                    state["fact_sheet"].get("events").extend(result.get("events", [])) if result.get("events") else None
-                    
+                
+            #combine from all attachments
             if msg.content:
                 att_txt =  "Extracted relevant content based on user query: " + attachment_txt
             else:
@@ -149,6 +153,9 @@ class Agent:
                                          {"type" : "text", "text" : "User query: " + msg.content}])  #list[dict] for handling of multi content messages
         
             
+        factsheet_message = HumanMessage(content="Here is the current FactSheet for the case: " + json.dumps(state["factsheet"]))
+        
+        payload.append(factsheet_message) if state.get("factsheet", None) else None
         # ----- LONG CONVERSATION HANDLING -----
         sum_rate = 8
         messages = state["messages"][1:-1] + [msg] if msg else state["messages"][1:]
@@ -309,7 +316,9 @@ class Agent:
         if is_new_conv: #load system prompt
             logger.info(f'Creating new conversation. Thread: {thread}. Choosing type of question...')
             system_message = SystemMessage(content=self.prompt)
-            await agent_instance.aupdate_state(thread, {"messages": [system_message], "tool_results": []})
+            await agent_instance.aupdate_state(thread, {"messages": [system_message], 
+                                                        "factsheet": None, #FYLL INN HER!
+                                                        "tool_results": []})
         else:
             logger.info(f'Continuing conversation (thread: {session_id})')
 
@@ -552,7 +561,7 @@ class Agent:
         thread = {"configurable":
                       {"thread_id": session_id,
                        "user_id": user_id,
-                       "domain": self.domain}
+                       "custom_project_id": project_id}
                   }
         agent_instance = self._compile_agent(agent_type=agent_type, llm_provider=llm_provider, query_id=query_id)
         # NEW OR EXISTING CONVERSATION
@@ -609,6 +618,14 @@ class Agent:
                                                  llm_provider=llm_provider,
                                                  query_id=query_id,
                                                  project_id=project_id if project_id else None)
-        return result
+
+        # Return a JSON-serializable dict with all metadata
+        return {
+            "agent_type": agent_type,
+            "llm_provider": llm_provider,
+            "attachments": attachments,
+            "factsheet": result.model_dump(mode='json'),
+            "created_session_id": session_id
+        }
 
 

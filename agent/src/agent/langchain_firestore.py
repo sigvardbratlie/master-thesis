@@ -114,7 +114,7 @@ class FirestoreSaver(BaseCheckpointSaver):
 
         thread_id = config["configurable"].get("thread_id")
         user_id = config["configurable"].get("user_id")
-        domain = config["configurable"].get("domain")
+        custom_project_id = config["configurable"].get("custom_project_id")
         if not user_id:
             raise ValueError(f'UserId must be present')
         if not thread_id:
@@ -146,7 +146,7 @@ class FirestoreSaver(BaseCheckpointSaver):
             "metadata": serialized_metadata,
             "parent_checkpoint_id": parent_checkpoint_id or "",
             "ts": firestore.SERVER_TIMESTAMP,
-            "domain" : domain
+            "custom_project_id" : custom_project_id
         }
 
         # Skriv til Firestore
@@ -197,7 +197,7 @@ class FirestoreSaver(BaseCheckpointSaver):
     def get_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
         thread_id = config["configurable"]["thread_id"]
         user_id = config["configurable"]["user_id"]
-        #domain = config["configurable"]["domain"]
+        #custom_project_id = config["configurable"]["custom_project_id"]
         checkpoint_id = get_checkpoint_id(config)
 
         # Hvis ingen checkpoint_id er spesifisert, finn den siste.

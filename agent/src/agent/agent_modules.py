@@ -305,8 +305,8 @@ class ConversationManager:
                 "created_at": firestore.SERVER_TIMESTAMP,
                 "agent_type": agent_type,
                 "llm_provider": llm_provider,
-                "factsheet": factsheet.model_dump(),
-                "attachments": [file.model_dump() for file in files]
+                "factsheet": factsheet.model_dump(mode='json'),
+                "attachments": [file.model_dump(mode='json') for file in files]
             })
             logger.info(f"Initial case scan saved for project {project_id}")
         except Exception as e:
@@ -526,9 +526,17 @@ class ContextManager:
                             size=size,
                             event_ids=[event.event_id for event in events],
                         )
-        return {"file": file, "events": events}
+        damage = file.damage if file.damage else []
+        deadline = file.deadline if file.deadline else []
+        claim = file.claim if file.claim else []
 
-    async def update_factsheet(self,
+        return {"file": file, 
+                "events": events,
+                "damage": damage,
+                "deadline": deadline,
+                "claim": claim,}
+
+    async def analyze_new_input(self,
                          factsheet : FactSheet,
                          new_user_input : str,
                          new_content : Optional[str] = "",
@@ -538,7 +546,7 @@ class ContextManager:
                          file_type : Optional[str] = None,
                          size : Optional[int] = None,
                          
-                         ) -> dict[Attachment, Events]:
+                         ) -> dict:
         '''Function to update an existing FactSheet with new input data.
         
         Args:

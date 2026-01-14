@@ -53,6 +53,7 @@ def init_state():
     # Tool results
     st.session_state.setdefault("tool_results", {})
     st.session_state.setdefault("factsheet", None)
+    st.session_state.setdefault("attachments", [])
 
 
 # @st.cache_data(show_spinner=False)
