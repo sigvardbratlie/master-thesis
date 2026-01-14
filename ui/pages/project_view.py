@@ -14,8 +14,6 @@ logger = logging.getLogger(__name__)
 
 init_state()
 
-
-
 #def init_project_view_page():
 st.title("Project View Page")
 

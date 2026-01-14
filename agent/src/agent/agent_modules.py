@@ -158,7 +158,7 @@ class AttachmentReader:
 
     def __init__(self):
         self.client = storage.Client()
-        self.bucket_name = os.getenv("GCS_BUCKET_NAME", "chat-history-attachments")
+        self.bucket_name = os.getenv("GCS_BUCKET_NAME", "chat-history-files")
         self.bucket = self.client.bucket(self.bucket_name)
     
     def _extract_text(self, blob, type : str) -> str:
