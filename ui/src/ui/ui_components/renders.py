@@ -6,6 +6,11 @@ from ui.services.session_service import SessionService
 from ui.utils import init_state
 from ui.ui_components.attachments import view_attachment
 import logging
+from ui.models import AskAgentRequest, ToolResultEvent
+from ui.ui_components.tool_results import handle_tool_result
+from ui.ui_components.attachments import mk_attachment_payload, view_uploaded_file
+from ui.services.streaming_service import StreamingService
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -304,7 +309,6 @@ def handle_new_question():
                 query_id=query_id,
                 agent_type=st.session_state.agent_type,
                 llm_provider=st.session_state.llm_provider,
-                domain=st.session_state.domain
             )
 
             # Create streaming service
