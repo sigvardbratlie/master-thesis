@@ -40,23 +40,22 @@ class SessionService:
             response.raise_for_status()
 
             if not response:
-                st.error(f'Error when loading chat history: {response}')
+                st.error(f'Error when loading session history: {response}')
                 return None
 
             return SessionHistoryResponse(**response.json())
 
         except requests.exceptions.RequestException as e:
-            st.error(f'Error when loading chat history: {e}')
+            #st.error(f'Error when loading session history: {e}')
             logger.error(f"Failed to load session history: {e}")
             return None
 
     @st.cache_data(show_spinner=False)
     def load_user_sessions(_self,) -> list[SessionInfo]:
         """
-        Load all user sessions for a given domain.
+        Load all user sessions.
 
         Args:
-            domain: Domain to filter sessions (e.g., "company")
 
         Returns:
             List of SessionInfo objects, empty list if error
@@ -94,17 +93,44 @@ class SessionService:
             response.raise_for_status()
 
             if not response:
-                st.error(f'Error when loading chat history: {response}')
+                st.error(f'Error when loading projects: {response}')
                 return None
 
             return response.json()
 
         except requests.exceptions.RequestException as e:
-            st.error(f'Error when loading chat history: {e}')
-            logger.error(f"Failed to load session history: {e}")
+            st.error(f'Error when loading projects: {e}')
+            logger.error(f"Failed to load projects: {e}")
             return None
 
+    @st.cache_data(show_spinner=False)
+    def load_project_sessions(_self, ) -> list[SessionInfo]:
+        """
+        Load project sessions for the current project.
 
+        Args:
+
+        Returns:
+            List of SessionInfo objects, empty list if error
+        """
+        try:
+            response = requests.get(
+                f'{_self.backend_url}/load-project-sessions/{st.session_state.project_id}',
+                headers=_self.headers,
+            )
+            response.raise_for_status()
+
+            if not response:
+                st.error(f'Error when loading project sessions: {response}')
+                return []
+
+            return [SessionInfo(**s) for s in response.json()]
+
+        except requests.exceptions.RequestException as e:
+            #st.error(f'Error when loading project sessions: {e}')
+            logger.error(f"Failed to load project sessions: {e}")
+            return []
+    
     def load_project(_self,) -> Optional[dict]:
         """
         Load factsheet for a given project.
@@ -126,3 +152,5 @@ class SessionService:
             st.error(f'Error when loading factsheet: {e}')
             logger.error(f"Failed to load factsheet: {e}")
             return None
+        
+    
