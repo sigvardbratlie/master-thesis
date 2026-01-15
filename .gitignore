@@ -22,3 +22,7 @@ secrets.toml
 
 playground.ipynb
 
+supabase.ipynb
+.vscode/
+.idea/
+test_run_functions.ipynb
