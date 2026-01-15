@@ -21,8 +21,7 @@ llms = {"google" : {"fast": ChatGoogleGenerativeAI(project = project_id , model=
         #             "expert" : ChatAnthropic(model = "claude-3-opus-latest")},
                         }
 
-def add_tool_results(existing: list, new: list) -> list:
-    return existing + new
+
 
 PROMPT = """
 Legal AI Agent

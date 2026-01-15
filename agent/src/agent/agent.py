@@ -1,21 +1,23 @@
 import os
-from typing import Literal,List
-from datetime import datetime, timedelta
-import pandas as pd
-from langchain.tools import tool
-from dotenv import load_dotenv
-from typing import Dict,TypedDict,List,Union,Annotated,Sequence,Optional, Literal, Tuple, Any
-import os
-import tiktoken
-import logging
 import base64
 import json
+import logging
+import tiktoken
+from datetime import datetime
+from typing import Dict, List, Literal, Optional, Sequence, Annotated
 
-from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMessage,ToolMessage,AIMessageChunk,message_to_dict,messages_to_dict
+import pandas as pd
+from dotenv import load_dotenv
+
+from langchain_core.messages import (
+    HumanMessage, AIMessage, SystemMessage, BaseMessage,
+    ToolMessage, AIMessageChunk, message_to_dict, messages_to_dict
+)
 from langchain_core.tools import tool
+from langchain_core.runnables import RunnableConfig
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.documents import Document
-from langgraph.graph import StateGraph,END
+from langgraph.graph import StateGraph, END
 
 from agent.agent_modules import Summarizer,ContextManager, ToolManager
 from database import VectorSearch,AttachmentReader, ConversationManager
@@ -39,7 +41,7 @@ class Agent:
                  checkpointer = None,
                  agent_type : Literal["fast","expert"] = "fast",
                  llm_provider : Literal["google","openai","claude"] = "google",
-                 ):
+                 config : Optional[RunnableConfig] = None):
         """
         Initializes the Agent with tools, prompt, LLMs, and checkpointer.
         Args:
@@ -54,7 +56,7 @@ class Agent:
         self.tools = tools
         self.prompt = prompt
         self.checkpointer = checkpointer
-
+        self.config = config
         self.summary = "" #rolling summary for long conversations
         self.llms = llms
         self.llm = llms.get(llm_provider, llms["google"]).get(agent_type, llms["google"]["fast"])
@@ -68,95 +70,260 @@ class Agent:
     
     # =================================
     #         GRAPH ELEMENTS
-    # ================================
-    
-    def _call_llm(self, state: AgentState, llm_with_tools: BaseChatModel,) -> AgentState:
-        '''Calls the LLM with RAG from Big Query Vector Store for attachements.
+    # =================================
+
+    def _fetch_attachment_contents(self,
+                                    attachments: list,
+                                    user_input: str,
+                                    session_id: str,
+                                    query_id: str) -> dict[str, str]:
+        """
+        Fetches content for all attachments from vector store (single retrieval).
+
         Args:
-            state (AgentState): The current state of the agent.
-            llm_with_tools (BaseChatModel): The LLM model with tools bound.
+            attachments: List of attachment metadata
+            user_input: User's query for RAG retrieval
+            session_id: Session ID
+            query_id: Query ID
+
+        Returns:
+            Dict mapping file_id to content string
+        """
+        if not attachments:
+            return {}
+
+        contents = {}
+        try:
+            for att in attachments:
+                file_id = att.get("file_id", "")
+
+                if user_input:
+                    content = self.vs.retrieve_relevant_attachments(query=user_input, query_id=query_id)
+                else:
+                    content = self.vs.retrieve_txt_content(
+                        table="attachments",
+                        conditions={"file_id": file_id, "session_id": session_id}
+                    )
+                    content = " ".join(content) if isinstance(content, list) else content
+
+                contents[file_id] = content if content else ""
+
+        except Exception as e:
+            logger.error(f"Error fetching attachment contents: {e}", exc_info=True)
+
+        return contents
+
+    async def _process_attachments_for_update(self,
+                                               state: AgentState,
+                                               attachments: list,
+                                               attachment_contents: dict[str, str],
+                                               user_input: str) -> tuple[AgentState, list]:
+        """
+        Updates factsheet based on new attachments.
+
+        Args:
+            state: Current agent state
+            attachments: List of attachment metadata
+            attachment_contents: Pre-fetched content dict (file_id -> content)
+            user_input: User's query
+
+        Returns:
+            Tuple of (updated state, list of new files)
+        """
+        if not state.get("factsheet") or not attachments:
+            return state, []
+
+        new_files = []
+        factsheet = state["factsheet"]
+
+        for att in attachments:
+            file_id = att.get("file_id", "")
+            content = attachment_contents.get(file_id, "")
+
+            try:
+                result = await self.context_manager.analyze_new_input(
+                    factsheet=factsheet,
+                    new_user_input=user_input,
+                    new_content=content,
+                    file_id=file_id,
+                    filename=att.get("filename", ""),
+                    path=att.get("path", ""),
+                    file_type=att.get("file_type", ""),
+                    size=att.get("size", 0),
+                )
+
+                if result:
+                    # Extend timeline with new events
+                    if result.get("events"):
+                        events_list = result["events"].events if hasattr(result["events"], "events") else result["events"]
+                        for event in events_list:
+                            factsheet["timeline"].append(event.model_dump() if hasattr(event, "model_dump") else event)
+
+                    # Extend damages
+                    if result.get("damage"):
+                        for damage in result["damage"]:
+                            factsheet.setdefault("damages", []).append(
+                                damage.model_dump() if hasattr(damage, "model_dump") else damage
+                            )
+
+                    # Extend deadlines
+                    if result.get("deadline"):
+                        for deadline in result["deadline"]:
+                            factsheet.setdefault("deadlines", []).append(
+                                deadline.model_dump() if hasattr(deadline, "model_dump") else deadline
+                            )
+
+                    # Extend claims
+                    if result.get("claim"):
+                        for claim in result["claim"]:
+                            factsheet.setdefault("claims", []).append(
+                                claim.model_dump() if hasattr(claim, "model_dump") else claim
+                            )
+
+                    # Track new file
+                    if result.get("file"):
+                        new_files.append(result["file"])
+
+            except Exception as e:
+                logger.error(f"Error processing attachment {file_id}: {e}", exc_info=True)
+
+        state["factsheet"] = factsheet
+        return state, new_files
+
+    def _build_attachment_context(self,
+                                   attachments: list,
+                                   attachment_contents: dict[str, str],
+                                   user_input: str) -> str:
+        """
+        Builds RAG context from pre-fetched attachment contents for LLM payload.
+
+        Args:
+            attachments: List of attachment metadata
+            attachment_contents: Pre-fetched content dict (file_id -> content)
+            user_input: User's query (used to determine formatting)
+
+        Returns:
+            Formatted text with relevant content from attachments
+        """
+        if not attachments or not attachment_contents:
+            return ""
+
+        attachment_texts = []
+
+        for att in attachments:
+            file_id = att.get("file_id", "")
+            filename = att.get("filename", "")
+            content = attachment_contents.get(file_id, "")
+
+            if content:
+                prefix = f"-- FILE: {filename} (ID: {file_id}) --\n"
+                attachment_texts.append(prefix + content)
+
+        if not attachment_texts:
+            return ""
+
+        combined = "\n\n".join(attachment_texts)
+
+        if user_input:
+            return f"Relevant content from attachments based on query:\n{combined}"
+        else:
+            return f"Summary of attachments:\n{self.summarizer.summarize(combined)}"
+
+    async def _call_llm(self, state: AgentState, llm_with_tools: BaseChatModel,) -> AgentState:
+        """
+        Calls the LLM with RAG from BigQuery Vector Store for attachments.
+
+        Args:
+            state: The current state of the agent.
+            llm_with_tools: The LLM model with tools bound.
+
         Returns:
             AgentState: The updated state with the LLM's response.
-        
-        '''
-
+        """
         msg = state["messages"][-1] if isinstance(state["messages"][-1], HumanMessage) else None
-        query_id = msg.additional_kwargs.get("query_id","") if msg is not None else None
+        query_id = msg.additional_kwargs.get("query_id", "") if msg else ""
+        session_id = msg.additional_kwargs.get("session_id", "") if msg else ""
+        attachments = msg.additional_kwargs.get("attachments", []) if msg else []
+        user_input = msg.content if msg else ""
+
+        new_files = []
+        attachment_contents = {}
+
+        # ---- FETCH ATTACHMENT CONTENTS ONCE ----
+        if attachments:
+            attachment_contents = self._fetch_attachment_contents(
+                attachments=attachments,
+                user_input=user_input,
+                session_id=session_id,
+                query_id=query_id
+            )
+
+        # ---- PROCESS ATTACHMENTS: Update factsheet ----
+        factsheet = self.conversation_manager.load_project(user_id = self.config.user_id if self.config else "",
+                                                           project_id = self.config.custom_project_id if self.config else "",)
+        if attachments and state.get("factsheet"):
+            state, new_files = await self._process_attachments_for_update(
+                state=state,
+                attachments=attachments,
+                attachment_contents=attachment_contents,
+                user_input=user_input
+            )
+
+        # ---- BUILD ATTACHMENT CONTEXT FOR LLM ----
+        attachment_context = self._build_attachment_context(
+            attachments=attachments,
+            attachment_contents=attachment_contents,
+            user_input=user_input
+        )
+
+        # ---- BUILD PAYLOAD ----
         payload = [SystemMessage(content=self.prompt)]
-        attachment_state = []
 
-        # ---- ATTACHMENT HANDLING AND FACTSHEET UPDATING ----
-        if isinstance(msg, HumanMessage) and msg.additional_kwargs.get("attachments"): #if user has added attachments
-            attachment_txt = ""
-            for att in msg.additional_kwargs.get("attachments",[]):
-                
-                #====FACTSHEET UPDATE======
-                result = self.context_manager.analyze_new_input(factsheet=state.get("factsheet", None),
-                                                new_user_input= state["messages"][-1].content if msg else "",
-                                                new_content= attachment_txt,
-                                                file_id= att.get("file_id",""),
-                                                filename= att.get("filename",""),
-                                                path= att.get("path",""),
-                                                file_type= att.get("file_type",""),
-                                                size= att.get("size",0),
-                                                )
-                #result_dict = result.model_
-                if result:
-                    state["factsheet"].get("events").extend(result.get("events", []).model_dump()) if result.get("events") else None
-                    state["factsheet"].get("damages").extend(result.get("damage", []).model_dump()) if result.get("damage") else None
-                    state["factsheet"].get("deadlines").extend(result.get("deadline", []).model_dump()) if result.get("deadline") else None
-                    state["factsheet"].get("claims").extend(result.get("claim", []).model_dump()) if result.get("claim") else None
+        # Add factsheet context
+        if state.get("factsheet"):
+            factsheet_message = HumanMessage(
+                content="Here is the current FactSheet for the case: " + json.dumps(state["factsheet"])
+            )
+            payload.append(factsheet_message)
 
-                #====ATTACHMENT HANDLING======
-                attachment_state.append(att)
-                prefix = "-- NEW FILE -- "+"file id: " + att.get("file_id","") + "filename: " + att.get("filename","") +"query_id: " + query_id + "\n"
-
-                if msg.content:
-                    attachment_txt += prefix + self.vs.retrieve_relevant_attachments(query = msg.content, query_id =query_id ) + "\n\n"
-                                                                  
-                else:
-                    attachment_txt +=  prefix + self.vs.retrieve_txt_content(table = "attachments", 
-                                                                         conditions={"file_id" : att.get("file_id",""),
-                                                                                    "session_id" : msg.additional_kwargs.get("session_id","")} ) + "\n\n"
-                    
-                
-                
-            #combine from all attachments
-            if msg.content:
-                att_txt =  "Extracted relevant content based on user query: " + attachment_txt
-            else:
-                att_txt = "Executive summary of the attachment: " + self.summarizer.summarize(attachment_txt)
-            
-            msg = HumanMessage(content= [{"type" : "text", "text" : "Attachment text: " + att_txt},
-                                         {"type" : "text", "text" : "User query: " + msg.content}])  #list[dict] for handling of multi content messages
-        
-            
-        factsheet_message = HumanMessage(content="Here is the current FactSheet for the case: " + json.dumps(state["factsheet"]))
-        
-        payload.append(factsheet_message) if state.get("factsheet", None) else None
-        # ----- LONG CONVERSATION HANDLING -----
+        # ---- LONG CONVERSATION HANDLING ----
         sum_rate = 8
         messages = state["messages"][1:-1] + [msg] if msg else state["messages"][1:]
 
-        if len(state["messages"])>sum_rate:
+        if len(state["messages"]) > sum_rate:
             if len(messages) % sum_rate == 0:
                 msgs_to_sum = ["Previous summary: " + self.summary] if self.summary else []
-                msgs_to_sum.extend(messages[-sum_rate-1:])
+                msgs_to_sum.extend(messages[-sum_rate - 1:])
                 self.summary = self.summarizer.summarize(msgs_to_sum)
 
-            payload.append(AIMessage(content=self.summary)) if self.summary else None            
-            payload.extend(self.context_manager.truncate_messages(messages, max_messages=sum_rate))     
-
+            if self.summary:
+                payload.append(AIMessage(content=self.summary))
+            payload.extend(self.context_manager.truncate_messages(messages, max_messages=sum_rate))
         else:
             payload.extend(messages)
 
-        print(f"--- Payload Messages for query id {query_id} ---")
-        for msg in payload:
-            print(f"{msg.type}: {msg.content[:100]}")
+        # ---- ADD ATTACHMENT CONTEXT TO USER MESSAGE ----
+        if attachment_context and msg:
+            msg = HumanMessage(content=[
+                {"type": "text", "text": f"Attachment context:\n{attachment_context}"},
+                {"type": "text", "text": f"User query: {user_input}"}
+            ])
+            # Replace last message in payload with enhanced message
+            if payload and isinstance(payload[-1], HumanMessage):
+                payload[-1] = msg
+
+        logger.info(f"--- Payload Messages for query id {query_id} ---")
+        for m in payload:
+            content_preview = str(m.content)[:100] if m.content else ""
+            logger.info(f"{m.type}: {content_preview}")
 
         try:
-            message = llm_with_tools.invoke(payload) #ADD FACTSHEET TO PAYLOAD! 
-            return {'messages': [message], "tool_results": [], "attachments": attachment_state}
+            message = await llm_with_tools.ainvoke(payload)
+            return {
+                "messages": [message],
+                "factsheet": state.get("factsheet"),
+                "attachments": [f.model_dump() for f in new_files] if new_files else []
+            }
         except Exception as e:
             logger.error(f"Error invoking LLM: {e}", exc_info=True)
             raise e
@@ -262,13 +429,15 @@ class Agent:
 
 
         llm = selected_llm.bind_tools(self.tools)
-        
+
+        async def call_llm_node(state):
+            return await self._call_llm(state, llm_with_tools=llm)
+
         async def call_tool_node(state):
-            # Nå kan du bruke await inne i en async def
             return await self._call_tool(state, query_id=query_id)
 
         graph = StateGraph(AgentState)
-        graph.add_node("call_llm", lambda state: self._call_llm(state,llm_with_tools=llm))
+        graph.add_node("call_llm", call_llm_node)
         graph.add_node("call_tool", call_tool_node)
         graph.set_entry_point("call_llm")
         graph.add_edge("call_tool", "call_llm")
@@ -391,6 +560,7 @@ class Agent:
                        "user_id": user_id,
                        "custom_project_id": project_id}
                   }
+        self.config = RunnableConfig(thread)
         agent_instance = self._compile_agent(agent_type=agent_type, llm_provider=llm_provider, query_id=query_id)
         
         # NEW OR EXISTING CONVERSATION
@@ -479,6 +649,23 @@ class Agent:
                                                   agent_type=agent_type, 
                                                   llm_provider=llm_provider,
                                                   query_id=query_id)
+            if project_id:
+                state_snapshot = await agent_instance.aget_state(thread)
+                state_values = state_snapshot.values if state_snapshot else {}
+                factsheet = state_values.get("factsheet")
+                files = state_values.get("attachments", [])
+
+                if factsheet:
+                    self.conversation_manager.update_factsheet(
+                        factsheet=factsheet,
+                        files=files,
+                        user_id=user_id,
+                        session_id=session_id,
+                        agent_type=agent_type,
+                        llm_provider=llm_provider,
+                        query_id=query_id,
+                        project_id=project_id
+                    )
             
 
     

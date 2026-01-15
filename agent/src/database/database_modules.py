@@ -188,7 +188,7 @@ class ConversationManager:
             factsheet_ref = (
                 self.db.collection("projects")
                 .document(user_id)
-                .collection("factsheets")
+                .collection("projects")
                 .document(project_id)
             )
             
@@ -210,7 +210,7 @@ class ConversationManager:
             projects_ref = (
                 self.db.collection("projects")
                 .document(user_id)
-                .collection("factsheets")
+                .collection("projects")
             )
             
             projects_docs = projects_ref.stream()
@@ -472,13 +472,14 @@ class ConversationManager:
             None
         '''
 
-        ref = self.db.collection("projects").document(user_id).collection("factsheets").document(project_id)
+        ref = self.db.collection("projects").document(user_id).collection("projects").document(project_id)
         try:
             ref.set({
                 "user_id": user_id,
-                "created_session_id": session_id,
-                "created_query_id": query_id,
+                "last_updated_session_id": session_id,
+                "last_updated_query_id": query_id,
                 "created_at": firestore.SERVER_TIMESTAMP,
+                "last_updated": firestore.SERVER_TIMESTAMP,
                 "agent_type": agent_type,
                 "llm_provider": llm_provider,
                 "factsheet": factsheet.model_dump(mode='json'),
@@ -487,6 +488,33 @@ class ConversationManager:
             logger.info(f"Initial case scan saved for project {project_id}")
         except Exception as e:
             logger.error(f"Error saving initial case scan: {e}", exc_info=True)
+
+    def update_factsheet(self,
+                         factsheet : FactSheet,
+                         files : list[Attachment],
+                         session_id : str,
+                         query_id : str,
+                         agent_type : Literal["fast", "expert"],
+                         llm_provider : Literal["google", "openai", "claude"],
+                         user_id : str,
+                         project_id : str):
+        ''' Update the factsheet in Firestore'''
+
+        ref = self.db.collection("projects").document(user_id).collection("projects").document(project_id)
+        try:
+            ref.update({
+                "user_id": user_id,
+                "last_updated_session_id": session_id,
+                "last_updated_query_id": query_id,
+                "last_updated": firestore.SERVER_TIMESTAMP,
+                "agent_type": agent_type,
+                "llm_provider": llm_provider,
+                "factsheet": factsheet.model_dump(mode='json'),
+                #"attachments": [file.model_dump(mode='json') for file in files]
+            })
+            logger.info(f"Factsheet updated for project {project_id}")
+        except Exception as e:
+            logger.error(f"Error updating factsheet: {e}", exc_info=True)
 
     def get_or_create_user(self, google_user_info: dict) -> str:
         """

@@ -6,6 +6,7 @@ from datetime import datetime
 import uuid
 from langgraph.graph.message import add_messages
 
+
 class Contact(BaseModel):
     name: str = Field(description="Full name of contact person")
     title: Optional[str] = None
@@ -142,7 +143,10 @@ class RelevanceCheck(BaseModel):
     is_relevant: bool
     reasoning: str
 
+def add_tool_results(existing: list, new: list) -> list:
+    return existing + new
+
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
     factsheet : Optional[FactSheet]
-    #attachments : Annotated[list, add_tool_results]
+    attachments : Annotated[list, add_tool_results]

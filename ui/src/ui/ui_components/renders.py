@@ -86,7 +86,6 @@ def render_chat_input():
     chat_question = st.chat_input(
         "Skriv ditt spørsmål her...",
         accept_file="multiple",
-        
         file_type=["txt", "csv", "xlsx", "pdf"],
     )
 
@@ -302,8 +301,10 @@ def handle_new_question():
             status_box = status_placeholder.status("🧠 Jobber med saken...", expanded=False)
 
             # Prepare request
+            question = question.text if hasattr(question, "text") else question
+            st.write(f"Spørsmål mottatt: {type(question)}")
             request = AskAgentRequest(
-                question=question.text if hasattr(question, "text") else question,
+                question=question,
                 session_id=st.session_state.session_id,
                 attachments=attachment_payload,
                 query_id=query_id,

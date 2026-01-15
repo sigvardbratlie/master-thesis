@@ -15,6 +15,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 init_state()
+if st.session_state.session_id is None:
+    st.session_state.session_id = str(uuid.uuid4())
 
 # ================== AUTHENTICATION ==================
 
@@ -30,6 +32,7 @@ if not auth_service.authenticate_with_backend():
 
 # ================== MAIN PAGE ==================
 
+st.info(st.session_state.project_id)
 
 
 streaming_service = StreamingService(
@@ -152,10 +155,13 @@ def render_project_sessions():
     else:
         st.info("No sessions found for this project.")
 
+#st.json(st.session_state)
+
 with st.sidebar:
     new_project = st.button("Initialize New Project", icon="🆕")
     if new_project:
         st.session_state.clear()
+        init_state()
         st.rerun()
 
     st.divider()
@@ -164,7 +170,8 @@ with st.sidebar:
     if st.session_state.get('project_id', None):
         render_project_sessions()
         st.divider()
-        render_selected_project()
+        if st.session_state.get('factsheet', None):
+            render_selected_project()
 
 
 
@@ -220,11 +227,19 @@ if not st.session_state.project_id:
                     st.success("Project initialized successfully!")
                     logger.info(f"Project initialized: {response.json()}")
                     try:
-                        factsheet = response.json()
+                        project_data = response.json()
                     except Exception as e:
                         logger.error(f"Error parsing factsheet JSON: {str(e)}")
-                        factsheet = {}
-                    st.session_state.project_data = factsheet
+                        project_data = {}
+
+                    # Set factsheet and attachments from response
+                    st.session_state.project_data = project_data
+                    st.session_state.factsheet = project_data.get('factsheet')
+                    st.session_state.attachments = project_data.get('attachments', [])
+
+                    # Clear cached project list so new project shows in sidebar
+                    session_service.load_projects.clear()
+
                     st.rerun()
                 else:
                     st.error(f"Error initializing project: {response.text}")
@@ -234,22 +249,27 @@ if not st.session_state.project_id:
                 logger.exception("Exception during project initialization")
 
 else:
-    #st.success(f"Project ID: {st.session_state.project_id} is initialized.")
-    #st.markdown("You can now start asking questions related to your project in the chat interface.")
-
     # Load factsheet if not already in session state
-    if 'project_data' not in st.session_state or st.session_state.project_data is None:
+    if not st.session_state.get('factsheet'):
         logger.info(f"Loading project data for project: {st.session_state.project_id}")
-        project_data = session_service.load_project()
-        if project_data:
-            st.session_state.factsheet = project_data.get('factsheet')
-            st.session_state.attachments = project_data.get('attachments', [])
+
+        # First check if we have project_data from init response
+        if st.session_state.get('project_data'):
+            st.session_state.factsheet = st.session_state.project_data.get('factsheet')
+            st.session_state.attachments = st.session_state.project_data.get('attachments', [])
         else:
-            st.warning("Could not load factsheet or attachments for this project.")
-            st.session_state.factsheet = None
-            st.session_state.attachments = []
+            # Load from Firestore
+            project_data = session_service.load_project()
+            if project_data:
+                st.session_state.factsheet = project_data.get('factsheet')
+                st.session_state.attachments = project_data.get('attachments', [])
+            else:
+                st.warning("Could not load factsheet or attachments for this project.")
+                st.session_state.factsheet = None
+                st.session_state.attachments = []
+
     # Display factsheet if available
-    if st.session_state.factsheet:
+    if st.session_state.get('factsheet'):
         if st.session_state.first_question:
             render_first_question()
         else:

@@ -214,21 +214,22 @@ class ContextManager:
     
     # ===== FUNCTIONS FOR UPDATING EXISTING FACTSHEET =====
     async def consider_new_events(self,
-                            factsheet : FactSheet,
+                            factsheet : FactSheet | dict,
                          new_content : str,
                          new_user_input : str,
                          file_id : str
                          ) -> list[Event]:
         structured_llm = self.llm.with_structured_output(Events)
-        init_prompt = f'Existing factsheet:\n\n{factsheet.model_dump()}\n\n'
+        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
+        init_prompt = f'Existing factsheet:\n\n{factsheet_data}\n\n'
         prompt = init_prompt + f'Analyze the following document content and extract key main events:\n\n{new_content}' + f'\n\nNew user input:\n\n{new_user_input}\n\n'
         response = await structured_llm.ainvoke(prompt)
         for event in response.events:
             event.file_id = file_id
-        return response
+        return response.events
     
     async def consider_new_doc(self,
-                            factsheet : FactSheet,
+                            factsheet : FactSheet | dict,
                          new_content : str,
                          new_user_input : str,
                          file_id : str,
@@ -239,7 +240,7 @@ class ContextManager:
                          ) -> dict:
         '''Function to analyze new document content in relation to existing FactSheet.
         Args:
-            factsheet (FactSheet): The existing FactSheet object.
+            factsheet (FactSheet | dict): The existing FactSheet object or dict.
             content (str): The new document content to analyze.
             file_id (str): The unique identifier for the file.
             filename (str): The name of the file.
@@ -250,7 +251,8 @@ class ContextManager:
         Returns:
             dict: A dictionary indicating relevance and suggested updates.
         '''
-        prompt = f'Existing factsheet:\n\n{factsheet.model_dump()}\n\n'
+        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
+        prompt = f'Existing factsheet:\n\n{factsheet_data}\n\n'
         prompt += f'Analyze the following document content and extract key information into the Attachment structure:\n\n{new_content}' + f'\n\nNew user input:\n\n{new_user_input}\n\n'
 
         structured_llm = self.llm.with_structured_output(AttachmentExtracted)
@@ -275,7 +277,7 @@ class ContextManager:
                 "claim": claim,}
 
     async def analyze_new_input(self,
-                         factsheet : FactSheet,
+                         factsheet : FactSheet | dict,
                          new_user_input : str,
                          new_content : Optional[str] = "",
                          file_id : Optional[str] = None,
@@ -283,12 +285,12 @@ class ContextManager:
                          path : Optional[str] = None,
                          file_type : Optional[str] = None,
                          size : Optional[int] = None,
-                         
+
                          ) -> dict:
         '''Function to update an existing FactSheet with new input data.
-        
+
         Args:
-            factsheet (FactSheet): The existing FactSheet to update.
+            factsheet (FactSheet | dict): The existing FactSheet to update.
             new_user_input (str): The new input query or information from the user.
             new_content (str, optional): New document content to consider for updating the factsheet.
             file_id (str, optional): The unique identifier for the new document.
@@ -296,11 +298,12 @@ class ContextManager:
             path (str, optional): The storage path of the new document.
             file_type (str, optional): The MIME type of the new document.
             size (int, optional): The size of the new document in bytes.
-        
+
         Returns:
-            FactSheet: The updated FactSheet object.
+            dict: Result containing updated file, events, damages, deadlines, claims.
         '''
-        existing_facts = f"Existing factsheet:\n\n{factsheet.model_dump()}"
+        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
+        existing_facts = f"Existing factsheet:\n\n{factsheet_data}"
         prompt = existing_facts + f'Return True if the following new input is relevant to update the existing factsheet, else return False:\n\n{new_user_input}'
         structured_llm = self.llm.with_structured_output(RelevanceCheck)  
         relevant = await structured_llm.ainvoke(prompt)
