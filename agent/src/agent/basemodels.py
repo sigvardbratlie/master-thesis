@@ -4,7 +4,7 @@ from typing import TypedDict, Annotated, Sequence
 from langchain_core.messages import BaseMessage
 from datetime import datetime
 import uuid
-from agent.utils import add_messages
+from langgraph.graph.message import add_messages
 
 class Contact(BaseModel):
     name: str = Field(description="Full name of contact person")

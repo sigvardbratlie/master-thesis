@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from agent.agent_modules import ConversationManager
 
 class TokenData(BaseModel):
     user_id: Optional[str] = None
