@@ -2,7 +2,6 @@ from dotenv import load_dotenv
 load_dotenv()
 import os
 from pathlib import Path
-from pathlib import Path
 from typing import Optional,Literal
 import asyncio
 import json
@@ -14,18 +13,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI,HTTPException,status,Depends
-from fastapi import FastAPI,HTTPException,status,Depends
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from langchain_openai import ChatOpenAI
 from google.cloud import firestore
 
-from agent.agent import Agent,llms
-from agent.utils import TOOLS,PROMPT
-from agent.langchain_firestore import FirestoreSaver
-from agent.google_auth import GoogleAuth
-from agent.agent_modules import ConversationManager
+from agent.utils import PROMPT,llms
+from agent.tools import TOOLS
+from agent import Agent
+from database import FirestoreSaver
+from auth import GoogleAuth
+from database import ConversationManager
     
 # ===== SETUP FASTAPI & AGENT =======
 app = FastAPI()
@@ -50,9 +49,8 @@ app.add_middleware(
 )
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-db = firestore.Client(project=project_id,database="(default)")
 checkpointer = FirestoreSaver(project_id=project_id,database_id="(default)")
-auth = GoogleAuth(secret_key=os.getenv("SECRET_KEY"), db = db)
+auth = GoogleAuth(secret_key=os.getenv("SECRET_KEY"))
 
 
 agent = Agent(
@@ -202,7 +200,7 @@ async def generate_token_from_streamlit(user_info: StreamlitUserInfo):
         logger.debug(f'Received user info from streamlit: {google_user_info_mock}')
 
         # Use existing logic to get or create the user
-        user_id = auth.get_or_create_user(google_user_info_mock)
+        user_id = conversation_manager.get_or_create_user(google_user_info_mock)
         logger.debug(f'Obtained user_id: {user_id}')
 
         if not user_id:

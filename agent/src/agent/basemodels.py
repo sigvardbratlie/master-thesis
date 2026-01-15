@@ -1,7 +1,10 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
+from typing import TypedDict, Annotated, Sequence
+from langchain_core.messages import BaseMessage
 from datetime import datetime
 import uuid
+from agent.utils import add_messages
 
 class Contact(BaseModel):
     name: str = Field(description="Full name of contact person")
@@ -138,3 +141,8 @@ class FactSheet(InitialInput,FactualFacts):
 class RelevanceCheck(BaseModel):
     is_relevant: bool
     reasoning: str
+
+class AgentState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+    factsheet : Optional[FactSheet]
+    #attachments : Annotated[list, add_tool_results]

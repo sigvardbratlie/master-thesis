@@ -6,14 +6,20 @@ from datetime import datetime, timedelta
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from agent.agent_modules import ConversationManager
 
 class TokenData(BaseModel):
     user_id: Optional[str] = None
 
-class GoogleAuth:
-    def __init__(self, db, secret_key, algorithm = "HS256", access_token_expire_minutes = 60 * 24):
-        self.db = db
-        self.users_ref = db.collection("users")
+class GoogleToken(BaseModel):
+        token: str
+
+class BaseAuth:
+    def __init__(self, 
+                 secret_key, 
+                 algorithm = "HS256", 
+                 access_token_expire_minutes = 60 * 24, 
+                 ):
         self.secret_key = secret_key
         self.algorithm = algorithm
         self.access_token_expire_minutes = access_token_expire_minutes
@@ -31,41 +37,15 @@ class GoogleAuth:
         encoded_jwt = jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
         return encoded_jwt
 
-    def get_or_create_user(self, google_user_info: dict) -> str:
-        """
-        Finds a user based on Google User ID, or creates a new one if it doesn't exist.
-        Returns the app's internal user_id (document ID in Firestore).
-        
-        Args:
-            google_user_info (dict): Dictionary containing Google user information with keys like 'sub', 'email', 'name', 'picture'.
-        
-        Returns:
-            str: The internal user ID (Firestore document ID).
-        """
-        google_user_id = google_user_info['sub']
 
-        # Sjekk om brukeren allerede finnes
-        query = self.users_ref.where('google_user_id', '==', google_user_id).limit(1)
-        existing_users = list(query.stream())
+class GoogleAuth(BaseAuth):
+    def __init__(self, 
+                 secret_key, 
+                 algorithm = "HS256", 
+                 access_token_expire_minutes = 60 * 24, 
+                 ):
+        super().__init__(secret_key, algorithm, access_token_expire_minutes)
 
-        if existing_users:
-            # Brukeren finnes, returner ID-en
-            user_doc = existing_users[0]
-            return user_doc.id
-        else:
-            # Opprett en ny bruker
-            new_user_data = {
-                'google_user_id': google_user_id,
-                'email': google_user_info.get('email'),
-                'name': google_user_info.get('name'),
-                'picture': google_user_info.get('picture'),
-                'created_at': firestore.SERVER_TIMESTAMP
-            }
-            update_time, user_ref = self.users_ref.add(new_user_data)
-            return user_ref.id
-
-    class GoogleToken(BaseModel):
-        token: str
     oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
     async def get_current_user(self, token : str = Depends(oauth2_scheme)):
