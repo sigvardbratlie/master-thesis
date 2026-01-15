@@ -1,63 +1,66 @@
 # Repository Guidelines
 
-## 🚨 MANDATORY ROLE ALIGNMENT
+## General Instructions
 
-**CRITICAL: Select the persona that matches your assignment before editing.**
-
-Always write all documentation, variable_names and code in english!
+Always write all documentation, variable names and code in english.
 Keep everything neat and tidy. Do not produce more than asked.
 Do not write code unless explicitly asked.
 
-**FIRST STEP**: Read the relevant brief in `docs/personas/` (author one if it does not exist) and commit to a role:
+## Persona Selection
 
-1. **Pipeline Developer Agent** – Implement ingestion flows and CLI behaviour (`docs/personas/pipeline-developer.md`).
-2. **Data Quality Reviewer Agent** – Verify dataset fidelity and regression coverage (`docs/personas/data-quality-reviewer.md`).
-3. **Schema Rebaser Agent** – Align SQL/BigQuery contracts and tidy history (`docs/personas/schema-rebaser.md`).
-4. **Release Merger Agent** – Resolve integration conflicts and validate release manifests (`docs/personas/release-merger.md`).
-5. **Orchestration Planner Agent** – Design batch cadence, rate limits, and agent hand-offs (`docs/personas/orchestration-planner.md`).
+**FIRST STEP**: Read the relevant brief in `promptx/personas/` and commit to a role:
 
-## How to Choose Your Persona
-
-- Extending suppliers, refactoring async code, or adding CLI flags → Pipeline Developer Agent.
-- Reviewing output quality, schema diffs, or business rules → Data Quality Reviewer Agent.
-- Cleaning commit history or updating BigQuery schemas → Schema Rebaser Agent.
-- Preparing production releases or merging long-lived branches → Release Merger Agent.
-- Planning concurrent backfills or orchestrating multi-agent runs → Orchestration Planner Agent.
+1. **Developer Agent** – Implement features and fix bugs (`promptx/personas/agent-developer.md`)
+2. **Code Reviewer Agent** – Review code quality and patterns (`promptx/personas/agent-code-reviewer.md`)
+3. **Rebaser Agent** – Clean commit history and resolve conflicts (`promptx/personas/agent-rebaser.md`)
+4. **Merger Agent** – Handle branch merges and releases (`promptx/personas/agent-merger.md`)
+5. **Multiplan Manager Agent** – Orchestrate complex multi-step tasks (`promptx/personas/agent-multiplan-manager.md`)
 
 ## Project Context
 
-Mission: deliver an agent-driven corporate intel platform that surpasses proff.no in freshness and insight.
+**Mission**: Build an LLM-powered legal case management agent that helps lawyers analyze cases, manage factsheets, and process legal documents.
 
-This repository currently provides:
-- **Runtime**: Python 3.11 CLI in `data/` coordinating BRREG and Enin sources via async workers.
-- **Data Fabric**: BigQuery datasets (`brreg.*`, `enin.*`) with merge helpers in `modules.py`.
-- **Observability**: Supplier logs under `logfiles/` for tracing batch health.
-- **Secrets**: Environment variables in `.env`, pointing to local JSON keys (never commit secrets).
+This repository provides:
+- **Agent**: LangGraph-based conversational agent with tool-calling (`agent/`)
+- **Database**: Firestore for conversations and vector search (considering migration to Supabase)
+- **UI**: Streamlit interface for chat and factsheet display (`ui/`)
+- **Auth**: Google authentication (`agent/src/auth/`)
+
+### Key Concepts
+- **FactSheet**: Structured legal case summary (parties, claims, damages, timeline, governing law)
+- **Attachments**: PDF/text documents parsed and stored in vector store for RAG
+- **Multi-LLM**: Supports Google, OpenAI, and Claude as LLM providers
 
 ```
-├── AGENTS.md
-├── data
-│   ├── DATABASE_STRUCTURE.txt
-│   ├── main.py
-│   ├── requirements.in
-│   ├── requirements.txt
-│   └── src
-│       └── modules.py
-└── ui
-    ├── main.py
-    ├── pages
-    │   └── company_dashboard.py
-    └── requirements.in
+├── agent/
+│   ├── main.py                    # Agent entry point
+│   └── src/
+│       ├── agent/                 # Core agent logic (LangGraph)
+│       │   ├── agent.py           # Main Agent class
+│       │   ├── agent_modules.py   # Summarizer, ContextManager, ToolManager
+│       │   ├── basemodels.py      # Pydantic models (FactSheet, AgentState)
+│       │   └── tools.py           # Agent tools
+│       ├── auth/                  # Google authentication
+│       └── database/              # Firestore, vector search, conversation management
+├── ui/
+│   ├── main.py                    # Streamlit app entry
+│   ├── pages/                     # Streamlit pages
+│   └── src/ui/                    # UI components and services
+├── promptx/
+│   └── personas/                  # Agent persona definitions
+└── factsheet.md                   # FactSheet template
 ```
 
-## Core Principles (All Personas)
+## Core Principles
 
-1. **STUDY FIRST**: Review `modules.py`, recent commits, and `DATABASE STRUCTURE.txt` before altering flows.
-2. **OPTIMISE SIGNAL**: Remove stale paths and shrink payloads to keep automation responsive.
-3. **FOLLOW PATTERNS**: Reuse `get_items`, `fetch_single`, and BigQuery merge templates.
-4. **RUN EVERYTHING**: Execute the relevant CLI scenario or `pytest` suite to verify behaviour.
-5. **COMMIT WITH CONTEXT**: State scope, dataset impact, and agent approvals in each commit message.
+1. **STUDY FIRST**: Review existing code, recent commits, and related modules before making changes.
+2. **FOLLOW PATTERNS**: Reuse existing patterns from `agent_modules.py` and `database_modules.py`.
+3. **KEEP IT SIMPLE**: Prefer minimal changes over complex abstractions.
+4. **TEST CHANGES**: Verify changes work before committing.
+5. **COMMIT WITH CONTEXT**: Clear commit messages describing what and why.
 
-## File Structure Reference
+## Technical Notes
 
-Treat `data/` as the ingestion layer, `logfiles/` as the operational record, and the repository root as the control plane for configuration. Expand deliberately as new agent workflows come online.
+- **Python 3.13** with uv for dependency management
+- **Secrets**: Environment variables in `.env` (never commit)
+- **LangChain/LangGraph**: For agent orchestration and streaming
