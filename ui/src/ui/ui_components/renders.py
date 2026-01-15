@@ -301,13 +301,12 @@ def handle_new_question():
             status_box = status_placeholder.status("🧠 Jobber med saken...", expanded=False)
 
             # Prepare request
-            question = question.text if hasattr(question, "text") else question
-            st.write(f"Spørsmål mottatt: {type(question)}")
             request = AskAgentRequest(
-                question=question,
+                question=question.text if hasattr(question, "text") else question,
                 session_id=st.session_state.session_id,
                 attachments=attachment_payload,
                 query_id=query_id,
+                project_id = st.session_state.project_id,
                 agent_type=st.session_state.agent_type,
                 llm_provider=st.session_state.llm_provider,
             )

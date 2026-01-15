@@ -32,7 +32,9 @@ if not auth_service.authenticate_with_backend():
 
 # ================== MAIN PAGE ==================
 
-st.info(st.session_state.project_id)
+# st.info(st.session_state.project_id)
+# st.info(st.session_state.session_id)
+# st.json(st.session_state.messages)
 
 
 streaming_service = StreamingService(
@@ -46,9 +48,9 @@ session_service = SessionService(
                 )
 
 def on_project_select(project : dict):
-    st.session_state.session_id = None
+    st.session_state.clear()
+    init_state()
     st.session_state.project_id = project['project_id']
-    st.session_state.session_title = project.get('session_title', None)
     logger.info(f"Selected project: {st.session_state.project_id}")
 
     # Load the factsheet for the selected project
@@ -71,26 +73,8 @@ def render_select_projects():
     if projects:
         with st.expander("Projects", expanded=True):
             for project in projects:
-                st.button(f"Project ID: {project['project_id']} - {project.get('session_title', 'No Title')}", on_click=lambda p=project: on_project_select(p))
-                # if st.button(f"Project ID: {project['project_id']} - {project.get('session_title', 'No Title')}", on_click=lambda p=project: on_project_select(p)):
-                #     st.session_state.session_id = None
-                #     st.session_state.project_id = project['project_id']
-                #     st.session_state.session_title = project.get('session_title', None)
-                #     logger.info(f"Selected project: {st.session_state.project_id}")
-
-                #     # Load the factsheet for the selected project
-                #     project_data = session_service.load_project()
-                #     st.json(project_data)
-                #     if project_data:
-                #         st.session_state.factsheet = project_data.get('factsheet')
-                #         st.session_state.attachments = project_data.get('attachments', [])
-                #         logger.info(f"Loaded factsheet for project: {st.session_state.project_id}")
-                #     else:
-                #         st.session_state.factsheet = None
-                #         st.session_state.attachments = []
-                #         logger.warning(f"No factsheet found for project: {st.session_state.project_id}")
-
-                #     st.rerun()
+                st.button(f"Project ID: {project['project_id']} - {project.get('title', 'No Title')}", on_click=lambda p=project: on_project_select(p))
+                
     else:
         st.info("No projects found. Please initialize a new project.")
 
@@ -150,8 +134,18 @@ def render_project_sessions():
     st.header("Project Sessions")
     sessions = session_service.load_project_sessions()
     if sessions:
-        for session in sessions:
-            st.markdown(f"- **Session ID**: {session.session_id}, **Title**: {session.session_title}, **Last Updated**: {session.last_updated}")
+        with st.expander("Sessions", expanded=True):
+            for session in sessions:
+                session_selected = st.button(f"- **Session ID**: {session.session_id}, **Title**: {session.title if session.title else 'No Title'}")
+                if session_selected:
+                    history = session_service.load_session_history(session.session_id)
+                    #st.info(history)
+                    st.session_state.messages = history.events
+                    st.session_state.session_id = session.session_id
+                    st.session_state.session_title = session.title
+                    st.session_state.first_question = None
+                    logger.info(f"Selected session: {st.session_state.session_id}")
+                    st.rerun()
     else:
         st.info("No sessions found for this project.")
 
@@ -169,6 +163,14 @@ with st.sidebar:
     st.divider()
     if st.session_state.get('project_id', None):
         render_project_sessions()
+        #st.divider()
+        if st.button("New session", icon="💬"):
+            project_id = st.session_state.project_id
+            st.session_state.clear()
+            init_state()
+            st.session_state.project_id = project_id
+            logger.info(f"Initialized new session: {st.session_state.session_id}")
+            st.rerun()
         st.divider()
         if st.session_state.get('factsheet', None):
             render_selected_project()

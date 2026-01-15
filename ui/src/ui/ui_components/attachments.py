@@ -76,7 +76,7 @@ def view_attachment(attachment: dict):
             else:
                 st.text(content_bytes.decode('utf-8', errors='ignore'))
         else:
-            st.error(f'Kunne ikke hente vedlegg: {f.get("filename")}')
+            st.error(f'Kunne ikke hente vedlegg: {attachment.get("filename")}')
 
 
 @st.cache_data(show_spinner=False)

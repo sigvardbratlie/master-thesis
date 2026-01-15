@@ -40,8 +40,7 @@ class Agent:
                  llms : dict,
                  checkpointer = None,
                  agent_type : Literal["fast","expert"] = "fast",
-                 llm_provider : Literal["google","openai","claude"] = "google",
-                 config : Optional[RunnableConfig] = None):
+                 llm_provider : Literal["google","openai","claude"] = "google",):
         """
         Initializes the Agent with tools, prompt, LLMs, and checkpointer.
         Args:
@@ -56,7 +55,6 @@ class Agent:
         self.tools = tools
         self.prompt = prompt
         self.checkpointer = checkpointer
-        self.config = config
         self.summary = "" #rolling summary for long conversations
         self.llms = llms
         self.llm = llms.get(llm_provider, llms["google"]).get(agent_type, llms["google"]["fast"])
@@ -114,7 +112,7 @@ class Agent:
         return contents
 
     async def _process_attachments_for_update(self,
-                                               state: AgentState,
+                                               project_data: dict,
                                                attachments: list,
                                                attachment_contents: dict[str, str],
                                                user_input: str) -> tuple[AgentState, list]:
@@ -130,11 +128,9 @@ class Agent:
         Returns:
             Tuple of (updated state, list of new files)
         """
-        if not state.get("factsheet") or not attachments:
-            return state, []
 
         new_files = []
-        factsheet = state["factsheet"]
+        factsheet = project_data.get("factsheet", {})
 
         for att in attachments:
             file_id = att.get("file_id", "")
@@ -187,8 +183,8 @@ class Agent:
             except Exception as e:
                 logger.error(f"Error processing attachment {file_id}: {e}", exc_info=True)
 
-        state["factsheet"] = factsheet
-        return state, new_files
+        project_data["factsheet"] = factsheet
+        return project_data, new_files
 
     def _build_attachment_context(self,
                                    attachments: list,
@@ -229,7 +225,7 @@ class Agent:
         else:
             return f"Summary of attachments:\n{self.summarizer.summarize(combined)}"
 
-    async def _call_llm(self, state: AgentState, llm_with_tools: BaseChatModel,) -> AgentState:
+    async def _call_llm(self, state: AgentState, llm_with_tools: BaseChatModel,config: RunnableConfig) -> AgentState:
         """
         Calls the LLM with RAG from BigQuery Vector Store for attachments.
 
@@ -259,11 +255,11 @@ class Agent:
             )
 
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
-        factsheet = self.conversation_manager.load_project(user_id = self.config.user_id if self.config else "",
-                                                           project_id = self.config.custom_project_id if self.config else "",)
-        if attachments and state.get("factsheet"):
-            state, new_files = await self._process_attachments_for_update(
-                state=state,
+        project_data = self.conversation_manager.load_project(user_id = config.get("configurable").get("user_id",None) or "",
+                                                           project_id = config.get("configurable").get("custom_project_id",None) or "",)
+        if attachments and project_data:
+            project_data, new_files = await self._process_attachments_for_update(
+                project_data=project_data,
                 attachments=attachments,
                 attachment_contents=attachment_contents,
                 user_input=user_input
@@ -280,9 +276,9 @@ class Agent:
         payload = [SystemMessage(content=self.prompt)]
 
         # Add factsheet context
-        if state.get("factsheet"):
+        if project_data and project_data.get("factsheet"):
             factsheet_message = HumanMessage(
-                content="Here is the current FactSheet for the case: " + json.dumps(state["factsheet"])
+                content="Here is the current FactSheet for the case: " + json.dumps(project_data["factsheet"])
             )
             payload.append(factsheet_message)
 
@@ -312,7 +308,8 @@ class Agent:
             if payload and isinstance(payload[-1], HumanMessage):
                 payload[-1] = msg
 
-        logger.info(f"--- Payload Messages for query id {query_id} ---")
+        config_dict = config.configurable if config and hasattr(config, "configurable") else {}
+        logger.info(f"--- Payload Messages for query id {query_id} (session_id {session_id} and project-id {config_dict.get('custom_project_id', '')}) ---")
         for m in payload:
             content_preview = str(m.content)[:100] if m.content else ""
             logger.info(f"{m.type}: {content_preview}")
@@ -321,7 +318,7 @@ class Agent:
             message = await llm_with_tools.ainvoke(payload)
             return {
                 "messages": [message],
-                "factsheet": state.get("factsheet"),
+                "factsheet": project_data.get("factsheet"),
                 "attachments": [f.model_dump() for f in new_files] if new_files else []
             }
         except Exception as e:
@@ -430,8 +427,8 @@ class Agent:
 
         llm = selected_llm.bind_tools(self.tools)
 
-        async def call_llm_node(state):
-            return await self._call_llm(state, llm_with_tools=llm)
+        async def call_llm_node(state, config : RunnableConfig):
+            return await self._call_llm(state, llm_with_tools=llm, config=config)
 
         async def call_tool_node(state):
             return await self._call_tool(state, query_id=query_id)
@@ -560,16 +557,14 @@ class Agent:
                        "user_id": user_id,
                        "custom_project_id": project_id}
                   }
-        self.config = RunnableConfig(thread)
         agent_instance = self._compile_agent(agent_type=agent_type, llm_provider=llm_provider, query_id=query_id)
         
         # NEW OR EXISTING CONVERSATION
         await self.load_or_create_conversation(agent_instance, thread, session_id)
-        if project_id:
-            project_data = self.conversation_manager.load_project(user_id=user_id,
-                                                                project_id=project_id,)
-            if project_data and project_data.get("factsheet"):
-                await agent_instance.aupdate_state(thread, {"factsheet": project_data.get("factsheet")})
+        # if project_id:
+        #     project_data = self.conversation_manager.load_project(user_id=user_id,
+        #                                                         project_id=project_id,)
+
                                                             
         
         #HANDLE USER QUERY
@@ -647,6 +642,7 @@ class Agent:
                                                   user_id=user_id, 
                                                   session_id=session_id, 
                                                   agent_type=agent_type, 
+                                                  project_id=project_id,
                                                   llm_provider=llm_provider,
                                                   query_id=query_id)
             if project_id:

@@ -45,7 +45,7 @@ class TokenResponse(BaseModel):
 class SessionInfo(BaseModel):
     """Single session in user sessions list"""
     session_id: str
-    title: str
+    title: Optional[Optional[str]] = None
     agent_type: Optional[str] = None
     llm_provider: Optional[str] = None
 
@@ -53,7 +53,7 @@ class SessionInfo(BaseModel):
 class SessionHistoryResponse(BaseModel):
     """GET /load-session-history response"""
     events: list[dict[str, Any]]
-    title: str
+    title: Optional[str] = None
     agent_type: Optional[str] = None
     llm_provider: Optional[str] = None
     last_updated: Optional[str] = None

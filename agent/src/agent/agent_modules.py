@@ -304,7 +304,7 @@ class ContextManager:
         '''
         factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
         existing_facts = f"Existing factsheet:\n\n{factsheet_data}"
-        prompt = existing_facts + f'Return True if the following new input is relevant to update the existing factsheet, else return False:\n\n{new_user_input}'
+        prompt = existing_facts + f"\n\nNew user content: {new_content}" + f'\n\nReturn True if the following new input is relevant to update the existing factsheet, else return False:\n\n{new_user_input}'
         structured_llm = self.llm.with_structured_output(RelevanceCheck)  
         relevant = await structured_llm.ainvoke(prompt)
         if relevant.is_relevant:

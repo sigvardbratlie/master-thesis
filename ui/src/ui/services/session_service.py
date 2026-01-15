@@ -80,7 +80,7 @@ class SessionService:
 
     # ================== PROJECT METHODS ==================
 
-    @st.cache_data(show_spinner=False)
+    #@st.cache_data(show_spinner=False)
     def load_projects(_self, ) -> Optional[SessionHistoryResponse]:
         """
         Load session history from backend.
@@ -103,7 +103,7 @@ class SessionService:
             logger.error(f"Failed to load projects: {e}")
             return None
 
-    @st.cache_data(show_spinner=False)
+    #@st.cache_data(show_spinner=False)
     def load_project_sessions(_self, ) -> list[SessionInfo]:
         """
         Load project sessions for the current project.

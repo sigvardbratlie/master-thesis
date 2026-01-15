@@ -490,7 +490,7 @@ class ConversationManager:
             logger.error(f"Error saving initial case scan: {e}", exc_info=True)
 
     def update_factsheet(self,
-                         factsheet : FactSheet,
+                         factsheet : FactSheet | dict,
                          files : list[Attachment],
                          session_id : str,
                          query_id : str,
@@ -509,10 +509,12 @@ class ConversationManager:
                 "last_updated": firestore.SERVER_TIMESTAMP,
                 "agent_type": agent_type,
                 "llm_provider": llm_provider,
-                "factsheet": factsheet.model_dump(mode='json'),
+                "factsheet": factsheet.model_dump(mode='json') if isinstance(factsheet, FactSheet) else factsheet,
                 #"attachments": [file.model_dump(mode='json') for file in files]
             })
             logger.info(f"Factsheet updated for project {project_id}")
+
+            #ref.where
         except Exception as e:
             logger.error(f"Error updating factsheet: {e}", exc_info=True)
 
