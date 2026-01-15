@@ -70,121 +70,7 @@ class Agent:
     #         GRAPH ELEMENTS
     # =================================
 
-    def _fetch_attachment_contents(self,
-                                    attachments: list,
-                                    user_input: str,
-                                    session_id: str,
-                                    query_id: str) -> dict[str, str]:
-        """
-        Fetches content for all attachments from vector store (single retrieval).
-
-        Args:
-            attachments: List of attachment metadata
-            user_input: User's query for RAG retrieval
-            session_id: Session ID
-            query_id: Query ID
-
-        Returns:
-            Dict mapping file_id to content string
-        """
-        if not attachments:
-            return {}
-
-        contents = {}
-        try:
-            for att in attachments:
-                file_id = att.get("file_id", "")
-
-                if user_input:
-                    content = self.vs.retrieve_relevant_attachments(query=user_input, query_id=query_id)
-                else:
-                    content = self.vs.retrieve_txt_content(
-                        table="attachments",
-                        conditions={"file_id": file_id, "session_id": session_id}
-                    )
-                    content = " ".join(content) if isinstance(content, list) else content
-
-                contents[file_id] = content if content else ""
-
-        except Exception as e:
-            logger.error(f"Error fetching attachment contents: {e}", exc_info=True)
-
-        return contents
-
-    async def _process_attachments_for_update(self,
-                                               project_data: dict,
-                                               attachments: list,
-                                               attachment_contents: dict[str, str],
-                                               user_input: str) -> tuple[AgentState, list]:
-        """
-        Updates factsheet based on new attachments.
-
-        Args:
-            state: Current agent state
-            attachments: List of attachment metadata
-            attachment_contents: Pre-fetched content dict (file_id -> content)
-            user_input: User's query
-
-        Returns:
-            Tuple of (updated state, list of new files)
-        """
-
-        new_files = []
-        factsheet = project_data.get("factsheet", {})
-
-        for att in attachments:
-            file_id = att.get("file_id", "")
-            content = attachment_contents.get(file_id, "")
-
-            try:
-                result = await self.context_manager.analyze_new_input(
-                    factsheet=factsheet,
-                    new_user_input=user_input,
-                    new_content=content,
-                    file_id=file_id,
-                    filename=att.get("filename", ""),
-                    path=att.get("path", ""),
-                    file_type=att.get("file_type", ""),
-                    size=att.get("size", 0),
-                )
-
-                if result:
-                    # Extend timeline with new events
-                    if result.get("events"):
-                        events_list = result["events"].events if hasattr(result["events"], "events") else result["events"]
-                        for event in events_list:
-                            factsheet["timeline"].append(event.model_dump() if hasattr(event, "model_dump") else event)
-
-                    # Extend damages
-                    if result.get("damage"):
-                        for damage in result["damage"]:
-                            factsheet.setdefault("damages", []).append(
-                                damage.model_dump() if hasattr(damage, "model_dump") else damage
-                            )
-
-                    # Extend deadlines
-                    if result.get("deadline"):
-                        for deadline in result["deadline"]:
-                            factsheet.setdefault("deadlines", []).append(
-                                deadline.model_dump() if hasattr(deadline, "model_dump") else deadline
-                            )
-
-                    # Extend claims
-                    if result.get("claim"):
-                        for claim in result["claim"]:
-                            factsheet.setdefault("claims", []).append(
-                                claim.model_dump() if hasattr(claim, "model_dump") else claim
-                            )
-
-                    # Track new file
-                    if result.get("file"):
-                        new_files.append(result["file"])
-
-            except Exception as e:
-                logger.error(f"Error processing attachment {file_id}: {e}", exc_info=True)
-
-        project_data["factsheet"] = factsheet
-        return project_data, new_files
+    
 
     def _build_attachment_context(self,
                                    attachments: list,
@@ -242,12 +128,11 @@ class Agent:
         attachments = msg.additional_kwargs.get("attachments", []) if msg else []
         user_input = msg.content if msg else ""
 
-        new_files = []
         attachment_contents = {}
 
         # ---- FETCH ATTACHMENT CONTENTS ONCE ----
         if attachments:
-            attachment_contents = self._fetch_attachment_contents(
+            attachment_contents = self.vs.fetch_attachment_contents(
                 attachments=attachments,
                 user_input=user_input,
                 session_id=session_id,
@@ -257,13 +142,13 @@ class Agent:
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
         project_data = self.conversation_manager.load_project(user_id = config.get("configurable").get("user_id",None) or "",
                                                            project_id = config.get("configurable").get("custom_project_id",None) or "",)
-        if attachments and project_data:
-            project_data, new_files = await self._process_attachments_for_update(
-                project_data=project_data,
-                attachments=attachments,
-                attachment_contents=attachment_contents,
-                user_input=user_input
-            )
+        # if attachments and project_data:
+        #     project_data = await self.context_manager.process_attachments_for_update(
+        #         project_data=project_data,
+        #         attachments=attachments,
+        #         attachment_contents=attachment_contents,
+        #         user_input=user_input
+        #     )
 
         # ---- BUILD ATTACHMENT CONTEXT FOR LLM ----
         attachment_context = self._build_attachment_context(
@@ -308,8 +193,8 @@ class Agent:
             if payload and isinstance(payload[-1], HumanMessage):
                 payload[-1] = msg
 
-        config_dict = config.configurable if config and hasattr(config, "configurable") else {}
-        logger.info(f"--- Payload Messages for query id {query_id} (session_id {session_id} and project-id {config_dict.get('custom_project_id', '')}) ---")
+        logger.info(f"--- Payload Messages for query id {config.get("configurable").get("query_id", "")} (session_id {session_id} and project-id {config.get("configurable").get("custom_project_id", "")}) ---")
+        
         for m in payload:
             content_preview = str(m.content)[:100] if m.content else ""
             logger.info(f"{m.type}: {content_preview}")
@@ -319,7 +204,7 @@ class Agent:
             return {
                 "messages": [message],
                 "factsheet": project_data.get("factsheet"),
-                "attachments": [f.model_dump() for f in new_files] if new_files else []
+                "attachments": project_data.get("attachments")
             }
         except Exception as e:
             logger.error(f"Error invoking LLM: {e}", exc_info=True)
@@ -645,23 +530,23 @@ class Agent:
                                                   project_id=project_id,
                                                   llm_provider=llm_provider,
                                                   query_id=query_id)
-            if project_id:
-                state_snapshot = await agent_instance.aget_state(thread)
-                state_values = state_snapshot.values if state_snapshot else {}
-                factsheet = state_values.get("factsheet")
-                files = state_values.get("attachments", [])
+            # if project_id:
+            #     state_snapshot = await agent_instance.aget_state(thread)
+            #     state_values = state_snapshot.values if state_snapshot else {}
+            #     factsheet = state_values.get("factsheet")
+            #     files = state_values.get("attachments", [])
 
-                if factsheet:
-                    self.conversation_manager.update_factsheet(
-                        factsheet=factsheet,
-                        files=files,
-                        user_id=user_id,
-                        session_id=session_id,
-                        agent_type=agent_type,
-                        llm_provider=llm_provider,
-                        query_id=query_id,
-                        project_id=project_id
-                    )
+            #     if factsheet:
+            #         self.conversation_manager.update_project(
+            #             factsheet=factsheet,
+            #             files=files,
+            #             user_id=user_id,
+            #             session_id=session_id,
+            #             agent_type=agent_type,
+            #             llm_provider=llm_provider,
+            #             query_id=query_id,
+            #             project_id=project_id
+            #         )
             
 
     
@@ -752,7 +637,7 @@ class Agent:
                                                             filename=att.get("filename",""),
                                                             path="",
                                                             file_type=att.get("file_type",""),
-                                                            size=len(content_txt),
+                                                            size=att.get("size",0),
                                                             )
             analyzed_doc = result.get("file")
             logger.debug(f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()}")
@@ -779,7 +664,7 @@ class Agent:
                             **initial_input.model_dump(),
                             )
         
-        self.conversation_manager.save_init_scan(factsheet=result,
+        self.conversation_manager.save_project(factsheet=result,
                                                  files=files,
                                                  user_id=user_id,
                                                  session_id=session_id,
@@ -792,9 +677,101 @@ class Agent:
         return {
             "agent_type": agent_type,
             "llm_provider": llm_provider,
-            "attachments": attachments,
+            "attachments": [att.model_dump(mode='json') for att in attachments],
             "factsheet": result.model_dump(mode='json'),
             "created_session_id": session_id
         }
 
 
+    async def update_project(self, user_input: str, 
+                              attachments: list[dict],
+                              session_id: str, 
+                              user_id: str,
+                              agent_type: Literal["fast", "expert"],
+                              llm_provider: Literal["google", "openai", "claude"],
+                              query_id : str,
+                              project_id: Optional[str] = None):
+        '''Update the project with new input and attachments'''
+        
+        thread = {"configurable":
+                      {"thread_id": session_id,
+                       "user_id": user_id,
+                       "custom_project_id": project_id}
+                  }
+        agent_instance = self._compile_agent(agent_type=agent_type, llm_provider=llm_provider, query_id=query_id)
+        # NEW OR EXISTING CONVERSATION
+        await self.load_or_create_conversation(agent_instance, thread, session_id)
+        
+        project_data = self.conversation_manager.load_project(user_id = user_id,
+                                                           project_id = project_id)
+        factsheet = project_data.get("factsheet",{})
+        events = factsheet.get("timeline",[]) if factsheet else []  
+        files = project_data.get("attachments",[]) 
+        damages = project_data.get("damages",[])
+        claims =  project_data.get("claims",[]) 
+        deadlines = project_data.get("deadlines",[])         
+        
+        # Validate project_data is a dict
+        if project_data and not isinstance(project_data, dict):
+            error_msg = f"load_project returned {type(project_data).__name__} instead of dict. Value: {project_data}"
+            logger.error(f"Error in update_project: {error_msg}")
+            raise TypeError(error_msg)
+        
+        
+        for att in attachments:
+            content_txt = self.handle_attachments(att, session_id=session_id, user_id=user_id, query_id=query_id)
+            logger.debug(f"Analyzing attachment: {att.get('filename','')} (ID: {att.get('file_id','')})")
+            result = await self.context_manager.consider_new_doc(factsheet=factsheet,
+                                                                 new_content=content_txt,
+                                                                 new_user_input=user_input,
+                                                                 file_id=att.get("file_id",""),
+                                                                    filename=att.get("filename",""),
+                                                                    path="",
+                                                                    file_type=att.get("file_type",""),
+                                                                    size=att.get("size",0),)
+            analyzed_doc = result.get("file")
+            logger.debug(f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()}")
+
+            # Collect results from analyzed documents
+            files.append(analyzed_doc)
+            damages.extend(analyzed_doc.damage) if analyzed_doc.damage else None
+            claims.extend(analyzed_doc.claim) if analyzed_doc.claim else None
+            deadlines.extend(analyzed_doc.deadline) if analyzed_doc.deadline else None
+
+            events.extend(result.get("events", [])) if result.get("events") else None
+
+        inital_input = self.context_manager.update_content(factsheet = factsheet,
+                                                           content = factsheet.get("initial_input",""),)
+        governing_law = self.context_manager.update_content(factsheet = factsheet,
+                                                           content = factsheet.get("governing_law",""),)
+        factual_facts = self.context_manager.update_content(factsheet = factsheet,
+                                                           content = factsheet.get("factual_facts",""),)
+        
+        result = FactSheet(timeline=events,
+                            damages=damages,
+                            claims=claims,
+                            deadlines=deadlines,
+                            governing_law=governing_law,
+                            **factual_facts.model_dump(),
+                            **inital_input.model_dump(),
+                            )
+        
+        
+        
+        self.conversation_manager.save_project(factsheet=result,
+                                                 files=files,
+                                                 user_id=user_id,
+                                                 session_id=session_id,
+                                                 agent_type=agent_type,
+                                                 llm_provider=llm_provider,
+                                                 query_id=query_id,
+                                                 project_id=project_id if project_id else None)
+
+        # Return a JSON-serializable dict with all metadata
+        return {
+            "agent_type": agent_type,
+            "llm_provider": llm_provider,
+            "attachments": [att.model_dump(mode='json') for att in attachments],
+            "factsheet": result.model_dump(mode='json'),
+            "created_session_id": session_id
+        }

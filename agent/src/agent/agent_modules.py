@@ -214,7 +214,7 @@ class ContextManager:
     
     # ===== FUNCTIONS FOR UPDATING EXISTING FACTSHEET =====
     async def consider_new_events(self,
-                            factsheet : FactSheet | dict,
+                            factsheet : FactSheet,
                          new_content : str,
                          new_user_input : str,
                          file_id : str
@@ -229,7 +229,7 @@ class ContextManager:
         return response.events
     
     async def consider_new_doc(self,
-                            factsheet : FactSheet | dict,
+                            factsheet : FactSheet,
                          new_content : str,
                          new_user_input : str,
                          file_id : str,
@@ -266,18 +266,14 @@ class ContextManager:
                             size=size,
                             event_ids=[event.event_id for event in events],
                         )
-        damage = file.damage if file.damage else []
-        deadline = file.deadline if file.deadline else []
-        claim = file.claim if file.claim else []
+        
 
         return {"file": file, 
                 "events": events,
-                "damage": damage,
-                "deadline": deadline,
-                "claim": claim,}
+        }
 
     async def analyze_new_input(self,
-                         factsheet : FactSheet | dict,
+                         factsheet : FactSheet,
                          new_user_input : str,
                          new_content : Optional[str] = "",
                          file_id : Optional[str] = None,
@@ -309,17 +305,66 @@ class ContextManager:
         relevant = await structured_llm.ainvoke(prompt)
         if relevant.is_relevant:
             result = await self.consider_new_doc(new_content=new_content,
-                                           new_user_input=new_user_input,
-                                           factsheet=factsheet,
-                                           file_id=file_id,
-                                           filename=filename,
-                                           path=path,
-                                           file_type=file_type,
-                                           size=size,)
+                                            new_user_input=new_user_input,
+                                            factsheet=factsheet,
+                                            file_id=file_id,
+                                            filename=filename,
+                                            path=path,
+                                            file_type=file_type,
+                                            size=size,)
             return result
 
-            
+    
+    async def clean(self,
+                         content : Events | Claims | Damages | Deadlines,
+                         ) -> Events | Claims | Damages | Deadlines:   
+        '''Function to clean and deduplicate a list of events.'''
         
+        structured_llm = self.llm.with_structured_output(content.__class__)
+        data = content.model_dump() if hasattr(content, 'model_dump') else content
+        prompt = f'Clean and deduplicate the following list of events. Remove any duplicate or irrelevant entries:\n\n{data}'
+        return await structured_llm.ainvoke(prompt)
+    
+    async def update_content(self,factsheet : FactSheet,
+                             content : InitialInput | GoverningLaw | FactualFacts
+                             ) -> InitialInput | GoverningLaw | FactualFacts:
+        '''Method for updating parts of the factsheet based on new content.'''
+        structured_llm = self.llm.with_structured_output(content.__class__)
+        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
+        prompt = f"Current data for {content.__class__.__name__}: {content}"+  f'Existing factsheet:\n\n{factsheet_data}\n\nUpdate the following section {content.__class__.__name__} of the factsheet'
+        return await structured_llm.ainvoke(prompt)
+
+    
+    async def clean_factsheet(self,
+                         factsheet : FactSheet,
+                         ) -> FactSheet:
+        '''Function to clean and deduplicate the entire factsheet.
+        
+        Args:
+            factsheet (FactSheet): The factsheet to clean.
+        Returns:
+            FactSheet: The cleaned factsheet.
+        '''
+        events = await self.clean(Events(events=factsheet.timeline))
+        claims = await self.clean(Claims(claims=factsheet.claims))
+        damages = await self.clean(Damages(damages=factsheet.damages))
+        deadlines = await self.clean(Deadlines(deadlines=factsheet.deadlines))
+
+        factsheet = FactSheet(
+            timeline=events.events,
+            claims=claims.claims,
+            damages=damages.damages,
+            deadlines=deadlines.deadlines,
+            governing_law=factsheet.governing_law,
+            disputed_facts=factsheet.disputed_facts,
+            undisputed_facts=factsheet.undisputed_facts,
+            parties=factsheet.parties,
+            third_parties=factsheet.third_parties,
+            background=factsheet.background,
+        )
+        
+        return 
+
 class ToolManager:
     def __init__(self):
         pass

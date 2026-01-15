@@ -29,6 +29,9 @@ class Deadline(BaseModel):
     file_id: Optional[str] = Field(None, description="Related attachment reference")
     responsible_party: str
 
+class Deadlines(BaseModel):
+    deadlines: list[Deadline]
+
 class Event(BaseModel):
     event_id: str = Field(default_factory = lambda : str(uuid.uuid4()))
     file_id: Optional[str] = Field(None, description="Related attachment reference")
@@ -68,12 +71,20 @@ class Claim(BaseModel):
     defense: Optional[str] = Field(None, description="Defense strategy if defending")
     party : str = Field(description="Party_ID of the claimant")
 
+class Claims(BaseModel):
+    claims: list[Claim]
+
+
 class Damage(BaseModel):
     category: Literal["direct_losses", "interest", "consequential", "punitive"]
     amount: Optional[int | float] = Field(None, description="Monetary amount if amount is known and mentioned, else None")
     basis: str
     supporting_evidence: list[str] = Field(description="File_IDs supporting the damage claim")
     party: str = Field(description="Party_ID of the claimant")
+
+class Damages(BaseModel):
+    damages: list[Damage]
+
 
 class InitialInput(BaseModel):
     # Factual background
@@ -143,10 +154,10 @@ class RelevanceCheck(BaseModel):
     is_relevant: bool
     reasoning: str
 
-def add_tool_results(existing: list, new: list) -> list:
-    return existing + new
+# def add_tool_results(existing: list, new: list) -> list:
+#     return existing + new
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    factsheet : Optional[FactSheet]
-    attachments : Annotated[list, add_tool_results]
+    factsheet : Optional[FactSheet | dict] = None
+    attachments : Optional[list[Attachment] | list[dict]] = None #Annotated[list, add_tool_results]

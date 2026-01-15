@@ -22,6 +22,7 @@ from google.cloud import firestore
 from agent.basemodels import *
 from fastapi import FastAPI,HTTPException,status,Depends
 from agent.agent_modules import Summarizer
+from ui.ui_components import attachments
 
 
 logging.basicConfig(level=logging.INFO)
@@ -91,11 +92,11 @@ class VectorSearch:
         results = retriever.invoke(query)
         return [doc.model_dump_json() for doc in results]
 
-    def retrieve_relevant_attachments(self,query_id, query, n_docs = 4) -> SystemMessage:
-        vs_attachments = self.init_vector_store(table_name="attachments")
+    def retrieve_relevant_attachments(self,query_id, query, n_docs = 4, vector_store : BigQueryVectorStore = None) -> SystemMessage:
+        vector_store = self.init_vector_store(table_name="attachments") if not vector_store else vector_store
 
         try:
-            retriever = vs_attachments.as_retriever(search_kwargs={"k": n_docs ,"filter" : 
+            retriever = vector_store.as_retriever(search_kwargs={"k": n_docs ,"filter" : 
                                                      {"query_id" :  query_id} })
             relevant_docs = retriever.invoke(query)
             relevant_texts = "\n\n".join([f"[{doc.metadata.get('type')}]: {doc.page_content}" for doc in relevant_docs])  # Behold type for kontekst
@@ -133,6 +134,48 @@ class VectorSearch:
         result = client.query(query).result()
         return [row["content"] for row in result]
         
+    def fetch_attachment_contents(self,
+                                    attachments: list,
+                                    user_input: str,
+                                    session_id: str,
+                                    query_id: str) -> dict[str, str]:
+        """
+        Fetches content for all attachments from vector store (single retrieval).
+
+        Args:
+            attachments: List of attachment metadata
+            user_input: User's query for RAG retrieval
+            session_id: Session ID
+            query_id: Query ID
+
+        Returns:
+            Dict mapping file_id to content string
+        """
+        if not attachments:
+            return {}
+
+        contents = {}
+        try:
+            for att in attachments:
+                file_id = att.get("file_id", "")
+
+                if user_input:
+                    content = self.retrieve_relevant_attachments(query=user_input, query_id=query_id)
+                else:
+                    content = self.retrieve_txt_content(
+                        table="attachments",
+                        conditions={"file_id": file_id, "session_id": session_id}
+                    )
+                    content = " ".join(content) if isinstance(content, list) else content
+
+                contents[file_id] = content if content else ""
+
+        except Exception as e:
+            logger.error(f"Error fetching attachment contents: {e}", exc_info=True)
+
+        return contents
+    
+
 class AttachmentReader:
 
     def __init__(self):
@@ -451,7 +494,7 @@ class ConversationManager:
         except Exception as e:
             logger.error(f"Error saving final state: {e}", exc_info=True)
     
-    def save_init_scan(self,
+    def save_project(self,
                        factsheet : FactSheet,
                        files  : list[Attachment],
                        user_id : str,
@@ -489,34 +532,6 @@ class ConversationManager:
         except Exception as e:
             logger.error(f"Error saving initial case scan: {e}", exc_info=True)
 
-    def update_factsheet(self,
-                         factsheet : FactSheet | dict,
-                         files : list[Attachment],
-                         session_id : str,
-                         query_id : str,
-                         agent_type : Literal["fast", "expert"],
-                         llm_provider : Literal["google", "openai", "claude"],
-                         user_id : str,
-                         project_id : str):
-        ''' Update the factsheet in Firestore'''
-
-        ref = self.db.collection("projects").document(user_id).collection("projects").document(project_id)
-        try:
-            ref.update({
-                "user_id": user_id,
-                "last_updated_session_id": session_id,
-                "last_updated_query_id": query_id,
-                "last_updated": firestore.SERVER_TIMESTAMP,
-                "agent_type": agent_type,
-                "llm_provider": llm_provider,
-                "factsheet": factsheet.model_dump(mode='json') if isinstance(factsheet, FactSheet) else factsheet,
-                #"attachments": [file.model_dump(mode='json') for file in files]
-            })
-            logger.info(f"Factsheet updated for project {project_id}")
-
-            #ref.where
-        except Exception as e:
-            logger.error(f"Error updating factsheet: {e}", exc_info=True)
 
     def get_or_create_user(self, google_user_info: dict) -> str:
         """

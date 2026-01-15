@@ -155,10 +155,27 @@ class StreamingService:
             Response object from the initialization request
         """
         response = requests.post(
-            url=f"{self.backend_url}/init-scan",
+            url=f"{self.backend_url}/init-project",
             json=payload.model_dump(),
             headers=self.headers,
             #stream=True,
         )
         return response
 
+    def update_project(self, payload: AskAgentRequest) -> requests.Response:
+        """
+        Initialize a new project in the backend.
+
+        Args:
+            payload: AskAgentRequest model with project details
+
+        Returns:
+            Response object from the initialization request
+        """
+        response = requests.post(
+            url=f"{self.backend_url}/update-project",
+            json=payload.model_dump(),
+            headers=self.headers,
+            #stream=True,
+        )
+        return response
