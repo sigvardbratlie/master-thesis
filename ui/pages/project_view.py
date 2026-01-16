@@ -7,7 +7,7 @@ from ui.services.streaming_service import StreamingService
 from ui.services.session_service import SessionService
 from ui.services.auth_service import AuthService
 from ui.ui_components.renders import render_first_question, handle_new_question, display_history
-from ui.ui_components.attachments import mk_attachment_payload
+from ui.ui_components.attachments import mk_attachment_payload, view_attachment
 import uuid
 import requests
 import logging
@@ -102,57 +102,23 @@ def render_selected_project():
     st.header("Selected Project:")
     st.markdown(f"### {factsheet.get('title')}")
     
-    elements = {"parties" : "👥", "timeline" : "🕒", "governing_law" : "⚖️", "claims" : "📄", "damages" : "💰", "deadlines" : "⏰", "background" : "📚"}
+    with st.expander("Timeline", expanded=False, icon="🕒"):
+        timeline = factsheet.get('timeline', [])
+        sorted_timeline = sorted(timeline, key=lambda x: x.get('date', ''))
+        for event in sorted_timeline:
+            st.markdown(f"**{event.get('date', 'No Date')}**: {event.get('description', 'No Description')}")
+    
+    elements = {"parties" : "👥", "governing_law" : "⚖️", "claims" : "📄", "damages" : "💰", "deadlines" : "⏰", "background" : "📚"}
     for field, icon in elements.items():
         display_field(label = field.replace("_"," ").title(), value = field, icon = icon, factsheet=factsheet)
     
-    # with st.expander("Parties", expanded=False, icon="👥"):
-    #     parties = factsheet.get('parties', [])
-    #     for i, party in enumerate(parties, start=1):
-    #         st.markdown(f"**Party {i}**")
-    #         for k,v in party.items():
-    #             if v:
-    #                 st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
-    
-    # with st.expander("Timeline", expanded=False, icon="🕒"):
-    #     timeline = factsheet.get('timeline', [])
-    #     sorted_timeline = sorted(timeline, key=lambda x: x.get('date', ''))
-    #     for event in sorted_timeline:
-    #         st.markdown(f"**{event.get('date', 'No Date')}**: {event.get('description', 'No Description')}")
-
-    # with st.expander("Governing Law", expanded=False,icon="⚖️"):
-    #     governing_law = factsheet.get('governing_law', {})
-    #     for k,v in governing_law.items():
-    #         if v:
-    #             st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
-
-    # with st.expander("Claims", expanded=False, icon="📄"):
-    #     claims = factsheet.get('claims', [])
-    #     for i, claim in enumerate(claims, start=1):
-    #         st.markdown(f"**Claim {i}**")
-    #         for k,v in claim.items():
-    #             if v:
-    #                 st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
-
-    # with st.expander("Damages", expanded=False, icon="💰"):
-    #     damages = factsheet.get('damages', []) if factsheet.get('damages') else []
-    #     for i, damage in enumerate(damages, start=1):
-    #         st.markdown(f"**Damage {i}**")
-    #         for k,v in damage.items():
-    #             if v:
-    #                 st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
-
-    # with st.expander("Deadlines", expanded=False, icon="⏰"):
-        deadlines = factsheet.get('deadlines', []) if factsheet.get('deadlines') else []
-        for i, deadline in enumerate(deadlines, start=1):
-            st.markdown(f"**Deadline {i}**")
-            for k,v in deadline.items():
-                if v:
-                    st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
 
     with st.expander("Attachments Overview", expanded=False, icon="📎"):
         for file in st.session_state.get('attachments', []):
-            st.markdown(f"- **{file.get('filename', 'No Filename')}** ({file.get('category', 'No Category')}, {file.get('significance', 'No Significance')})")
+            view_attachment(file)
+            #
+            # if st.button(f"- **{file.get('filename', 'No Filename')}** ({file.get('category', 'No Category')}, {file.get('significance', 'No Significance')})", key=file.get('file_id','no-id')):
+            #     st.pdf()
 
 def render_project_sessions():
     #st.header("Project Sessions")
@@ -173,6 +139,7 @@ def render_project_sessions():
         st.info("No sessions found for this project.")
 
 def render_new_input(mode : Literal["update","init"] = "init"):
+    
     user_input = st.text_area("Project details", 
                               placeholder="Describe your project here...",
                               help="Provide details about your project to initialize it.",

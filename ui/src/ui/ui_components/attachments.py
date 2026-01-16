@@ -32,6 +32,7 @@ def mk_attachment_payload(file : UploadedFile) -> AttachmentModel:
         filename=file.name,
         file_id=file_id,
         file_type=file.type,
+        path = f'{st.session_state.user_id}/{st.session_state.session_id}/{file_id}',
         size=file.size,
         content=content
     )
@@ -56,9 +57,7 @@ def view_attachment(attachment: dict):
     )
     if open_att:
         content_bytes = read_attachment(
-            file_id=attachment.get("file_id"),
-            session_id=st.session_state.session_id,
-            user_id=st.session_state.user_id,
+            path=attachment.get("path"),
         )
         if content_bytes:
             if "pdf" in attachment.get("file_type"):
@@ -80,7 +79,7 @@ def view_attachment(attachment: dict):
 
 
 @st.cache_data(show_spinner=False)
-def read_attachment(file_id: str, session_id: str, user_id: str) -> Optional[bytes]:
+def read_attachment(path : str) -> Optional[bytes]:
     """
     Fetch attachment content from GCP storage.
 
@@ -104,13 +103,12 @@ def read_attachment(file_id: str, session_id: str, user_id: str) -> Optional[byt
 
         client = storage.Client(credentials=credentials)
         bucket_name = os.getenv("BUCKET_NAME", "chat-history-files")
-        blob_path = f"{user_id}/{session_id}/{file_id}"
-        blob = client.bucket(bucket_name).blob(blob_path)
+        blob = client.bucket(bucket_name).blob(path)
 
         if blob.exists():
             return blob.download_as_bytes()
         else:
-            logger.error(f'Attachment blob not found: {blob_path}')
+            logger.error(f'Attachment blob not found: {path}')
             return None
 
     except Exception as e:

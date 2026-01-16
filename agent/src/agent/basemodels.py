@@ -164,6 +164,7 @@ class AttachmentModel(BaseModel):
     filename: str
     file_id: str
     content: Optional[str] = None  # Base64 for PDF, text for others
+    path : str
     file_type: str
     size: int
 
