@@ -403,7 +403,7 @@ class Agent:
         event_counter = 0
         token_stream = ""
 
-        user_msg = message_to_dict(HumanMessage(content=query.question, id = query.query_id))
+        #user_msg = message_to_dict(HumanMessage(content=query.question, id = query.query_id))
         
         # SAVE ATTACHMENTS to both vector store and file storage
         if query.attachments:
@@ -411,22 +411,16 @@ class Agent:
             await self.attachment_reader.save_raw_documents(attachments=query.attachments, session_id=query.session_id, user_id=user_id, query_id=query.query_id)
 
         #add attachments without content to user message
-        attachments_events = [att.model_dump(model = "json", exclude={"content"}) for att in query.attachments or []]
-        user_msg["data"]["attachments"] = [AttachmentModel.model_validate(att) for att in attachments_events]
-        # event = {
-        #         "order": event_counter,
-        #         "type": "message",
-        #         **user_msg,
-        #         "timestamp": datetime.now().isoformat(),
-        #         "query_id": query.query_id
-        #     }
+        attachments_events = [att.model_dump(model = "json", exclude={"content"}) for att in query.attachments or []] #rm contents
         event_counter += 1
         event_model = StreamEvent(data = HumanEventData(content = query.question,
-                                                        attachments = [AttachmentModel.model_validate(att) for att in attachments_events]),
+                                                        attachments = [AttachmentModel.model_validate(att) for att in attachments_events]), #writes back without content
                                     order = event_counter,
                                     type = "human",
                                     timestamp = datetime.now(),
-                                    query_id = query.query_id)
+                                    query_id = query.query_id,
+                                    #langchain_id= user_msg.get("data",{}).get("id", None),
+                                    )
         events.append(event_model) #add first user message event
 
         #=========================================
@@ -481,7 +475,7 @@ class Agent:
                                     last_query_id=query.query_id,
                                     attachments=query.attachments
                                     )
-            logger.info(f'StreamDataObject in finally: \n{data_to_save.model_dump()}')
+            #logger.info(f'StreamDataObject in finally: \n{data_to_save.model_dump()}')
             logger.info(f'Query in stream_response finally: \n{query.model_dump()}')
             self.conversation_manager.save_stream(data=data_to_save,
                                                   user_id=user_id,
@@ -515,6 +509,8 @@ class Agent:
 
     def on_call_llm(self, data : dict, query_id : str,events : list, event_counter : int, token_stream : str):
         chunk = data.get("chunk")
+        output = data.get("output")
+        logger.info(f"Output i on_call_llm \n{output}")
         if chunk and isinstance(chunk,dict) and chunk.get("messages"):
             ai_msg = data.get("chunk").get("messages")[-1]
             if isinstance(ai_msg, AIMessage):
@@ -544,6 +540,7 @@ class Agent:
 
     def on_call_tool(self, data : dict, query_id : str, events : list, event_counter : int,):
         output = data.get("output")
+        msg = output.get("messages",[])[-1] if output.get("messages",[]) else None
         tool_results = output.get("tool_results", [])
         for tool_result in tool_results:
             payload = {"type": "tool_result",
@@ -557,7 +554,8 @@ class Agent:
                                                        order = event_counter,
                                                        type = "tool_result",
                                                        timestamp = datetime.now(),
-                                                       query_id = query_id)
+                                                       query_id = query_id,
+                                                       langchain_id= msg.get("data").get("id", None))
             events.append(event_model)
             event_counter += 1
             return event_model.model_dump(mode="json")

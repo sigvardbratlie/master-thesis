@@ -217,7 +217,7 @@ class StreamEvent(BaseModel):
     type: Literal["human", "ai", "tool_result"]
     timestamp: datetime
     query_id: str
-    langchain_id: str
+    langchain_id: Optional[str] = None
     data : HumanEventData | ToolResultData | AIEventData
 
 class StreamData(BaseModel):
