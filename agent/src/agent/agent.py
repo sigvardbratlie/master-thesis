@@ -375,6 +375,22 @@ class Agent:
             docs.append(doc)
         return docs
             
+    async def save_attachments(self, query : AskAgentRequest, user_id: str,session_id: str):
+                await asyncio.gather(
+                    asyncio.to_thread(
+                        self.vs.embedded_upload,  # ← Kjører i thread (synkron funksjon)
+                        attachments=query.attachments,
+                        query_id=query.query_id,
+                        session_id=session_id,
+                        user_id=user_id
+                    ),
+                    self.attachment_reader.save_raw_documents(  # ← Async, kjører parallelt med uploads internt
+                        attachments=query.attachments,
+                        session_id=session_id,
+                        user_id=user_id,
+                        query_id=query.query_id
+                    )
+                )
     # =================================
     #       STREAM RESPONSE
     # =================================
@@ -404,25 +420,11 @@ class Agent:
         event_counter = 0
         token_stream = ""
 
-        #user_msg = message_to_dict(HumanMessage(content=query.question, id = query.query_id))
+        
         
         # SAVE ATTACHMENTS to both vector store and file storage
         if query.attachments:
-            await asyncio.gather(
-                asyncio.to_thread(
-                    self.vs.embedded_upload,  # ← Kjører i thread (synkron funksjon)
-                    attachments=query.attachments,
-                    query_id=query.query_id,
-                    session_id=query.session_id,
-                    user_id=user_id
-                ),
-                self.attachment_reader.save_raw_documents(  # ← Async, kjører parallelt med uploads internt
-                    attachments=query.attachments,
-                    session_id=query.session_id,
-                    user_id=user_id,
-                    query_id=query.query_id
-                )
-            )
+            await self.save_attachments(query, user_id, query.session_id)
         #add attachments without content to user message
         attachments_events = [att.model_dump(mode = "json", exclude={"content"}) for att in query.attachments or []] #rm contents
         event_model = StreamEvent(data = HumanEventData(content = query.question,
@@ -508,10 +510,6 @@ class Agent:
         if output and output.get("messages"):
             ai_msg = output.get("messages")[-1]
             if isinstance(ai_msg, AIMessage):
-        #chunk = data.get("chunk")
-        # if chunk and isinstance(chunk,dict) and chunk.get("messages"):
-        #     ai_msg = data.get("chunk").get("messages")[-1]
-        #     if isinstance(ai_msg, AIMessage):
                 event_model = StreamEvent(data = AIEventData(content = ai_msg.content,
                                                             tool_calls = ai_msg.tool_calls,
                                                             token_stream = token_stream),
@@ -549,176 +547,275 @@ class Agent:
     # =================================
     #       INITIAL PROJECT SCAN
     # ================================= 
-    async def initialize_project(self, user_input: str, 
-                              attachments: list[dict],
-                              session_id: str, 
-                              user_id: str,
-                              agent_type: Literal["fast", "expert"],
-                              llm_provider: Literal["google", "openai", "claude"],
-                              query_id : str,
-                              project_id: Optional[str] = None):
+    async def initialize_project(self, query : AskAgentRequest,
+                                 user_id : str,
+                                 ):
         '''Initial project scan to generate FactSheet from initial input and attachments'''
-        
-        thread = {"configurable":
-                      {"thread_id": session_id,
-                       "user_id": user_id,
-                       "custom_project_id": project_id}
-                  }
-        agent_instance = self._compile_agent(agent_type=agent_type, llm_provider=llm_provider, query_id=query_id)
-        # NEW OR EXISTING CONVERSATION
-        await self.load_or_create_conversation(agent_instance, thread, session_id)
 
-        
-        events = []
-        damages = []
-        claims = []
-        deadlines = []
-        files = []
+        events: list[Event] = []
+        damages: list[Damage] = []
+        claims: list[Claim] = []
+        deadlines: list[Deadline] = []
+        files: list[Attachment] = []
 
-        initial_input = await self.context_manager.analyze_init_input(user_input)
-        for att in attachments:
-            content_txt = self.handle_attachments(att, session_id=session_id, user_id=user_id, query_id=query_id)
-            logger.debug(f"Analyzing attachment: {att.get('filename','')} (ID: {att.get('file_id','')})")
-            result = await self.context_manager.analyze_doc(initial_input, content_txt, 
-                                                            file_id=att.get("file_id",""),
-                                                            filename=att.get("filename",""),
-                                                            path="",
-                                                            file_type=att.get("file_type",""),
-                                                            size=att.get("size",0),
-                                                            )
-            analyzed_doc = result.get("file")
-            logger.debug(f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()}")
+        # Run save_attachments and analyze_init_input in parallel
+        save_task = None
+        if query.attachments:
+            save_task = asyncio.create_task(
+                self.save_attachments(query=query, user_id=user_id, session_id=query.session_id)
+            )
 
-            # Collect results from analyzed documents
-            files.append(analyzed_doc)
-            damages.extend(analyzed_doc.damage) if analyzed_doc.damage else None
-            claims.extend(analyzed_doc.claim) if analyzed_doc.claim else None
-            deadlines.extend(analyzed_doc.deadline) if analyzed_doc.deadline else None
+        initial_input = await self.context_manager.analyze_init_input(query.question)
 
-            events.extend(result.get("events", [])) if result.get("events") else None
+        # Analyze documents in parallel
+        doc_tasks = []
+        for att in query.attachments or []:
+            doc_tasks.append(self.context_manager.analyze_doc(
+                initial_input, att.content,
+                file_id=att.file_id,
+                filename=att.filename,
+                path="",
+                file_type=att.file_type,
+                size=att.size,
+            ))
 
-        factual_facts = await self.context_manager.analyze_factual_facts(initial_input, events)
+        if doc_tasks:
+            results = await asyncio.gather(*doc_tasks)
+            for result in results:
+                analyzed_doc = result.get("file")
+                logger.debug(f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()}")
 
-        events_txt = " ".join([f"- {event.description} (Date: {event.date}" for event in events])
-        rag_content_law = self.vs.query(query = events_txt, table_name = "laws", n_results=2) #Implement query based on initial input
-        governing_law = await self.context_manager.analyze_governing_law(events = events, rag_content_law=rag_content_law) #IMplementer
-        result = FactSheet(timeline=events,
-                            damages=damages,
-                            claims=claims,
-                            deadlines=deadlines,
-                            governing_law=governing_law,
-                            **factual_facts.model_dump(),
-                            **initial_input.model_dump(),
-                            )
+                # Collect results from analyzed documents
+                files.append(analyzed_doc)
+                if analyzed_doc.damage:
+                    damages.extend(analyzed_doc.damage)
+                if analyzed_doc.claim:
+                    claims.extend(analyzed_doc.claim)
+                if analyzed_doc.deadline:
+                    deadlines.extend(analyzed_doc.deadline)
+                if result.get("events"):
+                    events.extend(result.get("events"))
+
+        # Build RAG query from events and run in thread (sync function)
+        events_txt = " ".join([f"- {event.description} (Date: {event.date})" for event in events])
+        rag_content_law = await asyncio.to_thread(
+            self.vs.query, query=events_txt, table_name="laws", n_results=2
+        )
+
+        # Analyze factual facts and governing law in parallel
+        analysis_tasks = [
+            self.context_manager.analyze_factual_facts(initial_input, events),
+            self.context_manager.analyze_governing_law(events=events, rag_content_law=rag_content_law),
+        ]
+        analysis_results = await asyncio.gather(*analysis_tasks)
+
+        # Initialize with defaults in case analysis fails
+        factual_facts = FactualFacts(disputed_facts=[], undisputed_facts=[])
+        governing_law = GoverningLaw(
+            primary_jurisdiction="Unknown",
+            key_areas=[],
+            procedural_law="tvisteloven"
+        )
+
+        for res in analysis_results:
+            if isinstance(res, FactualFacts):
+                factual_facts = res
+            elif isinstance(res, GoverningLaw):
+                governing_law = res
+
+        result = FactSheet(
+            timeline=events,
+            damages=damages if damages else None,
+            claims=claims if claims else None,
+            deadlines=deadlines if deadlines else None,
+            governing_law=governing_law,
+            **factual_facts.model_dump(),
+            **initial_input.model_dump(),
+        )
+
+        # Wait for attachment save to complete before saving project
+        if save_task:
+            await save_task
         
         self.conversation_manager.save_project(factsheet=result,
                                                  files=files,
                                                  user_id=user_id,
-                                                 session_id=session_id,
-                                                 agent_type=agent_type,
-                                                 llm_provider=llm_provider,
-                                                 query_id=query_id,
-                                                 project_id=project_id if project_id else None)
+                                                 session_id=query.session_id,
+                                                 agent_type=query.agent_type,
+                                                 llm_provider=query.llm_provider,
+                                                 query_id=query.query_id,
+                                                 project_id=query.project_id)
 
         # Return a JSON-serializable dict with all metadata
         return {
-            "agent_type": agent_type,
-            "llm_provider": llm_provider,
-            "attachments": [att.model_dump(mode='json') for att in attachments],
+            "agent_type": query.agent_type,
+            "llm_provider": query.llm_provider,
+            "attachments": [att.model_dump(mode='json') for att in files],
             "factsheet": result.model_dump(mode='json'),
-            "created_session_id": session_id
+            "created_session_id": query.session_id
         }
 
 
-    async def update_project(self, user_input: str, 
-                              attachments: list[dict],
-                              session_id: str, 
-                              user_id: str,
-                              agent_type: Literal["fast", "expert"],
-                              llm_provider: Literal["google", "openai", "claude"],
-                              query_id : str,
-                              project_id: Optional[str] = None):
+    async def update_project(self, query : AskAgentRequest,
+                             user_id : str,
+                             ):
         '''Update the project with new input and attachments'''
-        
-        thread = {"configurable":
-                      {"thread_id": session_id,
-                       "user_id": user_id,
-                       "custom_project_id": project_id}
-                  }
-        agent_instance = self._compile_agent(agent_type=agent_type, llm_provider=llm_provider, query_id=query_id)
-        # NEW OR EXISTING CONVERSATION
-        await self.load_or_create_conversation(agent_instance, thread, session_id)
-        
-        project_data = self.conversation_manager.load_project(user_id = user_id,
-                                                           project_id = project_id)
-        factsheet = project_data.get("factsheet",{})
-        events = factsheet.get("timeline",[]) if factsheet else []  
-        files = project_data.get("attachments",[]) 
-        damages = project_data.get("damages",[])
-        claims =  project_data.get("claims",[]) 
-        deadlines = project_data.get("deadlines",[])         
-        
-        # Validate project_data is a dict
+
+        # Validate project_data first
+        project_data = await asyncio.to_thread(
+            self.conversation_manager.load_project,
+            user_id=user_id,
+            project_id=query.project_id
+        )
+
         if project_data and not isinstance(project_data, dict):
             error_msg = f"load_project returned {type(project_data).__name__} instead of dict. Value: {project_data}"
             logger.error(f"Error in update_project: {error_msg}")
             raise TypeError(error_msg)
-        
-        
-        for att in attachments:
-            content_txt = self.handle_attachments(att, session_id=session_id, user_id=user_id, query_id=query_id)
-            logger.debug(f"Analyzing attachment: {att.get('filename','')} (ID: {att.get('file_id','')})")
-            result = await self.context_manager.consider_new_doc(factsheet=factsheet,
-                                                                 new_content=content_txt,
-                                                                 new_user_input=user_input,
-                                                                 file_id=att.get("file_id",""),
-                                                                    filename=att.get("filename",""),
-                                                                    path="",
-                                                                    file_type=att.get("file_type",""),
-                                                                    size=att.get("size",0),)
-            analyzed_doc = result.get("file")
-            logger.debug(f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()}")
 
-            # Collect results from analyzed documents
-            files.append(analyzed_doc)
-            damages.extend(analyzed_doc.damage) if analyzed_doc.damage else None
-            claims.extend(analyzed_doc.claim) if analyzed_doc.claim else None
-            deadlines.extend(analyzed_doc.deadline) if analyzed_doc.deadline else None
+        # Save attachments in parallel with processing
+        save_task = None
+        if query.attachments:
+            save_task = asyncio.create_task(
+                self.save_attachments(query=query, user_id=user_id, session_id=query.session_id)
+            )
 
-            events.extend(result.get("events", [])) if result.get("events") else None
+        # Extract existing data from project (use direct lists, not wrapper models)
+        factsheet = FactSheet.model_validate(project_data.get("factsheet", {})) if project_data.get("factsheet") else None
+        events: list[Event] = list(factsheet.timeline) if factsheet and factsheet.timeline else []
+        files: list[Attachment] = [Attachment.model_validate(att) for att in project_data.get("attachments", [])] if project_data.get("attachments") else []
+        damages: list[Damage] = list(factsheet.damages) if factsheet and factsheet.damages else []
+        claims: list[Claim] = list(factsheet.claims) if factsheet and factsheet.claims else []
+        deadlines: list[Deadline] = list(factsheet.deadlines) if factsheet and factsheet.deadlines else []
 
-        inital_input = self.context_manager.update_content(factsheet = factsheet,
-                                                           content = factsheet.get("initial_input",""),)
-        governing_law = self.context_manager.update_content(factsheet = factsheet,
-                                                           content = factsheet.get("governing_law",""),)
-        factual_facts = self.context_manager.update_content(factsheet = factsheet,
-                                                           content = factsheet.get("factual_facts",""),)
-        
-        result = FactSheet(timeline=events,
-                            damages=damages,
-                            claims=claims,
-                            deadlines=deadlines,
-                            governing_law=governing_law,
-                            **factual_facts.model_dump(),
-                            **inital_input.model_dump(),
-                            )
-        
-        
-        
-        self.conversation_manager.save_project(factsheet=result,
-                                                 files=files,
-                                                 user_id=user_id,
-                                                 session_id=session_id,
-                                                 agent_type=agent_type,
-                                                 llm_provider=llm_provider,
-                                                 query_id=query_id,
-                                                 project_id=project_id if project_id else None)
+        # Analyze new attachments in parallel
+        tasks = []
+        for att in query.attachments or []:
+            tasks.append(self.context_manager.consider_new_doc(
+                factsheet=factsheet,
+                new_content=att.content,
+                new_user_input=query.question,
+                file_id=att.file_id,
+                filename=att.filename,
+                path="",
+                file_type=att.file_type,
+                size=att.size,
+            ))
+
+        if tasks:
+            results = await asyncio.gather(*tasks)
+            for result in results:
+                analyzed_doc = result.get("file")
+                logger.debug(f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()}")
+
+                # Collect results from analyzed documents
+                files.append(analyzed_doc)
+                if analyzed_doc.damage:
+                    damages.extend(analyzed_doc.damage)
+                if analyzed_doc.claim:
+                    claims.extend(analyzed_doc.claim)
+                if analyzed_doc.deadline:
+                    deadlines.extend(analyzed_doc.deadline)
+                if result.get("events"):
+                    events.extend(result.get("events"))
+
+        # Build intermediate factsheet with updated lists
+        intermediate_factsheet = FactSheet(
+            timeline=events,
+            damages=damages if damages else None,
+            claims=claims if claims else None,
+            deadlines=deadlines if deadlines else None,
+            # From existing factsheet (attribute access, not .get())
+            parties=factsheet.parties if factsheet else [],
+            third_parties=factsheet.third_parties if factsheet else [],
+            background=factsheet.background if factsheet else "",
+            title=factsheet.title if factsheet else "",
+            disputed_facts=factsheet.disputed_facts if factsheet else [],
+            undisputed_facts=factsheet.undisputed_facts if factsheet else [],
+            governing_law=factsheet.governing_law if factsheet else GoverningLaw(
+                primary_jurisdiction="Unknown",
+                key_areas=[],
+                procedural_law="tvisteloven"
+            ),
+        )
+
+        # Update content sections in parallel (pass model instances, not strings)
+        update_tasks = [
+            self.context_manager.update_content(
+                factsheet=intermediate_factsheet,
+                content=InitialInput(
+                    parties=intermediate_factsheet.parties,
+                    third_parties=intermediate_factsheet.third_parties,
+                    background=intermediate_factsheet.background,
+                    title=intermediate_factsheet.title,
+                )
+            ),
+            self.context_manager.update_content(
+                factsheet=intermediate_factsheet,
+                content=intermediate_factsheet.governing_law,
+            ),
+            self.context_manager.update_content(
+                factsheet=intermediate_factsheet,
+                content=FactualFacts(
+                    disputed_facts=intermediate_factsheet.disputed_facts,
+                    undisputed_facts=intermediate_factsheet.undisputed_facts,
+                )
+            ),
+        ]
+
+        update_results = await asyncio.gather(*update_tasks)
+
+        initial_input = None
+        governing_law = None
+        factual_facts = None
+
+        for res in update_results:
+            if isinstance(res, InitialInput):
+                initial_input = res
+            elif isinstance(res, GoverningLaw):
+                governing_law = res
+            elif isinstance(res, FactualFacts):
+                factual_facts = res
+
+        # Build final factsheet
+        result = FactSheet(
+            timeline=events,
+            damages=damages if damages else None,
+            claims=claims if claims else None,
+            deadlines=deadlines if deadlines else None,
+            governing_law=governing_law or intermediate_factsheet.governing_law,
+            **(factual_facts.model_dump() if factual_facts else {
+                "disputed_facts": intermediate_factsheet.disputed_facts,
+                "undisputed_facts": intermediate_factsheet.undisputed_facts
+            }),
+            **(initial_input.model_dump() if initial_input else {
+                "parties": intermediate_factsheet.parties,
+                "third_parties": intermediate_factsheet.third_parties,
+                "background": intermediate_factsheet.background,
+                "title": intermediate_factsheet.title
+            }),
+        )
+
+        # Wait for attachment save to complete before saving project
+        if save_task:
+            await save_task
+
+        self.conversation_manager.save_project(
+            factsheet=result,
+            files=files,
+            user_id=user_id,
+            session_id=query.session_id,
+            agent_type=query.agent_type,
+            llm_provider=query.llm_provider,
+            query_id=query.query_id,
+            project_id=query.project_id
+        )
 
         # Return a JSON-serializable dict with all metadata
         return {
-            "agent_type": agent_type,
-            "llm_provider": llm_provider,
-            "attachments": [att.model_dump(mode='json') for att in attachments],
+            "agent_type": query.agent_type,
+            "llm_provider": query.llm_provider,
+            "attachments": [att.model_dump(mode='json') for att in files],
             "factsheet": result.model_dump(mode='json'),
-            "created_session_id": session_id
+            "created_session_id": query.session_id
         }

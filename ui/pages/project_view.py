@@ -37,6 +37,7 @@ if not auth_service.authenticate_with_backend():
 # st.json(st.session_state.messages)
 
 
+
 streaming_service = StreamingService(
                     st.session_state.backend_url,
                     st.session_state.access_token
@@ -78,44 +79,71 @@ def render_select_projects():
     else:
         st.info("No projects found. Please initialize a new project.")
 
+def display_field(label,value, icon,factsheet):
+    with st.expander(label.title(), expanded=False, icon=icon):
+        content = factsheet.get(value, []) if factsheet.get(value) else []
+        for i, item in enumerate(content, start=1):
+            st.markdown(f"**{label.title()} {i}**")
+            if isinstance(item, dict):
+                for k,v in item.items():
+                    if v:
+                        st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
+            elif isinstance(item, list):
+                for sub_item in item:
+                    st.markdown(f"  - {sub_item}")
+            elif isinstance(item, str):
+                st.markdown(f"  - {item}")
+            else:
+                st.markdown(f"  - {str(item)}")
+
+
 def render_selected_project():
     factsheet = st.session_state.get('factsheet', {})
     st.header("Selected Project:")
     st.markdown(f"### {factsheet.get('title')}")
-    st.markdown(f'Parties')
-    st.markdown(f'- **Plaintiff**: {", ".join([p["legal_name"] for p in factsheet.get("parties", []) if p.get("role") == "plaintiff"])}')
-    st.markdown(f'- **Defendant**: {", ".join([p["legal_name"] for p in factsheet.get("parties", []) if p.get("role") == "defendant"])}')
     
-    with st.expander("Timeline", expanded=False, icon="🕒"):
-        timeline = factsheet.get('timeline', [])
-        sorted_timeline = sorted(timeline, key=lambda x: x.get('date', ''))
-        for event in sorted_timeline:
-            st.markdown(f"**{event.get('date', 'No Date')}**: {event.get('description', 'No Description')}")
+    elements = {"parties" : "👥", "timeline" : "🕒", "governing_law" : "⚖️", "claims" : "📄", "damages" : "💰", "deadlines" : "⏰", "background" : "📚"}
+    for field, icon in elements.items():
+        display_field(label = field.replace("_"," ").title(), value = field, icon = icon, factsheet=factsheet)
+    
+    # with st.expander("Parties", expanded=False, icon="👥"):
+    #     parties = factsheet.get('parties', [])
+    #     for i, party in enumerate(parties, start=1):
+    #         st.markdown(f"**Party {i}**")
+    #         for k,v in party.items():
+    #             if v:
+    #                 st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
+    
+    # with st.expander("Timeline", expanded=False, icon="🕒"):
+    #     timeline = factsheet.get('timeline', [])
+    #     sorted_timeline = sorted(timeline, key=lambda x: x.get('date', ''))
+    #     for event in sorted_timeline:
+    #         st.markdown(f"**{event.get('date', 'No Date')}**: {event.get('description', 'No Description')}")
 
-    with st.expander("Governing Law", expanded=False,icon="⚖️"):
-        governing_law = factsheet.get('governing_law', {})
-        for k,v in governing_law.items():
-            if v:
-                st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
+    # with st.expander("Governing Law", expanded=False,icon="⚖️"):
+    #     governing_law = factsheet.get('governing_law', {})
+    #     for k,v in governing_law.items():
+    #         if v:
+    #             st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
 
-    with st.expander("Claims", expanded=False, icon="📄"):
-        claims = factsheet.get('claims', [])
-        for i, claim in enumerate(claims, start=1):
-            st.markdown(f"**Claim {i}**")
-            for k,v in claim.items():
-                if v:
-                    st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
+    # with st.expander("Claims", expanded=False, icon="📄"):
+    #     claims = factsheet.get('claims', [])
+    #     for i, claim in enumerate(claims, start=1):
+    #         st.markdown(f"**Claim {i}**")
+    #         for k,v in claim.items():
+    #             if v:
+    #                 st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
 
-    with st.expander("Damages", expanded=False, icon="💰"):
-        damages = factsheet.get('damages', [])
-        for i, damage in enumerate(damages, start=1):
-            st.markdown(f"**Damage {i}**")
-            for k,v in damage.items():
-                if v:
-                    st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
+    # with st.expander("Damages", expanded=False, icon="💰"):
+    #     damages = factsheet.get('damages', []) if factsheet.get('damages') else []
+    #     for i, damage in enumerate(damages, start=1):
+    #         st.markdown(f"**Damage {i}**")
+    #         for k,v in damage.items():
+    #             if v:
+    #                 st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
 
-    with st.expander("Deadlines", expanded=False, icon="⏰"):
-        deadlines = factsheet.get('deadlines', [])
+    # with st.expander("Deadlines", expanded=False, icon="⏰"):
+        deadlines = factsheet.get('deadlines', []) if factsheet.get('deadlines') else []
         for i, deadline in enumerate(deadlines, start=1):
             st.markdown(f"**Deadline {i}**")
             for k,v in deadline.items():
@@ -125,10 +153,6 @@ def render_selected_project():
     with st.expander("Attachments Overview", expanded=False, icon="📎"):
         for file in st.session_state.get('attachments', []):
             st.markdown(f"- **{file.get('filename', 'No Filename')}** ({file.get('category', 'No Category')}, {file.get('significance', 'No Significance')})")
-
-    with st.expander("Background", expanded=False, icon="📚"):
-        background = factsheet.get('background', 'No background information available.')
-        st.markdown(background)
 
 def render_project_sessions():
     #st.header("Project Sessions")
@@ -209,7 +233,7 @@ def render_new_input(mode : Literal["update","init"] = "init"):
                 st.session_state.attachments = project_data.get('attachments', [])
 
                 # Clear cached project list so new project shows in sidebar
-                session_service.load_projects.clear()
+                #session_service.load_projects.clear()
 
                 st.rerun()
             else:
@@ -220,57 +244,6 @@ def render_new_input(mode : Literal["update","init"] = "init"):
             logger.exception("Exception during project initialization")
 
 
-# def render_update_project(factsheet):
-#     st.header("Selected Project:")
-#     st.markdown(f"### {factsheet.get('title')}")
-#     st.markdown(f'Parties')
-#     st.markdown(f'- **Plaintiff**: {", ".join([p["legal_name"] for p in factsheet.get("parties", []) if p.get("role") == "plaintiff"])}')
-#     st.markdown(f'- **Defendant**: {", ".join([p["legal_name"] for p in factsheet.get("parties", []) if p.get("role") == "defendant"])}')
-    
-#     with st.expander("Timeline", expanded=False, icon="🕒"):
-#         timeline = factsheet.get('timeline', [])
-#         sorted_timeline = sorted(timeline, key=lambda x: x.get('date', ''))
-#         for event in sorted_timeline:
-#             st.markdown(f"**{event.get('date', 'No Date')}**: {event.get('description', 'No Description')}")
-
-#     with st.expander("Governing Law", expanded=False,icon="⚖️"):
-#         governing_law = factsheet.get('governing_law', {})
-#         for k,v in governing_law.items():
-#             if v:
-#                 st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
-
-#     with st.expander("Claims", expanded=False, icon="📄"):
-#         claims = factsheet.get('claims', [])
-#         for i, claim in enumerate(claims, start=1):
-#             st.markdown(f"**Claim {i}**")
-#             for k,v in claim.items():
-#                 if v:
-#                     st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
-
-#     with st.expander("Damages", expanded=False, icon="💰"):
-#         damages = factsheet.get('damages', [])
-#         for i, damage in enumerate(damages, start=1):
-#             st.markdown(f"**Damage {i}**")
-#             for k,v in damage.items():
-#                 if v:
-#                     st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
-
-#     with st.expander("Deadlines", expanded=False, icon="⏰"):
-#         deadlines = factsheet.get('deadlines', [])
-#         for i, deadline in enumerate(deadlines, start=1):
-#             st.markdown(f"**Deadline {i}**")
-#             for k,v in deadline.items():
-#                 if v:
-#                     st.markdown(f"  - **{k.replace('_',' ').title()}**: {v}")
-
-#     with st.expander("Attachments Overview", expanded=False, icon="📎"):
-#         for file in st.session_state.get('attachments', []):
-#             st.markdown(f"- **{file.get('filename', 'No Filename')}** ({file.get('category', 'No Category')}, {file.get('significance', 'No Significance')})")
-
-#     with st.expander("Background", expanded=False, icon="📚"):
-#         background = factsheet.get('background', 'No background information available.')
-#         st.markdown(background)
-# #st.json(st.session_state)
 
 with st.sidebar:
     new_project = st.button("Initialize New Project", icon="🆕")
@@ -347,3 +320,4 @@ else:
         st.warning("No factsheet available for this project.")
 
 
+#st.json(st.session_state.factsheet)

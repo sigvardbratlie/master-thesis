@@ -101,17 +101,11 @@ async def init_scan_endpoint(query: AskAgentRequest, user_id: str = Depends(auth
     """
     Endpoint to initialize scanning and processing of attachments.
     """
-    attachments = [att.model_dump() for att in query.attachments] if query.attachments else None
+    #attachments = [att.model_dump() for att in query.attachments] if query.attachments else None
     try:
         scan_result = await agent.initialize_project(
-            user_input=query.question,
-            attachments=attachments,
-            session_id=query.session_id,
+            query=query,
             user_id=user_id,
-            agent_type=query.agent_type,
-            llm_provider=query.llm_provider,
-            query_id=query.query_id,
-            project_id=query.project_id if query.project_id else None
         )
         return scan_result
     except Exception as e:
@@ -123,17 +117,11 @@ async def update_project_endpoint(query: AskAgentRequest, user_id: str = Depends
     """
     Endpoint to update the project with new input and attachments.
     """
-    attachments = [att.model_dump() for att in query.attachments] if query.attachments else None
+    #attachments = [att.model_dump() for att in query.attachments] if query.attachments else None
     try:
         update_result = await agent.update_project(
-            user_input=query.question,
-            attachments=attachments,
-            session_id=query.session_id,
-            user_id=user_id,
-            agent_type=query.agent_type,
-            llm_provider=query.llm_provider,
-            query_id=query.query_id,
-            project_id=query.project_id if query.project_id else None
+            query = query,
+            user_id = user_id,
         )
         return update_result
     except Exception as e:

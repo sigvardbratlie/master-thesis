@@ -279,6 +279,7 @@ class AttachmentReader:
         
         # Kjør alle uploads parallelt
         await asyncio.gather(*tasks)
+
 class ConversationManager:
     def __init__(self, db=None):
         self.db = firestore.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT"), database="(default)") if not db else db
@@ -560,7 +561,7 @@ class ConversationManager:
                        query_id : str = ""
 
                        ):
-        ''' Save the initial case scan to Firestore
+        ''' Save project to Firestore
         
         Args:
             factsheet (FactSheet): The factsheet object to save.
@@ -583,9 +584,9 @@ class ConversationManager:
                 "factsheet": factsheet.model_dump(mode='json'),
                 "attachments": [file.model_dump(mode='json') for file in files]
             })
-            logger.info(f"Initial case scan saved for project {project_id}")
+            logger.info(f"Project saved for project {project_id}")
         except Exception as e:
-            logger.error(f"Error saving initial case scan: {e}", exc_info=True)
+            logger.error(f"Error saving project to firestore: {e}", exc_info=True)
 
 
     def get_or_create_user(self, google_user_info: dict) -> str:
