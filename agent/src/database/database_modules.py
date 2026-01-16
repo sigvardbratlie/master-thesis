@@ -4,6 +4,7 @@ import os
 from io import BytesIO
 from PyPDF2 import PdfReader
 import logging
+import base64
 
 from langchain_core.messages import SystemMessage
 from langchain_core.documents import Document
@@ -175,6 +176,29 @@ class VectorSearch:
 
         return contents
     
+    async def embedded_upload(self,attachments : list[AttachmentModel],query_id : str, session_id : str, user_id : str):
+        vector_store = self.init_vector_store(table_name="attachments")
+        docs = []
+        
+        for att in attachments:
+            meta = {
+                "filename": att.filename,
+                "file_id": att.file_id,
+                "user_id": user_id,
+                "session_id": session_id,
+                'query_id': query_id,
+                "source_type": att.file_type,  # 'application/pdf' eller 'text/plain'
+                "uploaded_at": datetime.now().isoformat(),
+            }
+            content = att.content #b64 or human readable text
+
+            #decode content
+            if att.file_type == "application/pdf":
+                content_bytes = base64.b64decode(content)
+                docs.append(self.parse_pdf(content_bytes, metadata=meta))
+            else:
+                docs.append(self.parse_txt(content, metadata=meta))
+        await vector_store.add_documents(docs) # Save in vector store
 
 class AttachmentReader:
 
@@ -204,7 +228,7 @@ class AttachmentReader:
             logger.error(f'Error downloading attachments from GCS: {e}')
             return f"Error downloading attachments from GCS: {e}"
         
-    def save_attachment(self,content : bytes,metadata : dict = None):
+    async def save_attachment(self,content : bytes,metadata : dict = None):
         file_id = metadata.pop("file_id",None)
         session_id = metadata.pop("session_id",None)
         user_id = metadata.pop("user_id",None)
@@ -216,10 +240,33 @@ class AttachmentReader:
             bucket_path = f"{user_id}/{session_id}/{file_id}"
             blob = self.bucket.blob(bucket_path)
             blob.metadata = metadata
-            blob.upload_from_string(content)
+            await blob.upload_from_string(content)
             logger.info(f"Attachment saved to GCS at {bucket_path}")
         except Exception as e:
             logger.error(f"Error saving attachment to GCS: {e}")
+
+    async def save_raw_documents(self,attachments : list[AttachmentModel],query_id : str, session_id : str, user_id : str):
+
+        for att in attachments:
+            # Metadata
+            meta = {
+                "filename": att.filename,
+                "file_id": att.file_id,
+                "user_id": user_id,
+                "session_id": session_id,
+                'query_id': query_id,
+                "source_type": att.file_type,  # 'application/pdf' eller 'text/plain'
+                "uploaded_at": datetime.now().isoformat(),
+            }
+            
+            content = att.content #b64 or human readable text
+
+            #decode content
+            if att.file_type == "application/pdf":
+                content_bytes = base64.b64decode(content)
+                await self.save_attachment(content_bytes, metadata=meta)
+            else:
+                await self.save_attachment(content, metadata=meta)
 
 class ConversationManager:
     def __init__(self, db=None):
@@ -426,14 +473,9 @@ class ConversationManager:
 
 
     def save_stream(self, 
-                    events : list, 
-                    attachments : list,
-                    user_id : str, 
-                    session_id : str, 
-                    agent_type : Literal["fast", "expert"] = "fast", 
-                    llm_provider : Literal["google", "openai", "claude"] = "google", 
-                    project_id : Optional[str] = None,
-                    query_id : str = ""): 
+                    data : StreamData,
+                    user_id : str,
+                    session_id : str): 
         ''' Save the final state of the conversation session to Firestore 
         
         Args:
@@ -449,7 +491,9 @@ class ConversationManager:
             None
         '''
         
-        
+        new_events = [event.model_dump(mode = "json") for event in data.events] if data.events else None
+        new_attachments = [attachment.model_dump(mode = "json") for attachment in data.attachments] if data.attachments else None
+
         try:
             # Fetch current session
             session_ref = self.db.collection("chat_history").document(user_id).collection("sessions").document(session_id)
@@ -468,25 +512,25 @@ class ConversationManager:
 
             if not title or title == "Ny samtale":
                 try:
-                    title_msg = [msg.get("data") for msg in events if msg.get("type") == "human" or msg.get("type") == "ai"]
+                    title_msg = [msg.get("data") for msg in new_events if msg.get("type") == "human" or msg.get("type") == "ai"]
                     #title = await self.mk_title(title_msg)
                     title = self.summarizer.mk_title(title_msg)
                 except Exception as e:
                     logger.error(f"Error creating title: {e}")
                     title = "Ny samtale"
 
-            all_events.extend(events) if events else None
-            all_attachments.extend(attachments) if attachments else None
+            all_events.extend(new_events) if new_events else None
+            all_attachments.extend(new_attachments) if new_attachments else None
 
              # Save updated session
             session_ref.set({
                 "events": all_events, 
                 "attachments": all_attachments,
                 "last_updated": firestore.SERVER_TIMESTAMP,
-                "project_id": project_id,
-                "agent_type": agent_type,
-                "llm_provider": llm_provider,
-                "last_query_id": query_id,
+                "project_id": data.project_id,
+                "agent_type": data.agent_type,
+                "llm_provider": data.llm_provider,
+                "last_query_id": data.last_query_id,
                 "title" : title
             })
             

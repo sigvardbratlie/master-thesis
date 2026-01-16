@@ -7,6 +7,9 @@ import uuid
 from langgraph.graph.message import add_messages
 
 
+
+# ===== CONTEXT MANAGER MODELS
+
 class Contact(BaseModel):
     name: str = Field(description="Full name of contact person")
     title: Optional[str] = None
@@ -153,6 +156,79 @@ class FactSheet(InitialInput,FactualFacts):
 class RelevanceCheck(BaseModel):
     is_relevant: bool
     reasoning: str
+
+# ===== API REQUEST MODELS =====
+
+class AttachmentModel(BaseModel):
+    """Attachment sent to backend API"""
+    filename: str
+    file_id: str
+    content: Optional[str] = None  # Base64 for PDF, text for others
+    file_type: str
+    size: int
+
+
+class AskAgentRequest(BaseModel):
+    """POST /ask-agent request"""
+    question: str
+    attachments: Optional[list[AttachmentModel]] = None
+    session_id: str
+    agent_type: Literal["fast", "expert"]
+    llm_provider: Literal["google", "openai", "claude"]
+    query_id: str
+    project_id: Optional[str] = None
+
+
+class StreamlitUserInfo(BaseModel):
+    sub: str  # Unique Google ID
+    email: str
+    name: str
+    picture: Optional[str] = None
+
+# ===== MODELS SAVING TO FIRESTORE =====
+class HumanEventData(BaseModel):
+    additional_kwargs: Optional[dict] = None
+    attachments: Optional[list[AttachmentModel]] = None
+    content : Optional[str] = None
+    id : Optional[str] = None
+    name : Optional[str] = None
+    response_metadata : Optional[dict] = None
+
+class ToolResultData(BaseModel):
+    tool_name: str
+    tool_args: dict
+    data : Optional[dict] = None
+
+class AIEventData(BaseModel):
+    additional_kwargs: Optional[dict] = None
+    content : Optional[str] = None
+    id : Optional[str] = None
+    invalid_tool_calls : Optional[list] = None
+    name : Optional[str] = None
+    response_metadata : Optional[dict] = None
+    token_stream: Optional[str] = None
+    tool_calls : Optional[list] = None
+    type : str = "ai"
+    usage_metadata : Optional[dict] = None
+
+class StreamEvent(BaseModel):
+    order: int
+    type: Literal["human", "ai", "tool_result"]
+    timestamp: datetime
+    query_id: str
+    data : HumanEventData | ToolResultData | AIEventData
+
+class StreamData(BaseModel):
+    agent_type: Literal["fast", "expert"]
+    llm_provider: Literal["google", "openai", "claude"]
+    project_id: Optional[str] = None
+    title : Optional[str] = None
+    last_updated : Optional[datetime] = None
+    last_query_id : str
+    events : list[StreamEvent]
+    attachments : Optional[list[AttachmentModel]] = None
+
+
 
 # def add_tool_results(existing: list, new: list) -> list:
 #     return existing + new

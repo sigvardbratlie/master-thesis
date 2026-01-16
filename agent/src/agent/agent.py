@@ -21,7 +21,7 @@ from langgraph.graph import StateGraph, END
 
 from agent.agent_modules import Summarizer,ContextManager, ToolManager
 from database import VectorSearch,AttachmentReader, ConversationManager
-from agent.basemodels import FactSheet,AgentState
+from agent.basemodels import *
 
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -69,8 +69,6 @@ class Agent:
     # =================================
     #         GRAPH ELEMENTS
     # =================================
-
-    
 
     def _build_attachment_context(self,
                                    attachments: list,
@@ -140,8 +138,9 @@ class Agent:
             )
 
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
-        project_data = self.conversation_manager.load_project(user_id = config.get("configurable").get("user_id",None) or "",
-                                                           project_id = config.get("configurable").get("custom_project_id",None) or "",)
+        #if config.get("configurable").get("custom_project_id",None):
+        project_data = self.conversation_manager.load_project(user_id = config.get("configurable").get("user_id",None),
+                                                           project_id = config.get("configurable").get("custom_project_id",None))
         # if attachments and project_data:
         #     project_data = await self.context_manager.process_attachments_for_update(
         #         project_data=project_data,
@@ -375,59 +374,31 @@ class Agent:
             docs.append(doc)
         return docs
 
-    def handle_attachments(self, att, session_id: str, user_id: str, query_id : str):
-            '''Function to handle attachment processing, saving to vector store and file storage.
+    
+
+    
+    
+    
+    # def handle_attachments(self, att : AttachmentModel, session_id: str, user_id: str, query_id : str):
+    #         '''Function to handle attachment processing, saving to vector store and file storage.
             
-            Args:
-                att (dict): Attachment dictionary containing file information and content.
-                session_id (str): The session ID for the current conversation.
-                user_id (str): The user ID of the person uploading the attachment.
-                query_id (str): The query ID for tracking the request.
-            Returns:
-                str: Concatenated string of processed document contents from the attachment.
-            '''
+    #         Args:
+    #             att (dict): Attachment dictionary containing file information and content.
+    #             session_id (str): The session ID for the current conversation.
+    #             user_id (str): The user ID of the person uploading the attachment.
+    #             query_id (str): The query ID for tracking the request.
+    #         Returns:
+    #             str: Concatenated string of processed document contents from the attachment.
+    #         '''
+
+
             
-            vs_attachments = self.vs.init_vector_store(table_name="attachments")
-            file_id = att.get("file_id", "")
-
-            # Metadata
-            meta = {
-                "filename": att.get("filename", ""),
-                "file_id": file_id,
-                "user_id": user_id,
-                "session_id": session_id,
-                'query_id': query_id,
-                "source_type": att.get("file_type", ""),  # 'application/pdf' eller 'text/plain'
-                "uploaded_at": datetime.now().isoformat(),
-            }
-            content = att.get("content", "") #b64 or human readable text
-
-            #decode content
-            if att.get("file_type") == "application/pdf":
-                content_bytes = base64.b64decode(content)
-                docs = self.vs.parse_pdf(content_bytes, metadata=meta)
-                self.attachment_reader.save_attachment(content_bytes, metadata=meta)
-            else:
-                docs = self.vs.parse_txt(content, metadata=meta)
-                self.attachment_reader.save_attachment(content, metadata=meta)
-
-            # VECTOR STORE
-            vs_attachments.add_documents(docs) # Save in vector store
-            att.pop("content", None) #remove content after processing
-
-            return " ".join([doc.page_content for doc in docs])
 
     # =================================
     #       STREAM RESPONSE
     # =================================
-    async def stream_response(self, user_input: str, 
-                              attachments: list[dict],
-                              session_id: str, 
-                              user_id: str,
-                              agent_type: Literal["fast", "expert"],
-                              llm_provider: Literal["google", "openai", "claude"],
-                                query_id : str,
-                              project_id: Optional[str] = None,
+    async def stream_response(self, query : AskAgentRequest,
+                                user_id : str
                              ):
         """
         This is a generator function that yields status updates and the final response.
@@ -438,55 +409,54 @@ class Agent:
         #               SETUP
         # ================================
         thread = {"configurable":
-                      {"thread_id": session_id,
+                      {"thread_id": query.session_id,
                        "user_id": user_id,
-                       "custom_project_id": project_id}
+                       "custom_project_id": query.project_id}
                   }
-        agent_instance = self._compile_agent(agent_type=agent_type, llm_provider=llm_provider, query_id=query_id)
+        agent_instance = self._compile_agent(agent_type=query.agent_type, llm_provider=query.llm_provider, query_id=query.query_id)
         
         # NEW OR EXISTING CONVERSATION
-        await self.load_or_create_conversation(agent_instance, thread, session_id)
-        # if project_id:
-        #     project_data = self.conversation_manager.load_project(user_id=user_id,
-        #                                                         project_id=project_id,)
-
+        await self.load_or_create_conversation(agent_instance, thread, query.session_id)
                                                             
-        
         #HANDLE USER QUERY
         events = []
         event_counter = 0
         token_stream = ""
 
-        user_msg = message_to_dict(HumanMessage(content=user_input, id = query_id))
+        user_msg = message_to_dict(HumanMessage(content=query.question, id = query.query_id))
         
-        if attachments:
-            for att in attachments:
-                self.handle_attachments(att, session_id=session_id, user_id=user_id,query_id=query_id)
-                #att.pop("content", None) #remove content if still present
+        # SAVE ATTACHMENTS to both vector store and file storage
+        if query.attachments:
+            await self.vs.embedded_upload(attachments=query.attachments, query_id=query.query_id, session_id=query.session_id, user_id=user_id)
+            await self.attachment_reader.save_raw_documents(attachments=query.attachments, session_id=query.session_id, user_id=user_id, query_id=query.query_id)
 
-        
-        #[att.pop("content", None) for att in attachments] if attachments else None
         #add attachments without content to user message
-        user_msg["data"]["attachments"] = attachments if attachments else []
+        attachments_events = [att.model_dump(model = "json", exclude={"content"}) for att in query.attachments or []]
+        user_msg["data"]["attachments"] = [AttachmentModel.model_validate(att) for att in attachments_events]
         event = {
                 "order": event_counter,
                 "type": "message",
                 **user_msg,
                 "timestamp": datetime.now().isoformat(),
-                "query_id": query_id
+                "query_id": query.query_id
             }
         event_counter += 1
-        events.append(event) #add first user message event
+        event_model = StreamEvent(data = HumanEventData.model_validate(user_msg),
+                                    order = event_counter,
+                                    type = "human",
+                                    timestamp = datetime.now(),
+                                    query_id = query.query_id)
+        events.append(event_model) #add first user message event
 
         #=========================================
         #           STREAM RESPONSE
         #=========================================
-        user_msg = HumanMessage(content=user_input, 
-                                #id = query_id, 
-                                additional_kwargs={"attachments": attachments if attachments else [],
-                                                   "session_id": session_id,
+        user_msg = HumanMessage(content=query.question, 
+                                #id = query.query_id, 
+                                additional_kwargs={"attachments": attachments_events,
+                                                   "session_id": query.session_id,
                                                    "user_id": user_id,
-                                                   "query_id": query_id
+                                                   "query_id": query.query_id
                                                    })
         try:
             async for chunk in agent_instance.astream_events({"messages": [user_msg],
@@ -499,7 +469,7 @@ class Agent:
 
                 #token for token streaming
                 if ev == "on_chat_model_stream":
-                    result = self.on_chat_model_stream(data, query_id=query_id, token_stream=token_stream)
+                    result = self.on_chat_model_stream(data, query_id=query.query_id, token_stream=token_stream)
                     if result:
                         token_stream += result.get("data","")
                         yield result
@@ -507,14 +477,14 @@ class Agent:
 
                 #ai messages
                 if name == "call_llm":
-                    result = self.on_call_llm(data, query_id=query_id, events=events, event_counter=event_counter, token_stream=token_stream)
+                    result = self.on_call_llm(data, query_id=query.query_id, events=events, event_counter=event_counter, token_stream=token_stream)
                     if result:
                         yield result
                         #token_stream  = "" #reset after yielding
 
                 #direct tool results
                 if name == "call_tool" and ev == "on_chain_end":
-                    result = self.on_call_tool(data, query_id=query_id, events=events, event_counter=event_counter)
+                    result = self.on_call_tool(data, query_id=query.query_id, events=events, event_counter=event_counter)
                     if result:
                         yield result
         except Exception as e:
@@ -522,14 +492,16 @@ class Agent:
 
         finally:
             # Save final state
-            self.conversation_manager.save_stream(events, 
-                                                  attachments=attachments, 
-                                                  user_id=user_id, 
-                                                  session_id=session_id, 
-                                                  agent_type=agent_type, 
-                                                  project_id=project_id,
-                                                  llm_provider=llm_provider,
-                                                  query_id=query_id)
+            data_to_save = StreamData(events=events,
+                                    agent_type=query.agent_type,
+                                    llm_provider=query.llm_provider,
+                                    project_id=query.project_id,
+                                    last_query_id=query.query_id,
+                                    attachments=query.attachments
+                                    )
+            self.conversation_manager.save_stream(data=data_to_save,
+                                                  user_id=user_id,
+                                                  session_id=query.session_id)
             # if project_id:
             #     state_snapshot = await agent_instance.aget_state(thread)
             #     state_values = state_snapshot.values if state_snapshot else {}
@@ -573,8 +545,12 @@ class Agent:
                     "query_id": query_id,
                     "timestamp": datetime.now().isoformat()
                 }
-                #token_stream = ""
-                events.append(event)
+                event_model = StreamEvent(data = AIEventData.model_validate(msg_payload),
+                                          order = event_counter,
+                                          type = "ai",
+                                          timestamp = datetime.now(),
+                                          query_id = query_id)
+                events.append(event_model)
                 event_counter += 1
                 return event
 
@@ -589,12 +565,13 @@ class Agent:
                     #"token_stream" : token_stream,
                     "query_id": query_id
                     }
-
-            events.append({
-            "order": event_counter,
-            **payload,
-            "timestamp": datetime.now().isoformat()
-            })
+            
+            event_model = ToolResultData.model_validate(data = ToolResultData.model_validate(payload),
+                                                       order = event_counter,
+                                                       type = "tool_result",
+                                                       timestamp = datetime.now(),
+                                                       query_id = query_id)
+            events.append(event_model)
             event_counter += 1
             #token_stream = ""
             return payload

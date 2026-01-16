@@ -25,6 +25,7 @@ from agent import Agent
 from database import FirestoreSaver
 from auth import GoogleAuth
 from database import ConversationManager
+from agent.basemodels import AttachmentModel,AskAgentRequest, StreamlitUserInfo
     
 # ===== SETUP FASTAPI & AGENT =======
 app = FastAPI()
@@ -61,35 +62,8 @@ agent = Agent(
 )
 conversation_manager = ConversationManager()
 
-class Attachment(BaseModel):
-    filename: str
-    file_id: str
-    content: str  # Base64 encoded content
-    file_type: str
-    size: int
 
-class Query(BaseModel):
-    question: str
-    attachments: Optional[list[Attachment]] = None
-    session_id: str
-    project_id: Optional[str] = None
-    agent_type: str # Literal["fast","expert"]
-    llm_provider: str #Literal["google","openai","claude"]
-    query_id: str
-
-class StreamlitUserInfo(BaseModel):
-    sub: str  # Unique Google ID
-    email: str
-    name: str
-    picture: Optional[str] = None
-
-async def stream_generator(question: str, 
-                           attachments: list[Attachment], 
-                           session_id: str, 
-                           agent_type: str, 
-                           llm_provider: str, 
-                           query_id: str, 
-                           project_id: Optional[str] = None,
+async def stream_generator(query : AskAgentRequest,
                            user_id: str = Depends(auth.get_current_user)):
     """
     Call the agent's streaming method and format output
@@ -97,14 +71,8 @@ async def stream_generator(question: str,
     """
 
 
-    async for response_part in agent.stream_response(user_input = question, 
-                                                     attachments = attachments, 
-                                                     session_id = session_id, 
-                                                     user_id = user_id,
-                                                     agent_type = agent_type, 
-                                                     llm_provider = llm_provider, 
-                                                     project_id= project_id,
-                                                     query_id = query_id):
+    async for response_part in agent.stream_response(query = query,user_id = user_id):
+                                                     
         data_string = json.dumps(response_part)
         yield f"data: {data_string}\n\n"
         await asyncio.sleep(0.01)
@@ -112,26 +80,16 @@ async def stream_generator(question: str,
 # ================== API ENDPOINTS ==================
 # MAIN ENDPOINTS
 @app.post("/ask-agent")
-async def ask_agent_endpoint(query: Query, user_id: str = Depends(auth.get_current_user)):
+async def ask_agent_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
     """
     Frontend calls this endpoint. It returns a StreamingResponse
     using our `stream_generator`.
     """
-    # print(f'Received /ask-agent request:')
-    # print(f"Question: {query.question}")
-    # print(f'Attachments content : {[(att.filename, att.content[:30] + "...") for att in query.attachments] if query.attachments else "None"}')
+    
     attachments = [att.model_dump() for att in query.attachments] if query.attachments else None
     try:
         return StreamingResponse(
-            stream_generator(question = query.question,
-                             attachments = attachments,
-                            session_id = query.session_id,
-                            user_id = user_id,
-                            agent_type = query.agent_type,
-                            llm_provider = query.llm_provider,
-                            query_id = query.query_id,
-                            project_id = query.project_id if query.project_id else None
-                            ),
+            stream_generator(query = query,user_id = user_id),
             media_type="text/event-stream"
         )
     except Exception as e:
@@ -139,7 +97,7 @@ async def ask_agent_endpoint(query: Query, user_id: str = Depends(auth.get_curre
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/init-project")
-async def init_scan_endpoint(query: Query, user_id: str = Depends(auth.get_current_user)):
+async def init_scan_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
     """
     Endpoint to initialize scanning and processing of attachments.
     """
@@ -161,7 +119,7 @@ async def init_scan_endpoint(query: Query, user_id: str = Depends(auth.get_curre
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/update-project")
-async def update_project_endpoint(query: Query, user_id: str = Depends(auth.get_current_user)):
+async def update_project_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
     """
     Endpoint to update the project with new input and attachments.
     """
