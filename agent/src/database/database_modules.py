@@ -62,16 +62,16 @@ class VectorSearch:
     def parse_pdf(self, content_bytes: bytes, metadata : dict) -> list[Document]:
         reader = PdfReader(BytesIO(content_bytes))
         docs = []
-        metadata_base = metadata
+        metadata_base = metadata | {"total_pages": len(reader.pages),
+                                    "creator": reader.metadata.get("/Creator") if reader.metadata else None,
+                                    "producer": reader.metadata.get("/Producer") if reader.metadata else None,}
         for i, page in enumerate(reader.pages):
             doc = Document(
                 page_content=page.extract_text(),
             metadata={
                 #"source": source,
                 "page": i + 1,
-                "total_pages": len(reader.pages),
-                "creator": reader.metadata.get("/Creator"),
-                "producer": reader.metadata.get("/Producer"),
+                
                 **metadata_base
                 }
             )
