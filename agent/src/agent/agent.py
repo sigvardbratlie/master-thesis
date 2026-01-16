@@ -373,27 +373,7 @@ class Agent:
             doc = self._load_msg_as_document(msg)
             docs.append(doc)
         return docs
-
-    
-
-    
-    
-    
-    # def handle_attachments(self, att : AttachmentModel, session_id: str, user_id: str, query_id : str):
-    #         '''Function to handle attachment processing, saving to vector store and file storage.
             
-    #         Args:
-    #             att (dict): Attachment dictionary containing file information and content.
-    #             session_id (str): The session ID for the current conversation.
-    #             user_id (str): The user ID of the person uploading the attachment.
-    #             query_id (str): The query ID for tracking the request.
-    #         Returns:
-    #             str: Concatenated string of processed document contents from the attachment.
-    #         '''
-
-
-            
-
     # =================================
     #       STREAM RESPONSE
     # =================================
@@ -433,15 +413,16 @@ class Agent:
         #add attachments without content to user message
         attachments_events = [att.model_dump(model = "json", exclude={"content"}) for att in query.attachments or []]
         user_msg["data"]["attachments"] = [AttachmentModel.model_validate(att) for att in attachments_events]
-        event = {
-                "order": event_counter,
-                "type": "message",
-                **user_msg,
-                "timestamp": datetime.now().isoformat(),
-                "query_id": query.query_id
-            }
+        # event = {
+        #         "order": event_counter,
+        #         "type": "message",
+        #         **user_msg,
+        #         "timestamp": datetime.now().isoformat(),
+        #         "query_id": query.query_id
+        #     }
         event_counter += 1
-        event_model = StreamEvent(data = HumanEventData.model_validate(user_msg),
+        event_model = StreamEvent(data = HumanEventData(content = query.question,
+                                                        attachments = [AttachmentModel.model_validate(att) for att in attachments_events]),
                                     order = event_counter,
                                     type = "human",
                                     timestamp = datetime.now(),
@@ -492,6 +473,7 @@ class Agent:
 
         finally:
             # Save final state
+            
             data_to_save = StreamData(events=events,
                                     agent_type=query.agent_type,
                                     llm_provider=query.llm_provider,
@@ -499,6 +481,8 @@ class Agent:
                                     last_query_id=query.query_id,
                                     attachments=query.attachments
                                     )
+            logger.info(f'StreamDataObject in finally: \n{data_to_save.model_dump()}')
+            logger.info(f'Query in stream_response finally: \n{query.model_dump()}')
             self.conversation_manager.save_stream(data=data_to_save,
                                                   user_id=user_id,
                                                   session_id=query.session_id)
@@ -534,27 +518,31 @@ class Agent:
         if chunk and isinstance(chunk,dict) and chunk.get("messages"):
             ai_msg = data.get("chunk").get("messages")[-1]
             if isinstance(ai_msg, AIMessage):
-                msg_payload = messages_to_dict([ai_msg])[0] if messages_to_dict([ai_msg]) and len(messages_to_dict([ai_msg])) > 0 else {}
-                if msg_payload.get("data"):
-                    msg_payload.get("data")["token_stream"] = token_stream
-                else:
-                    msg_payload["token_stream"] = token_stream
-                event = {
-                    "order": event_counter,
-                    **msg_payload,
-                    "query_id": query_id,
-                    "timestamp": datetime.now().isoformat()
-                }
-                event_model = StreamEvent(data = AIEventData.model_validate(msg_payload),
+                logger.info(f'AI Message Langchain \n{ai_msg.model_dump()}')
+                # msg_payload = messages_to_dict([ai_msg])[0] if messages_to_dict([ai_msg]) and len(messages_to_dict([ai_msg])) > 0 else {}
+                # if msg_payload.get("data"):
+                #     msg_payload.get("data")["token_stream"] = token_stream
+                # else:
+                #     msg_payload["token_stream"] = token_stream
+                # event = {
+                #     "order": event_counter,
+                #     **msg_payload,
+                #     "query_id": query_id,
+                #     "timestamp": datetime.now().isoformat()
+                # }
+                event_model = StreamEvent(data = AIEventData(content = ai_msg.content,
+                                                            tool_calls = ai_msg.tool_calls,
+                                                            token_stream = token_stream),
                                           order = event_counter,
                                           type = "ai",
                                           timestamp = datetime.now(),
-                                          query_id = query_id)
+                                          query_id = query_id,
+                                          langchain_id= ai_msg.model_dump().get("id", None))
                 events.append(event_model)
                 event_counter += 1
-                return event
+                return event_model.model_dump(mode="json")
 
-    def on_call_tool(self, data : dict, query_id : str, events : list, event_counter : int):
+    def on_call_tool(self, data : dict, query_id : str, events : list, event_counter : int,):
         output = data.get("output")
         tool_results = output.get("tool_results", [])
         for tool_result in tool_results:
@@ -562,7 +550,6 @@ class Agent:
                     "tool_name": tool_result.get("tool_name"),
                     "tool_args": tool_result.get("tool_args"),
                     "data": tool_result.get("tool_data"),
-                    #"token_stream" : token_stream,
                     "query_id": query_id
                     }
             
@@ -573,8 +560,7 @@ class Agent:
                                                        query_id = query_id)
             events.append(event_model)
             event_counter += 1
-            #token_stream = ""
-            return payload
+            return event_model.model_dump(mode="json")
 
     # =================================
     #       INITIAL PROJECT SCAN

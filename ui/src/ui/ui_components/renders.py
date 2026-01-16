@@ -183,6 +183,7 @@ def display_history():
         # Display user message
         user_msg = next((m for m in cycle if m.get("type") == "human"), None)
         if user_msg:
+            #st.info(user_msg)
             with st.chat_message("user"):
                 st.markdown(user_msg.get("data", {}).get("content", ""))
                 attachments = user_msg.get("data", {}).get("attachments", [])

@@ -24,6 +24,7 @@ init_state()
 st.markdown("<style>.status-box{opacity:.85}</style>", unsafe_allow_html=True)
 
 # ================== MAIN APP LOGIC ==================
+#st.json(st.session_state, expanded=False)
 
 if st.user.is_logged_in:
     # Authenticate with backend
