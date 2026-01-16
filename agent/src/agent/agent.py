@@ -23,6 +23,7 @@ from langgraph.graph import StateGraph, END
 from agent.agent_modules import Summarizer,ContextManager, ToolManager
 from database import VectorSearch,AttachmentReader, ConversationManager
 from agent.basemodels import *
+from uuid_utils import uuid4
 
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -233,6 +234,7 @@ class Agent:
         for tool in tool_calls:
             name = tool.get("name", "")
             args = tool.get("args", "")
+            tool_id = tool.get("id","")
             logger.info(f'Calling Tool: {name} with query: {args}')
 
             if name in tools_dict:
@@ -259,14 +261,14 @@ class Agent:
                         "tool_call_id": tool["id"],
                         "query_id": query_id,
                     }                
-                tool_data_results.append(raw_tool_data)
+                    tool_data_results.append(raw_tool_data)
 
                 # ---- HANDLE LONG TOOL RESULTS FOR LLM MEMORY ----
                 if n_tokens > TOKEN_LIMIT:
                     formatted_result = "Executive summary of the tool result: " + self.summarizer.summarize(str(result), limit=TOKEN_LIMIT)
                 else:
                     formatted_result = self.tool_manager.format_tool_result(result)
-                results.append(ToolMessage(tool_call_id=tool["id"], name=tool["name"], content=str(formatted_result)))
+                results.append(ToolMessage(tool_call_id=tool_id, name=name, content=str(formatted_result)))
 
             else:
                 logger.info(f'{tool["name"]} does not exists in tools. \nTools available: {tools_dict.keys()}')
@@ -420,8 +422,6 @@ class Agent:
         event_counter = 0
         token_stream = ""
 
-        
-        
         # SAVE ATTACHMENTS to both vector store and file storage
         if query.attachments:
             await self.save_attachments(query, user_id, query.session_id)
@@ -574,7 +574,7 @@ class Agent:
                 initial_input, att.content,
                 file_id=att.file_id,
                 filename=att.filename,
-                path="",
+                path=f"{user_id}/{query.session_id}/{att.file_id}",
                 file_type=att.file_type,
                 size=att.size,
             ))
@@ -697,7 +697,7 @@ class Agent:
                 new_user_input=query.question,
                 file_id=att.file_id,
                 filename=att.filename,
-                path="",
+                path=f"{user_id}/{query.session_id}/{att.file_id}",
                 file_type=att.file_type,
                 size=att.size,
             ))

@@ -3,7 +3,7 @@ import requests
 import streamlit as st
 import logging
 from typing import Generator, Callable, Optional
-from ui.models import AskAgentRequest, AIEvent, ToolResultEvent
+from ui.models import *
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,8 @@ class StreamingService:
         self,
         request: AskAgentRequest,
         on_token: Optional[Callable[[str], None]] = None,
-        on_ai_message: Optional[Callable[[AIEvent], None]] = None,
-        on_tool_result: Optional[Callable[[ToolResultEvent], None]] = None,
+        on_ai_message: Optional[Callable[[StreamEvent], None]] = None,
+        on_tool_result: Optional[Callable[[StreamEvent], None]] = None,
         status_callback: Optional[Callable[[str, str], None]] = None
     ) -> Generator[str, None, None]:
         """
@@ -36,8 +36,8 @@ class StreamingService:
         Args:
             request: AskAgentRequest model
             on_token: Callback for token events (str) -> None
-            on_ai_message: Callback for AI messages (AIEvent) -> None
-            on_tool_result: Callback for tool results (ToolResultEvent) -> None
+            on_ai_message: Callback for AI messages (StreamEvent) -> None
+            on_tool_result: Callback for tool results (StreamEvent) -> None
             status_callback: Callback for status updates (label: str, state: str) -> None
 
         Yields:
@@ -95,7 +95,9 @@ class StreamingService:
                         # Handle AI message events
                         elif event_type == "ai":
                             try:
-                                ai_event = AIEvent(**data)
+                                ai_event = StreamEvent(data = AIEventData(**data['data']),
+                                                       **{k: data[k] for k in data if k != 'data'})
+                                #ai_event = AIEvent(**data)
 
                                 # Add to session messages
                                 st.session_state.messages.append(data)
@@ -107,9 +109,9 @@ class StreamingService:
                                 # Update status for tool calls
                                 if status_callback and ai_event.data.tool_calls:
                                     for tool_call in ai_event.data.tool_calls:
-                                        if tool_call.name:
+                                        if tool_call.get("name"):
                                             status_callback(
-                                                f"⚙️ Kaller verktøy: {tool_call.name}...",
+                                                f"⚙️ Kaller verktøy: {tool_call.get('name')}...",
                                                 "running"
                                             )
 
@@ -120,7 +122,9 @@ class StreamingService:
                         # Handle tool result events
                         elif event_type == "tool_result":
                             try:
-                                tool_event = ToolResultEvent(**data)
+                                tool_event = StreamEvent(data = ToolResultData(**data['data']),
+                                                        **{k: data[k] for k in data if k != 'data'})
+                                #tool_event = ToolResultEvent(**data)
 
                                 # Add to session messages
                                 st.session_state.messages.append(data)

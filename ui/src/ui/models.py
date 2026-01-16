@@ -1,6 +1,6 @@
 from typing import TypedDict, Optional, Literal, Any
 from pydantic import BaseModel
-
+from datetime import datetime
 
 # ===== Backend Request Models =====
 
@@ -9,6 +9,7 @@ class AttachmentModel(BaseModel):
     filename: str
     file_id: str
     content: str  # Base64 for PDF, text for others
+    path : str
     file_type: str
     size: int
 
@@ -68,35 +69,59 @@ class TokenEvent(BaseModel):
     query_id: str
 
 
-class ToolCallData(BaseModel):
-    """Tool call within AI message"""
-    name: str
-    args: dict[str, Any]
+# class ToolCallData(BaseModel): #UTDATERT
+#     """Tool call within AI message"""
+#     name: str
+#     args: dict[str, Any]
 
 
-class AIMessageData(BaseModel):
-    """Data for AI message"""
-    content: str
-    tool_calls: Optional[list[ToolCallData]] = None
-    token_stream: Optional[str] = None
+# class AIMessageData(BaseModel):  #UTDAERT
+#     """Data for AI message"""
+#     content: str
+#     tool_calls: Optional[list[ToolCallData]] = None
+#     token_stream: Optional[str] = None
 
 
-class AIEvent(BaseModel):
-    """SSE event type: ai"""
-    type: Literal["ai"]
-    data: AIMessageData
-    query_id: str
+# class AIEvent(BaseModel): #UTDATERT
+#     """SSE event type: ai"""
+#     type: Literal["ai"]
+#     data: AIMessageData
+#     query_id: str
 
 
-class ToolResultEvent(BaseModel):
-    """SSE event type: tool_result"""
-    type: Literal["tool_result"]
+# class ToolResultEvent(BaseModel): #UTDATERT
+#     """SSE event type: tool_result"""
+#     type: Literal["tool_result"]
+#     tool_name: str
+#     tool_args: Optional[dict[str, Any]] = None
+#     data: Any
+#     query_id: str
+#     token_stream: Optional[str] = None
+
+
+# ===== MODELS SAVING TO FIRESTORE =====
+class HumanEventData(BaseModel):
+    attachments: Optional[list[AttachmentModel]] = None
+    content : Optional[str] = None
+
+class ToolResultData(BaseModel):
     tool_name: str
-    tool_args: Optional[dict[str, Any]] = None
-    data: Any
-    query_id: str
-    token_stream: Optional[str] = None
+    tool_args: dict
+    data : Optional[dict] = None
 
+class AIEventData(BaseModel):
+    content : Optional[str] = None
+    invalid_tool_calls : Optional[list] = None
+    token_stream: Optional[str] = None
+    tool_calls : Optional[list] = None
+
+class StreamEvent(BaseModel):
+    order: int
+    type: Literal["human", "ai", "tool_result"]
+    timestamp: datetime
+    query_id: str
+    langchain_id: Optional[str] = None
+    data : HumanEventData | ToolResultData | AIEventData
 
 # ===== Session State TypedDict =====
 

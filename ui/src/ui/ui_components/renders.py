@@ -6,7 +6,7 @@ from ui.services.session_service import SessionService
 from ui.utils import init_state
 from ui.ui_components.attachments import view_attachment
 import logging
-from ui.models import AskAgentRequest, ToolResultEvent
+from ui.models import *
 from ui.ui_components.tool_results import handle_tool_result
 from ui.ui_components.attachments import mk_attachment_payload, view_uploaded_file
 from ui.services.streaming_service import StreamingService
@@ -229,11 +229,12 @@ def display_history():
             for msg in cycle:
                 if msg.get("type") == "tool_result":
                     try:
-                        tool_event = ToolResultEvent(**msg)
+                        #tool_event = ToolResultEvent(**msg.get("data"))
+                        tool_event = StreamEvent(data = ToolResultData(**msg['data']),
+                                                 **{k: msg[k] for k in msg if k != 'data'})
                         handle_tool_result(
                             tool_event,
                             elements_container,
-                            company_data_container,
                             show_sql_expander=False,
                             text_container=text_container
                         )
@@ -319,11 +320,10 @@ def handle_new_question():
             )
 
             # Define callbacks
-            def on_tool_result(event: ToolResultEvent):
+            def on_tool_result(event: StreamEvent):
                 handle_tool_result(
                     event,
                     elements_container,
-                    company_data_container,
                     show_sql_expander=True,
                     text_container=text_container
                 )

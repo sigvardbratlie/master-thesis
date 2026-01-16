@@ -4,7 +4,7 @@ import json
 import logging
 from uuid import uuid4
 from typing import Any, Optional
-from ui.models import ToolResultEvent
+from ui.models import *
 
 logger = logging.getLogger(__name__)
 
@@ -80,81 +80,9 @@ def display_element(element: dict[str, Any], container):
             st.error(f'Error displaying element: {e} | {element}')
 
 
-def comp_button_widget(org_num_info: dict[str, Any], key_suffix: str = ""):
-    """Display company selection button"""
-    orgnr = org_num_info.get('orgnr')
-    name = org_num_info.get('name')
-    municipality = org_num_info.get('municipality')
-    total_operating_income = str(f"{org_num_info.get('total_operating_income', 0):,}").replace(",", " ")
-    currency = org_num_info.get('currency', 'NOK')
-
-    button = st.button(
-        f"{orgnr} ({name}, {municipality}, {total_operating_income} {currency})",
-        key=f"org_num_btn_{orgnr}_{key_suffix}"
-    )
-    if button:
-        st.session_state.question_to_process = (
-            f"Gi meg informasjon om selskapet med organisasjonsnummer {orgnr}."
-        )
-        st.rerun()
-
-
-def display_company_data(
-    tool_data: Any,
-    tool_name: str,
-    container,
-    query_id: str
-):
-    """Display company info with dashboard"""
-    comp_json_str = None
-    ind_json_str = None
-
-    if tool_name == "company_info" and isinstance(tool_data, (list, tuple)) and len(tool_data) == 2:
-        comp_json_str, ind_json_str = tool_data
-    elif tool_name == "get_org_num" and tool_data.get("match_type") == "single":
-        comp_json_str = tool_data.get("company_data", "")
-        ind_json_str = tool_data.get("industry_data", "")
-
-    if not comp_json_str:
-        return
-
-    try:
-        comp_rows = json.loads(comp_json_str) if isinstance(comp_json_str, str) else comp_json_str
-        df_company = pd.DataFrame(comp_rows) if isinstance(comp_rows, list) else pd.DataFrame()
-    except Exception as e:
-        st.error(f'Could not parse company data: {e}')
-        return
-
-    df_industry = pd.DataFrame()
-    if ind_json_str:
-        try:
-            ind_rows = json.loads(ind_json_str) if isinstance(ind_json_str, str) else ind_json_str
-            if isinstance(ind_rows, list):
-                df_industry = pd.DataFrame(ind_rows)
-        except Exception as e:
-            st.warning(f'Could not parse industry data: {e}')
-
-    if not df_company.empty:
-        with container:
-            st.session_state.company_data = comp_json_str
-            st.session_state.industry_data = ind_json_str
-            company_dashboard(df_company, industry_df=df_industry)
-            st.page_link("pages/_company_dashboard.py", label="company dashboard")
-
-            csv = df_company.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="Last ned CSV",
-                data=csv,
-                file_name=f'company_data_{query_id}.csv',
-                mime='text/csv',
-                key=f'download_company_{query_id}_{str(uuid4())}'
-            )
-
-
 def handle_tool_result(
-    event: ToolResultEvent,
+    event: StreamEvent,
     elements_container,
-    company_data_container,
     show_sql_expander: bool = False,
     text_container = None
 ):
@@ -164,36 +92,31 @@ def handle_tool_result(
     Args:
         event: ToolResultEvent from backend
         elements_container: Container for charts/tables
-        company_data_container: Container for company dashboards
         show_sql_expander: Whether to show SQL query expander (streaming mode)
         text_container: Optional container for displaying token_stream text
     """
-    tool_name = event.tool_name
-    tool_data = event.data
-    tool_args = event.tool_args
+    tool_name = event.data.tool_name
+    tool_data = event.data.data
+    tool_args = event.data.tool_args
     query_id = event.query_id
 
-    # Display token stream if present (text that was shown during streaming)
-    if event.token_stream and text_container:
-        with text_container:
-            st.markdown(event.token_stream)
-            st.divider()
+    # # Display token stream if present (text that was shown during streaming)
+    # if event.token_stream and text_container:
+    #     with text_container:
+    #         st.markdown(event.token_stream)
+    #         st.divider()
 
     # Handle different tool types
     if tool_name == "display_data_on_ui":
         display_element(tool_args, elements_container)
 
-    elif tool_name == "get_org_num" and tool_data.get("match_type") == "multiple":
-        choose_org = st.expander("Velg organisasjonsnummer", expanded=False)
-        with choose_org:
-            if tool_data.get("companies"):
-                for idx, org_num_info in enumerate(tool_data["companies"]):
-                    comp_button_widget(org_num_info, key_suffix=f"{query_id}_{idx}")
-            else:
-                st.info("Fant ingen selskaper som matcher navnet.")
-
-    elif tool_name == "company_info" or (tool_name == "get_org_num" and tool_data.get("match_type") == "single"):
-        display_company_data(tool_data, tool_name, company_data_container, query_id)
+    elif tool_name == "read_vector_store":
+        pass
+    elif tool_name == "read_attachment":
+        pass
+    elif tool_name == "tavily_search":
+        with elements_container:
+            st.markdown(f"Searched {tool_args.get('query', '')}, found {len(tool_data)} results.")
 
     elif tool_name == "run_query":
         try:
