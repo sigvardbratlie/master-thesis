@@ -183,8 +183,79 @@ def render_new_input(mode : Literal["update","init"] = "init"):
     init_project = st.button("Initialize Project", icon="🚀") if mode == "init" else st.button("Update Project", icon="🚀")
     if init_project:
         st.session_state.project_id = project_id
+
+        # Spinner container
+        spinner_placeholder = st.empty()
+
+        # Custom animated spinner with rotating text
+        spinner_html = """
+        <style>
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @keyframes fade {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+        .spinner-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 12px;
+            margin: 1rem 0;
+        }
+        .racket-spinner {
+            font-size: 3rem;
+            animation: spin 1.5s linear infinite;
+            margin-bottom: 1rem;
+        }
+        .text-container {
+            overflow: hidden;
+            height: 30px;
+        }
+        .rotating-text {
+            animation: slide 10s steps(5) infinite;
+        }
+        @keyframes slide {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(-150px); }
+        }
+        .rotating-text span {
+            display: block;
+            height: 30px;
+            line-height: 30px;
+            color: #00d4ff;
+            font-weight: 500;
+            font-size: 1.1rem;
+        }
+        </style>
+
+        <div class="spinner-container">
+            <div class="racket-spinner">🏸</div>
+            <div class="text-container">
+                <div class="rotating-text">
+                    <span>📄 Scanning documents...</span>
+                    <span>🔍 Analyzing content...</span>
+                    <span>📋 Extracting key information...</span>
+                    <span>📊 Building factsheet...</span>
+                    <span>🚀 Initializing project...</span>
+                </div>
+            </div>
+        </div>
+        """
+
+        spinner_placeholder.markdown(spinner_html, unsafe_allow_html=True)
+
         try:
             response = streaming_service.init_project(payload) if mode == "init" else streaming_service.update_project(payload)
+
+            # Clear spinner
+            spinner_placeholder.empty()
+
             if response.status_code == 200:
                 st.success("Project initialized successfully!")
                 logger.info(f"Project initialized: {response.json()}")
@@ -199,14 +270,15 @@ def render_new_input(mode : Literal["update","init"] = "init"):
                 st.session_state.factsheet = project_data.get('factsheet')
                 st.session_state.attachments = project_data.get('attachments', [])
 
-                # Clear cached project list so new project shows in sidebar
-                #session_service.load_projects.clear()
+                st.session_state.update_project_view = True
 
                 st.rerun()
             else:
+                spinner_placeholder.empty()
                 st.error(f"Error initializing project: {response.text}")
                 logger.error(f"Error initializing project: {response.status_code} - {response.text}")
         except Exception as e:
+            spinner_placeholder.empty()
             st.error(f"Exception during project initialization: {str(e)}")
             logger.exception("Exception during project initialization")
 
