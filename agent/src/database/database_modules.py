@@ -1,4 +1,5 @@
 
+import asyncio
 from typing import Optional, Literal
 import os
 from io import BytesIO
@@ -36,21 +37,27 @@ class VectorSearch:
         self.project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
         self.embedding = GoogleGenerativeAIEmbeddings(model=model_name)
         self.splitter = RecursiveCharacterTextSplitter(chunk_size = 1000, chunk_overlap=200)
+        self.vector_store = None
 
     def init_vector_store(self, table_name : str) -> BigQueryVectorStore:
-        PROJECT_ID = self.project_id
-        REGION = self.region
-        DATASET = self.dataset
-        TABLE = table_name
+        if self.vector_store:
+            return self.vector_store
+        else:
+        
+            PROJECT_ID = self.project_id
+            REGION = self.region
+            DATASET = self.dataset
+            TABLE = table_name
 
-        vector_store = BigQueryVectorStore(
-            project_id=PROJECT_ID,
-            dataset_name=DATASET,
-            table_name=TABLE,
-            location=REGION,
-            embedding=self.embedding,
-        )
-        return vector_store
+            vector_store = BigQueryVectorStore(
+                project_id=PROJECT_ID,
+                dataset_name=DATASET,
+                table_name=TABLE,
+                location=REGION,
+                embedding=self.embedding,
+            )
+            self.vector_store = vector_store
+            return vector_store
 
     def parse_pdf(self, content_bytes: bytes, metadata : dict) -> list[Document]:
         reader = PdfReader(BytesIO(content_bytes))
@@ -176,7 +183,7 @@ class VectorSearch:
 
         return contents
     
-    async def embedded_upload(self,attachments : list[AttachmentModel],query_id : str, session_id : str, user_id : str):
+    def embedded_upload(self,attachments : list[AttachmentModel],query_id : str, session_id : str, user_id : str):
         vector_store = self.init_vector_store(table_name="attachments")
         docs = []
         
@@ -195,10 +202,10 @@ class VectorSearch:
             #decode content
             if att.file_type == "application/pdf":
                 content_bytes = base64.b64decode(content)
-                docs.append(self.parse_pdf(content_bytes, metadata=meta))
+                docs.extend(self.parse_pdf(content_bytes, metadata=meta))
             else:
-                docs.append(self.parse_txt(content, metadata=meta))
-        await vector_store.add_documents(docs) # Save in vector store
+                docs.extend(self.parse_txt(content, metadata=meta))
+        vector_store.add_documents(docs) # Save in vector store
 
 class AttachmentReader:
 
@@ -240,34 +247,38 @@ class AttachmentReader:
             bucket_path = f"{user_id}/{session_id}/{file_id}"
             blob = self.bucket.blob(bucket_path)
             blob.metadata = metadata
-            await blob.upload_from_string(content)
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, blob.upload_from_string, content)
             logger.info(f"Attachment saved to GCS at {bucket_path}")
         except Exception as e:
             logger.error(f"Error saving attachment to GCS: {e}")
 
-    async def save_raw_documents(self,attachments : list[AttachmentModel],query_id : str, session_id : str, user_id : str):
-
+    async def save_raw_documents(self, attachments: list[AttachmentModel], query_id: str, session_id: str, user_id: str):
+        """Lagrer alle vedlegg parallelt"""
+        tasks = []
+        
         for att in attachments:
-            # Metadata
             meta = {
                 "filename": att.filename,
                 "file_id": att.file_id,
                 "user_id": user_id,
                 "session_id": session_id,
                 'query_id': query_id,
-                "source_type": att.file_type,  # 'application/pdf' eller 'text/plain'
+                "source_type": att.file_type,
                 "uploaded_at": datetime.now().isoformat(),
             }
             
-            content = att.content #b64 or human readable text
-
-            #decode content
+            content = att.content
+            
+            # Decode content
             if att.file_type == "application/pdf":
                 content_bytes = base64.b64decode(content)
-                await self.save_attachment(content_bytes, metadata=meta)
+                tasks.append(self.save_attachment(content_bytes, metadata=meta))
             else:
-                await self.save_attachment(content, metadata=meta)
-
+                tasks.append(self.save_attachment(content, metadata=meta))
+        
+        # Kjør alle uploads parallelt
+        await asyncio.gather(*tasks)
 class ConversationManager:
     def __init__(self, db=None):
         self.db = firestore.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT"), database="(default)") if not db else db

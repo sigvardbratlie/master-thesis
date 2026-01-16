@@ -103,7 +103,7 @@ def read_attachment(file_id: str, session_id: str, user_id: str) -> Optional[byt
             credentials = None
 
         client = storage.Client(credentials=credentials)
-        bucket_name = os.getenv("BUCKET_NAME", "chat-history-attachments")
+        bucket_name = os.getenv("BUCKET_NAME", "chat-history-files")
         blob_path = f"{user_id}/{session_id}/{file_id}"
         blob = client.bucket(bucket_name).blob(blob_path)
 

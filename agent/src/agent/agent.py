@@ -4,6 +4,7 @@ import json
 import logging
 import tiktoken
 from datetime import datetime
+import asyncio
 from typing import Dict, List, Literal, Optional, Sequence, Annotated
 
 import pandas as pd
@@ -407,20 +408,32 @@ class Agent:
         
         # SAVE ATTACHMENTS to both vector store and file storage
         if query.attachments:
-            await self.vs.embedded_upload(attachments=query.attachments, query_id=query.query_id, session_id=query.session_id, user_id=user_id)
-            await self.attachment_reader.save_raw_documents(attachments=query.attachments, session_id=query.session_id, user_id=user_id, query_id=query.query_id)
-
+            await asyncio.gather(
+                asyncio.to_thread(
+                    self.vs.embedded_upload,  # ← Kjører i thread (synkron funksjon)
+                    attachments=query.attachments,
+                    query_id=query.query_id,
+                    session_id=query.session_id,
+                    user_id=user_id
+                ),
+                self.attachment_reader.save_raw_documents(  # ← Async, kjører parallelt med uploads internt
+                    attachments=query.attachments,
+                    session_id=query.session_id,
+                    user_id=user_id,
+                    query_id=query.query_id
+                )
+            )
         #add attachments without content to user message
-        attachments_events = [att.model_dump(model = "json", exclude={"content"}) for att in query.attachments or []] #rm contents
-        event_counter += 1
+        attachments_events = [att.model_dump(mode = "json", exclude={"content"}) for att in query.attachments or []] #rm contents
         event_model = StreamEvent(data = HumanEventData(content = query.question,
                                                         attachments = [AttachmentModel.model_validate(att) for att in attachments_events]), #writes back without content
                                     order = event_counter,
                                     type = "human",
                                     timestamp = datetime.now(),
                                     query_id = query.query_id,
-                                    #langchain_id= user_msg.get("data",{}).get("id", None),
+                                    langchain_id= query.query_id
                                     )
+        event_counter += 1
         events.append(event_model) #add first user message event
 
         #=========================================
@@ -475,28 +488,10 @@ class Agent:
                                     last_query_id=query.query_id,
                                     attachments=query.attachments
                                     )
-            #logger.info(f'StreamDataObject in finally: \n{data_to_save.model_dump()}')
-            logger.info(f'Query in stream_response finally: \n{query.model_dump()}')
             self.conversation_manager.save_stream(data=data_to_save,
                                                   user_id=user_id,
                                                   session_id=query.session_id)
-            # if project_id:
-            #     state_snapshot = await agent_instance.aget_state(thread)
-            #     state_values = state_snapshot.values if state_snapshot else {}
-            #     factsheet = state_values.get("factsheet")
-            #     files = state_values.get("attachments", [])
-
-            #     if factsheet:
-            #         self.conversation_manager.update_project(
-            #             factsheet=factsheet,
-            #             files=files,
-            #             user_id=user_id,
-            #             session_id=session_id,
-            #             agent_type=agent_type,
-            #             llm_provider=llm_provider,
-            #             query_id=query_id,
-            #             project_id=project_id
-            #         )
+            
             
 
     
@@ -508,24 +503,15 @@ class Agent:
                 return {"type": "token", "data": chunk.content, "query_id": query_id}
 
     def on_call_llm(self, data : dict, query_id : str,events : list, event_counter : int, token_stream : str):
-        chunk = data.get("chunk")
+        
         output = data.get("output")
-        logger.info(f"Output i on_call_llm \n{output}")
-        if chunk and isinstance(chunk,dict) and chunk.get("messages"):
-            ai_msg = data.get("chunk").get("messages")[-1]
+        if output and output.get("messages"):
+            ai_msg = output.get("messages")[-1]
             if isinstance(ai_msg, AIMessage):
-                logger.info(f'AI Message Langchain \n{ai_msg.model_dump()}')
-                # msg_payload = messages_to_dict([ai_msg])[0] if messages_to_dict([ai_msg]) and len(messages_to_dict([ai_msg])) > 0 else {}
-                # if msg_payload.get("data"):
-                #     msg_payload.get("data")["token_stream"] = token_stream
-                # else:
-                #     msg_payload["token_stream"] = token_stream
-                # event = {
-                #     "order": event_counter,
-                #     **msg_payload,
-                #     "query_id": query_id,
-                #     "timestamp": datetime.now().isoformat()
-                # }
+        #chunk = data.get("chunk")
+        # if chunk and isinstance(chunk,dict) and chunk.get("messages"):
+        #     ai_msg = data.get("chunk").get("messages")[-1]
+        #     if isinstance(ai_msg, AIMessage):
                 event_model = StreamEvent(data = AIEventData(content = ai_msg.content,
                                                             tool_calls = ai_msg.tool_calls,
                                                             token_stream = token_stream),
