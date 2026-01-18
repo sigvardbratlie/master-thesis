@@ -1,14 +1,5 @@
 # Supabase Database Schema Design
 
-## Hvorfor ikke alt i én tabell?
-
-En enkelt `chat_history` tabell med alt ville gi:
-- ❌ Massive duplisering av data (hver rad må ha all metadata)
-- ❌ Vanskelig å oppdatere (må oppdatere mange rader når noe endres)
-- ❌ Ineffektive queries (må scanne store mengder data)
-- ❌ Data inkonsistens (samme info lagres flere steder)
-- ❌ Vanskelig å skalere
-
 ## Anbefalt Normalisert Struktur
 
 ### 1. `users` - Brukere

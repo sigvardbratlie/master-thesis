@@ -30,7 +30,7 @@ class Deadline(BaseModel):
     date: datetime
     description: str
     file_id: Optional[str] = Field(None, description="Related attachment reference")
-    responsible_party: str
+    party_id: str
 
 class Deadlines(BaseModel):
     deadlines: list[Deadline]
@@ -72,7 +72,7 @@ class Claim(BaseModel):
         description="Assessment of claim strength"
     )
     defense: Optional[str] = Field(None, description="Defense strategy if defending")
-    party : str = Field(description="Party_ID of the claimant")
+    party_id : str = Field(description="Party_ID of the claimant")
 
 class Claims(BaseModel):
     claims: list[Claim]
@@ -83,7 +83,7 @@ class Damage(BaseModel):
     amount: Optional[int | float] = Field(None, description="Monetary amount if amount is known and mentioned, else None")
     basis: str
     supporting_evidence: list[str] = Field(description="File_IDs supporting the damage claim")
-    party: str = Field(description="Party_ID of the claimant")
+    party_id: str = Field(description="Party_ID of the claimant")
 
 class Damages(BaseModel):
     damages: list[Damage]
@@ -100,7 +100,7 @@ class AttachmentExtracted(BaseModel):
     summary: str  = Field(description="Concise summary of the document content")
     key_provisions: Optional[list[str]] = Field(None, description="Important clauses or sections (for agreements)")
     #events: Optional[list[Event]] = Field(None, description="Key events mentioned in the document")
-    party: Optional[list[Literal["plaintiff", "defendant", "claimant", "respondent","expert","witness","other"]]] = None
+    party_ids: Optional[list] = Field(None, description="Party_IDs mentioned in the document")
     date : Optional[datetime] = None
     category: Literal[
         "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
