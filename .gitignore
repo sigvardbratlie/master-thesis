@@ -10,7 +10,10 @@ wheels/
 .venv
 
 *.DS_Store
-data/
+00_ia/
+01_fabricated/
+02_org_pdf/
+
 
 *.log
 *.env
