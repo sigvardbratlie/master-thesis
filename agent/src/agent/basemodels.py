@@ -167,6 +167,8 @@ class AttachmentModel(BaseModel):
     path : str
     file_type: str
     size: int
+    query_id: str
+    event_id: Optional[str] = None
 
 
 class AskAgentRequest(BaseModel):
@@ -190,7 +192,7 @@ class StreamlitUserInfo(BaseModel):
 class HumanEventData(BaseModel):
     #additional_kwargs: Optional[dict] = None
     attachments: Optional[list[AttachmentModel]] = None
-    content : Optional[str] = None
+    #content : Optional[str] = None
     #id : Optional[str] = None
     #name : Optional[str] = None
     #response_metadata : Optional[dict] = None
@@ -201,7 +203,7 @@ class ToolResultData(BaseModel):
     data : Optional[dict] = None
 
 class AIEventData(BaseModel):
-    content : Optional[str] = None
+    #content : Optional[str] = None
     invalid_tool_calls : Optional[list] = None
     token_stream: Optional[str] = None
     tool_calls : Optional[list] = None
@@ -216,9 +218,11 @@ class AIEventData(BaseModel):
 class StreamEvent(BaseModel):
     order: int
     type: Literal["human", "ai", "tool_result"]
-    timestamp: datetime
+    created_at: datetime
     query_id: str
+    #event_id : str = Field(default_factory = lambda : str(uuid.uuid4()))
     langchain_id: Optional[str] = None
+    content : Optional[str] = None
     data : HumanEventData | ToolResultData | AIEventData
 
 class StreamData(BaseModel):

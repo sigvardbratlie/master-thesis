@@ -426,12 +426,20 @@ class Agent:
         if query.attachments:
             await self.save_attachments(query, user_id, query.session_id)
         #add attachments without content to user message
-        attachments_events = [att.model_dump(mode = "json", exclude={"content"}) for att in query.attachments or []] #rm contents
-        event_model = StreamEvent(data = HumanEventData(content = query.question,
-                                                        attachments = [AttachmentModel.model_validate(att) for att in attachments_events]), #writes back without content
+        event_id = str(uuid4())
+        attachments_events = [] #[att.model_dump(mode = "json", exclude={"content"}) for att in query.attachments or []] #rm contents
+        for att in query.attachments or []:
+            att_dict = att.model_dump(mode = "json", exclude={"content"})
+            att_dict["event_id"] = event_id
+            attachments_events.append(att_dict)
+
+         # FIRST USER MESSAGE EVENT
+        event_model = StreamEvent(data = HumanEventData(attachments = [AttachmentModel.model_validate(att) for att in attachments_events]), #writes back without content
                                     order = event_counter,
                                     type = "human",
-                                    timestamp = datetime.now(),
+                                    created_at = datetime.now(),
+                                    event_id = event_id,
+                                    content = query.question,
                                     query_id = query.query_id,
                                     langchain_id= query.query_id
                                     )
@@ -510,13 +518,14 @@ class Agent:
         if output and output.get("messages"):
             ai_msg = output.get("messages")[-1]
             if isinstance(ai_msg, AIMessage):
-                event_model = StreamEvent(data = AIEventData(content = ai_msg.content,
+                event_model = StreamEvent(data = AIEventData(
                                                             tool_calls = ai_msg.tool_calls,
                                                             token_stream = token_stream),
                                           order = event_counter,
                                           type = "ai",
-                                          timestamp = datetime.now(),
+                                          created_at = datetime.now(),
                                           query_id = query_id,
+                                          content = ai_msg.content,
                                           langchain_id= ai_msg.model_dump().get("id", None))
                 events.append(event_model)
                 event_counter += 1
@@ -537,7 +546,7 @@ class Agent:
             event_model = ToolResultData.model_validate(data = ToolResultData.model_validate(payload),
                                                        order = event_counter,
                                                        type = "tool_result",
-                                                       timestamp = datetime.now(),
+                                                       created_at = datetime.now(),
                                                        query_id = query_id,
                                                        langchain_id= msg.get("data").get("id", None))
             events.append(event_model)

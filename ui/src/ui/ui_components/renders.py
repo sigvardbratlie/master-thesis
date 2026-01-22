@@ -185,7 +185,7 @@ def display_history():
         if user_msg:
             #st.info(user_msg)
             with st.chat_message("user"):
-                st.markdown(user_msg.get("data", {}).get("content", ""))
+                st.markdown(user_msg.get("content", {}))
                 attachments = user_msg.get("data", {}).get("attachments", [])
                 for att in attachments:
                     if att:
@@ -266,7 +266,7 @@ def handle_new_question():
         # Prepare attachment payload
         attachment_payload = []
         for file in question.files if hasattr(question, "files") else []:
-            attachment = mk_attachment_payload(file)
+            attachment = mk_attachment_payload(file = file, query_id = query_id)
             if attachment:
                 attachment_payload.append(attachment)
 

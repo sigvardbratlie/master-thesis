@@ -12,6 +12,8 @@ class AttachmentModel(BaseModel):
     path : str
     file_type: str
     size: int
+    query_id: str
+    event_id: Optional[str] = None
 
 
 class AskAgentRequest(BaseModel):

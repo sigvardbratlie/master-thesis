@@ -25,6 +25,7 @@ from agent.basemodels import *
 from fastapi import FastAPI,HTTPException,status,Depends
 from agent.agent_modules import Summarizer
 from ui.ui_components import attachments
+from supabase import create_client, Client
 
 
 logging.basicConfig(level=logging.INFO)
@@ -588,7 +589,6 @@ class ConversationManager:
         except Exception as e:
             logger.error(f"Error saving project to firestore: {e}", exc_info=True)
 
-
     def get_or_create_user(self, google_user_info: dict) -> str:
         """
         Finds a user based on Google User ID, or creates a new one if it doesn't exist.
@@ -622,3 +622,76 @@ class ConversationManager:
             }
             _, user_ref = users_ref.add(new_user_data)
             return user_ref.id
+
+class SupabaseManager:
+    def __init__(self):
+        self.url = os.getenv("SUPABASE_URL")
+        self.key = os.getenv("SUPABASE_KEY")
+        self.supabase = create_client(self.url, self.key)
+        # Initialize Supabase client here if needed
+
+    def load_project(self, user_id: str, project_id: str):
+        # Implement loading project from Supabase
+        pass
+
+    def save_project(self,
+                       factsheet : FactSheet,
+                       files  : list[Attachment],
+                       user_id : str,
+                       project_id : str,
+                       session_id : str,
+                       agent_type : Literal["fast", "expert"] = "fast",
+                       llm_provider : Literal["google", "openai", "claude"] = "google",
+                       query_id : str = ""
+                       ):
+        # Implement saving project to Supabase
+        pass
+
+    def load_projects(self,user_id: str):
+        # Implement loading projects from Supabase
+        pass
+
+    def load_project_sessions(self, user_id: str, project_id: str):
+        # Implement loading project sessions from Supabase
+        pass
+
+    def get_or_create_user(self, google_user_info: dict) -> str:
+        # Implement user retrieval/creation in Supabase
+        pass
+
+    def load_user_sessions(self, user_id: str):
+        # Implement loading user sessions from Supabase
+        pass
+
+    def load_session_history(self, session_id: str, user_id: str):
+        # Implement loading session history from Supabase
+        pass
+
+    def save_stream(self, 
+                    data : StreamData,
+                    user_id : str,
+                    session_id : str): 
+        # Implement saving stream to Supabase
+        new_events = [] #[event.model_dump(mode = "json") for event in data.events] if data.events else None
+        new_attachments = [] #[attachment.model_dump(mode = "json") for attachment in data.attachments] if data.attachments else None
+        for event in data.events:
+            event_dict = event.model_dump(mode = "json")
+            event_dict["session_id"] = session_id
+            new_events.append(event_dict)
+        for attachment in data.attachments:
+            attachment_dict = attachment.model_dump(mode = "json")
+            attachment_dict["session_id"] = session_id
+            new_attachments.append(attachment_dict)
+
+        self.supabase.table("session_events").insert(new_events).execute() if new_events else None
+        self.supabase.table("session_attachments").insert(new_attachments).execute() if new_attachments else None
+
+        self.supabase.table("sessions").upsert({
+            "session_id": session_id,
+            "user_id": user_id,
+            "title" : "",
+            "project_id": data.project_id,
+            "llm_model" : data.llm_provider,}).execute()
+
+
+

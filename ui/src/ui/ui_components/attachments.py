@@ -13,7 +13,7 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 
 logger = logging.getLogger(__name__)
 
-def mk_attachment_payload(file : UploadedFile) -> AttachmentModel:
+def mk_attachment_payload(file : UploadedFile, query_id : str) -> AttachmentModel:
     file_id = hashlib.md5(file.name.encode("utf-8")).hexdigest()
 
     if file.type == "application/pdf":
@@ -34,7 +34,8 @@ def mk_attachment_payload(file : UploadedFile) -> AttachmentModel:
         file_type=file.type,
         path = f'{st.session_state.user_id}/{st.session_state.session_id}/{file_id}',
         size=file.size,
-        content=content
+        content=content,
+        query_id=query_id,
     )
     return attachment
 
