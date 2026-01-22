@@ -81,10 +81,15 @@ def check_correct_format(file : Path):
 
 
 def rename_email_with_dates(file : Path,rename = False,):
+    if isinstance(file, str):
+        file = Path(file)
     correct_format = check_correct_format(file)
     if correct_format:
         return
-    
+    if not file.suffix.lower() == ".eml":
+        logger.warning(f"----NOT AN EMAIL FILE: {file.name}----")
+        return
+
     with open(file, "rb") as f:
         msg = BytesParser(policy=policy.default).parse(f)
 
@@ -96,31 +101,58 @@ def rename_email_with_dates(file : Path,rename = False,):
         return
     if rename:
         Path(file).rename(file.parent / (str(date) + "_" + file.name))
+        return True
     else:
         logger.info(str(date) + "_" + file.name)
     
 
 def rename_file_with_date(file : Path, rename = False,):
+    if isinstance(file, str):
+        file = Path(file)
     correct_format = check_correct_format(file)
     if correct_format:
         return
     
     pattern_date = re.compile(r"\d{4}-\d{2}-\d{2}")
     pattern_year = re.compile(r"\d{4}")
+    pattern_date_alt = re.compile(r"\d{6}")
     match_date = pattern_date.search(file.name)
     match_year = pattern_year.search(file.name)
+    match_date_alt = pattern_date_alt.search(file.name)
     if match_date:
         new_filename = match_date.group(0) + "_" + file.name
         if rename:
             file.rename(file.parent / new_filename)
+            return True
         else:
             logger.info(new_filename)
+    elif match_date_alt:
+        date_str = match_date_alt.group(0)
+        year = "20" + date_str[4:6]
+        month = date_str[2:4]
+        day = date_str[0:2]
+        if int(year) < 1900:
+            logger.warning(f"----INVALID YEAR FOUND: {file.name} (before 1900)----")
+            return
+        new_filename = f"{year}-{month}-{day}_" + file.name
+        if rename:
+            file.rename(file.parent / new_filename)
+            return True
+        else:
+            logger.info(new_filename)
+    
     elif match_year:
+        if int(match_year.group(0)) < 1900:
+            logger.warning(f"----INVALID YEAR FOUND: {file.name} (before 1900)----")
+            return
         new_filename = match_year.group(0) + "_" + file.name
         if rename:
             file.rename(file.parent / new_filename)
+            return True
         else:
             logger.info(new_filename)
+    
+    
     else:
         logger.warning(f"----NO DATE FOUND: {file.name}----")
 
@@ -140,8 +172,13 @@ def parse_pdf_date(s: str):
 
 def rename_pdf_with_date(file, rename=False, create_date : bool = True):
     '''Rename PDF file with creation date from metadata.'''
+    if isinstance(file, str):
+        file = Path(file)
     correct_format = check_correct_format(file)
     if correct_format:
+        return
+    if not file.suffix.lower() == ".pdf":
+        logger.warning(f"----NOT A PDF FILE: {file.name}----")
         return
     with open(file, 'rb') as f:
         txt = ""
@@ -157,6 +194,7 @@ def rename_pdf_with_date(file, rename=False, create_date : bool = True):
                 date = parse_pdf_date(meta['/ModDate'])
             if rename:
                 Path(file).rename(file.parent / (str(date) + "_" + file.name))
+                return True
             else:
                 logger.info(str(date) + "_" + file.name)
         else:
@@ -168,21 +206,32 @@ def rename_pdf_with_date(file, rename=False, create_date : bool = True):
 
 def rename_xlsx_with_date(file : Path, rename=False):
     '''Rename XLSX file with creation date from metadata.'''
+    if isinstance(file, str):
+        file = Path(file)
+    
     correct_format = check_correct_format(file)
     if correct_format:
         return
-    
+    if not file.suffix.lower() == ".xlsx":
+        logger.warning(f"----NOT A XLSX FILE: {file.name}----")
+        return
     wb = openpyxl.load_workbook(file, read_only=True)
     props = wb.properties
     props.created
     if rename:
         file.rename(file.parent / f"{props.created.date()}_{file.name}")
+        return True
     else:
         logger.info(f"{props.created.date()}_{file.name}")
 
 def rename_docx_with_date(file : Path, rename=False):
+    if isinstance(file, str):
+        file = Path(file)
     correct_format = check_correct_format(file)
     if correct_format:
+        return
+    if not file.suffix.lower() == ".docx":
+        logger.warning(f"----NOT A DOCX FILE: {file.name}----")
         return
     doc = docx.Document(file)
     date = doc.core_properties.created
@@ -191,5 +240,6 @@ def rename_docx_with_date(file : Path, rename=False):
         return
     if rename:
         Path(file).rename(file.parent / (str(doc.core_properties.created.date()) + "_" + file.name))
+        return True
     else:
         logger.info(str(doc.core_properties.created.date()) + "_" + file.name)
