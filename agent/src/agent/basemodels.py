@@ -176,8 +176,7 @@ class AskAgentRequest(BaseModel):
     question: str
     attachments: Optional[list[AttachmentModel]] = None
     session_id: str
-    agent_type: Literal["fast", "expert"]
-    llm_provider: Literal["google", "openai", "claude"]
+    llm_model : str
     query_id: str
     project_id: Optional[str] = None
 
@@ -189,45 +188,52 @@ class StreamlitUserInfo(BaseModel):
     picture: Optional[str] = None
 
 # ===== MODELS SAVING TO FIRESTORE =====
-class HumanEventData(BaseModel):
-    #additional_kwargs: Optional[dict] = None
-    attachments: Optional[list[AttachmentModel]] = None
-    #content : Optional[str] = None
-    #id : Optional[str] = None
-    #name : Optional[str] = None
-    #response_metadata : Optional[dict] = None
+# class HumanEventData(BaseModel):
+#     #additional_kwargs: Optional[dict] = None
+#     attachments: Optional[list[str]] = Field(None, description="List of file_ids attached to this human message")
+#     #content : Optional[str] = None
+#     #id : Optional[str] = None
+#     #name : Optional[str] = None
+#     #response_metadata : Optional[dict] = None
 
 class ToolResultData(BaseModel):
     tool_name: str
     tool_args: dict
     data : Optional[dict] = None
 
-class AIEventData(BaseModel):
-    #content : Optional[str] = None
-    invalid_tool_calls : Optional[list] = None
-    token_stream: Optional[str] = None
-    tool_calls : Optional[list] = None
+# class AIEventData(BaseModel):
+#     #content : Optional[str] = None
+#     invalid_tool_calls : Optional[list] = None
+#     token_stream: Optional[str] = None
+#     tool_calls : Optional[list] = None
 
-    #additional_kwargs: Optional[dict] = None
-    #id : Optional[str] = None
-    #name : Optional[str] = None
-    #response_metadata : Optional[dict] = None
-    #type : str = "ai"
-    #usage_metadata : Optional[dict] = None
+#     #additional_kwargs: Optional[dict] = None
+#     #id : Optional[str] = None
+#     #name : Optional[str] = None
+#     #response_metadata : Optional[dict] = None
+#     #type : str = "ai"
+#     #usage_metadata : Optional[dict] = None
+
+class EventData(BaseModel):
+    attachments: Optional[list[str]] = Field(None, description="List of file_ids attached to this human message")
+    invalid_tool_calls : Optional[list] = None
+    tool_calls : Optional[list] = None
+    token_stream: Optional[str] = None
+
 
 class StreamEvent(BaseModel):
     order: int
     type: Literal["human", "ai", "tool_result"]
     created_at: datetime
     query_id: str
-    #event_id : str = Field(default_factory = lambda : str(uuid.uuid4()))
+    event_id : str 
+    session_id : str
     langchain_id: Optional[str] = None
     content : Optional[str] = None
-    data : HumanEventData | ToolResultData | AIEventData
+    data : EventData | ToolResultData
 
 class StreamData(BaseModel):
-    agent_type: Literal["fast", "expert"]
-    llm_provider: Literal["google", "openai", "claude"]
+    llm_model : str
     project_id: Optional[str] = None
     title : Optional[str] = None
     last_updated : Optional[datetime] = None

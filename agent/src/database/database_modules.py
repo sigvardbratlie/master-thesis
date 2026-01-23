@@ -24,7 +24,7 @@ from google.cloud import firestore
 from agent.basemodels import *
 from fastapi import FastAPI,HTTPException,status,Depends
 from agent.agent_modules import Summarizer
-from ui.ui_components import attachments
+#from ui.ui_components import attachments
 from supabase import create_client, Client
 
 
@@ -372,8 +372,7 @@ class ConversationManager:
                     "session_id": session_id,
                     "title": title,
                     "timestamp": timestamp,
-                    "agent_type": session_data.get("agent_type"),
-                    "llm_provider": session_data.get("llm_provider"),
+                    "llm_model": session_data.get("llm_model"),
                 })
             
             # Sorter etter timestamp (nyeste først)
@@ -424,8 +423,7 @@ class ConversationManager:
             return {
                 "events": events,  
                 "title": title, 
-                "agent_type": session_data.get("agent_type"),
-                "llm_provider": session_data.get("llm_provider"),
+                "llm_model": session_data.get("llm_model"),
                 "last_updated": session_data.get("last_updated"),
             }
         
@@ -464,8 +462,7 @@ class ConversationManager:
                     "session_id": session_id,
                     "title": title,
                     "timestamp": timestamp,
-                    "agent_type": session_data.get("agent_type"),
-                    "llm_provider": session_data.get("llm_provider"),
+                    "llm_model": session_data.get("llm_model"),
                 })
             
             # Sorter etter timestamp (nyeste først)
@@ -491,17 +488,7 @@ class ConversationManager:
                     session_id : str): 
         ''' Save the final state of the conversation session to Firestore 
         
-        Args:
-            events (list): List of event dicts to save.
-            attachments (list): List of attachment dicts to save.
-            user_id (str): User identifier.
-            session_id (str): Session identifier.
-            agent_type (str): Type of agent used.
-            llm_provider (str): LLM provider used.
-            query_id (str): Query identifier.
-
-        Returns:
-            None
+        
         '''
         
         new_events = [event.model_dump(mode = "json") for event in data.events] if data.events else None
@@ -541,8 +528,7 @@ class ConversationManager:
                 "attachments": all_attachments,
                 "last_updated": firestore.SERVER_TIMESTAMP,
                 "project_id": data.project_id,
-                "agent_type": data.agent_type,
-                "llm_provider": data.llm_provider,
+                "llm_model": data.llm_model,
                 "last_query_id": data.last_query_id,
                 "title" : title
             })
@@ -557,8 +543,7 @@ class ConversationManager:
                        user_id : str,
                        project_id : str,
                        session_id : str,
-                       agent_type : Literal["fast", "expert"] = "fast",
-                       llm_provider : Literal["google", "openai", "claude"] = "google",
+                       llm_model : str,
                        query_id : str = ""
 
                        ):
@@ -580,8 +565,7 @@ class ConversationManager:
                 "last_updated_query_id": query_id,
                 "created_at": firestore.SERVER_TIMESTAMP,
                 "last_updated": firestore.SERVER_TIMESTAMP,
-                "agent_type": agent_type,
-                "llm_provider": llm_provider,
+                "llm_model": llm_model,
                 "factsheet": factsheet.model_dump(mode='json'),
                 "attachments": [file.model_dump(mode='json') for file in files]
             })
@@ -632,7 +616,7 @@ class SupabaseManager:
 
     def load_project(self, user_id: str, project_id: str):
         # Implement loading project from Supabase
-        pass
+        return
 
     def save_project(self,
                        factsheet : FactSheet,
@@ -640,8 +624,7 @@ class SupabaseManager:
                        user_id : str,
                        project_id : str,
                        session_id : str,
-                       agent_type : Literal["fast", "expert"] = "fast",
-                       llm_provider : Literal["google", "openai", "claude"] = "google",
+                       llm_model : str,
                        query_id : str = ""
                        ):
         # Implement saving project to Supabase
@@ -659,21 +642,53 @@ class SupabaseManager:
         # Implement user retrieval/creation in Supabase
         pass
 
-    def load_user_sessions(self, user_id: str):
+    def load_user_sessions(self, user_id: str)-> list:
+        '''Load all sessions for a user from Supabase'''
         # Implement loading user sessions from Supabase
-        pass
+        user_id = "53d63d18-cfa1-416e-96e8-770c8f66507b" #må fixes!!! kun pr nå for debugging!
+        try:
+            sessions = self.supabase.table("sessions").select("title, session_id, updated_at").eq("user_id", user_id).execute()
+            logger.info(f'Loaded {len(sessions.data)} sessions for user {user_id} from Supabase.')
+            return sessions.data
+        except Exception as e:
+            logger.error(f'Could not load sessions for user {user_id} from Supabase: {e}')
+            return []
 
-    def load_session_history(self, session_id: str, user_id: str):
-        # Implement loading session history from Supabase
-        pass
+    def load_session_history(self, session_id: str, user_id: str = None)-> dict: #rm user_id
+        '''Load session history for a given session from Supabase'''
+        try:
+            session_events = self.supabase.table("session_events").select("*").eq("session_id", session_id).execute()
+        except Exception as e:
+            logger.error(f'Could not load session events for session {session_id} from Supabase: {e}')
+            return {"error": str(e)}
+        try:    
+            session_attachments = self.supabase.table("session_attachments").select("*").eq("session_id", session_id).execute()
+        except Exception as e:
+            logger.error(f'Could not load session attachments for session {session_id} from Supabase: {e}')
+            return {"error": str(e)}
+        try:
+            session = self.supabase.table("sessions").select("*").eq("session_id", session_id).execute()
+            logger.info(f'Loaded session history for session {session_id} from Supabase.')
+        except Exception as e:
+            logger.error(f'Could not load session for session {session_id} from Supabase: {e}')
+            return {"error": str(e)}
+        
+        session_data = session.data[0] if session.data else {}
+        return {
+                "events": session_events.data,  
+                'attachments': session_attachments.data,
+                "title": session_data.get("title",""), 
+                "llm_model": session_data.get("llm_model"),
+                "last_updated": session_data.get("updated_at"),
+            }
 
     def save_stream(self, 
                     data : StreamData,
                     user_id : str,
                     session_id : str): 
         # Implement saving stream to Supabase
-        new_events = [] #[event.model_dump(mode = "json") for event in data.events] if data.events else None
-        new_attachments = [] #[attachment.model_dump(mode = "json") for attachment in data.attachments] if data.attachments else None
+        new_events = [] 
+        new_attachments = [] 
         for event in data.events:
             event_dict = event.model_dump(mode = "json")
             event_dict["session_id"] = session_id
@@ -681,17 +696,28 @@ class SupabaseManager:
         for attachment in data.attachments:
             attachment_dict = attachment.model_dump(mode = "json")
             attachment_dict["session_id"] = session_id
+            attachment_dict.pop("content", None)  # Remove content if present before saving
             new_attachments.append(attachment_dict)
 
-        self.supabase.table("session_events").insert(new_events).execute() if new_events else None
-        self.supabase.table("session_attachments").insert(new_attachments).execute() if new_attachments else None
+        try:
+            self.supabase.table("sessions").upsert({
+                "session_id": session_id,
+                "user_id": "53d63d18-cfa1-416e-96e8-770c8f66507b", #user_id, #må fixes!!! kun pr nå for debugging! 
+                "title" : "",
+                "project_id": data.project_id,
+                "llm_model" : data.llm_model,}).execute()
+            logger.info(f'Session {session_id} upserted in Supabase.')
+        except Exception as e:
+            logger.error(f'Error upserting session {session_id} in Supabase: {e}. Stopping process.')
+            return 
 
-        self.supabase.table("sessions").upsert({
-            "session_id": session_id,
-            "user_id": user_id,
-            "title" : "",
-            "project_id": data.project_id,
-            "llm_model" : data.llm_provider,}).execute()
-
-
-
+        try:
+            self.supabase.table("session_events").insert(new_events).execute() if new_events else None
+            logger.info(f'Inserted {len(new_events)} events for session {session_id} in Supabase.')
+        except Exception as e:
+            logger.error(f'Error inserting events for session {session_id} in Supabase: {e}')
+        try:
+            self.supabase.table("session_attachments").insert(new_attachments).execute() if new_attachments else None
+            logger.info(f'Inserted {len(new_attachments)} attachments for session {session_id} in Supabase.')
+        except Exception as e:
+            logger.error(f'Error inserting attachments for session {session_id} in Supabase: {e}')

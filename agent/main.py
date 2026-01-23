@@ -19,12 +19,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from langchain_openai import ChatOpenAI
 from google.cloud import firestore
 
-from agent.utils import PROMPT,llms
+from agent.utils import PROMPT
 from agent.tools import TOOLS
 from agent import Agent
-from database import FirestoreSaver
+from database import FirestoreSaver,ConversationManager,SupabaseManager
 from auth import GoogleAuth
-from database import ConversationManager
 from agent.basemodels import AttachmentModel,AskAgentRequest, StreamlitUserInfo
     
 # ===== SETUP FASTAPI & AGENT =======
@@ -56,12 +55,12 @@ auth = GoogleAuth(secret_key=os.getenv("SECRET_KEY"))
 
 agent = Agent(
     tools=TOOLS,
-    llms=llms,
+    #llms=llms,
     prompt=PROMPT,
     checkpointer=checkpointer,
 )
-conversation_manager = ConversationManager()
-
+firestore_manager = ConversationManager()
+conversation_manager = SupabaseManager()
 
 async def stream_generator(query : AskAgentRequest,
                            user_id: str = Depends(auth.get_current_user)):
@@ -86,7 +85,7 @@ async def ask_agent_endpoint(query: AskAgentRequest, user_id: str = Depends(auth
     using our `stream_generator`.
     """
     
-    attachments = [att.model_dump() for att in query.attachments] if query.attachments else None
+    #attachments = [att.model_dump() for att in query.attachments] if query.attachments else None
     try:
         return StreamingResponse(
             stream_generator(query = query,user_id = user_id),
@@ -168,7 +167,7 @@ async def generate_token_from_streamlit(user_info: StreamlitUserInfo):
         logger.debug(f'Received user info from streamlit: {google_user_info_mock}')
 
         # Use existing logic to get or create the user
-        user_id = conversation_manager.get_or_create_user(google_user_info_mock)
+        user_id = firestore_manager.get_or_create_user(google_user_info_mock)
         logger.debug(f'Obtained user_id: {user_id}')
 
         if not user_id:
