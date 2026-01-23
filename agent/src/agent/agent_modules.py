@@ -15,7 +15,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 
 from langchain_openai import ChatOpenAI
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_google_community import BigQueryVectorStore
 
 
@@ -26,6 +26,7 @@ from google.cloud import firestore
 
 from agent.basemodels import *
 from fastapi import FastAPI,HTTPException,status,Depends
+
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +52,9 @@ class Summarizer:
 
 
 class ContextManager:
-    def __init__(self, llm: BaseChatModel,
+    def __init__(self, llm: BaseChatModel = None,
                  ):
-        self._llm = llm
+        self._llm = ChatGoogleGenerativeAI(project=os.getenv("GOOGLE_CLOUD_PROJECT"), model="gemini-2.5-flash") if llm is None else llm
         #self.vector_search = VectorSearch()
 
     @property

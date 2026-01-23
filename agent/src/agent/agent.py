@@ -20,8 +20,11 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.documents import Document
 from langgraph.graph import StateGraph, END
 
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
+
 from agent.agent_modules import Summarizer,ContextManager, ToolManager
-from database import VectorSearch,AttachmentReader, ConversationManager
+from database import VectorSearch,AttachmentReader, ConversationManager, SupabaseManager
 from agent.basemodels import *
 from uuid_utils import uuid4
 
@@ -39,10 +42,8 @@ class Agent:
     def __init__(self,
                  tools : List[tool],
                  prompt : str,
-                 llms : dict,
                  checkpointer = None,
-                 agent_type : Literal["fast","expert"] = "fast",
-                 llm_provider : Literal["google","openai","claude"] = "google",):
+                 ):
         """
         Initializes the Agent with tools, prompt, LLMs, and checkpointer.
         Args:
@@ -58,14 +59,11 @@ class Agent:
         self.prompt = prompt
         self.checkpointer = checkpointer
         self.summary = "" #rolling summary for long conversations
-        self.llms = llms
-        self.llm = llms.get(llm_provider, llms["google"]).get(agent_type, llms["google"]["fast"])
-
         self.vs = VectorSearch()
         self.summarizer = Summarizer()
         self.attachment_reader = AttachmentReader()
-        self.conversation_manager =  ConversationManager()
-        self.context_manager = ContextManager(llm = self.llm)
+        self.conversation_manager =  SupabaseManager() #ConversationManager()
+        self.context_manager = ContextManager()
         self.tool_manager = ToolManager()
     
     # =================================
@@ -204,8 +202,8 @@ class Agent:
             message = await llm_with_tools.ainvoke(payload)
             return {
                 "messages": [message],
-                "factsheet": project_data.get("factsheet"),
-                "attachments": project_data.get("attachments")
+                "factsheet": project_data.get("factsheet") if project_data else None,
+                "attachments": project_data.get("attachments") if project_data else None
             }
         except Exception as e:
             logger.error(f"Error invoking LLM: {e}", exc_info=True)
@@ -284,33 +282,24 @@ class Agent:
         result = state["messages"][-1]
         return hasattr(result, "tool_calls") and len(result.tool_calls) > 0
 
-    def _compile_agent(self,llm_provider : Literal["google","openai","claude"], agent_type : Literal["fast","expert"],query_id : str,):
+    def _compile_agent(self,llm_model : str ,query_id : str,):
         """
         Compiles the agent graph with the selected LLM.
-        Args:
-            agent_type (Literal["fast", "expert"]): The type of agent to compile.
         """
 
-        logger.info(f"USER INPUT COMPILE AGENT: Agent type : {agent_type} | LLM PROVIDER : {llm_provider}")
-
-        if not isinstance(agent_type, str):
-            raise TypeError(f'Expecting str, but got {type(agent_type)} for agent_type')
-
-        if not isinstance(llm_provider, str):
-            raise TypeError(f'Expecting str, but got {type(llm_provider)} for llm_provider')
-
-        llm_dict = self.llms.get(llm_provider,{})
-
-        if not llm_dict:
-            raise ValueError(
-                f'No selected llm dictionary for {llm_provider}. Valid choices are {list(self.llms.keys())}')
-
-        selected_llm = llm_dict.get(agent_type, None)
+        logger.info(f"USER INPUT COMPILE AGENT: Model name : {llm_model}")
+        llm_provider, model_name = llm_model.split("_")
+        if llm_provider == "google":
+            selected_llm = ChatGoogleGenerativeAI(project = project_id , model=model_name)
+        elif llm_provider == "openai":
+            selected_llm = ChatOpenAI(model=model_name)
+        else:
+            logger.warning(f"No valid llm provider selected, defaulting to Google Gemini.")
+            selected_llm = ChatGoogleGenerativeAI(project = project_id , model="gemini-2.5-flash")
 
         if not selected_llm:
-            raise ValueError(f'Invalid agent type: {agent_type}. Expecting "fast" or "expert"')
-        logger.info(f'Running agent with llm supplier {llm_provider} and type {agent_type}')
-
+            raise ValueError(f'Invalid model name: {model_name}.')
+        logger.info(f'Running agent with llm supplier {llm_provider} and model name {model_name}')
 
         llm = selected_llm.bind_tools(self.tools)
 
@@ -407,12 +396,13 @@ class Agent:
         # =================================
         #               SETUP
         # ================================
+        
         thread = {"configurable":
                       {"thread_id": query.session_id,
                        "user_id": user_id,
                        "custom_project_id": query.project_id}
                   }
-        agent_instance = self._compile_agent(agent_type=query.agent_type, llm_provider=query.llm_provider, query_id=query.query_id)
+        agent_instance = self._compile_agent(llm_model=query.llm_model, query_id=query.query_id)
         
         # NEW OR EXISTING CONVERSATION
         await self.load_or_create_conversation(agent_instance, thread, query.session_id)
@@ -434,11 +424,12 @@ class Agent:
             attachments_events.append(att_dict)
 
          # FIRST USER MESSAGE EVENT
-        event_model = StreamEvent(data = HumanEventData(attachments = [AttachmentModel.model_validate(att) for att in attachments_events]), #writes back without content
+        event_model = StreamEvent(data = EventData(attachments = [AttachmentModel.model_validate(att) for att in attachments_events]), #writes back without content
                                     order = event_counter,
                                     type = "human",
                                     created_at = datetime.now(),
                                     event_id = event_id,
+                                    session_id= query.session_id,
                                     content = query.question,
                                     query_id = query.query_id,
                                     langchain_id= query.query_id
@@ -475,14 +466,23 @@ class Agent:
 
                 #ai messages
                 if name == "call_llm":
-                    result = self.on_call_llm(data, query_id=query.query_id, events=events, event_counter=event_counter, token_stream=token_stream)
+                    result = self.on_call_llm(data, 
+                                              query_id=query.query_id, 
+                                              session_id=query.session_id, 
+                                              events=events, 
+                                              event_counter=event_counter, 
+                                              token_stream=token_stream)
                     if result:
                         yield result
                         #token_stream  = "" #reset after yielding
 
                 #direct tool results
                 if name == "call_tool" and ev == "on_chain_end":
-                    result = self.on_call_tool(data, query_id=query.query_id, events=events, event_counter=event_counter)
+                    result = self.on_call_tool(data, 
+                                               query_id=query.query_id, 
+                                               session_id=query.session_id,
+                                               events=events, 
+                                               event_counter=event_counter)
                     if result:
                         yield result
         except Exception as e:
@@ -492,8 +492,7 @@ class Agent:
             # Save final state
             
             data_to_save = StreamData(events=events,
-                                    agent_type=query.agent_type,
-                                    llm_provider=query.llm_provider,
+                                    llm_model=query.llm_model,
                                     project_id=query.project_id,
                                     last_query_id=query.query_id,
                                     attachments=query.attachments
@@ -512,26 +511,37 @@ class Agent:
                 token_stream += chunk.content
                 return {"type": "token", "data": chunk.content, "query_id": query_id}
 
-    def on_call_llm(self, data : dict, query_id : str,events : list, event_counter : int, token_stream : str):
+    def on_call_llm(self, data : dict, 
+                    query_id : str,
+                    session_id : str,
+                    events : list, 
+                    event_counter : int, 
+                    token_stream : str):
         
         output = data.get("output")
         if output and output.get("messages"):
             ai_msg = output.get("messages")[-1]
             if isinstance(ai_msg, AIMessage):
-                event_model = StreamEvent(data = AIEventData(
+                event_model = StreamEvent(data = EventData(
                                                             tool_calls = ai_msg.tool_calls,
                                                             token_stream = token_stream),
                                           order = event_counter,
                                           type = "ai",
                                           created_at = datetime.now(),
                                           query_id = query_id,
+                                            event_id = str(uuid4()),
+                                            session_id = session_id,
                                           content = ai_msg.content,
                                           langchain_id= ai_msg.model_dump().get("id", None))
                 events.append(event_model)
                 event_counter += 1
                 return event_model.model_dump(mode="json")
 
-    def on_call_tool(self, data : dict, query_id : str, events : list, event_counter : int,):
+    def on_call_tool(self, data : dict, 
+                     query_id : str, 
+                     session_id : str, 
+                     events : list, 
+                     event_counter : int,):
         output = data.get("output")
         msg = output.get("messages",[])[-1] if output.get("messages",[]) else None
         tool_results = output.get("tool_results", [])
@@ -543,11 +553,13 @@ class Agent:
                     "query_id": query_id
                     }
             
-            event_model = ToolResultData.model_validate(data = ToolResultData.model_validate(payload),
+            event_model = StreamEvent.model_validate(data = ToolResultData.model_validate(payload),
                                                        order = event_counter,
                                                        type = "tool_result",
                                                        created_at = datetime.now(),
                                                        query_id = query_id,
+                                                       event_id = str(uuid4()),
+                                                       session_id = session_id,
                                                        langchain_id= msg.get("data").get("id", None))
             events.append(event_model)
             event_counter += 1
@@ -650,15 +662,13 @@ class Agent:
                                                  files=files,
                                                  user_id=user_id,
                                                  session_id=query.session_id,
-                                                 agent_type=query.agent_type,
-                                                 llm_provider=query.llm_provider,
+                                                 llm_model=query.llm_model,
                                                  query_id=query.query_id,
                                                  project_id=query.project_id)
 
         # Return a JSON-serializable dict with all metadata
         return {
-            "agent_type": query.agent_type,
-            "llm_provider": query.llm_provider,
+            "llm_model": query.llm_model,
             "attachments": [att.model_dump(mode='json') for att in files],
             "factsheet": result.model_dump(mode='json'),
             "created_session_id": query.session_id
@@ -814,16 +824,14 @@ class Agent:
             files=files,
             user_id=user_id,
             session_id=query.session_id,
-            agent_type=query.agent_type,
-            llm_provider=query.llm_provider,
+            llm_model=query.llm_model,
             query_id=query.query_id,
             project_id=query.project_id
         )
 
         # Return a JSON-serializable dict with all metadata
         return {
-            "agent_type": query.agent_type,
-            "llm_provider": query.llm_provider,
+            "llm_model": query.llm_model,
             "attachments": [att.model_dump(mode='json') for att in files],
             "factsheet": result.model_dump(mode='json'),
             "created_session_id": query.session_id

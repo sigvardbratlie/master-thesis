@@ -1,0 +1,42 @@
+import datetime
+
+session = {'project_id': None,
+ 'title': 'Payment Reminder from Fair Collection',
+ 'session_id': 'ff75b641-dd8e-43f9-ab46-6589da1c808c',
+ 'updated_at': '2026-01-16T15:17:40.323000+00:00',
+ 'llm_model': 'openai',
+ 'user_id': '53d63d18-cfa1-416e-96e8-770c8f66507b'}
+
+events = [{'order': 0,
+  'type': 'human',
+  'created_at': '2026-01-16T16:17:26.156357',
+  'query_id': '708ddab8-4949-4601-99d4-270d16b96e53',
+  'event_id': '926d52a8-e455-4aeb-a592-8e13f623a53a',
+  'session_id': 'ff75b641-dd8e-43f9-ab46-6589da1c808c',
+  'langchain_id': '708ddab8-4949-4601-99d4-270d16b96e53',
+  'content': 'Fortell meg hva som står her...',
+  'data': {'attachments': ['ef286eec7db53142e30bf9e2cede69a5'],
+   'invalid_tool_calls': None,
+   'tool_calls': None,
+   'token_stream': None}},
+ {'order': 1,
+  'type': 'ai',
+  'created_at': '2026-01-16T16:17:38.640750',
+  'query_id': '708ddab8-4949-4601-99d4-270d16b96e53',
+  'event_id': '1260f910-d8bf-446a-8928-2cb9f768d4e4',
+  'session_id': 'ff75b641-dd8e-43f9-ab46-6589da1c808c',
+  'langchain_id': 'lc_run--019bc762-020d-7f52-9f95-70a52909d3ba',
+  'content': 'The document is a payment reminder from Fair Collection AS regarding an unpaid invoice from Finter AS - Bedrift, related to case number 3654954. Here are the key points from the document:\n\n1. **Sender and Recipient Information:**\n   - Sender: Fair Collection AS\n   - Recipient: TORAX AS, Grønnegata 21 A, 2317 Hamar\n\n2. **Invoice Details:**\n   - Invoice date: August 1, 2025\n   - Payment deadline: August 15, 2025\n\n3. **Outstanding Amount:**\n   - Total amount due: 450.00 NOK\n   - This amount consists of a late fee (forsinkelsesgebyr) linked to an unpaid invoice.\n\n4. **Additional Charges:**\n   - If the payment is not made or if there is no complaint registered by the deadline, additional costs may accrue.\n   - Late fees can double if the payment deadline is surpassed by more than 28 days.\n\n5. **Payment Information:**\n   - Payment can be made through various methods, including bank transfers.\n   - Specific account details are provided for payments, including a KID number, account number for domestic payments, and BIC/IBAN for international payments.\n\n6. **Customer Services:**\n   - The document highlights available customer services, including:\n     - Online payment options and payment deferral for 14 days (conditions may apply).\n     - Options to complain or dispute charges through their customer portal.\n\n7. **Legal Warning:**\n   - If the debt is not cleared, it could lead to legal collection actions and a potential credit record notation.\n\n8. **Contact Information:**\n   - Fair Collection AS provides contact details for customer support via phone and email and directs customers to their website for additional assistance.\n\nIn summary, the document serves as a formal notice to remind TORAX AS about their unpaid invoice and outlines the terms, consequences, and options available for payment and disputes.',
+  'data': {'attachments': None,
+   'invalid_tool_calls': None,
+   'tool_calls': [],
+   'token_stream': 'The document is a payment reminder from Fair Collection AS regarding an unpaid invoice from Finter AS - Bedrift, related to case number 3654954. Here are the key points from the document:\n\n1. **Sender and Recipient Information:**\n   - Sender: Fair Collection AS\n   - Recipient: TORAX AS, Grønnegata 21 A, 2317 Hamar\n\n2. **Invoice Details:**\n   - Invoice date: August 1, 2025\n   - Payment deadline: August 15, 2025\n\n3. **Outstanding Amount:**\n   - Total amount due: 450.00 NOK\n   - This amount consists of a late fee (forsinkelsesgebyr) linked to an unpaid invoice.\n\n4. **Additional Charges:**\n   - If the payment is not made or if there is no complaint registered by the deadline, additional costs may accrue.\n   - Late fees can double if the payment deadline is surpassed by more than 28 days.\n\n5. **Payment Information:**\n   - Payment can be made through various methods, including bank transfers.\n   - Specific account details are provided for payments, including a KID number, account number for domestic payments, and BIC/IBAN for international payments.\n\n6. **Customer Services:**\n   - The document highlights available customer services, including:\n     - Online payment options and payment deferral for 14 days (conditions may apply).\n     - Options to complain or dispute charges through their customer portal.\n\n7. **Legal Warning:**\n   - If the debt is not cleared, it could lead to legal collection actions and a potential credit record notation.\n\n8. **Contact Information:**\n   - Fair Collection AS provides contact details for customer support via phone and email and directs customers to their website for additional assistance.\n\nIn summary, the document serves as a formal notice to remind TORAX AS about their unpaid invoice and outlines the terms, consequences, and options available for payment and disputes.'}}]
+
+attachments = [{'size': 79782,
+  'file_type': 'application/pdf',
+  'filename': '2025.08.01_Fair_Collection_AS_BETALINGSOPPFORDRING_-_Saksnr_3654954.pdf',
+  'file_id': 'ef286eec7db53142e30bf9e2cede69a5',
+  'query_id': '708ddab8-4949-4601-99d4-270d16b96e53',
+  'session_id': 'ff75b641-dd8e-43f9-ab46-6589da1c808c',
+  'event_id': '926d52a8-e455-4aeb-a592-8e13f623a53a',
+  'path': 'path/to/file'}]

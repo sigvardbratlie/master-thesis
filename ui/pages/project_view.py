@@ -174,8 +174,7 @@ def render_new_input(mode : Literal["update","init"] = "init"):
         attachments=attachments,
         session_id=st.session_state.session_id,
         query_id=query_id,
-        agent_type=st.session_state.agent_type,
-        llm_provider=st.session_state.llm_provider,
+        llm_model=st.session_state.llm_model,
         project_id=project_id
     )
 

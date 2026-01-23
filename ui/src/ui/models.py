@@ -21,8 +21,7 @@ class AskAgentRequest(BaseModel):
     question: str
     attachments: list[AttachmentModel]
     session_id: str
-    agent_type: Literal["fast", "expert"]
-    llm_provider: Literal["google", "openai", "claude"]
+    llm_model: str
     query_id: str
     project_id: Optional[str] = None
 
@@ -49,16 +48,14 @@ class SessionInfo(BaseModel):
     """Single session in user sessions list"""
     session_id: str
     title: Optional[Optional[str]] = None
-    agent_type: Optional[str] = None
-    llm_provider: Optional[str] = None
+    llm_model: Optional[str] = None
 
 
 class SessionHistoryResponse(BaseModel):
     """GET /load-session-history response"""
     events: list[dict[str, Any]]
     title: Optional[str] = None
-    agent_type: Optional[str] = None
-    llm_provider: Optional[str] = None
+    llm_model: Optional[str] = None
     last_updated: Optional[str] = None
 
 
@@ -120,7 +117,7 @@ class AIEventData(BaseModel):
 class StreamEvent(BaseModel):
     order: int
     type: Literal["human", "ai", "tool_result"]
-    timestamp: datetime
+    created_at: datetime
     query_id: str
     langchain_id: Optional[str] = None
     data : HumanEventData | ToolResultData | AIEventData
@@ -148,8 +145,7 @@ class SessionState(TypedDict, total=False):
     first_question: bool
 
     # Agent config
-    agent_type: Literal["fast", "expert"]
-    llm_provider: Literal["google", "openai", "claude"]
+    llm_model: Optional[str]
 
     # UI state
     question_to_process: Optional[str]

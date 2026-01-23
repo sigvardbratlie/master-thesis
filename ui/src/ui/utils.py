@@ -17,6 +17,8 @@ def log_init():
 log_init()
 
 
+
+
 def init_state():
     """Initialize Streamlit session state with default values"""
     st.session_state.setdefault("state_initialized", True)
@@ -33,8 +35,7 @@ def init_state():
     st.session_state.setdefault("first_question", True)
 
     # Agent config
-    st.session_state.setdefault("agent_type", "fast")
-    st.session_state.setdefault("llm_provider", "openai")
+    st.session_state.setdefault("llm_model", None)
 
     # UI state
     st.session_state.setdefault("question_to_process", None)

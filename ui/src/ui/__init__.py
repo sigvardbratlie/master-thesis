@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from ui!")
+#from ui_components.renders

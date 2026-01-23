@@ -11,6 +11,7 @@ from ui.ui_components.tool_results import handle_tool_result
 from ui.ui_components.attachments import mk_attachment_payload, view_uploaded_file
 from ui.services.streaming_service import StreamingService
 
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -132,17 +133,37 @@ def render_sidebar(session_service: SessionService):
 
         st.divider()
 
+        llm_options = {
+        "openai": {"fast" : "gpt-4o-mini", "expert": "gpt-4o"},
+        "google": {"fast": "gemini-2.5-flash", "expert": "gemini-2.5-pro"},}
+
         # Agent type selector
         agent_type = st.radio(
-            "Velg samtale type:",
+            "Velg modell type:",
             ("fast", "expert"),
             horizontal=True,
             index=0
         )
-        if agent_type:
-            st.session_state.agent_type = agent_type
-
-        st.info(f'Agent: **{st.session_state.agent_type}** | Modell: **{st.session_state.llm_provider}**')
+        with st.expander("Velg spesifikk modell (valgfritt)"):
+            llm_provider = st.radio(
+                "Velg LLM leverandør:",
+                ("openai", "google", 
+                #"claude"
+                ),
+                horizontal=True,
+                index=0
+            )
+        
+            all_models = []
+            for provider, types in llm_options.items():
+                for _, model in types.items():
+                    all_models.append(f"{provider} - {model}")
+            custom_llm = st.selectbox("Velg spesifikk modell (valgfritt):",options = all_models)
+            if custom_llm:
+                st.session_state.llm_model = custom_llm.replace(" - ","_")
+            else:
+                st.session_state.llm_model = llm_provider+ "_" + llm_options[llm_provider][agent_type]
+        st.info(f'Model: **{st.session_state.llm_model.replace("_"," - ")}**')
 
         st.divider()
         st.markdown("Vedleggsoversikt for denne samtalen")
@@ -309,8 +330,8 @@ def handle_new_question():
                 attachments=attachment_payload,
                 query_id=query_id,
                 project_id = st.session_state.project_id,
-                agent_type=st.session_state.agent_type,
-                llm_provider=st.session_state.llm_provider,
+                #agent_type=st.session_state.agent_type,
+                llm_model=st.session_state.llm_model,
             )
 
             # Create streaming service
