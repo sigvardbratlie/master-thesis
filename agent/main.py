@@ -22,7 +22,7 @@ from google.cloud import firestore
 from agent.utils import PROMPT
 from agent.tools import TOOLS
 from agent import Agent
-from database import FirestoreSaver,ConversationManager,SupabaseManager
+from database import FirestoreSaver,FirestoreManager,SupabaseManager
 from auth import GoogleAuth
 from agent.basemodels import AttachmentModel,AskAgentRequest, StreamlitUserInfo
     
@@ -59,7 +59,7 @@ agent = Agent(
     prompt=PROMPT,
     checkpointer=checkpointer,
 )
-firestore_manager = ConversationManager()
+firestore_manager = FirestoreManager()
 conversation_manager = SupabaseManager()
 
 async def stream_generator(query : AskAgentRequest,

@@ -281,7 +281,7 @@ class AttachmentReader:
         # Kjør alle uploads parallelt
         await asyncio.gather(*tasks)
 
-class ConversationManager:
+class FirestoreManager:
     def __init__(self, db=None):
         self.db = firestore.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT"), database="(default)") if not db else db
         self.summarizer = Summarizer()

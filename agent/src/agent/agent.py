@@ -24,7 +24,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 from agent.agent_modules import Summarizer,ContextManager, ToolManager
-from database import VectorSearch,AttachmentReader, ConversationManager, SupabaseManager
+from database import VectorSearch,AttachmentReader, FirestoreManager, SupabaseManager
 from agent.basemodels import *
 from uuid_utils import uuid4
 
