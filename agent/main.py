@@ -23,7 +23,7 @@ from agent.utils import PROMPT
 from agent.tools import TOOLS
 from agent import Agent
 from database import FirestoreSaver,FirestoreManager,SupabaseManager
-from auth import GoogleAuth
+from auth import GoogleAuth, SupabaseAuth
 from agent.basemodels import AttachmentModel,AskAgentRequest, StreamlitUserInfo
     
 # ===== SETUP FASTAPI & AGENT =======
@@ -61,7 +61,7 @@ agent = Agent(
 )
 firestore_manager = FirestoreManager()
 conversation_manager = SupabaseManager()
-auth = conversation_manager
+auth = SupabaseAuth()
 
 async def stream_generator(query : AskAgentRequest,
                            user_id: str = Depends(auth.get_current_user)):
@@ -149,52 +149,6 @@ async def load_projects(user_id: str = Depends(auth.get_current_user)):
 @app.get("/load-project-sessions/{project_id}")
 async def load_project_sessions(project_id: str, user_id: str = Depends(auth.get_current_user)):
     return conversation_manager.load_project_sessions(user_id=user_id, project_id=project_id)
-
-# # AUTHENTICATION ENDPOINTS
-# @app.post("/token-from-streamlit")
-# async def generate_token_from_streamlit(user_info: StreamlitUserInfo):
-#     """
-#     Generate an internal JWT token from verified user info
-#     coming from the Streamlit frontend.
-#     """
-#     try:
-#         # Build a dict matching get_or_create_user expectations
-#         google_user_info_mock = {
-#             'sub': user_info.sub,
-#             'email': user_info.email,
-#             'name': user_info.name,
-#             'picture': user_info.picture
-#         }
-#         logger.debug(f'Received user info from streamlit: {google_user_info_mock}')
-
-#         # Use existing logic to get or create the user
-#         user_id = firestore_manager.get_or_create_user(google_user_info_mock)
-#         logger.debug(f'Obtained user_id: {user_id}')
-
-#         if not user_id:
-#             raise HTTPException(
-#                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#                 detail="Could not get or create user."
-#             )
-
-#         # Create the internal access token
-#         access_token = auth.create_access_token(data={"sub": user_id},)  
-#         logger.debug(f'Generated access token: {access_token}')
-                 
-#         return {
-#             "access_token": access_token,
-#             "token_type": "bearer",
-#             "user_id": user_id,
-#             "user_name": user_info.name
-#         }
-
-#     except Exception as e:
-#         logger.error(f"Error generating token from streamlit user info: {e}")
-#         raise HTTPException(
-#             status_code=status.HTTP_400_BAD_REQUEST,
-#             detail=f"Failed to process user info: {e}"
-#         )
-
 
 
 @app.get("/", include_in_schema=False)

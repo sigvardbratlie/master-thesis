@@ -24,8 +24,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 from agent.agent_modules import Summarizer,ContextManager, ToolManager
-from database import VectorSearch,AttachmentReader, FirestoreManager, SupabaseManager
-from agent.basemodels import *
+from database import VectorSearch, GCSManager, FirestoreManager, SupabaseManager,SupabaseStorageManager
+from agent.basemodels import *  
 from uuid_utils import uuid4
 
 load_dotenv()
@@ -61,7 +61,7 @@ class Agent:
         self.summary = "" #rolling summary for long conversations
         self.vs = VectorSearch()
         self.summarizer = Summarizer()
-        self.attachment_reader = AttachmentReader()
+        self.storage = SupabaseStorageManager() #GCSManager() 
         self.conversation_manager =  SupabaseManager() #ConversationManager()
         self.context_manager = ContextManager()
         self.tool_manager = ToolManager()
@@ -366,7 +366,10 @@ class Agent:
             docs.append(doc)
         return docs
             
-    async def save_attachments(self, query : AskAgentRequest, user_id: str,session_id: str):
+    async def save_attachments(self, query : AskAgentRequest, 
+                               user_id: str,
+                               session_id: str,
+                               ):
                 await asyncio.gather(
                     asyncio.to_thread(
                         self.vs.embedded_upload,  # ← Kjører i thread (synkron funksjon)
@@ -375,11 +378,11 @@ class Agent:
                         session_id=session_id,
                         user_id=user_id
                     ),
-                    self.attachment_reader.save_raw_documents(  # ← Async, kjører parallelt med uploads internt
+                    self.storage.save_raw_documents(  # ← Async, kjører parallelt med uploads internt
                         attachments=query.attachments,
-                        session_id=session_id,
-                        user_id=user_id,
-                        query_id=query.query_id
+                        #session_id=session_id,
+                        #user_id=user_id,
+                        #query_id=query.query_id
                     )
                 )
     # =================================
@@ -422,9 +425,10 @@ class Agent:
             att_dict = att.model_dump(mode = "json", exclude={"content"})
             att_dict["event_id"] = event_id
             attachments_events.append(att_dict)
+            logger.info(f"Attachment for event: {att_dict}")
 
          # FIRST USER MESSAGE EVENT
-        event_model = StreamEvent(data = EventData(attachments = [AttachmentModel.model_validate(att) for att in attachments_events]), #writes back without content
+        event_model = StreamEvent(data = EventData(attachments = [att.get("file_id") for att in attachments_events]), #writes back without content
                                     order = event_counter,
                                     type = "human",
                                     created_at = datetime.now(),
@@ -495,7 +499,7 @@ class Agent:
                                     llm_model=query.llm_model,
                                     project_id=query.project_id,
                                     last_query_id=query.query_id,
-                                    attachments=query.attachments
+                                    attachments=[AttachmentModel.model_validate(att) for att in attachments_events or []],
                                     )
             self.conversation_manager.save_stream(data=data_to_save,
                                                   user_id=user_id,

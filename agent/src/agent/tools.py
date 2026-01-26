@@ -10,7 +10,7 @@ from langchain_tavily import TavilySearch
 from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool
 
-from database import VectorSearch,AttachmentReader
+from database import VectorSearch,GCSManager
 
 
 load_dotenv()
@@ -114,7 +114,7 @@ def read_attachment(file_id : str, config : RunnableConfig):
     Returns:
         str: The content of the attachment as text.
     '''
-    reader = AttachmentReader()
+    reader = GCSManager()
     user_id = config["configurable"].get("user_id", None)
     session_id = config["configurable"].get("session_id", None)
     return reader.read_attachment(session_id=session_id,
