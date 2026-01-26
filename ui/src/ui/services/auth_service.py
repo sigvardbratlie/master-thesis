@@ -15,7 +15,7 @@ class AuthService:
 
     def authenticate_with_backend(self) -> bool:
         """
-        Authenticates with backend after Streamlit Google OAuth login.
+        Authenticates with backend after Streamlit OIDC login (Google or Supabase).
         Sends user info from st.user to backend to get internal JWT access token.
 
         Returns:
@@ -27,14 +27,19 @@ class AuthService:
             st.session_state.access_token is None
         ):
             try:
+                # Handle both Google and Supabase OIDC claims
+                # Supabase may use 'preferred_username' instead of 'name'
+                name = getattr(st.user, 'name', None) or getattr(st.user, 'preferred_username', None) or st.user.email
+                picture = getattr(st.user, 'picture', None)
+
                 user_data = StreamlitUserInfo(
                     sub=st.user.sub,
                     email=st.user.email,
-                    name=st.user.name,
-                    picture=st.user.picture
+                    name=name,
+                    picture=picture
                 )
 
-                # Call backend to exchange Google credentials for JWT
+                # Call backend to exchange OIDC credentials for internal JWT
                 response = requests.post(
                     f"{self.backend_url}/token-from-streamlit",
                     json=user_data.model_dump()

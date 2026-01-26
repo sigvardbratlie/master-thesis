@@ -24,7 +24,6 @@ init_state()
 st.markdown("<style>.status-box{opacity:.85}</style>", unsafe_allow_html=True)
 
 # ================== MAIN APP LOGIC ==================
-#st.json(st.session_state, expanded=False)
 
 if st.user.is_logged_in:
     # Authenticate with backend
@@ -55,8 +54,11 @@ if st.user.is_logged_in:
 else:
     # Login screen
     st.markdown("**Vennligst logg inn for å fortsette!**")
-    if st.button("Logg inn"):
-        st.login("google")
+    if st.button("Logg inn med Supabase"):
+        st.login("supabase")
+
+
 
 # Debug info
+st.json(st.user, expanded=False)
 st.json(st.session_state.messages, expanded=False)
