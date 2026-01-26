@@ -24,7 +24,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 from agent.agent_modules import Summarizer,ContextManager, ToolManager
-from database import VectorSearch, GCSManager, FirestoreManager, SupabaseManager,SupabaseStorageManager
+from database import SupabaseManager,SupabaseStorageManager, BigQueryVectorStore, ChromaVectorStore, DocumentProcessor
 from agent.basemodels import *  
 from uuid_utils import uuid4
 
@@ -59,7 +59,9 @@ class Agent:
         self.prompt = prompt
         self.checkpointer = checkpointer
         self.summary = "" #rolling summary for long conversations
-        self.vs = VectorSearch()
+        self.in_memory_store = ChromaVectorStore()
+        self.vs = BigQueryVectorStore()
+        self.document_processor = DocumentProcessor()
         self.summarizer = Summarizer()
         self.storage = SupabaseStorageManager() #GCSManager() 
         self.conversation_manager =  SupabaseManager() #ConversationManager()
@@ -130,24 +132,24 @@ class Agent:
 
         # ---- FETCH ATTACHMENT CONTENTS ONCE ----
         if attachments:
-            attachment_contents = self.vs.fetch_attachment_contents(
-                attachments=attachments,
-                user_input=user_input,
-                session_id=session_id,
-                query_id=query_id
-            )
+            if user_input:
+                docs = self.in_memory_store.query(user_input, collection_id=session_id, k=3)
+            else:
+                docs = self.in_memory_store.get_all(collection_id=session_id)
+
+            for doc in docs:
+                file_id = doc.metadata.get("file_id", "")
+                if file_id:
+                    if file_id in attachment_contents:
+                        attachment_contents[file_id] += "\n" + doc.page_content
+                    else:
+                        attachment_contents[file_id] = doc.page_content
+
 
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
-        #if config.get("configurable").get("custom_project_id",None):
         project_data = self.conversation_manager.load_project(user_id = config.get("configurable").get("user_id",None),
                                                            project_id = config.get("configurable").get("custom_project_id",None))
-        # if attachments and project_data:
-        #     project_data = await self.context_manager.process_attachments_for_update(
-        #         project_data=project_data,
-        #         attachments=attachments,
-        #         attachment_contents=attachment_contents,
-        #         user_input=user_input
-        #     )
+
 
         # ---- BUILD ATTACHMENT CONTEXT FOR LLM ----
         attachment_context = self._build_attachment_context(
@@ -184,19 +186,22 @@ class Agent:
 
         # ---- ADD ATTACHMENT CONTEXT TO USER MESSAGE ----
         if attachment_context and msg:
-            msg = HumanMessage(content=[
-                {"type": "text", "text": f"Attachment context:\n{attachment_context}"},
-                {"type": "text", "text": f"User query: {user_input}"}
-            ])
+            msg = HumanMessage(content= attachment_context + "\n\n" + f'User query: {user_input}',
+                               
+                # [{"type": "text", "text": attachment_context},
+                # {"type": "text", "text": f"User query: {user_input}"}]
+            
+            )
             # Replace last message in payload with enhanced message
             if payload and isinstance(payload[-1], HumanMessage):
                 payload[-1] = msg
 
-        logger.info(f"--- Payload Messages for query id {config.get("configurable").get("query_id", "")} (session_id {session_id} and project-id {config.get("configurable").get("custom_project_id", "")}) ---")
-        
+
+        # === DEBUG LOGGING ===
+        logger.debug(f"--- Payload Messages for query id {config.get("configurable").get("query_id", "")} (session_id {session_id} and project-id {config.get("configurable").get("custom_project_id", "")}) ---")
         for m in payload:
             content_preview = str(m.content)[:100] if m.content else ""
-            logger.info(f"{m.type}: {content_preview}")
+            logger.debug(f"{m.type}: {content_preview}")
 
         try:
             message = await llm_with_tools.ainvoke(payload)
@@ -233,7 +238,7 @@ class Agent:
             name = tool.get("name", "")
             args = tool.get("args", "")
             tool_id = tool.get("id","")
-            logger.info(f'Calling Tool: {name} with query: {args}')
+            logger.debug(f'Calling Tool: {name} with query: {args}')
 
             if name in tools_dict:
                 # ---- CALL TOOL ----
@@ -243,10 +248,10 @@ class Agent:
                     result = await tool_to_call.ainvoke(args)
                 except Exception as e:
                     result = f'Something went wrong when calling tool {name} with args {args} : {e}.'
-                    logger.info(result)
+                    logger.error(result)
                 
                 n_tokens = len(enc.encode(str(result)))
-                logger.info(f'Result length: {n_tokens}')
+                logger.debug(f'Result length: {n_tokens}')
 
                 # ---- PROCESS DATA PRODUCTION TOOLS ----
                 if name in DATA_PROD_TOOLS:
@@ -269,7 +274,7 @@ class Agent:
                 results.append(ToolMessage(tool_call_id=tool_id, name=name, content=str(formatted_result)))
 
             else:
-                logger.info(f'{tool["name"]} does not exists in tools. \nTools available: {tools_dict.keys()}')
+                logger.warning(f'{tool["name"]} does not exists in tools. \nTools available: {tools_dict.keys()}')
                 result = "Incorrect Tool Name, Please Retry and Select tool from list of avaible tools"
                 results.append(ToolMessage(tool_call_id=tool["id"], name=tool["name"], content=str(result)))
 
@@ -299,7 +304,6 @@ class Agent:
 
         if not selected_llm:
             raise ValueError(f'Invalid model name: {model_name}.')
-        logger.info(f'Running agent with llm supplier {llm_provider} and model name {model_name}')
 
         llm = selected_llm.bind_tools(self.tools)
 
@@ -366,25 +370,27 @@ class Agent:
             docs.append(doc)
         return docs
             
-    async def save_attachments(self, query : AskAgentRequest, 
-                               user_id: str,
-                               session_id: str,
-                               ):
-                await asyncio.gather(
-                    asyncio.to_thread(
-                        self.vs.embedded_upload,  # ← Kjører i thread (synkron funksjon)
-                        attachments=query.attachments,
-                        query_id=query.query_id,
-                        session_id=session_id,
-                        user_id=user_id
-                    ),
-                    self.storage.save_raw_documents(  # ← Async, kjører parallelt med uploads internt
-                        attachments=query.attachments,
-                        #session_id=session_id,
-                        #user_id=user_id,
-                        #query_id=query.query_id
-                    )
-                )
+    # async def save_attachments(self, query : AskAgentRequest, 
+    #                            user_id: str,
+    #                            session_id: str,
+    #                            ):
+    #             vector_store = self.vs.init_vector_store(table_name="attachments")
+    #             await asyncio.gather(
+    #                 asyncio.to_thread(
+    #                     self.vs.embedded_upload,  # ← Kjører i thread (synkron funksjon)
+    #                     attachments=query.attachments,
+    #                     query_id=query.query_id,
+    #                     session_id=session_id,
+    #                     user_id=user_id,
+    #                     vector_store=vector_store
+    #                 ),
+    #                 self.storage.save_raw_documents(  # ← Async, kjører parallelt med uploads internt
+    #                     attachments=query.attachments,
+    #                     #session_id=session_id,
+    #                     #user_id=user_id,
+    #                     #query_id=query.query_id
+    #                 )
+    #             )
     # =================================
     #       STREAM RESPONSE
     # =================================
@@ -417,7 +423,13 @@ class Agent:
 
         # SAVE ATTACHMENTS to both vector store and file storage
         if query.attachments:
-            await self.save_attachments(query, user_id, query.session_id)
+            docs = []
+            for att in query.attachments:
+                docs.extend(self.document_processor.process_attachment(att, session_id=query.session_id))
+            # Store (same API regardless of implementation)
+            self.in_memory_store.add_documents(docs, collection_id=query.session_id)
+            await self.storage.save_raw_documents(attachments=query.attachments)
+
         #add attachments without content to user message
         event_id = str(uuid4())
         attachments_events = [] #[att.model_dump(mode = "json", exclude={"content"}) for att in query.attachments or []] #rm contents
@@ -425,7 +437,7 @@ class Agent:
             att_dict = att.model_dump(mode = "json", exclude={"content"})
             att_dict["event_id"] = event_id
             attachments_events.append(att_dict)
-            logger.info(f"Attachment for event: {att_dict}")
+            #logger.info(f"Attachment for event: {att_dict}")
 
          # FIRST USER MESSAGE EVENT
         event_model = StreamEvent(data = EventData(attachments = [att.get("file_id") for att in attachments_events]), #writes back without content
@@ -445,7 +457,6 @@ class Agent:
         #           STREAM RESPONSE
         #=========================================
         user_msg = HumanMessage(content=query.question, 
-                                #id = query.query_id, 
                                 additional_kwargs={"attachments": attachments_events,
                                                    "session_id": query.session_id,
                                                    "user_id": user_id,
@@ -586,9 +597,11 @@ class Agent:
         # Run save_attachments and analyze_init_input in parallel
         save_task = None
         if query.attachments:
-            save_task = asyncio.create_task(
-                self.save_attachments(query=query, user_id=user_id, session_id=query.session_id)
-            )
+            docs = []
+            for att in query.attachments:
+                docs.extend(self.document_processor.process_attachment(att, session_id=query.session_id))
+            self.vs.add_documents(docs, collection_id=query.session_id)
+            await self.storage.save_raw_documents(attachments=query.attachments,bucket_name="project_attachments")
 
         initial_input = await self.context_manager.analyze_init_input(query.question)
 

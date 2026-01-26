@@ -10,6 +10,7 @@ import uvicorn
 
 import logging
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("agent.agent").setLevel(logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI,HTTPException,status,Depends

@@ -287,7 +287,7 @@ class FirestoreManager:
                 "title" : title
             })
             
-            logger.info(f"Session saved with {len(all_events)} total events")
+            logger.debug(f"Session saved with {len(all_events)} total events")
         except Exception as e:
             logger.error(f"Error saving final state: {e}", exc_info=True)
     
@@ -323,7 +323,7 @@ class FirestoreManager:
                 "factsheet": factsheet.model_dump(mode='json'),
                 "attachments": [file.model_dump(mode='json') for file in files]
             })
-            logger.info(f"Project saved for project {project_id}")
+            logger.debug(f"Project saved for project {project_id}")
         except Exception as e:
             logger.error(f"Error saving project to firestore: {e}", exc_info=True)
 
@@ -403,7 +403,7 @@ class SupabaseManager:
         # Implement loading user sessions from Supabase
         try:
             sessions = self.supabase.table("sessions").select("title, session_id, updated_at").eq("user_id", user_id).execute()
-            logger.info(f'Loaded {len(sessions.data)} sessions for user {user_id} from Supabase.')
+            logger.debug(f'Loaded {len(sessions.data)} sessions for user {user_id} from Supabase.')
             return sessions.data
         except Exception as e:
             logger.error(f'Could not load sessions for user {user_id} from Supabase: {e}')
@@ -425,7 +425,7 @@ class SupabaseManager:
             return {"error": str(e)}
         try:
             session = self.supabase.table("sessions").select("*").eq("session_id", session_id).execute()
-            logger.info(f'Loaded session history for session {session_id} from Supabase.')
+            logger.debug(f'Loaded session history for session {session_id} from Supabase.')
         except Exception as e:
             logger.error(f'Could not load session for session {session_id} from Supabase: {e}')
             return {"error": str(e)}
@@ -457,25 +457,36 @@ class SupabaseManager:
             attachment_dict.pop("content", None)  # Remove content if present before saving
             new_attachments.append(attachment_dict)
 
+        title = self.supabase.table("sessions").select("title").eq("session_id", session_id).execute().data
+        if not title:
+            try:
+                title_msg = [msg.get("data") for msg in new_events if msg.get("type") == "human" or msg.get("type") == "ai"]
+                #title = await self.mk_title(title_msg)
+                summarizer = Summarizer()
+                title = summarizer.mk_title(title_msg)
+            except Exception as e:
+                logger.error(f"Error creating title: {e}")
+                title = "Ny samtale"
+
         try:
             self.supabase.table("sessions").upsert({
                 "session_id": session_id,
                 "user_id": user_id,
-                "title" : "",
+                "title" : title,
                 "project_id": data.project_id,
                 "llm_model" : data.llm_model,}).execute()
-            logger.info(f'Session {session_id} upserted in Supabase.')
+            logger.debug(f'Session {session_id} upserted in Supabase.')
         except Exception as e:
             logger.error(f'Error upserting session {session_id} in Supabase: {e}. Stopping process.')
             return 
 
         try:
             self.supabase.table("session_events").insert(new_events).execute() if new_events else None
-            logger.info(f'Inserted {len(new_events)} events for session {session_id} in Supabase.')
+            logger.debug(f'Inserted {len(new_events)} events for session {session_id} in Supabase.')
         except Exception as e:
             logger.error(f'Error inserting events for session {session_id} in Supabase: {e}')
         try:
             self.supabase.table("session_attachments").insert(new_attachments).execute() if new_attachments else None
-            logger.info(f'Inserted {len(new_attachments)} attachments for session {session_id} in Supabase.')
+            logger.debug(f'Inserted {len(new_attachments)} attachments for session {session_id} in Supabase.')
         except Exception as e:
             logger.error(f'Error inserting attachments for session {session_id} in Supabase: {e}')

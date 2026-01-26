@@ -10,7 +10,7 @@ from langchain_tavily import TavilySearch
 from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool
 
-from database import VectorSearch,GCSManager
+from database import GCSManager, BigQueryVectorStore
 
 
 load_dotenv()
@@ -87,7 +87,7 @@ def read_vector_store(query: str, config : RunnableConfig ,  query_id : Optional
     '''
     user_id = config["configurable"].get("user_id", None)
     session_id = config["configurable"].get("session_id", None)
-    vs = VectorSearch()
+    vs = BigQueryVectorStore()
     vector_store = vs.init_vector_store(table_name="attachments")
     filters = {"user_id" : user_id,
                "session_id" :  session_id,
