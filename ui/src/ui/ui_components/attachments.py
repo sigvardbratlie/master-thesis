@@ -10,11 +10,13 @@ from google.cloud import storage
 from google.oauth2 import service_account
 from ui.models import AttachmentModel
 from streamlit.runtime.uploaded_file_manager import UploadedFile
+from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
 
 def mk_attachment_payload(file : UploadedFile, query_id : str) -> AttachmentModel:
     file_id = hashlib.md5(file.name.encode("utf-8")).hexdigest()
+    ext = file.name.split('.')[-1]
 
     if file.type == "application/pdf":
         try:
@@ -32,7 +34,7 @@ def mk_attachment_payload(file : UploadedFile, query_id : str) -> AttachmentMode
         filename=file.name,
         file_id=file_id,
         file_type=file.type,
-        path = f'{st.session_state.user_id}/{st.session_state.session_id}/{file_id}',
+        path = f'{st.session_state.user_id}/{st.session_state.session_id}/{file_id}.{ext}',
         size=file.size,
         content=content,
         query_id=query_id,
@@ -58,7 +60,7 @@ def view_attachment(attachment: dict):
         f"- {attachment.get('filename')}" #- {attachment.get('file_id')} ({attachment.get('file_type')}, {attachment.get('size')} bytes)"
     )
     if open_att:
-        content_bytes = "" #read_attachment(path=attachment.get("path"),)
+        content_bytes = read_attachment(path=attachment.get("path"), bucket_name="session_attachments")
             
         if content_bytes:
             if "pdf" in attachment.get("file_type"):
@@ -80,7 +82,7 @@ def view_attachment(attachment: dict):
 
 
 @st.cache_data(show_spinner=False)
-def read_attachment(path : str) -> Optional[bytes]:
+def _read_attachment(path : str) -> Optional[bytes]:
     """
     Fetch attachment content from GCP storage.
 
@@ -114,5 +116,39 @@ def read_attachment(path : str) -> Optional[bytes]:
 
     except Exception as e:
         logger.error(f'Error reading attachment from GCS: {e}', exc_info=True)
+        return None
+    
+
+@st.cache_data(show_spinner=False)
+def read_attachment(path : str, bucket_name : str = "session_attachments") -> Optional[bytes]:
+    """
+    Fetch attachment content from GCP storage.
+
+    Args:
+        file_id: File ID (hash of filename)
+        session_id: Session ID
+        user_id: User ID
+        type: File MIME type
+
+    Returns:
+        File content as string, or None if error
+    """
+    try:
+        try:
+            supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+        except Exception as e:
+            logger.error(f'Error loading service account credentials: {e}', exc_info=True)
+            supabase = None
+
+
+        content = supabase.storage.from_(bucket_name).download(path)
+        if content:
+            return content
+        else:
+            logger.error(f'Attachment blob not found: {path}')
+            return ""
+
+    except Exception as e:
+        logger.error(f'Error reading attachment from Supabase: {e}', exc_info=True)
         return None
 

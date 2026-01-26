@@ -181,8 +181,6 @@ def render_sidebar(session_service: SessionService):
             st.logout()
             st.rerun()
 
-
-
 def display_history():
     """Display chat history with all messages"""
     # Group messages by query cycle (each human message starts a new cycle)
