@@ -1,5 +1,6 @@
 
 import asyncio
+import token
 from typing import Optional, Literal
 import os
 from io import BytesIO
@@ -26,10 +27,14 @@ from fastapi import FastAPI,HTTPException,status,Depends
 from agent.agent_modules import Summarizer
 #from ui.ui_components import attachments
 from supabase import create_client, Client
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Define security at module level so FastAPI can access it
+security = HTTPBearer()
 
 class VectorSearch:
     def __init__(self, dataset: str = "vector_store", region: str = "europe-north2",model_name: str = "text-embedding-004"):
@@ -645,7 +650,6 @@ class SupabaseManager:
     def load_user_sessions(self, user_id: str)-> list:
         '''Load all sessions for a user from Supabase'''
         # Implement loading user sessions from Supabase
-        user_id = "53d63d18-cfa1-416e-96e8-770c8f66507b" #må fixes!!! kun pr nå for debugging!
         try:
             sessions = self.supabase.table("sessions").select("title, session_id, updated_at").eq("user_id", user_id).execute()
             logger.info(f'Loaded {len(sessions.data)} sessions for user {user_id} from Supabase.')
@@ -654,7 +658,9 @@ class SupabaseManager:
             logger.error(f'Could not load sessions for user {user_id} from Supabase: {e}')
             return []
 
-    def load_session_history(self, session_id: str, user_id: str = None)-> dict: #rm user_id
+    def load_session_history(self, session_id: str, 
+                             #user_id: str = None
+                             ) -> dict: #rm user_id
         '''Load session history for a given session from Supabase'''
         try:
             session_events = self.supabase.table("session_events").select("*").eq("session_id", session_id).execute()
@@ -677,10 +683,36 @@ class SupabaseManager:
         return {
                 "events": session_events.data,  
                 'attachments': session_attachments.data,
+                "project_id": session_data.get("project_id",""),
                 "title": session_data.get("title",""), 
                 "llm_model": session_data.get("llm_model"),
                 "last_updated": session_data.get("updated_at"),
             }
+
+    def get_current_user(self, token: HTTPAuthorizationCredentials = Depends(security)) -> str:
+        """
+        Verify token and get user ID from Supabase.
+        
+        Args:
+            token: HTTPAuthorizationCredentials automatically extracted from 
+                   'Authorization: Bearer <token>' header by FastAPI
+        
+        Returns:
+            user_id as string
+        """
+        try:
+            # token.credentials gives you the actual token string
+            response = self.supabase.auth.get_user(token.credentials)
+            logger.info(f'User retrieved from Supabase with token.')
+            return response.user.id
+        except Exception as e:
+            logger.error(f'Error retrieving user from Supabase with token: {e}')
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    
 
     def save_stream(self, 
                     data : StreamData,
@@ -702,7 +734,7 @@ class SupabaseManager:
         try:
             self.supabase.table("sessions").upsert({
                 "session_id": session_id,
-                "user_id": "53d63d18-cfa1-416e-96e8-770c8f66507b", #user_id, #må fixes!!! kun pr nå for debugging! 
+                "user_id": user_id,
                 "title" : "",
                 "project_id": data.project_id,
                 "llm_model" : data.llm_model,}).execute()

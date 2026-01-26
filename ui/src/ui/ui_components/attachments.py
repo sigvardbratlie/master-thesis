@@ -53,13 +53,13 @@ def view_uploaded_file(file : UploadedFile):
 
 def view_attachment(attachment: dict):
     """Display attachments from session history"""
+    #st.json(attachment)
     open_att = st.button(
         f"- {attachment.get('filename')}" #- {attachment.get('file_id')} ({attachment.get('file_type')}, {attachment.get('size')} bytes)"
     )
     if open_att:
-        content_bytes = read_attachment(
-            path=attachment.get("path"),
-        )
+        content_bytes = "" #read_attachment(path=attachment.get("path"),)
+            
         if content_bytes:
             if "pdf" in attachment.get("file_type"):
                 with st.expander(f"Viser PDF: {attachment.get('filename')}", expanded=True):

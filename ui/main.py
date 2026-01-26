@@ -1,14 +1,19 @@
-from uuid import uuid4
 import streamlit as st
-import os
 import logging
 
+# Import auth functions
+from ui.services.auth_service import (
+    is_logged_in,
+    restore_session,
+    render_login_form,
+    save_token_to_url
+)
+
 # Import services
-from ui.services.auth_service import AuthService
 from ui.services.session_service import SessionService
 
 # Import UI components
-from ui.ui_components.renders import render_first_question,render_sidebar,display_history, handle_new_question
+from ui.ui_components.renders import render_first_question, render_sidebar, display_history, handle_new_question
 
 # Import utils
 from ui.utils import init_state
@@ -16,21 +21,19 @@ from ui.utils import init_state
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 # Page configuration
 st.set_page_config(page_title="Company Agent", layout="wide")
 init_state()
 
-st.markdown("<style>.status-box{opacity:.85}</style>", unsafe_allow_html=True)
+# ================== AUTH ==================
+
+restore_session()
 
 # ================== MAIN APP LOGIC ==================
 
-if st.user.is_logged_in:
-    # Authenticate with backend
-    auth_service = AuthService(backend_url=st.session_state.backend_url)
-    if not auth_service.authenticate_with_backend():
-        st.error("Authentication failed")
-        st.stop()
+if is_logged_in():
+    # Save token to URL (in case it was refreshed)
+    save_token_to_url()
 
     # Create session service
     session_service = SessionService(
@@ -42,8 +45,6 @@ if st.user.is_logged_in:
     # Render sidebar
     render_sidebar(session_service)
 
-
-
     # Main content
     if st.session_state.first_question:
         render_first_question()
@@ -53,12 +54,6 @@ if st.user.is_logged_in:
 
 else:
     # Login screen
-    st.markdown("**Vennligst logg inn for å fortsette!**")
-    if st.button("Logg inn med Supabase"):
-        st.login("supabase")
+    render_login_form()
 
-
-
-# Debug info
-st.json(st.user, expanded=False)
-st.json(st.session_state.messages, expanded=False)
+st.json(st.session_state, expanded=False)

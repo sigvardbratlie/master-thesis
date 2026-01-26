@@ -26,7 +26,7 @@ def render_first_question() -> Optional[str]:
     st.markdown(
         f"""
         <div style='text-align: center; margin-top: 200px;'>
-            <h1>Velkommen {st.user.given_name}! Hva lurer du på i dag?</h1>
+            <h1>Velkommen {st.session_state.user_name}! Hva lurer du på i dag?</h1>
         </div>
         """,
         unsafe_allow_html=True
@@ -116,6 +116,8 @@ def render_sidebar(session_service: SessionService):
                         response = session_service.load_session_history(session.session_id)
                         if response:
                             st.session_state.messages = response.events
+                            st.session_state.attachments = response.attachments
+                            st.session_state.project_id = response.project_id
                             st.session_state.session_id = session.session_id
                             st.session_state.session_title = response.title
                             st.session_state.first_question = False
@@ -169,12 +171,9 @@ def render_sidebar(session_service: SessionService):
         st.markdown("Vedleggsoversikt for denne samtalen")
         with st.popover("📎 Vedlegg", use_container_width=False):
             st.markdown("Liste over vedlegg lastet opp i denne samtalen:")
-            for e in st.session_state.get("messages", []):
-                attachments = e.get("data", {}).get("attachments", [])
-                if e.get("type") == "human" and attachments:
-                    for att in attachments:
-                        if att:
-                            view_attachment(att)
+            for att in st.session_state.get("attachments", []):
+                if att:
+                    view_attachment(att)
 
         # Logout button
         st.container(height=200,border=False)
@@ -207,9 +206,8 @@ def display_history():
             #st.info(user_msg)
             with st.chat_message("user"):
                 st.markdown(user_msg.get("content", {}))
-                attachments = user_msg.get("data", {}).get("attachments", [])
-                for att in attachments:
-                    if att:
+                for att in st.session_state.attachments:
+                    if att.get("event_id") == user_msg.get("event_id"):
                         view_attachment(att)
 
         # Prepare containers for this cycle

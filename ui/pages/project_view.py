@@ -5,7 +5,7 @@ from typing import Optional,Literal
 from ui.models import AskAgentRequest, AttachmentModel
 from ui.services.streaming_service import StreamingService
 from ui.services.session_service import SessionService
-from ui.services.auth_service import AuthService
+from ui.services.auth_service import *
 from ui.ui_components.renders import render_first_question, handle_new_question, display_history
 from ui.ui_components.attachments import mk_attachment_payload, view_attachment
 import uuid
@@ -17,25 +17,6 @@ logger = logging.getLogger(__name__)
 init_state()
 if st.session_state.session_id is None:
     st.session_state.session_id = str(uuid.uuid4())
-
-# ================== AUTHENTICATION ==================
-
-if not st.user.is_logged_in:
-    st.warning("Please log in to access this page.")
-    st.stop()
-
-# Authenticate with backend
-auth_service = AuthService(backend_url=st.session_state.backend_url)
-if not auth_service.authenticate_with_backend():
-    st.error("Authentication failed")
-    st.stop()
-
-# ================== MAIN PAGE ==================
-
-# st.info(st.session_state.project_id)
-# st.info(st.session_state.session_id)
-# st.json(st.session_state.messages)
-
 
 
 streaming_service = StreamingService(

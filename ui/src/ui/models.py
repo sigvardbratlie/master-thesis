@@ -54,6 +54,8 @@ class SessionInfo(BaseModel):
 class SessionHistoryResponse(BaseModel):
     """GET /load-session-history response"""
     events: list[dict[str, Any]]
+    attachments: list[dict[str, Any]]
+    project_id: Optional[str] = None
     title: Optional[str] = None
     llm_model: Optional[str] = None
     last_updated: Optional[str] = None
