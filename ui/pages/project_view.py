@@ -55,7 +55,9 @@ def render_select_projects():
     if projects:
         with st.expander("Projects", expanded=True):
             for project in projects:
-                st.button(f"Project ID: {project['project_id']} - {project.get('title', 'No Title')}", on_click=lambda p=project: on_project_select(p))
+                st.button(f"{project.get('title', 'No Title')}", 
+                          on_click=lambda p=project: on_project_select(p), 
+                          key = project.get('project_id','no-id'))
                 
     else:
         st.info("No projects found. Please initialize a new project.")
@@ -85,13 +87,16 @@ def render_selected_project():
     
     with st.expander("Timeline", expanded=False, icon="🕒"):
         timeline = factsheet.get('timeline', [])
-        sorted_timeline = sorted(timeline, key=lambda x: x.get('date', ''))
+        sorted_timeline = sorted(timeline, key=lambda x: x.get('event_date', ''))   
         for event in sorted_timeline:
-            st.markdown(f"**{event.get('date', 'No Date')}**: {event.get('description', 'No Description')}")
+            st.markdown(f"**{event.get('event_date', 'No Date')}**: {event.get('description', 'No Description')}")
     
-    elements = {"parties" : "👥", "governing_law" : "⚖️", "claims" : "📄", "damages" : "💰", "deadlines" : "⏰", "background" : "📚"}
+    elements = {"parties" : "👥", "governing_law" : "⚖️", "claims" : "📄", "damages" : "💰", "deadlines" : "⏰",}
     for field, icon in elements.items():
         display_field(label = field.replace("_"," ").title(), value = field, icon = icon, factsheet=factsheet)
+    
+    with st.expander("Background", expanded=False, icon="📚"):
+        st.markdown(factsheet.get("background", ""))
     
 
     with st.expander("Attachments Overview", expanded=False, icon="📎"):

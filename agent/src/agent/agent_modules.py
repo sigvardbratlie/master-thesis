@@ -4,6 +4,7 @@ from typing import Dict,TypedDict,List,Union,Annotated,Sequence,Optional, Litera
 import os
 import tiktoken
 import logging
+from uuid import uuid4
 
 from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMessage,ToolMessage,AIMessageChunk
 from langchain_core.tools import tool
@@ -122,6 +123,7 @@ class ContextManager:
         response = await structured_llm.ainvoke(prompt)
         for event in response.events:
             event.file_id = file_id
+            event.event_id = str(uuid4())
         return response
     
     async def analyze_doc(self, 
@@ -155,8 +157,16 @@ class ContextManager:
                                      content = content, 
                                      file_id = file_id)
         events = response_events.events
-        
         response = await structured_llm.ainvoke(prompt)
+        if response.damages:
+            for damage in response.damages:
+                damage.file_id = file_id
+        if response.deadlines:
+            for deadline in response.deadlines:
+                deadline.file_id = file_id
+        if response.claims:
+            for claim in response.claims:
+                claim.file_id = file_id
         file = Attachment(**response.model_dump(),
                             file_id=file_id,
                             filename=filename,
@@ -185,8 +195,6 @@ class ContextManager:
     async def analyze_factual_facts(self, 
                               initial_input : InitialInput, 
                               events : list[Event], 
-                              #claims : list[Claim], 
-                              #damages: list[Damage]
                               ) -> FactualFacts:
         '''Function to analyze case events and extract disputed and undisputed facts.
         

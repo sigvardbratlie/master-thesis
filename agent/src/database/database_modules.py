@@ -398,9 +398,10 @@ class SupabaseManager:
                               deadlines=project_deadlines,
                               damages=project_damages,
                               claims=project_claims)
+        attachments_models = [AttachmentModel(**attachment) for attachment in attachments]
         return {
             "factsheet": factsheet,
-            "attachments": attachments
+            "attachments": attachments_models
         }
 
     def save_project(self,
@@ -411,15 +412,27 @@ class SupabaseManager:
                        session_id : str,
                        query_id : str = ""
                        ):
-        # Implement saving project to Supabase
+        
         custom_fields = ["governing_law", "disputed_facts", "undisputed_facts",]
+        
+        file_dicts = []
+        if files:
+            for file in files:
+                file_dict = file.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
+                file_dict["project_id"] = project_id
+                file_dicts.append(file_dict)
+            logger.debug(f' ========= ATTACHEMNT CONTENTS TO SAVE ======== \n {files} \n')
+        # Implement saving project to Supabase
+        
         factsheet_dict = factsheet.model_dump(mode='json')
         claims = factsheet_dict.pop("claims", [])
         damages = factsheet_dict.pop("damages", [])
         deadlines = factsheet_dict.pop("deadlines", [])
         timeline = factsheet_dict.pop("timeline", [])
         parties = factsheet_dict.pop("parties", [])
-        custom = {k: v for k, v in factsheet_dict.items() if k in custom_fields}
+        custom = {}
+        for key in custom_fields:
+            custom[key] = factsheet_dict.pop(key, None)
         
         factsheet_dict["project_id"] = project_id
         factsheet_dict["user_id"] = user_id
@@ -431,76 +444,79 @@ class SupabaseManager:
             self.supabase.table("projects").upsert(factsheet_dict).execute()
             logger.debug(f'Project {project_id} upserted in Supabase.')
         except Exception as e:
-            logger.error(f'Error upserting project {project_id} in Supabase: {e}. Stopping process.')
+            logger.error(f'Error upserting factsheet project {project_id} in Supabase: {e}. Stopping process.')
             return
 
-        try:
-            # ========== PROJECT ATTACHMENTS ==========
-            attachments_with_project = [
-                    {**file.model_dump(mode='json', exclude={"events"}), "project_id": project_id}
-                    for file in files]
-            self.supabase.table("project_attachments").upsert(attachments_with_project).execute()
-            logger.debug(f'Upserted {len(files)} attachments for project {project_id} in Supabase.')
-        except Exception as e:
-            logger.error(f'Error upserting attachments for project {project_id} in Supabase: {e}')
+        if file_dicts:
+            try:
+                # ========== PROJECT ATTACHMENTS ==========
+                self.supabase.table("project_attachments").upsert(file_dicts).execute()
+                logger.debug(f'Upserted {len(files)} attachments for project {project_id} in Supabase.')
+            except Exception as e:
+                logger.error(f'Error upserting attachments for project {project_id} in Supabase: {e}')
 
-        
-        #========= PROJECT CUSTOM FIELDS ==========
-        try:
-            self.supabase.table("project_custom").upsert({**custom, "project_id": project_id}).execute()
-            logger.debug(f'Custom fields for project {project_id} upserted in Supabase.')
-        except Exception as e:
-            logger.error(f'Error upserting custom fields for project {project_id} in Supabase: {e}')
+        if custom:
+            #========= PROJECT CUSTOM FIELDS ==========
+            try:
+                self.supabase.table("project_custom").upsert({**custom, "project_id": project_id}).execute()
+                logger.debug(f'Custom fields for project {project_id} upserted in Supabase.')
+            except Exception as e:
+                logger.error(f'Error upserting custom fields for project {project_id} in Supabase: {e}')
 
-        # ========== PROJECT PARTIES ==========
-        try:
-            parties_with_project = [
-                    {**party, "project_id": project_id}
-                    for party in parties]
-            self.supabase.table("project_parties").upsert(parties_with_project).execute()
-            logger.debug(f'Upserted {len(parties)} parties for project {project_id} in Supabase.')
-        except Exception as e:
-            logger.error(f'Error upserting parties for project {project_id} in Supabase: {e}')
+        if parties:
+            # ========== PROJECT PARTIES ==========
+            try:
+                parties_with_project = [
+                        {**party, "project_id": project_id}
+                        for party in parties]
+                self.supabase.table("project_parties").upsert(parties_with_project).execute()
+                logger.debug(f'Upserted {len(parties)} parties for project {project_id} in Supabase.')
+            except Exception as e:
+                logger.error(f'Error upserting parties for project {project_id} in Supabase: {e}')
 
-        # ========== PROJECT EVENTS ==========
-        try:
-            timeline_with_project = [
-                    {**event, "project_id": project_id}
-                    for event in timeline]
-            self.supabase.table("project_events").upsert(timeline_with_project).execute()
-            logger.debug(f'Upserted {len(timeline)} events for project {project_id} in Supabase.')
-        except Exception as e:
-            logger.error(f'Error upserting events for project {project_id} in Supabase: {e}')
+        if timeline:
+            # ========== PROJECT EVENTS ==========
+            try:
+                timeline_with_project = [
+                        {**event, "project_id": project_id}
+                        for event in timeline]
+                self.supabase.table("project_events").upsert(timeline_with_project).execute()
+                logger.debug(f'Upserted {len(timeline)} events for project {project_id} in Supabase.')
+            except Exception as e:
+                logger.error(f'Error upserting events for project {project_id} in Supabase: {e}')
 
-        # ========== PROJECT DEADLINES ==========
-        try:
-            deadlines_with_project = [
-                    {**deadline, "project_id": project_id}
-                    for deadline in deadlines]
-            self.supabase.table("project_deadlines").upsert(deadlines_with_project).execute()
-            logger.debug(f'Upserted {len(deadlines)} deadlines for project {project_id} in Supabase.')
-        except Exception as e:
-            logger.error(f'Error upserting deadlines for project {project_id} in Supabase: {e}')
+        if deadlines:
+            # ========== PROJECT DEADLINES ==========
+            try:
+                deadlines_with_project = [
+                        {**deadline, "project_id": project_id}
+                        for deadline in deadlines]
+                self.supabase.table("project_deadlines").upsert(deadlines_with_project).execute()
+                logger.debug(f'Upserted {len(deadlines)} deadlines for project {project_id} in Supabase.')
+            except Exception as e:
+                logger.error(f'Error upserting deadlines for project {project_id} in Supabase: {e}')
 
         # ========== PROJECT DAMAGES ==========
-        try:
-            damages_with_project = [
-                    {**damage, "project_id": project_id}
-                    for damage in damages]
-            self.supabase.table("project_damages").upsert(damages_with_project).execute()
-            logger.debug(f'Upserted {len(damages)} damages for project {project_id} in Supabase.')
-        except Exception as e:
-            logger.error(f'Error upserting damages for project {project_id} in Supabase: {e}')
+        if damages:
+            try:
+                damages_with_project = [
+                        {**damage, "project_id": project_id}
+                        for damage in damages]
+                self.supabase.table("project_damages").upsert(damages_with_project).execute()
+                logger.debug(f'Upserted {len(damages)} damages for project {project_id} in Supabase.')
+            except Exception as e:
+                logger.error(f'Error upserting damages for project {project_id} in Supabase: {e}')
 
-        # ========== PROJECT CLAIMS ==========
-        try:
-            claims_with_project = [
-                    {**claim, "project_id": project_id}
-                    for claim in claims]
-            self.supabase.table("project_claims").upsert(claims_with_project).execute()
-            logger.debug(f'Upserted {len(claims)} claims for project {project_id} in Supabase.')
-        except Exception as e:
-            logger.error(f'Error upserting claims for project {project_id} in Supabase: {e}')
+        if claims:
+            # ========== PROJECT CLAIMS ==========
+            try:
+                claims_with_project = [
+                        {**claim, "project_id": project_id}
+                        for claim in claims]
+                self.supabase.table("project_claims").upsert(claims_with_project).execute()
+                logger.debug(f'Upserted {len(claims)} claims for project {project_id} in Supabase.')
+            except Exception as e:
+                logger.error(f'Error upserting claims for project {project_id} in Supabase: {e}')
 
         
 

@@ -60,7 +60,8 @@ def view_attachment(attachment: dict):
         f"- {attachment.get('filename')}" #- {attachment.get('file_id')} ({attachment.get('file_type')}, {attachment.get('size')} bytes)"
     )
     if open_att:
-        content_bytes = read_attachment(path=attachment.get("path"), bucket_name="session_attachments")
+        #st.info(f'Henter vedlegg: {attachment.get("path")}')
+        content_bytes = read_attachment(path=attachment.get("path"), bucket_name="attachments")
             
         if content_bytes:
             if "pdf" in attachment.get("file_type"):
@@ -120,7 +121,7 @@ def _read_attachment(path : str) -> Optional[bytes]:
     
 
 @st.cache_data(show_spinner=False)
-def read_attachment(path : str, bucket_name : str = "session_attachments") -> Optional[bytes]:
+def read_attachment(path : str, bucket_name : str = "attachments") -> Optional[bytes]:
     """
     Fetch attachment content from GCP storage.
 
@@ -142,13 +143,13 @@ def read_attachment(path : str, bucket_name : str = "session_attachments") -> Op
 
 
         content = supabase.storage.from_(bucket_name).download(path)
+        
         if content:
             return content
         else:
             logger.error(f'Attachment blob not found: {path}')
-            return ""
+            return None
 
     except Exception as e:
         logger.error(f'Error reading attachment from Supabase: {e}', exc_info=True)
         return None
-

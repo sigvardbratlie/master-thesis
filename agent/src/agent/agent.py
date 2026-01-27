@@ -248,7 +248,7 @@ class Agent:
                     result = await tool_to_call.ainvoke(args)
                 except Exception as e:
                     result = f'Something went wrong when calling tool {name} with args {args} : {e}.'
-                    logger.error(result)
+                    logger.error(result, exc_info=True)
                 
                 n_tokens = len(enc.encode(str(result)))
                 logger.debug(f'Result length: {n_tokens}')
@@ -577,14 +577,17 @@ class Agent:
         # Run save_attachments and analyze_init_input in parallel
         save_task = None
         if query.attachments:
-            logger.debug(f'======= ATTACHMENT CONTENT======= \n { query.attachments }\n')
+            #logger.debug(f'======= ATTACHMENT CONTENT======= \n { query.attachments }\n')
             docs = []
             for att in query.attachments:
                 docs.extend(self.document_processor.process_attachment(att, session_id=query.session_id))
             self.vs.add_documents(docs, collection_id=query.session_id)
-            await self.storage.save_raw_documents(attachments=query.attachments,bucket_name="project_attachments")
+            await self.storage.save_raw_documents(attachments=query.attachments,)
 
         initial_input = await self.context_manager.analyze_init_input(query.question)
+        for party in initial_input.parties or []:
+            party.party_id = str(uuid4())
+        logger.debug(f'\n\n ====== Analyzed Initial Input: {initial_input.model_dump(mode = "json")} ========= \n\n')
 
         # Analyze documents in parallel
         doc_tasks = []
@@ -593,7 +596,7 @@ class Agent:
                 initial_input, att.content,
                 file_id=att.file_id,
                 filename=att.filename,
-                path=f"{user_id}/{query.session_id}/{att.file_id}",
+                path=att.path or f"{user_id}/{query.session_id}/{att.file_id}",
                 file_type=att.file_type,
                 size=att.size,
             ))
@@ -602,24 +605,25 @@ class Agent:
             results = await asyncio.gather(*doc_tasks)
             for result in results:
                 analyzed_doc = result.get("file")
-                logger.debug(f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()}")
+                logger.debug(f"\n\n ====== Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()} ========= \n\n")
 
                 # Collect results from analyzed documents
                 files.append(analyzed_doc)
-                if analyzed_doc.damage:
-                    damages.extend(analyzed_doc.damage)
-                if analyzed_doc.claim:
-                    claims.extend(analyzed_doc.claim)
-                if analyzed_doc.deadline:
-                    deadlines.extend(analyzed_doc.deadline)
+                if analyzed_doc.damages:
+                    damages.extend(analyzed_doc.damages)
+                if analyzed_doc.claims:
+                    claims.extend(analyzed_doc.claims)
+                if analyzed_doc.deadlines:
+                    deadlines.extend(analyzed_doc.deadlines)
                 if result.get("events"):
                     events.extend(result.get("events"))
 
         # Build RAG query from events and run in thread (sync function)
-        events_txt = " ".join([f"- {event.description} (Date: {event.date})" for event in events])
+        #events_txt = " ".join([f"- {event.description} (Date: {event.event_date})" for event in events])
         rag_content_law = await asyncio.to_thread(
-            self.vs.query, query=events_txt, collection_id="laws", k=2
+            self.vs.query, query=initial_input.background, collection_id="laws", k=1
         )
+        logger.debug(f'\n\n ====== RAG Content for Governing Law Analysis: {rag_content_law} ========= \n\n')
 
         # Analyze factual facts and governing law in parallel
         analysis_tasks = [
@@ -639,8 +643,27 @@ class Agent:
         for res in analysis_results:
             if isinstance(res, FactualFacts):
                 factual_facts = res
+                logger.debug(f'\n\n ====== Analyzed Factual Facts: {factual_facts.model_dump(mode = "json")} ========= \n\n')
             elif isinstance(res, GoverningLaw):
                 governing_law = res
+                logger.debug(f'\n\n ====== Analyzed Governing Law: {governing_law.model_dump(mode = "json")} ========= \n\n')
+
+        # Generate UUIDs for all entities before saving
+        for event in events:
+            if not event.event_id:
+                event.event_id = str(uuid4())
+        
+        for damage in damages:
+            if not damage.damage_id:
+                damage.damage_id = str(uuid4())
+        
+        for claim in claims:
+            if not claim.claim_id:
+                claim.claim_id = str(uuid4())
+        
+        for deadline in deadlines:
+            if not deadline.deadline_id:
+                deadline.deadline_id = str(uuid4())
 
         result = FactSheet(
             timeline=events,
@@ -651,6 +674,7 @@ class Agent:
             **factual_facts.model_dump(),
             **initial_input.model_dump(),
         )
+        #logger.debug(f'\n\n ====== Generated FactSheet: {result} ========= \n\n')
 
         # Wait for attachment save to complete before saving project
         if save_task:
@@ -686,7 +710,7 @@ class Agent:
 
         if project_data and not isinstance(project_data, dict):
             error_msg = f"load_project returned {type(project_data).__name__} instead of dict. Value: {project_data}"
-            logger.error(f"Error in update_project: {error_msg}")
+            logger.error(f"Error in update_project: {error_msg}", exc_info=True)
             raise TypeError(error_msg)
 
         # Save attachments in parallel with processing
@@ -713,7 +737,7 @@ class Agent:
                 new_user_input=query.question,
                 file_id=att.file_id,
                 filename=att.filename,
-                path=f"{user_id}/{query.session_id}/{att.file_id}",
+                path=att.path,
                 file_type=att.file_type,
                 size=att.size,
             ))
@@ -726,12 +750,12 @@ class Agent:
 
                 # Collect results from analyzed documents
                 files.append(analyzed_doc)
-                if analyzed_doc.damage:
-                    damages.extend(analyzed_doc.damage)
-                if analyzed_doc.claim:
-                    claims.extend(analyzed_doc.claim)
-                if analyzed_doc.deadline:
-                    deadlines.extend(analyzed_doc.deadline)
+                if analyzed_doc.damages:
+                    damages.extend(analyzed_doc.damages)
+                if analyzed_doc.claims:
+                    claims.extend(analyzed_doc.claims)
+                if analyzed_doc.deadlines:
+                    deadlines.extend(analyzed_doc.deadlines )
                 if result.get("events"):
                     events.extend(result.get("events"))
 
@@ -792,6 +816,23 @@ class Agent:
                 governing_law = res
             elif isinstance(res, FactualFacts):
                 factual_facts = res
+
+        # Generate UUIDs for all entities before saving
+        for event in events:
+            if not event.event_id:
+                event.event_id = str(uuid4())
+        
+        for damage in damages:
+            if not damage.damage_id:
+                damage.damage_id = str(uuid4())
+        
+        for claim in claims:
+            if not claim.claim_id:
+                claim.claim_id = str(uuid4())
+        
+        for deadline in deadlines:
+            if not deadline.deadline_id:
+                deadline.deadline_id = str(uuid4())
 
         # Build final factsheet
         result = FactSheet(

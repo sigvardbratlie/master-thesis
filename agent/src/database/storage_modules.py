@@ -2,7 +2,7 @@ import asyncio
 import os
 import logging
 import base64
-from io import BytesIO
+import tempfile
 
 from google.cloud import storage
 
@@ -20,7 +20,7 @@ class GCSManager:
         self.bucket_name = os.getenv("GCS_BUCKET_NAME", "chat-history-files")
         self.bucket = self.client.bucket(self.bucket_name)
     
-    async def save_attachment(self,content : bytes, path : str):
+    async def save_attachment(self,content : bytes | str, path : str):
         try:
             blob = self.bucket.blob(path)
             loop = asyncio.get_event_loop()
@@ -29,7 +29,7 @@ class GCSManager:
         except Exception as e:
             logger.error(f"Error saving attachment to GCS: {e}")
 
-    async def save_raw_documents(self, attachments: list[AttachmentModel], bucket_name: str = "session_attachments"):
+    async def save_raw_documents(self, attachments: list[AttachmentModel], bucket_name: str = "attachments"):
         """Lagrer alle vedlegg parallelt"""
         tasks = []
         
@@ -61,21 +61,32 @@ class SupabaseStorageManager:
         self.key = os.getenv("SUPABASE_KEY")
         self.supabase = create_client(self.url, self.key)
 
-    def save_attachment(self, content: bytes, path : str, bucket_name: str = "session_attachments"):
+    def save_attachment(self, content: bytes | str, path : str, bucket_name: str = "attachments"):
+        if isinstance(content, str):
+            content = content.encode('utf-8')
         try:
-            content_io = BytesIO(content)
-            self.supabase.storage.from_(bucket_name)\
-                .upload(
-                    path=path,  # path kommer FØRST
-                    file=content_io,  # content er bytesfort
+            # Opprett midlertidig fil med unikt navn
+            with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            
+            # Last opp fra midlertidig fil
+            with open(tmp_path, 'rb') as f:
+                self.supabase.storage.from_(bucket_name).upload(
+                    path=path,
+                    file=f,
                     file_options={"content-type": "application/octet-stream"}
                 )
             logger.info(f"Attachment saved to Supabase Storage at {path}")
         except Exception as e:
             logger.error(f"Error saving attachment to Supabase Storage: {e}")
+        finally:
+            # Slett midlertidig fil
+            if 'tmp_path' in locals():
+                os.unlink(tmp_path)
             
 
-    async def save_raw_documents(self, attachments: list[AttachmentModel], bucket_name: str = "session_attachments"):
+    async def save_raw_documents(self, attachments: list[AttachmentModel], bucket_name: str = "attachments"):
         tasks = []
 
         for att in attachments:
@@ -97,10 +108,8 @@ class SupabaseStorageManager:
 
         # Kjør alle parallelt
         await asyncio.gather(*tasks, return_exceptions=True)
-
-        logger.info(f"All {len(attachments)} attachments saved to Supabase Storage.")
     
-    def read_attachment(self, path : str, bucket_name: str = "session_attachments") -> bytes:
+    def read_attachment(self, path : str, bucket_name: str = "attachments") -> bytes:
         response = self.supabase.storage.from_(bucket_name)\
             .download(path)
         return response
