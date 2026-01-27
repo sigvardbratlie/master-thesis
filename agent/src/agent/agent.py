@@ -590,6 +590,20 @@ class Agent:
         logger.debug(f'\n\n ====== Analyzed Initial Input: {initial_input.model_dump(mode = "json")} ========= \n\n')
 
         # Analyze documents in parallel
+        sem = asyncio.Semaphore(2)  # Max 2 samtidige dokumenter
+
+        async def analyze_with_limit(att,factsheet):
+            async with sem:
+                return await self.context_manager.consider_new_doc(
+                    factsheet=factsheet,
+                    new_content=att.content,
+                    new_user_input=query.question,
+                    file_id=att.file_id,
+                    filename=att.filename,
+                    path=att.path,
+                    file_type=att.file_type,
+                    size=att.size,
+                )
         doc_tasks = []
         for att in query.attachments or []:
             doc_tasks.append(self.context_manager.analyze_doc(
@@ -601,8 +615,10 @@ class Agent:
                 size=att.size,
             ))
 
-        if doc_tasks:
-            results = await asyncio.gather(*doc_tasks)
+        tasks = [analyze_with_limit(att) for att in query.attachments or []]
+
+        if tasks:
+            results = await asyncio.gather(*tasks)
             for result in results:
                 analyzed_doc = result.get("file")
                 logger.debug(f"\n\n ====== Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()} ========= \n\n")
@@ -713,11 +729,15 @@ class Agent:
             logger.error(f"Error in update_project: {error_msg}", exc_info=True)
             raise TypeError(error_msg)
 
-        # Save attachments in parallel with processing
+        # Save attachments to vector store and storage
         save_task = None
         if query.attachments:
+            docs = []
+            for att in query.attachments:
+                docs.extend(self.document_processor.process_attachment(att, session_id=query.session_id))
+            self.vs.add_documents(docs, collection_id=query.session_id)
             save_task = asyncio.create_task(
-                self.save_attachments(query=query, user_id=user_id, session_id=query.session_id)
+                self.storage.save_raw_documents(attachments=query.attachments)
             )
 
         # Extract existing data from project (use direct lists, not wrapper models)
@@ -821,18 +841,24 @@ class Agent:
         for event in events:
             if not event.event_id:
                 event.event_id = str(uuid4())
-        
+
         for damage in damages:
             if not damage.damage_id:
                 damage.damage_id = str(uuid4())
-        
+
         for claim in claims:
             if not claim.claim_id:
                 claim.claim_id = str(uuid4())
-        
+
         for deadline in deadlines:
             if not deadline.deadline_id:
                 deadline.deadline_id = str(uuid4())
+
+        # Ensure parties have UUIDs (from initial_input if updated, else from intermediate)
+        parties_to_use = initial_input.parties if initial_input else intermediate_factsheet.parties
+        for party in parties_to_use or []:
+            if not party.party_id:
+                party.party_id = str(uuid4())
 
         # Build final factsheet
         result = FactSheet(
@@ -862,7 +888,6 @@ class Agent:
             files=files,
             user_id=user_id,
             session_id=query.session_id,
-            llm_model=query.llm_model,
             query_id=query.query_id,
             project_id=query.project_id
         )
