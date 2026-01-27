@@ -1,31 +1,26 @@
 from dotenv import load_dotenv
-load_dotenv()
+import logging
 import os
-from pathlib import Path
-from typing import Optional,Literal
 import asyncio
 import json
-from pydantic import BaseModel
 import uvicorn
 
-import logging
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("agent.agent").setLevel(logging.DEBUG)
-logger = logging.getLogger(__name__)
+load_dotenv()
 
 from fastapi import FastAPI,HTTPException,status,Depends
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from langchain_openai import ChatOpenAI
-from google.cloud import firestore
-
 from agent.utils import PROMPT
 from agent.tools import TOOLS
 from agent import Agent
 from database import FirestoreSaver,FirestoreManager,SupabaseManager
-from auth import GoogleAuth, SupabaseAuth
-from agent.basemodels import AttachmentModel,AskAgentRequest, StreamlitUserInfo
+from auth import SupabaseAuth
+from agent.basemodels import AskAgentRequest
+
+logging.basicConfig(level=logging.INFO)
+logging.getLogger("agent.agent").setLevel(logging.DEBUG)
+logger = logging.getLogger(__name__)
     
 # ===== SETUP FASTAPI & AGENT =======
 app = FastAPI()
@@ -51,8 +46,6 @@ app.add_middleware(
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 checkpointer = FirestoreSaver(project_id=project_id,database_id="(default)")
-#auth = GoogleAuth(secret_key=os.getenv("SECRET_KEY"))
-
 
 agent = Agent(
     tools=TOOLS,
@@ -148,8 +141,8 @@ async def load_projects(user_id: str = Depends(auth.get_current_user)):
     return conversation_manager.load_projects(user_id=user_id)
 
 @app.get("/load-project-sessions/{project_id}")
-async def load_project_sessions(project_id: str, user_id: str = Depends(auth.get_current_user)):
-    return conversation_manager.load_project_sessions(user_id=user_id, project_id=project_id)
+async def load_project_sessions(project_id: str): 
+    return conversation_manager.load_project_sessions(project_id=project_id)
 
 
 @app.get("/", include_in_schema=False)

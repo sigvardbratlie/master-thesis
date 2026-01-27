@@ -10,7 +10,7 @@ from langchain_tavily import TavilySearch
 from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool
 
-from database import GCSManager, BigQueryVectorStore
+from database import GCSManager, BQVectorStore
 
 
 load_dotenv()

@@ -103,7 +103,7 @@ class ChromaVectorStore(VectorStoreInterface):
 # ============================================
 #           BIGQUERY IMPLEMENTATION
 # ============================================
-class BigQueryVectorStore(VectorStoreInterface):
+class BQVectorStore(VectorStoreInterface):
     """Persistent, expensive, cross-session."""
     
     def __init__(self, 
@@ -116,27 +116,27 @@ class BigQueryVectorStore(VectorStoreInterface):
         self.embedding = GoogleGenerativeAIEmbeddings(model=embedding_model)
         self._stores: Dict[str, BigQueryVectorStore] = {}
     
-    def _get_store(self, table_name: str) -> BigQueryVectorStore:
-        if table_name not in self._stores:
-            self._stores[table_name] = BigQueryVectorStore(
+    def _get_store(self, collection_id: str) -> BigQueryVectorStore:
+        if collection_id not in self._stores:
+            self._stores[collection_id] = BigQueryVectorStore(
                 project_id=self.project_id,
                 dataset_name=self.dataset,
-                table_name=table_name,
+                table_name=collection_id,
                 location=self.region,
                 embedding=self.embedding
             )
-        return self._stores[table_name]
+        return self._stores[collection_id]
     
-    def add_documents(self, documents: List[Document], table_name: str) -> None:
-        store = self._get_store(table_name)
+    def add_documents(self, documents: List[Document], collection_id: str) -> None:
+        store = self._get_store(collection_id)
         store.add_documents(documents)
     
-    def query(self, query: str, table_name: str, k: int = 3) -> List[Document]:
-        store = self._get_store(table_name)
+    def query(self, query: str, collection_id: str, k: int = 3) -> List[Document]:
+        store = self._get_store(collection_id)
         retriever = store.as_retriever(search_kwargs={"k": k})
         return retriever.invoke(query)
     
-    def delete_collection(self, table_name: str) -> None:
+    def delete_collection(self, collection_id: str) -> None:
         # Implement BQ table deletion if needed
         pass
 

@@ -24,7 +24,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 from agent.agent_modules import Summarizer,ContextManager, ToolManager
-from database import SupabaseManager,SupabaseStorageManager, BigQueryVectorStore, ChromaVectorStore, DocumentProcessor
+from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore, DocumentProcessor
 from agent.basemodels import *  
 from uuid_utils import uuid4
 
@@ -60,7 +60,7 @@ class Agent:
         self.checkpointer = checkpointer
         self.summary = "" #rolling summary for long conversations
         self.in_memory_store = ChromaVectorStore()
-        self.vs = BigQueryVectorStore()
+        self.vs = BQVectorStore()
         self.document_processor = DocumentProcessor()
         self.summarizer = Summarizer()
         self.storage = SupabaseStorageManager() #GCSManager() 
@@ -369,31 +369,11 @@ class Agent:
             doc = self._load_msg_as_document(msg)
             docs.append(doc)
         return docs
-            
-    # async def save_attachments(self, query : AskAgentRequest, 
-    #                            user_id: str,
-    #                            session_id: str,
-    #                            ):
-    #             vector_store = self.vs.init_vector_store(table_name="attachments")
-    #             await asyncio.gather(
-    #                 asyncio.to_thread(
-    #                     self.vs.embedded_upload,  # ← Kjører i thread (synkron funksjon)
-    #                     attachments=query.attachments,
-    #                     query_id=query.query_id,
-    #                     session_id=session_id,
-    #                     user_id=user_id,
-    #                     vector_store=vector_store
-    #                 ),
-    #                 self.storage.save_raw_documents(  # ← Async, kjører parallelt med uploads internt
-    #                     attachments=query.attachments,
-    #                     #session_id=session_id,
-    #                     #user_id=user_id,
-    #                     #query_id=query.query_id
-    #                 )
-    #             )
+
     # =================================
     #       STREAM RESPONSE
     # =================================
+
     async def stream_response(self, query : AskAgentRequest,
                                 user_id : str
                              ):
@@ -597,6 +577,7 @@ class Agent:
         # Run save_attachments and analyze_init_input in parallel
         save_task = None
         if query.attachments:
+            logger.debug(f'======= ATTACHMENT CONTENT======= \n { query.attachments }\n')
             docs = []
             for att in query.attachments:
                 docs.extend(self.document_processor.process_attachment(att, session_id=query.session_id))
@@ -637,7 +618,7 @@ class Agent:
         # Build RAG query from events and run in thread (sync function)
         events_txt = " ".join([f"- {event.description} (Date: {event.date})" for event in events])
         rag_content_law = await asyncio.to_thread(
-            self.vs.query, query=events_txt, table_name="laws", n_results=2
+            self.vs.query, query=events_txt, collection_id="laws", k=2
         )
 
         # Analyze factual facts and governing law in parallel
@@ -679,7 +660,6 @@ class Agent:
                                                  files=files,
                                                  user_id=user_id,
                                                  session_id=query.session_id,
-                                                 llm_model=query.llm_model,
                                                  query_id=query.query_id,
                                                  project_id=query.project_id)
 

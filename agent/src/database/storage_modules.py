@@ -1,29 +1,13 @@
 import asyncio
-import token
-from typing import Optional, Literal
 import os
-from io import BytesIO
-from PyPDF2 import PdfReader
 import logging
 import base64
+from io import BytesIO
 
-from langchain_core.messages import SystemMessage
-from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_google_community import BigQueryVectorStore
-
-
-from google.cloud import bigquery
 from google.cloud import storage
-from google.cloud import bigquery
 
 from agent.basemodels import *
-from supabase import create_client, Client
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-
+from supabase import create_client
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -79,10 +63,13 @@ class SupabaseStorageManager:
 
     def save_attachment(self, content: bytes, path : str, bucket_name: str = "session_attachments"):
         try:
+            content_io = BytesIO(content)
             self.supabase.storage.from_(bucket_name)\
-                .upload(file = content, 
-                        path = path, 
-                        file_options={"cache-control" : "3600"})
+                .upload(
+                    path=path,  # path kommer FØRST
+                    file=content_io,  # content er bytesfort
+                    file_options={"content-type": "application/octet-stream"}
+                )
             logger.info(f"Attachment saved to Supabase Storage at {path}")
         except Exception as e:
             logger.error(f"Error saving attachment to Supabase Storage: {e}")

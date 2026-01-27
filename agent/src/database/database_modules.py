@@ -297,7 +297,6 @@ class FirestoreManager:
                        user_id : str,
                        project_id : str,
                        session_id : str,
-                       llm_model : str,
                        query_id : str = ""
 
                        ):
@@ -315,11 +314,10 @@ class FirestoreManager:
         try:
             ref.set({
                 "user_id": user_id,
-                "last_updated_session_id": session_id,
-                "last_updated_query_id": query_id,
+                "updated_session_id": session_id,
+                "updated_query_id": query_id,
                 "created_at": firestore.SERVER_TIMESTAMP,
-                "last_updated": firestore.SERVER_TIMESTAMP,
-                "llm_model": llm_model,
+                "updated_at": firestore.SERVER_TIMESTAMP,
                 "factsheet": factsheet.model_dump(mode='json'),
                 "attachments": [file.model_dump(mode='json') for file in files]
             })
@@ -370,9 +368,40 @@ class SupabaseManager:
         self.supabase = create_client(self.url, self.key)
         # Initialize Supabase client here if needed
 
-    def load_project(self, user_id: str, project_id: str):
-        # Implement loading project from Supabase
-        return
+    def load_project(self, project_id: str) -> dict:
+        select_query = """
+                *,
+                project_attachments(*),
+                project_events(*),
+                project_parties(*),
+                project_deadlines(*),
+                project_damages(*),
+                project_claims(*),
+                project_custom(*)"""
+            
+        project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
+        
+        # Extract nested data from single query
+        data = project.data
+        attachments = data.pop("project_attachments", [])
+        project_events = data.pop("project_events", [])
+        project_parties = data.pop("project_parties", [])
+        project_deadlines = data.pop("project_deadlines", [])
+        project_damages = data.pop("project_damages", [])
+        project_claims = data.pop("project_claims", [])
+        project_custom = data.pop("project_custom", [])
+
+        factsheet = FactSheet(**data,
+                              **project_custom[0] if project_custom else {},
+                              parties=project_parties,
+                              timeline=project_events,
+                              deadlines=project_deadlines,
+                              damages=project_damages,
+                              claims=project_claims)
+        return {
+            "factsheet": factsheet,
+            "attachments": attachments
+        }
 
     def save_project(self,
                        factsheet : FactSheet,
@@ -380,23 +409,124 @@ class SupabaseManager:
                        user_id : str,
                        project_id : str,
                        session_id : str,
-                       llm_model : str,
                        query_id : str = ""
                        ):
         # Implement saving project to Supabase
-        pass
+        custom_fields = ["governing_law", "disputed_facts", "undisputed_facts",]
+        factsheet_dict = factsheet.model_dump(mode='json')
+        claims = factsheet_dict.pop("claims", [])
+        damages = factsheet_dict.pop("damages", [])
+        deadlines = factsheet_dict.pop("deadlines", [])
+        timeline = factsheet_dict.pop("timeline", [])
+        parties = factsheet_dict.pop("parties", [])
+        custom = {k: v for k, v in factsheet_dict.items() if k in custom_fields}
+        
+        factsheet_dict["project_id"] = project_id
+        factsheet_dict["user_id"] = user_id
+        factsheet_dict["updated_session_id"] = session_id
+        factsheet_dict["updated_query_id"] = query_id
+        factsheet_dict["updated_at"] = datetime.now().isoformat()
+        # ========== PROJECT FACTSHEET ==========
+        try:
+            self.supabase.table("projects").upsert(factsheet_dict).execute()
+            logger.debug(f'Project {project_id} upserted in Supabase.')
+        except Exception as e:
+            logger.error(f'Error upserting project {project_id} in Supabase: {e}. Stopping process.')
+            return
+
+        try:
+            # ========== PROJECT ATTACHMENTS ==========
+            attachments_with_project = [
+                    {**file.model_dump(mode='json', exclude={"events"}), "project_id": project_id}
+                    for file in files]
+            self.supabase.table("project_attachments").upsert(attachments_with_project).execute()
+            logger.debug(f'Upserted {len(files)} attachments for project {project_id} in Supabase.')
+        except Exception as e:
+            logger.error(f'Error upserting attachments for project {project_id} in Supabase: {e}')
+
+        
+        #========= PROJECT CUSTOM FIELDS ==========
+        try:
+            self.supabase.table("project_custom").upsert({**custom, "project_id": project_id}).execute()
+            logger.debug(f'Custom fields for project {project_id} upserted in Supabase.')
+        except Exception as e:
+            logger.error(f'Error upserting custom fields for project {project_id} in Supabase: {e}')
+
+        # ========== PROJECT PARTIES ==========
+        try:
+            parties_with_project = [
+                    {**party, "project_id": project_id}
+                    for party in parties]
+            self.supabase.table("project_parties").upsert(parties_with_project).execute()
+            logger.debug(f'Upserted {len(parties)} parties for project {project_id} in Supabase.')
+        except Exception as e:
+            logger.error(f'Error upserting parties for project {project_id} in Supabase: {e}')
+
+        # ========== PROJECT EVENTS ==========
+        try:
+            timeline_with_project = [
+                    {**event, "project_id": project_id}
+                    for event in timeline]
+            self.supabase.table("project_events").upsert(timeline_with_project).execute()
+            logger.debug(f'Upserted {len(timeline)} events for project {project_id} in Supabase.')
+        except Exception as e:
+            logger.error(f'Error upserting events for project {project_id} in Supabase: {e}')
+
+        # ========== PROJECT DEADLINES ==========
+        try:
+            deadlines_with_project = [
+                    {**deadline, "project_id": project_id}
+                    for deadline in deadlines]
+            self.supabase.table("project_deadlines").upsert(deadlines_with_project).execute()
+            logger.debug(f'Upserted {len(deadlines)} deadlines for project {project_id} in Supabase.')
+        except Exception as e:
+            logger.error(f'Error upserting deadlines for project {project_id} in Supabase: {e}')
+
+        # ========== PROJECT DAMAGES ==========
+        try:
+            damages_with_project = [
+                    {**damage, "project_id": project_id}
+                    for damage in damages]
+            self.supabase.table("project_damages").upsert(damages_with_project).execute()
+            logger.debug(f'Upserted {len(damages)} damages for project {project_id} in Supabase.')
+        except Exception as e:
+            logger.error(f'Error upserting damages for project {project_id} in Supabase: {e}')
+
+        # ========== PROJECT CLAIMS ==========
+        try:
+            claims_with_project = [
+                    {**claim, "project_id": project_id}
+                    for claim in claims]
+            self.supabase.table("project_claims").upsert(claims_with_project).execute()
+            logger.debug(f'Upserted {len(claims)} claims for project {project_id} in Supabase.')
+        except Exception as e:
+            logger.error(f'Error upserting claims for project {project_id} in Supabase: {e}')
+
+        
 
     def load_projects(self,user_id: str):
-        # Implement loading projects from Supabase
-        pass
+        projects = self.supabase.table("projects").select("project_id, title, created_at").eq("user_id", user_id).execute()
+        if projects.data:
+            # Sorter etter created_at (nyeste først)
+            sorted_projects = sorted(
+                projects.data, 
+                key=lambda x: x.get("created_at") or "", 
+                reverse=True
+            )
+            return sorted_projects
+        return []
 
-    def load_project_sessions(self, user_id: str, project_id: str):
-        # Implement loading project sessions from Supabase
-        pass
-
-    def get_or_create_user(self, google_user_info: dict) -> str:
-        # Implement user retrieval/creation in Supabase
-        pass
+    def load_project_sessions(self,project_id: str, ):
+        project_sessions = self.supabase.table("sessions").select("session_id, title, updated_at, llm_model").eq("project_id", project_id).execute()
+        if project_sessions.data:
+            # Sorter etter updated_at (nyeste først)
+            sorted_sessions = sorted(
+                project_sessions.data, 
+                key=lambda x: x.get("updated_at") or "", 
+                reverse=True
+            )
+            return sorted_sessions
+        return []
 
     def load_user_sessions(self, user_id: str)-> list:
         '''Load all sessions for a user from Supabase'''

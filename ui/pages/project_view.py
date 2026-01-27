@@ -6,7 +6,7 @@ from ui.models import AskAgentRequest, AttachmentModel
 from ui.services.streaming_service import StreamingService
 from ui.services.session_service import SessionService
 from ui.services.auth_service import *
-from ui.ui_components.renders import render_first_question, handle_new_question, display_history
+from ui.ui_components.renders import render_first_question, handle_new_question, display_history, llm_model_options
 from ui.ui_components.attachments import mk_attachment_payload, view_attachment
 import uuid
 import requests
@@ -139,17 +139,15 @@ def render_new_input(mode : Literal["update","init"] = "init"):
         </style>
     """, unsafe_allow_html=True)
     
+    query_id = str(uuid.uuid4()) 
+    project_id = st.session_state.project_id if st.session_state.project_id else str(uuid.uuid4())
+
     user_files = st.file_uploader("Upload project files:", 
                                 accept_multiple_files=True, 
                                 type=["txt", "csv", "xlsx", "pdf"],
                                 help="You can upload multiple files.")
-    attachments = [mk_attachment_payload(f) for f in user_files] if user_files else []
+    attachments = [mk_attachment_payload(f,query_id=query_id) for f in user_files] if user_files else []
     
-    
-    query_id = str(uuid.uuid4()) 
-    project_id = st.session_state.project_id if st.session_state.project_id else str(uuid.uuid4())
-    
-
     payload = AskAgentRequest(
         question=user_input,
         attachments=attachments,
@@ -293,6 +291,7 @@ with st.sidebar:
                     st.session_state.update_project_view = True
                 render_selected_project()
 
+    llm_model_options()
 
 
 if not st.session_state.project_id:

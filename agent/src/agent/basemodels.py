@@ -19,7 +19,7 @@ class Contact(BaseModel):
 class Party(BaseModel):
     legal_name: str
     party_id : str = Field(default_factory = lambda : str(uuid.uuid4()))
-    role: Literal["plaintiff", "defendant", "claimant", "respondent","witness", "expert","other"]
+    role: Literal["plaintiff", "defendant", "claimant", "respondent","witness", "expert","third_party","other"]
     entity_type: Literal["individual", "company", "government"]
     key_contact: Optional[Contact] = None
     legal_representation: Optional[str] = Field(
@@ -44,7 +44,7 @@ class Event(BaseModel):
     category: Literal[
         "contract_signed", "breach_occurred", "notice_sent", "payment_due",
         "payment_made", "termination", "meeting", "court_filing", "court_hearing",
-        "settlement_offer", "deadline", "other"
+        "settlement_offer", "deadline", "other", 
     ]
     parties: list[str] = Field(description="Party_IDs of involved parties")
     significance: Literal["high", "medium", "low"]
@@ -92,7 +92,7 @@ class Damages(BaseModel):
 class InitialInput(BaseModel):
     # Factual background
     parties: list[Party]
-    third_parties: list[Party]
+    #third_parties: list[Party]
     background: str
     title : str = Field(description="Title of the case or matter")
 
@@ -127,6 +127,7 @@ class FactualFacts(BaseModel):
 
 class FactSheet(InitialInput,FactualFacts):
     """Structured representation of case facts for legal analysis."""
+    project_id: Optional[str] = None
     # Inherited from InitialInput
     #parties: list[Party]
     #third_parties: list[Party]

@@ -92,6 +92,39 @@ def render_chat_input():
 
     return chat_question
 
+def llm_model_options():
+            llm_options = {
+            "openai": {"fast" : "gpt-4o-mini", "expert": "gpt-4o"},
+            "google": {"fast": "gemini-2.5-flash", "expert": "gemini-2.5-pro"},}
+
+            # Agent type selector
+            agent_type = st.radio(
+                "Velg modell type:",
+                ("fast", "expert"),
+                horizontal=True,
+                index=0
+            )
+            with st.expander("Velg spesifikk modell (valgfritt)"):
+                llm_provider = st.radio(
+                    "Velg LLM leverandør:",
+                    ("openai", "google", 
+                    #"claude"
+                    ),
+                    horizontal=True,
+                    index=0
+                )
+            
+                all_models = []
+                for provider, types in llm_options.items():
+                    for _, model in types.items():
+                        all_models.append(f"{provider} - {model}")
+                custom_llm = st.selectbox("Velg spesifikk modell (valgfritt):",options = all_models)
+                if custom_llm:
+                    st.session_state.llm_model = custom_llm.replace(" - ","_")
+                else:
+                    st.session_state.llm_model = llm_provider+ "_" + llm_options[llm_provider][agent_type]
+            st.info(f'Model: **{st.session_state.llm_model.replace("_"," - ")}**')
+
 
 def render_sidebar(session_service: SessionService):
     """
@@ -135,37 +168,8 @@ def render_sidebar(session_service: SessionService):
 
         st.divider()
 
-        llm_options = {
-        "openai": {"fast" : "gpt-4o-mini", "expert": "gpt-4o"},
-        "google": {"fast": "gemini-2.5-flash", "expert": "gemini-2.5-pro"},}
-
-        # Agent type selector
-        agent_type = st.radio(
-            "Velg modell type:",
-            ("fast", "expert"),
-            horizontal=True,
-            index=0
-        )
-        with st.expander("Velg spesifikk modell (valgfritt)"):
-            llm_provider = st.radio(
-                "Velg LLM leverandør:",
-                ("openai", "google", 
-                #"claude"
-                ),
-                horizontal=True,
-                index=0
-            )
         
-            all_models = []
-            for provider, types in llm_options.items():
-                for _, model in types.items():
-                    all_models.append(f"{provider} - {model}")
-            custom_llm = st.selectbox("Velg spesifikk modell (valgfritt):",options = all_models)
-            if custom_llm:
-                st.session_state.llm_model = custom_llm.replace(" - ","_")
-            else:
-                st.session_state.llm_model = llm_provider+ "_" + llm_options[llm_provider][agent_type]
-        st.info(f'Model: **{st.session_state.llm_model.replace("_"," - ")}**')
+        llm_model_options()
 
         st.divider()
         st.markdown("Vedleggsoversikt for denne samtalen")

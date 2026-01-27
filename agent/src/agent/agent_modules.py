@@ -2,8 +2,6 @@ import json
 from pyexpat import model
 from typing import Dict,TypedDict,List,Union,Annotated,Sequence,Optional, Literal, Tuple, Any
 import os
-from io import BytesIO
-from PyPDF2 import PdfReader
 import tiktoken
 import logging
 
@@ -13,21 +11,12 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.language_models.chat_models import BaseChatModel
 
-
 from langchain_openai import ChatOpenAI
-from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
-from langchain_google_community import BigQueryVectorStore
-
-
-from google.cloud import bigquery
-from google.cloud import storage
-from google.cloud import bigquery
-from google.cloud import firestore
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from agent.basemodels import *
-from fastapi import FastAPI,HTTPException,status,Depends
 
-
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class Summarizer:
