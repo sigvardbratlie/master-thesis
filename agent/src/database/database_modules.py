@@ -389,16 +389,19 @@ class SupabaseManager:
         project_deadlines = data.pop("project_deadlines", [])
         project_damages = data.pop("project_damages", [])
         project_claims = data.pop("project_claims", [])
-        project_custom = data.pop("project_custom", [])
+
+        project_custom = data.pop("project_custom", {})
+        project_custom.pop("created_at", None)
+        project_custom.pop("project_id", None)
 
         factsheet = FactSheet(**data,
-                              **project_custom[0] if project_custom else {},
+                              **project_custom,
                               parties=project_parties,
                               timeline=project_events,
                               deadlines=project_deadlines,
                               damages=project_damages,
                               claims=project_claims)
-        attachments_models = [AttachmentModel(**attachment) for attachment in attachments]
+        attachments_models = [Attachment(**attachment) for attachment in attachments]
         return {
             "factsheet": factsheet,
             "attachments": attachments_models
