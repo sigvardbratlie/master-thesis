@@ -26,7 +26,7 @@ def render_first_question() -> Optional[str]:
     st.markdown(
         f"""
         <div style='text-align: center; margin-top: 200px;'>
-            <h1>Velkommen {st.session_state.user_name}! Hva lurer du på i dag?</h1>
+            <h1>Velkommen {st.session_state.user_name if "user_name" in st.session_state else "gjest"}! Hva lurer du på i dag?</h1>
         </div>
         """,
         unsafe_allow_html=True
