@@ -23,9 +23,9 @@ secrets.toml
 
 **/examples.ipynb
 
-playground.ipynb
+**/*playground*.ipynb
 
 supabase.ipynb
 .vscode/
 .idea/
-test_run_functions.ipynb
+
