@@ -30,8 +30,25 @@ session_service = SessionService(
                 )
 
 def on_project_select(project : dict):
+    # Preserve auth credentials before clearing
+    user_id = st.session_state.get('user_id')
+    user_name = st.session_state.get('user_name')
+    access_token = st.session_state.get('access_token')
+    refresh_token = st.session_state.get('refresh_token')
+    auth_initialized = st.session_state.get('_auth_initialized')
+    backend_url = st.session_state.get('backend_url')
+
     st.session_state.clear()
     init_state()
+
+    # Restore auth credentials
+    st.session_state.user_id = user_id
+    st.session_state.user_name = user_name
+    st.session_state.access_token = access_token
+    st.session_state.refresh_token = refresh_token
+    st.session_state._auth_initialized = auth_initialized
+    st.session_state.backend_url = backend_url
+
     st.session_state.project_id = project['project_id']
     logger.info(f"Selected project: {st.session_state.project_id}")
 
