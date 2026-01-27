@@ -147,8 +147,8 @@ class Agent:
 
 
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
-        project_data = self.conversation_manager.load_project(user_id = config.get("configurable").get("user_id",None),
-                                                           project_id = config.get("configurable").get("custom_project_id",None))
+        project_data = self.conversation_manager.load_project(project_id = config.get("configurable").get("custom_project_id",None))
+                                                           
 
 
         # ---- BUILD ATTACHMENT CONTEXT FOR LLM ----
@@ -164,7 +164,7 @@ class Agent:
         # Add factsheet context
         if project_data and project_data.get("factsheet"):
             factsheet_message = HumanMessage(
-                content="Here is the current FactSheet for the case: " + json.dumps(project_data["factsheet"])
+                content="Here is the current FactSheet for the case: " + json.dumps(project_data.get("factsheet").model_dump(mode="json"))
             )
             payload.append(factsheet_message)
 
