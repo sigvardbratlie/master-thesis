@@ -90,6 +90,8 @@ async def ask_agent_endpoint(query: AskAgentRequest, user_id: str = Depends(auth
         logger.error(f"Error in /ask-agent: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# INITIALIZE & UPDATE PROJECT ENDPOINTS
 @app.post("/init-project")
 async def init_scan_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
     """
@@ -122,8 +124,30 @@ async def update_project_endpoint(query: AskAgentRequest, user_id: str = Depends
         logger.error(f"Error in /update-project: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error in /update-project: {str(e)}")
 
+@app.post("/cleanup-factsheet")
+async def cleanup_factsheet_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
+    try:
+        result = await agent.cleanup_factsheet(
+            query = query,
+            user_id = user_id,)
+        return result if result else {"message": "No cleanup needed."}
+    except Exception as e:
+        logger.error(f"Error in /cleanup-factsheet: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error in /cleanup-factsheet: {str(e)}")
 
-# READING FROM FIRESTORE
+@app.post("/cleanup-project-element/{element_type}")
+async def cleanup_project_element_endpoint(query: AskAgentRequest, element_type : str):
+    try:
+        result = await agent.cleanup_project_element(
+            query = query,
+            element_type = element_type)
+        return result if result else {"message": "No cleanup needed."}
+    except Exception as e:
+        logger.error(f"Error in /cleanup-project-element: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error in /cleanup-project-element: {str(e)}")
+
+
+# READING FROM DB
 @app.get("/load-session-history/{session_id}")
 async def load_session_history(session_id: str):
     return conversation_manager.load_session_history(session_id=session_id)
