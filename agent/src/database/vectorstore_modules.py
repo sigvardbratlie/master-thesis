@@ -53,8 +53,16 @@ class VectorStoreInterface(ABC):
 class ChromaVectorStore(VectorStoreInterface):
     """In-memory, fast, session-based."""
     
-    def __init__(self, embedding_model: str = "text-embedding-004"):
-        self.embedding = GoogleGenerativeAIEmbeddings(model=embedding_model)
+    def __init__(self, embedding_model: str = "google_gemini-embedding-001"):
+        self.embedding_model = embedding_model
+        if embedding_model.split("_")[0] == "google":
+            model_name = embedding_model.split("_")[1]
+            embedding = GoogleGenerativeAIEmbeddings(model=model_name)
+        else:
+            logger.warning(f"Unknown embedding model {embedding_model}, defaulting to gemini-embedding-001")
+            embedding = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
+        
+        self.embedding = embedding
         self._collections: Dict[str, Chroma] = {}  # Cache per session
     
     def _get_collection(self, collection_id: str) -> Chroma:
@@ -69,6 +77,15 @@ class ChromaVectorStore(VectorStoreInterface):
     def add_documents(self, documents: List[Document], collection_id: str) -> None:
         collection = self._get_collection(collection_id)
         collection.add_documents(documents)
+
+    def add_embeddings_meta(self, document : Document, ) -> None:
+        """Add metadata to document before embedding."""
+        metadata = document.metadata or {}
+        metadata.update({
+            "added_at": datetime.now().isoformat(),
+            "embedding_model": self.embedding_model,
+        })
+        document.metadata = metadata
     
     def query(self, query: str, collection_id: str, k: int = 3) -> List[Document]:
         collection = self._get_collection(collection_id)
@@ -84,10 +101,9 @@ class ChromaVectorStore(VectorStoreInterface):
         all_data = store._collection.get(
         include=["documents", "metadatas",]  
         )
-
         # Nå har du en dict med lister:
         texts = all_data["documents"]         
-        metadatas = all_data["metadatas"]     
+        metadatas = all_data["metadatas"]
         ids = all_data["ids"]
         all_docs = [
         Document(
@@ -109,11 +125,20 @@ class BQVectorStore(VectorStoreInterface):
     def __init__(self, 
                  dataset: str = "vector_store",
                  region: str = "europe-north2",
-                 embedding_model: str = "text-embedding-004"):
+                 embedding_model: str = "google_gemini-embedding-001"):
         self.project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
         self.dataset = dataset
         self.region = region
-        self.embedding = GoogleGenerativeAIEmbeddings(model=embedding_model)
+
+        self.embedding_model = embedding_model
+        if embedding_model.split("_")[0] == "google":
+            model_name = embedding_model.split("_")[1]
+            embedding = GoogleGenerativeAIEmbeddings(model=model_name)
+        else:
+            logger.warning(f"Unknown embedding model {embedding_model}, defaulting to gemini-embedding-001")
+            embedding = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
+        
+        self.embedding = embedding        
         self._stores: Dict[str, BigQueryVectorStore] = {}
     
     def _get_store(self, collection_id: str) -> BigQueryVectorStore:
@@ -127,9 +152,21 @@ class BQVectorStore(VectorStoreInterface):
             )
         return self._stores[collection_id]
     
-    def add_documents(self, documents: List[Document], collection_id: str) -> None:
+    def add_documents(self, documents: List[Document], collection_id: str, add_embeddings_meta = True) -> None:
+        if add_embeddings_meta:
+            for doc in documents:
+                self.add_embeddings_meta(doc)
+                
         store = self._get_store(collection_id)
         store.add_documents(documents)
+
+    def add_embeddings_meta(self, document : Document, ) -> None:
+        """Add metadata to document before embedding."""
+        metadata = document.metadata or {}
+        metadata.update({
+            "embedding_model": self.embedding_model,
+        })
+        document.metadata = metadata
     
     def query(self, query: str, collection_id: str, k: int = 3) -> List[Document]:
         store = self._get_store(collection_id)
