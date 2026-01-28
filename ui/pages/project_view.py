@@ -4,10 +4,12 @@ import math
 from typing import Optional,Literal
 from ui.models import AskAgentRequest, AttachmentModel
 from ui.services.streaming_service import StreamingService
-from ui.services.session_service import SessionService
+#from ui.services.session_service import SessionService
 from ui.services.auth_service import *
 from ui.ui_components.renders import render_first_question, handle_new_question, display_history, llm_model_options
 from ui.ui_components.attachments import mk_attachment_payload, view_attachment
+from ui.database.database_modules import SupabaseManager
+
 import uuid
 import requests
 import logging
@@ -23,11 +25,12 @@ streaming_service = StreamingService(
                     st.session_state.backend_url,
                     st.session_state.access_token
                 )
-session_service = SessionService(
-                    backend_url=st.session_state.backend_url,
-                    user_id=st.session_state.user_id,
-                    access_token=st.session_state.access_token
-                )
+# session_service = SessionService(
+                #     backend_url=st.session_state.backend_url,
+                #     user_id=st.session_state.user_id,
+                #     access_token=st.session_state.access_token
+                # )
+supabase_manager = SupabaseManager()
 
 def on_project_select(project : dict):
     # Preserve auth credentials before clearing
@@ -53,7 +56,7 @@ def on_project_select(project : dict):
     logger.info(f"Selected project: {st.session_state.project_id}")
 
     # Load the factsheet for the selected project
-    project_data = session_service.load_project()
+    project_data =  supabase_manager.load_project(project_id=st.session_state.project_id)
     #st.json(project_data)
     if project_data:
         st.session_state.factsheet = project_data.get('factsheet')
@@ -68,7 +71,7 @@ def on_project_select(project : dict):
 
 def render_select_projects():
     st.header("Select Project")
-    projects = session_service.load_projects()
+    projects = supabase_manager.load_projects(user_id=st.session_state.user_id)
     if projects:
         with st.expander("Projects", expanded=True):
             for project in projects:
@@ -125,12 +128,12 @@ def render_selected_project():
 
 def render_project_sessions():
     #st.header("Project Sessions")
-    sessions = session_service.load_project_sessions()
+    sessions = supabase_manager.load_project_sessions(project_id=st.session_state.project_id)
     if sessions:
         for session in sessions:
             session_selected = st.button(f"- **Session ID**: {session.session_id}, **Title**: {session.title if session.title else 'No Title'}")
             if session_selected:
-                history = session_service.load_session_history(session.session_id)
+                history = supabase_manager.load_session_history(session.session_id)
                 #st.info(history)
                 st.session_state.messages = history.events
                 st.session_state.session_id = session.session_id
@@ -283,6 +286,7 @@ def render_new_input(mode : Literal["update","init"] = "init"):
             logger.exception("Exception during project initialization")
 
 
+#st.json(st.session_state.factsheet)
 
 with st.sidebar:
     new_project = st.button("Initialize New Project", icon="🆕")
@@ -299,9 +303,24 @@ with st.sidebar:
             render_project_sessions()
             #st.divider()
             if st.button("New session", icon="💬"):
+                user_id = st.session_state.get('user_id')
+                user_name = st.session_state.get('user_name')
+                access_token = st.session_state.get('access_token')
+                refresh_token = st.session_state.get('refresh_token')
+                auth_initialized = st.session_state.get('_auth_initialized')
+                backend_url = st.session_state.get('backend_url')
                 project_id = st.session_state.project_id
+
                 st.session_state.clear()
                 init_state()
+                
+                # Restore auth credentials
+                st.session_state.user_id = user_id
+                st.session_state.user_name = user_name
+                st.session_state.access_token = access_token
+                st.session_state.refresh_token = refresh_token
+                st.session_state._auth_initialized = auth_initialized
+                st.session_state.backend_url = backend_url
                 st.session_state.project_id = project_id
                 logger.info(f"Initialized new session: {st.session_state.session_id}")
                 st.rerun()
@@ -332,7 +351,7 @@ else:
             st.session_state.attachments = st.session_state.project_data.get('attachments', [])
         else:
             # Load from Firestore
-            project_data = session_service.load_project()
+            project_data = supabase_manager.load_project(project_id=st.session_state.project_id)
             if project_data:
                 st.session_state.factsheet = project_data.get('factsheet')
                 st.session_state.attachments = project_data.get('attachments', [])
@@ -355,7 +374,7 @@ else:
                 render_first_question()
             else:
                 display_history()
-                handle_new_question()
+                handle_new_question(supabase_manager=supabase_manager,)
     else:
         st.warning("No factsheet available for this project.")
 

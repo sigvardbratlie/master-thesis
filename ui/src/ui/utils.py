@@ -56,6 +56,8 @@ def init_state():
     st.session_state.setdefault("attachments", [])
     st.session_state.setdefault("project_data", [])
 
+    st.session_state.setdefault("supabase_client", None)
+
 
 # @st.cache_data(show_spinner=False)
 # def load_custom_css():

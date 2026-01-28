@@ -10,7 +10,7 @@ from google.cloud import storage
 from google.oauth2 import service_account
 from ui.models import AttachmentModel
 from streamlit.runtime.uploaded_file_manager import UploadedFile
-from supabase import create_client, Client
+from ui.database.database_modules import SupabaseManager
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ def view_attachment(attachment: dict):
     )
     if open_att:
         #st.info(f'Henter vedlegg: {attachment.get("path")}')
-        content_bytes = read_attachment(path=attachment.get("path"), bucket_name="attachments")
+        content_bytes = SupabaseManager().read_attachment(path=attachment.get("path"), bucket_name="attachments")
             
         if content_bytes:
             if "pdf" in attachment.get("file_type"):
@@ -82,74 +82,74 @@ def view_attachment(attachment: dict):
             st.error(f'Kunne ikke hente vedlegg: {attachment.get("filename")}')
 
 
-@st.cache_data(show_spinner=False)
-def _read_attachment(path : str) -> Optional[bytes]:
-    """
-    Fetch attachment content from GCP storage.
+# @st.cache_data(show_spinner=False)
+# def _read_attachment(path : str) -> Optional[bytes]:
+#     """
+#     Fetch attachment content from GCP storage.
 
-    Args:
-        file_id: File ID (hash of filename)
-        session_id: Session ID
-        user_id: User ID
-        type: File MIME type
+#     Args:
+#         file_id: File ID (hash of filename)
+#         session_id: Session ID
+#         user_id: User ID
+#         type: File MIME type
 
-    Returns:
-        File content as string, or None if error
-    """
-    try:
-        try:
-            credentials = service_account.Credentials.from_service_account_info(
-                st.secrets["gcp_service_account"]
-            )
-        except Exception as e:
-            logger.error(f'Error loading service account credentials: {e}', exc_info=True)
-            credentials = None
+#     Returns:
+#         File content as string, or None if error
+#     """
+#     try:
+#         try:
+#             credentials = service_account.Credentials.from_service_account_info(
+#                 st.secrets["gcp_service_account"]
+#             )
+#         except Exception as e:
+#             logger.error(f'Error loading service account credentials: {e}', exc_info=True)
+#             credentials = None
 
-        client = storage.Client(credentials=credentials)
-        bucket_name = os.getenv("BUCKET_NAME", "chat-history-files")
-        blob = client.bucket(bucket_name).blob(path)
+#         client = storage.Client(credentials=credentials)
+#         bucket_name = os.getenv("BUCKET_NAME", "chat-history-files")
+#         blob = client.bucket(bucket_name).blob(path)
 
-        if blob.exists():
-            return blob.download_as_bytes()
-        else:
-            logger.error(f'Attachment blob not found: {path}')
-            return None
+#         if blob.exists():
+#             return blob.download_as_bytes()
+#         else:
+#             logger.error(f'Attachment blob not found: {path}')
+#             return None
 
-    except Exception as e:
-        logger.error(f'Error reading attachment from GCS: {e}', exc_info=True)
-        return None
+#     except Exception as e:
+#         logger.error(f'Error reading attachment from GCS: {e}', exc_info=True)
+#         return None
     
 
-@st.cache_data(show_spinner=False)
-def read_attachment(path : str, bucket_name : str = "attachments") -> Optional[bytes]:
-    """
-    Fetch attachment content from GCP storage.
+# @st.cache_data(show_spinner=False)
+# def read_attachment(path : str, bucket_name : str = "attachments") -> Optional[bytes]:
+#     """
+#     Fetch attachment content from GCP storage.
 
-    Args:
-        file_id: File ID (hash of filename)
-        session_id: Session ID
-        user_id: User ID
-        type: File MIME type
+#     Args:
+#         file_id: File ID (hash of filename)
+#         session_id: Session ID
+#         user_id: User ID
+#         type: File MIME type
 
-    Returns:
-        File content as string, or None if error
-    """
-    try:
-        try:
-            supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
-        except Exception as e:
-            logger.error(f'Error loading service account credentials: {e}', exc_info=True)
-            supabase = None
+#     Returns:
+#         File content as string, or None if error
+#     """
+#     try:
+#         try:
+#             supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+#         except Exception as e:
+#             logger.error(f'Error loading service account credentials: {e}', exc_info=True)
+#             supabase = None
 
 
-        content = supabase.storage.from_(bucket_name).download(path)
+#         content = supabase.storage.from_(bucket_name).download(path)
         
-        if content:
-            return content
-        else:
-            logger.error(f'Attachment blob not found: {path}')
-            return None
+#         if content:
+#             return content
+#         else:
+#             logger.error(f'Attachment blob not found: {path}')
+#             return None
 
-    except Exception as e:
-        logger.error(f'Error reading attachment from Supabase: {e}', exc_info=True)
-        return None
+#     except Exception as e:
+#         logger.error(f'Error reading attachment from Supabase: {e}', exc_info=True)
+#         return None

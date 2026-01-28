@@ -5,7 +5,6 @@ from .attachments import (
     mk_attachment_payload,
     view_uploaded_file,
     view_attachment,
-    read_attachment
 )
 
 __all__ = [
@@ -17,5 +16,4 @@ __all__ = [
     'mk_attachment_payload',
     'view_uploaded_file',
     'view_attachment',
-    'read_attachment'
 ]

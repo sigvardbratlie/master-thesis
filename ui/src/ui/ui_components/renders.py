@@ -2,7 +2,7 @@ import streamlit as st
 import math
 from typing import Optional
 from uuid import uuid4
-from ui.services.session_service import SessionService
+#from ui.services.session_service import SessionService
 from ui.utils import init_state
 from ui.ui_components.attachments import view_attachment
 import logging
@@ -10,6 +10,7 @@ from ui.models import *
 from ui.ui_components.tool_results import handle_tool_result
 from ui.ui_components.attachments import mk_attachment_payload, view_uploaded_file
 from ui.services.streaming_service import StreamingService
+from ui.database.database_modules import SupabaseManager
 
 
 logging.basicConfig(level=logging.INFO)
@@ -126,16 +127,17 @@ def llm_model_options():
             st.info(f'Model: **{st.session_state.llm_model.replace("_"," - ")}**')
 
 
-def render_sidebar(session_service: SessionService):
+def render_sidebar(supabase_manager : SupabaseManager):
     """
     Renders sidebar with session history, new chat button, and agent type selector.
 
     Args:
-        session_service: SessionService instance for loading sessions
+        supabase_manager: SupabaseManager instance for loading sessions
     """
     with st.sidebar:
         # Session history
-        sessions = session_service.load_user_sessions()
+        sessions = supabase_manager.load_user_sessions(user_id=st.session_state.user_id)
+        #st.json(sessions)
         st.session_state.sessions_loaded = True
 
         chat_history = st.container(height=300, border=False)
@@ -146,7 +148,7 @@ def render_sidebar(session_service: SessionService):
                         label=f"{session.title[:30]}...",
                         key=session.session_id
                     ):
-                        response = session_service.load_session_history(session.session_id)
+                        response = supabase_manager.load_session_history(session.session_id)
                         if response:
                             st.session_state.messages = response.events
                             st.session_state.attachments = response.attachments
@@ -273,7 +275,7 @@ def display_history():
                             st.divider()
 
 
-def handle_new_question():
+def handle_new_question(supabase_manager : SupabaseManager):
     """Handle new question input and streaming response"""
     question_to_process = st.session_state.question_to_process
     chat_question = render_chat_input()
@@ -369,12 +371,13 @@ def handle_new_question():
             # Reload session title if needed
             if not st.session_state.session_title or st.session_state.session_title == "Ny samtale":
                 st.cache_data.clear()
-                session_service = SessionService(
-                    backend_url=st.session_state.backend_url,
-                    user_id=st.session_state.user_id,
-                    access_token=st.session_state.access_token
-                )
-                response = session_service.load_session_history(st.session_state.session_id)
+                # session_service = SessionService(
+                #     backend_url=st.session_state.backend_url,
+                #     user_id=st.session_state.user_id,
+                #     access_token=st.session_state.access_token
+                # )
+                response = supabase_manager.load_session_history(st.session_state.session_id)
+                st.info(response)
                 if response:
                     st.session_state.session_title = response.title
                     st.session_state.messages = response.events
