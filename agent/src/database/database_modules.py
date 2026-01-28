@@ -1,33 +1,13 @@
-
-import asyncio
-import token
-from typing import Optional, Literal
 import os
-from io import BytesIO
-from PyPDF2 import PdfReader
 import logging
-import base64
 
-from langchain_core.messages import SystemMessage
-from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_google_community import BigQueryVectorStore
-
-
-from google.cloud import bigquery
-from google.cloud import storage
-from google.cloud import bigquery
 from google.cloud import firestore
+
+from supabase import create_client, Client
 
 from agent.basemodels import *
 from fastapi import FastAPI,HTTPException,status,Depends
 from agent.agent_modules import Summarizer
-#from ui.ui_components import attachments
-from supabase import create_client, Client
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 
 logging.basicConfig(level=logging.INFO)
@@ -521,7 +501,20 @@ class SupabaseManager:
             except Exception as e:
                 logger.error(f'Error upserting claims for project {project_id} in Supabase: {e}')
 
-        
+    def save_project_element(self,
+                    data : list[BaseModel],
+                    project_id : str,
+                    table_name: str):
+        data_dicts = []
+        for item in data:
+            item_dict = item.model_dump(mode='json')
+            item_dict["project_id"] = project_id
+            data_dicts.append(item_dict)
+        try:
+            self.supabase.table(table_name).upsert(data_dicts).execute()
+            logger.debug(f'Upserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
+        except Exception as e:
+            logger.error(f'Error upserting items for project {project_id} in Supabase table {table_name}: {e}')
 
     def load_projects(self,user_id: str):
         projects = self.supabase.table("projects").select("project_id, title, created_at").eq("user_id", user_id).execute()
