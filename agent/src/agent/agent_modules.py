@@ -5,6 +5,8 @@ import os
 import tiktoken
 import logging
 from uuid import uuid4
+import asyncio
+from pydantic import BaseModel
 
 from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMessage,ToolMessage,AIMessageChunk
 from langchain_core.tools import tool
@@ -44,7 +46,8 @@ class Summarizer:
 class ContextManager:
     def __init__(self, llm: BaseChatModel = None,
                  ):
-        self._llm = ChatGoogleGenerativeAI(project=os.getenv("GOOGLE_CLOUD_PROJECT"), model="gemini-2.5-flash") if llm is None else llm
+        self._llm = ChatGoogleGenerativeAI(project=os.getenv("GOOGLE_CLOUD_PROJECT"), 
+                                           model="gemini-2.5-flash") if llm is None else llm
         #self.vector_search = VectorSearch()
 
     @property
@@ -107,7 +110,7 @@ class ContextManager:
         prompt = f'Analyze the following case introduction and extract key information into the InitialInput structure:\n\n{init_input}'
         return await structured_llm.ainvoke(prompt)
     
-    async def analyze_events(self, initial_input : InitialInput , content : str,file_id: str) -> Events:
+    async def __analyze_events(self, initial_input : InitialInput , content : str,file_id: str) -> Events:
         '''Analyzes document content to extract a list of events.
         
         Args:
@@ -126,56 +129,117 @@ class ContextManager:
             event.event_id = str(uuid4())
         return response
     
-    async def analyze_doc(self, 
-                    initial_input : InitialInput ,
-                    content: str, 
-                    file_id : str, 
-                    filename: str, 
-                    path: str, 
-                    file_type: str, 
-                    size: int, 
-                    ) -> dict:
-        ''' Function to analyze document content and extract structured data as Attachment.
+    # async def analyze_doc(self, 
+    #                 initial_input : InitialInput ,
+    #                 content: str, 
+    #                 file_id : str, 
+    #                 filename: str, 
+    #                 path: str, 
+    #                 file_type: str, 
+    #                 size: int, 
+    #                 ) -> dict:
+    #     ''' Function to analyze document content and extract structured data as Attachment.
         
-        Args:
-            initial_input (InitialInput): The initial case input data.
-            content (str): The document content to analyze.
-            file_id (str): The unique identifier for the file.
-            filename (str): The name of the file.
-            path (str): The storage path of the file.
-            file_type (str): The MIME type of the file.
-            size (int): The size of the file in bytes.
-            query_id (str): The query identifier.   
+    #     Args:
+    #         initial_input (InitialInput): The initial case input data.
+    #         content (str): The document content to analyze.
+    #         file_id (str): The unique identifier for the file.
+    #         filename (str): The name of the file.
+    #         path (str): The storage path of the file.
+    #         file_type (str): The MIME type of the file.
+    #         size (int): The size of the file in bytes.
+    #         query_id (str): The query identifier.   
             
-            Returns:    
-            Attachment: The structured Attachment object with extracted data.
-        '''
-        structured_llm = self.llm.with_structured_output(AttachmentExtracted)
+    #         Returns:    
+    #         Attachment: The structured Attachment object with extracted data.
+    #     '''
+    #     structured_llm = self.llm.with_structured_output(AttachmentExtracted)
+    #     init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
+    #     prompt = init_prompt + f'Analyze the following document content and extract key information into the Attachment structure:\n\n{content}'
+    #     response_events = await self.analyze_events(initial_input=initial_input, 
+    #                                  content = content, 
+    #                                  file_id = file_id)
+    #     events = response_events.events
+    #     response = await structured_llm.ainvoke(prompt)
+    #     if response.damages:
+    #         for damage in response.damages:
+    #             damage.file_id = file_id
+    #     if response.deadlines:
+    #         for deadline in response.deadlines:
+    #             deadline.file_id = file_id
+    #     if response.claims:
+    #         for claim in response.claims:
+    #             claim.file_id = file_id
+    #     file = Attachment(**response.model_dump(),
+    #                         file_id=file_id,
+    #                         filename=filename,
+    #                         path=path,
+    #                         file_type=file_type,
+    #                         size=size,
+    #                         event_ids=[event.event_id for event in events],
+    #                     )
+    #     return {"file": file, "events": events}
+
+    async def analyze_doc(self, 
+                initial_input : InitialInput ,
+                content: str, 
+                file_id : str, 
+                filename: str, 
+                path: str, 
+                file_type: str, 
+                size: int, 
+                ) -> dict:
+        ''' Function to analyze document content and extract structured data as Attachment.'''
+        
+        # Kombiner til én Pydantic model
+        class AttachmentWithEvents(BaseModel):
+            attachment: AttachmentExtracted
+            events: List[Event]
+        
+        structured_llm = self.llm.with_structured_output(AttachmentWithEvents)
         init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
-        prompt = init_prompt + f'Analyze the following document content and extract key information into the Attachment structure:\n\n{content}'
-        response_events = await self.analyze_events(initial_input=initial_input, 
-                                     content = content, 
-                                     file_id = file_id)
-        events = response_events.events
-        response = await structured_llm.ainvoke(prompt)
-        if response.damages:
-            for damage in response.damages:
+        prompt = init_prompt + f'Analyze the following document and extract BOTH attachment metadata AND timeline events:\n\n{content}'
+        
+        for attempt in range(3):  # Retry mechanism
+            try:
+                response = await structured_llm.ainvoke(prompt)
+                break  # Exit loop if successful
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    wait_time = 2 ** attempt  # Exponential backoff
+                    logger.warning(f"Rate limit hit, retrying in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    raise
+        
+        # Process events
+        for event in response.events:
+            event.file_id = file_id
+            event.event_id = str(uuid4())
+        
+        # Process attachment damages/claims/deadlines
+        if response.attachment.damages:
+            for damage in response.attachment.damages:
                 damage.file_id = file_id
-        if response.deadlines:
-            for deadline in response.deadlines:
+                damage.damage_id = str(uuid4())
+        if response.attachment.deadlines:
+            for deadline in response.attachment.deadlines:
                 deadline.file_id = file_id
-        if response.claims:
-            for claim in response.claims:
+                deadline.deadline_id = str(uuid4())
+        if response.attachment.claims:
+            for claim in response.attachment.claims:
                 claim.file_id = file_id
-        file = Attachment(**response.model_dump(),
+                claim.claim_id = str(uuid4())
+        
+        file = Attachment(**response.attachment.model_dump(),
                             file_id=file_id,
                             filename=filename,
                             path=path,
                             file_type=file_type,
                             size=size,
-                            event_ids=[event.event_id for event in events],
+                            event_ids=[event.event_id for event in response.events],
                         )
-        return {"file": file, "events": events}
+        return {"file": file, "events": response.events}
     
     async def analyze_governing_law(self, events : list[Event],rag_content_law : str) -> GoverningLaw:
         '''Function to analyze case events and extract governing law information.
@@ -187,6 +251,15 @@ class ContextManager:
         Returns:
             GoverningLaw : The structured GoverningLaw object with extracted information.
         '''
+        if not isinstance(rag_content_law, str):
+            logger.warning(f'RAG content for governing law is not a string: Instance {type(rag_content_law)}. ')
+            if isinstance(rag_content_law, dict):
+                rag_content_law = json.dumps(rag_content_law)
+            elif isinstance(rag_content_law, list):
+                rag_content_law = " ".join([str(item) for item in rag_content_law])
+            else:
+                rag_content_law = str(rag_content_law)
+                
         structured_llm = self.llm.with_structured_output(GoverningLaw)
         law_context = f'Extracted legal context:\n\n{rag_content_law}\n\n' if rag_content_law else ''
         prompt = law_context + f'Based on the following case events, analyze and extract governing law information:\n\n{events}'
@@ -211,7 +284,7 @@ class ContextManager:
         return await structured_llm.ainvoke(prompt)
     
     # ===== FUNCTIONS FOR UPDATING EXISTING FACTSHEET =====
-    async def consider_new_events(self,
+    async def __consider_new_events(self,
                             factsheet : FactSheet,
                          new_content : str,
                          new_user_input : str,
@@ -249,26 +322,55 @@ class ContextManager:
         Returns:
             dict: A dictionary indicating relevance and suggested updates.
         '''
+        class AttachmentExtractedWithEvents(BaseModel):
+            attachment: AttachmentExtracted
+            events: List[Event]
+        
         factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
-        prompt = f'Existing factsheet:\n\n{factsheet_data}\n\n'
-        prompt += f'Analyze the following document content and extract key information into the Attachment structure:\n\n{new_content}' + f'\n\nNew user input:\n\n{new_user_input}\n\n'
+        existing_factsheet = f'Existing factsheet:\n\n{factsheet_data}\n\n'
+        prompt = existing_factsheet + f'Analyze the following document and extract BOTH attachment metadata AND timeline events:\n\n{new_content}'
+        structured_llm = self.llm.with_structured_output(AttachmentExtractedWithEvents)
 
-        structured_llm = self.llm.with_structured_output(AttachmentExtracted)
-        response = await structured_llm.ainvoke(prompt)
-        events = await self.consider_new_events(factsheet, new_content, new_user_input, file_id)
-        file = Attachment(**response.model_dump(),
+        for attempt in range(3):  # Retry mechanism
+            try:
+                response = await structured_llm.ainvoke(prompt)
+                break  # Exit loop if successful
+            except Exception as e:
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    wait_time = 2 ** attempt  # Exponential backoff
+                    logger.warning(f"Rate limit hit, retrying in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    raise
+        
+        # Process events
+        for event in response.events:
+            event.file_id = file_id
+            event.event_id = str(uuid4())
+        
+        # Process attachment damages/claims/deadlines
+        if response.attachment.damages:
+            for damage in response.attachment.damages:
+                damage.file_id = file_id
+                damage.damage_id = str(uuid4())
+        if response.attachment.deadlines:
+            for deadline in response.attachment.deadlines:
+                deadline.file_id = file_id
+                deadline.deadline_id = str(uuid4())
+        if response.attachment.claims:
+            for claim in response.attachment.claims:
+                claim.file_id = file_id
+                claim.claim_id = str(uuid4())
+        
+        file = Attachment(**response.attachment.model_dump(),
                             file_id=file_id,
                             filename=filename,
                             path=path,
                             file_type=file_type,
                             size=size,
-                            event_ids=[event.event_id for event in events],
+                            event_ids=[event.event_id for event in response.events],
                         )
-        
-
-        return {"file": file, 
-                "events": events,
-        }
+        return {"file": file, "events": response.events}
 
     async def analyze_new_input(self,
                          factsheet : FactSheet,
@@ -312,56 +414,72 @@ class ContextManager:
                                             size=size,)
             return result
 
-    
-    async def clean(self,
-                         content : Events | Claims | Damages | Deadlines,
-                         ) -> Events | Claims | Damages | Deadlines:   
+    async def clean_element(self,
+                         content : BaseModel,
+                         factsheet : FactSheet,
+                         ) -> BaseModel:   
         '''Function to clean and deduplicate a list of events.'''
         
         structured_llm = self.llm.with_structured_output(content.__class__)
+        existing_factsheet = f'Existing factsheet:\n\n{factsheet.model_dump()}\n\n'
         data = content.model_dump() if hasattr(content, 'model_dump') else content
-        prompt = f'Clean and deduplicate the following list of events. Remove any duplicate or irrelevant entries:\n\n{data}'
+        prompt = existing_factsheet + f'Clean and deduplicate the {content.__class__.__name__}. Remove any duplicate or irrelevant entries:\n\n{data}'
         return await structured_llm.ainvoke(prompt)
-    
-    async def update_content(self,factsheet : FactSheet,
-                             content : InitialInput | GoverningLaw | FactualFacts
-                             ) -> InitialInput | GoverningLaw | FactualFacts:
-        '''Method for updating parts of the factsheet based on new content.'''
-        structured_llm = self.llm.with_structured_output(content.__class__)
-        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
-        prompt = f"Current data for {content.__class__.__name__}: {content}"+  f'Existing factsheet:\n\n{factsheet_data}\n\nUpdate the following section {content.__class__.__name__} of the factsheet'
-        return await structured_llm.ainvoke(prompt)
-
     
     async def clean_factsheet(self,
                          factsheet : FactSheet,
-                         ) -> FactSheet:
-        '''Function to clean and deduplicate the entire factsheet.
+                         ) -> FactualFacts:
+        '''Function to clean and deduplicate disputed and undisputed facts.'''
+        structured_llm = self.llm.with_structured_output(FactualFacts)
+        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
+        prompt = f'Existing factsheet:\n\n{factsheet_data}\n\n' + f'Clean this factsheet. Remove irrelevant or duplicate contents.'
+        return await structured_llm.ainvoke(prompt)
+    
+    # async def update_content(self,factsheet : FactSheet,
+    #                          #existing_init_input : InitialInput,
+    #                          #existing_governing_law : GoverningLaw,
+    #                          #existing_factual_facts : FactualFacts
+    #                          ) -> InitialInput | GoverningLaw | FactualFacts:
+    #     '''Method for updating parts of the factsheet based on new content.'''
+    #     class CombinedContent(BaseModel):
+    #         initial_input : InitialInput
+    #         governing_law : GoverningLaw
+    #         factual_facts : FactualFacts
         
-        Args:
-            factsheet (FactSheet): The factsheet to clean.
-        Returns:
-            FactSheet: The cleaned factsheet.
-        '''
-        events = await self.clean(Events(events=factsheet.timeline))
-        claims = await self.clean(Claims(claims=factsheet.claims))
-        damages = await self.clean(Damages(damages=factsheet.damages))
-        deadlines = await self.clean(Deadlines(deadlines=factsheet.deadlines))
+    #     structured_llm = self.llm.with_structured_output(CombinedContent)
+    #     factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
+    #     prompt = f"Existing factsheet:\n\n{factsheet_data}\n\n" + f"Update the InitialInput, GoverningLaw, and FactualFacts of the factsheet"
+    #     return await structured_llm.ainvoke(prompt)
 
-        factsheet = FactSheet(
-            timeline=events.events,
-            claims=claims.claims,
-            damages=damages.damages,
-            deadlines=deadlines.deadlines,
-            governing_law=factsheet.governing_law,
-            disputed_facts=factsheet.disputed_facts,
-            undisputed_facts=factsheet.undisputed_facts,
-            parties=factsheet.parties,
-            third_parties=factsheet.third_parties,
-            background=factsheet.background,
-        )
+    
+    # async def clean_factsheet(self,
+    #                      factsheet : FactSheet,
+    #                      ) -> FactSheet:
+    #     '''Function to clean and deduplicate the entire factsheet.
         
-        return 
+    #     Args:
+    #         factsheet (FactSheet): The factsheet to clean.
+    #     Returns:
+    #         FactSheet: The cleaned factsheet.
+    #     '''
+    #     events = await self.clean(Events(events=factsheet.timeline))
+    #     claims = await self.clean(Claims(claims=factsheet.claims))
+    #     damages = await self.clean(Damages(damages=factsheet.damages))
+    #     deadlines = await self.clean(Deadlines(deadlines=factsheet.deadlines))
+
+    #     factsheet = FactSheet(
+    #         timeline=events.events,
+    #         claims=claims.claims,
+    #         damages=damages.damages,
+    #         deadlines=deadlines.deadlines,
+    #         governing_law=factsheet.governing_law,
+    #         disputed_facts=factsheet.disputed_facts,
+    #         undisputed_facts=factsheet.undisputed_facts,
+    #         parties=factsheet.parties,
+    #         background=factsheet.background,
+    #     )
+        
+    #     return factsheet
 
 class ToolManager:
     def __init__(self):
