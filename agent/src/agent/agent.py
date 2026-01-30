@@ -943,12 +943,16 @@ class Agent:
         
         factsheet : FactSheet = project_data.get("factsheet", {})
         content = factsheet.model_dump().get(element_type, [])
-        content_model = valid_element_types[element_type].model_validate(content)
-        cleaned_element = await self.context_manager.clean_element(content = content_model,factsheet=factsheet)
+        if not content:
+            return {"message" : "No content"}
+        content_model = [valid_element_types[element_type].model_validate(c) for c in content] if content else []
+        cleaned_element = await self.context_manager.clean_element(content = content_model,
+                                                                   #factsheet=factsheet,
+                                                                   )
         self.conversation_manager.save_project_element(data =cleaned_element,
                                                        project_id=query.project_id,
                                                        table_name = f"project_{element_type}")
-        return cleaned_element.model_dump(mode="json")
+        return {"message" : "success"}
     
     
     
