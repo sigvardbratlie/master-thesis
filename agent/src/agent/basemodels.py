@@ -88,6 +88,9 @@ class Party(BaseModel):
         None, description="Law firm representing this party"
     )
 
+class Parties(BaseModel):
+    parties: list[Party]
+
 class Event(BaseModel):
     event_id: Optional[str] = None
     file_id: Optional[str] = None
@@ -140,7 +143,7 @@ class Attachment(AttachmentExtracted):
 class FactSheet(InitialInput,FactualFacts):
     """Structured representation of case facts for legal analysis."""
     project_id: Optional[str] = None
-    timeline: list[Event]
+    events: list[Event] #prior variable name: timeline 
     governing_law: GoverningLaw 
     claims: Optional[list[Claim]] = None
     damages: Optional[list[Damage]] = None
