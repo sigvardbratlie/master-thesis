@@ -54,10 +54,6 @@ class StreamingService:
             ) as response:
                 response.raise_for_status()
 
-                if response.status_code != 200:
-                    st.error(f'Error when asking agent: {response.text}, {response.status_code}')
-                    return
-
                 for line in response.iter_lines():
                     if not line:
                         continue
@@ -145,7 +141,7 @@ class StreamingService:
             if status_callback:
                 status_callback("❌ Feil oppstod", "error")
             st.error(f"En feil oppstod: {e}")
-            logger.error(f"Streaming request failed: {e}")
+            logger.error(f"Streaming request failed: {e}", exc_info=True)
             raise
 
     def init_project(self, payload: AskAgentRequest) -> requests.Response:
@@ -158,13 +154,18 @@ class StreamingService:
         Returns:
             Response object from the initialization request
         """
-        response = requests.post(
-            url=f"{self.backend_url}/init-project",
-            json=payload.model_dump(),
-            headers=self.headers,
-            #stream=True,
-        )
-        return response
+        try:
+            response = requests.post(
+                url=f"{self.backend_url}/init-project",
+                json=payload.model_dump(),
+                headers=self.headers,
+                #stream=True,
+            )
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error initializing project: {e}", exc_info=True)
+            raise
 
     def update_project(self, payload: AskAgentRequest) -> requests.Response:
         """
@@ -176,10 +177,35 @@ class StreamingService:
         Returns:
             Response object from the initialization request
         """
-        response = requests.post(
-            url=f"{self.backend_url}/update-project",
+        try:
+            response = requests.post(
+                url=f"{self.backend_url}/update-project",
+                json=payload.model_dump(),
+                headers=self.headers,
+                #stream=True,
+            )
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error updating project: {e}", exc_info=True)
+            raise
+
+    def cleanup_project_element(self, payload : AskAgentRequest, element_type : str):
+
+        try:
+            response = requests.post(
+            url=f"{self.backend_url}/cleanup-project-element/{element_type}",
             json=payload.model_dump(),
             headers=self.headers,
-            #stream=True,
-        )
-        return response
+            )
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error cleaning up project element: {e}", exc_info=True)
+            raise
+
+@st.cache_resource
+def get_streaming_service(backend_url: str, access_token: str) -> StreamingService:
+    """Cached StreamingService instance"""
+    return StreamingService(backend_url, access_token)
+

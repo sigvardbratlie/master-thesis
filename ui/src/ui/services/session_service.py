@@ -153,4 +153,7 @@ class SessionService:
             logger.error(f"Failed to load factsheet: {e}")
             return None
         
-    
+@st.cache_resource
+def get_session_service(backend_url: str, user_id: str, access_token: str) -> SessionService:
+    """Cached SessionService instance"""
+    return SessionService(backend_url, user_id, access_token)

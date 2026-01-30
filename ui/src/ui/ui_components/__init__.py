@@ -1,19 +1,12 @@
 """UI Components module for reusable Streamlit components"""
-from .renders import render_first_question, render_chat_input, render_sidebar
-from .tool_results import handle_tool_result, display_element
-from .attachments import (
-    mk_attachment_payload,
-    view_uploaded_file,
-    view_attachment,
-)
+from .renders import get_chat_component, get_sidebar_component, get_project_component
+from .tool_results import get_tool_result_component
+from .attachments import get_attachment_component
 
 __all__ = [
-    'render_sidebar',
-    'render_first_question',
-    'render_chat_input',
-    'handle_tool_result',
-    'display_element',
-    'mk_attachment_payload',
-    'view_uploaded_file',
-    'view_attachment',
+    "get_chat_component",
+    "get_sidebar_component",
+    "get_project_component",
+    "get_tool_result_component",
+    "get_attachment_component",
 ]

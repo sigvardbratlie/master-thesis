@@ -58,18 +58,7 @@ def init_state():
 
     st.session_state.setdefault("supabase_client", None)
 
-
-# @st.cache_data(show_spinner=False)
-# def load_custom_css():
-#     """Load custom CSS file if it exists"""
-#     base_dir = os.path.dirname(os.path.abspath(__file__))
-#     css_file_path = os.path.join(base_dir, ".streamlit", "style.css")
-
-#     if os.path.exists(css_file_path):
-#         with open(css_file_path) as f:
-#             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
-#     else:
-#         st.error(
-#             f"Style not loaded! Looking for {css_file_path}. "
-#             f"CWD={os.getcwd()}, Dir={os.listdir(base_dir)}."
-#         )
+@st.cache_resource
+def get_resource(resource):
+    """Generic cached resource loader"""
+    return resource() 

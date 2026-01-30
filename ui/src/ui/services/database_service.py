@@ -124,6 +124,23 @@ class SupabaseManager:
             }
         return SessionHistoryResponse.model_validate(data)
 
+    def load_project_element(self, project_id: str, element_type: str) -> list:
+        """
+        Load project elements of a specific type from Supabase.
+        """
+        valid_element_types = ["attachments", "events", "parties", "deadlines", "damages", "claims", "custom"]
+        if element_type not in valid_element_types:
+            logger.error(f'Invalid element type requested: {element_type}')
+            return []
+        try:
+            table_name = f"project_{element_type}"
+            elements = self.supabase.table(table_name).select("*").eq("project_id", project_id).execute()
+            logger.debug(f'Loaded {len(elements.data)} elements of type {element_type} for project {project_id} from Supabase.')
+            return elements.data
+        except Exception as e:
+            logger.error(f'Could not load project elements of type {element_type} for project {project_id} from Supabase: {e}')
+            return []
+
     def read_attachment(self, path : str, bucket_name : str = "attachments") -> Optional[bytes]:
         """
         Fetch attachment content from Supabase storage.
@@ -141,3 +158,8 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f'Error reading attachment from Supabase: {e}', exc_info=True)
             return None
+        
+@st.cache_resource
+def get_supabase_manager() -> SupabaseManager:
+    """Cached SupabaseManager instance"""
+    return SupabaseManager()
