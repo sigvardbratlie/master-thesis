@@ -138,7 +138,7 @@ async def cleanup_factsheet_endpoint(query: AskAgentRequest, user_id: str = Depe
 @app.post("/cleanup-project-element/{element_type}")
 async def cleanup_project_element_endpoint(query: AskAgentRequest, element_type : str):
     try:
-        result = await agent.cleanup_project_element(
+        result = await agent.cleanup_element(
             query = query,
             element_type = element_type)
         return result if result else {"message": "No cleanup needed."}
