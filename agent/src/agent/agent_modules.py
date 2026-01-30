@@ -1,12 +1,12 @@
 import json
 from pyexpat import model
-from typing import Dict,TypedDict,List,Union,Annotated,Sequence,Optional, Literal, Tuple, Any
+from typing import Dict, Type,TypedDict,List,Union,Annotated,Sequence,Optional, Literal, Tuple, Any
 import os
 import tiktoken
 import logging
 from uuid import uuid4
 import asyncio
-from pydantic import BaseModel
+from pydantic import BaseModel, RootModel, create_model
 
 from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMessage,ToolMessage,AIMessageChunk
 from langchain_core.tools import tool
@@ -129,56 +129,6 @@ class ContextManager:
             event.event_id = str(uuid4())
         return response
     
-    # async def analyze_doc(self, 
-    #                 initial_input : InitialInput ,
-    #                 content: str, 
-    #                 file_id : str, 
-    #                 filename: str, 
-    #                 path: str, 
-    #                 file_type: str, 
-    #                 size: int, 
-    #                 ) -> dict:
-    #     ''' Function to analyze document content and extract structured data as Attachment.
-        
-    #     Args:
-    #         initial_input (InitialInput): The initial case input data.
-    #         content (str): The document content to analyze.
-    #         file_id (str): The unique identifier for the file.
-    #         filename (str): The name of the file.
-    #         path (str): The storage path of the file.
-    #         file_type (str): The MIME type of the file.
-    #         size (int): The size of the file in bytes.
-    #         query_id (str): The query identifier.   
-            
-    #         Returns:    
-    #         Attachment: The structured Attachment object with extracted data.
-    #     '''
-    #     structured_llm = self.llm.with_structured_output(AttachmentExtracted)
-    #     init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
-    #     prompt = init_prompt + f'Analyze the following document content and extract key information into the Attachment structure:\n\n{content}'
-    #     response_events = await self.analyze_events(initial_input=initial_input, 
-    #                                  content = content, 
-    #                                  file_id = file_id)
-    #     events = response_events.events
-    #     response = await structured_llm.ainvoke(prompt)
-    #     if response.damages:
-    #         for damage in response.damages:
-    #             damage.file_id = file_id
-    #     if response.deadlines:
-    #         for deadline in response.deadlines:
-    #             deadline.file_id = file_id
-    #     if response.claims:
-    #         for claim in response.claims:
-    #             claim.file_id = file_id
-    #     file = Attachment(**response.model_dump(),
-    #                         file_id=file_id,
-    #                         filename=filename,
-    #                         path=path,
-    #                         file_type=file_type,
-    #                         size=size,
-    #                         event_ids=[event.event_id for event in events],
-    #                     )
-    #     return {"file": file, "events": events}
 
     async def analyze_doc(self, 
                 initial_input : InitialInput ,
@@ -415,16 +365,35 @@ class ContextManager:
             return result
 
     async def clean_element(self,
-                         content : BaseModel,
-                         factsheet : FactSheet,
-                         ) -> BaseModel:   
+                         content : list[BaseModel],
+                         #factsheet : FactSheet,
+                         ) -> list:   
         '''Function to clean and deduplicate a list of events.'''
-        
-        structured_llm = self.llm.with_structured_output(content.__class__)
-        existing_factsheet = f'Existing factsheet:\n\n{factsheet.model_dump()}\n\n'
+        map_model = {"Event" : Events,
+                     "Damage" : Damages,
+                     "Claim" : Claims,
+                     "Deadline" : Deadlines,
+                     "Party" : Parties,
+                     }
+        if not content or len(content) == 0:
+            logger.info('No content provided to clean.')
+            return
+        if not isinstance(content, list):
+            logger.warning(f'Content to clean is not a list: Instance {type(content)}. ')
+            return
+        name = content[0].__class__.__name__
+        ContentList = map_model.get(name, None)
+
+        structured_llm = self.llm.with_structured_output(ContentList)
+        existing_factsheet = "" #f'Existing factsheet:\n\n{factsheet.model_dump()}\n\n'
         data = content.model_dump() if hasattr(content, 'model_dump') else content
-        prompt = existing_factsheet + f'Clean and deduplicate the {content.__class__.__name__}. Remove any duplicate or irrelevant entries:\n\n{data}'
-        return await structured_llm.ainvoke(prompt)
+        prompt = existing_factsheet + f'Clean and deduplicate the {ContentList.__name__.lower()}. Remove any duplicate or irrelevant entries:\n\n{data}'
+        response = await structured_llm.ainvoke(prompt)
+        if response:
+            logger.debug(f'Cleaned {len(response.model_dump().get(ContentList.__name__.lower(), []))} items from {len(content)} original items.')
+            return response.model_dump(mode = "json").get(ContentList.__name__.lower())
+        else:
+            logger.warning('No response from LLM during cleaning.')
     
     async def clean_factsheet(self,
                          factsheet : FactSheet,
@@ -433,7 +402,11 @@ class ContextManager:
         structured_llm = self.llm.with_structured_output(FactualFacts)
         factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
         prompt = f'Existing factsheet:\n\n{factsheet_data}\n\n' + f'Clean this factsheet. Remove irrelevant or duplicate contents.'
-        return await structured_llm.ainvoke(prompt)
+        try:
+            return await structured_llm.ainvoke(prompt)
+        except Exception as e:
+            logger.error(f'Error during factsheet cleaning: {e}', exc_info=True)
+            return
     
     # async def update_content(self,factsheet : FactSheet,
     #                          #existing_init_input : InitialInput,
