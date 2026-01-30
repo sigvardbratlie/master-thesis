@@ -507,9 +507,12 @@ class SupabaseManager:
                     table_name: str):
         data_dicts = []
         for item in data:
-            item_dict = item.model_dump(mode='json')
+            item_dict = item.model_dump(mode='json') if hasattr(item, 'model_dump') else item
+            if not isinstance(item_dict, dict):
+                raise ValueError("Each item in data must be a BaseModel or a dict.")
             item_dict["project_id"] = project_id
             data_dicts.append(item_dict)
+
         try:
             self.supabase.table(table_name).upsert(data_dicts).execute()
             logger.debug(f'Upserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
