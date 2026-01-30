@@ -19,7 +19,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from agent.basemodels import *
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 class Summarizer:
@@ -435,13 +435,13 @@ class ContextManager:
     #     Returns:
     #         FactSheet: The cleaned factsheet.
     #     '''
-    #     events = await self.clean(Events(events=factsheet.timeline))
+    #     events = await self.clean(Events(events=factsheet.events))
     #     claims = await self.clean(Claims(claims=factsheet.claims))
     #     damages = await self.clean(Damages(damages=factsheet.damages))
     #     deadlines = await self.clean(Deadlines(deadlines=factsheet.deadlines))
 
     #     factsheet = FactSheet(
-    #         timeline=events.events,
+    #         events=events.events,
     #         claims=claims.claims,
     #         damages=damages.damages,
     #         deadlines=deadlines.deadlines,

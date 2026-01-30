@@ -48,7 +48,7 @@ class SupabaseManager:
         factsheet = dict(**data,
                               **project_custom,
                               parties=project_parties,
-                              timeline=project_events,
+                              events=project_events,
                               deadlines=project_deadlines,
                               damages=project_damages,
                               claims=project_claims)

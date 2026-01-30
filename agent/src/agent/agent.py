@@ -31,7 +31,7 @@ from uuid_utils import uuid4
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
@@ -696,7 +696,7 @@ class Agent:
                 deadline.deadline_id = str(uuid4())
 
         result = FactSheet(
-            timeline=events,
+            events=events,
             damages=damages if damages else None,
             claims=claims if claims else None,
             deadlines=deadlines if deadlines else None,
@@ -751,7 +751,7 @@ class Agent:
 
         # Extract existing data from project (use direct lists, not wrapper models)
         factsheet : FactSheet = project_data.get("factsheet", {})
-        events: list[Event] = [] #factsheet.timeline if factsheet and factsheet.timeline else []
+        events: list[Event] = [] #factsheet.events if factsheet and factsheet.events else []
         files: list[Attachment] = [] #project_data.get("attachments", [])
         damages: list[Damage] = [] #factsheet.damages if factsheet and factsheet.damages else []
         claims: list[Claim] = [] #factsheet.claims if factsheet and factsheet.claims else []
@@ -834,7 +834,7 @@ class Agent:
 
         # # Build intermediate factsheet with updated lists
         # intermediate_factsheet = FactSheet(
-        #     timeline=events,
+        #     events=events,
         #     damages=damages if damages else None,
         #     claims=claims if claims else None,
         #     deadlines=deadlines if deadlines else None,
@@ -882,7 +882,7 @@ class Agent:
 
         # # Build final factsheet
         # result = FactSheet(
-        #     timeline=events,
+        #     events=events,
         #     damages=damages if damages else None,
         #     claims=claims if claims else None,
         #     deadlines=deadlines if deadlines else None,
@@ -922,7 +922,7 @@ class Agent:
                              ):
         '''Cleanup project data if needed'''
         valid_element_types = {
-            "timeline": Event,
+            "events": Event,
             "damages": Damage,
             "claims": Claim,
             "deadlines": Deadline,

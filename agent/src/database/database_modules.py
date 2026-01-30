@@ -377,7 +377,7 @@ class SupabaseManager:
         factsheet = FactSheet(**data,
                               **project_custom,
                               parties=project_parties,
-                              timeline=project_events,
+                              events=project_events,
                               deadlines=project_deadlines,
                               damages=project_damages,
                               claims=project_claims)
@@ -411,7 +411,7 @@ class SupabaseManager:
         claims = factsheet_dict.pop("claims", [])
         damages = factsheet_dict.pop("damages", [])
         deadlines = factsheet_dict.pop("deadlines", [])
-        timeline = factsheet_dict.pop("timeline", [])
+        events = factsheet_dict.pop("events", [])
         parties = factsheet_dict.pop("parties", [])
         custom = {}
         for key in custom_fields:
@@ -457,14 +457,14 @@ class SupabaseManager:
             except Exception as e:
                 logger.error(f'Error upserting parties for project {project_id} in Supabase: {e}')
 
-        if timeline:
+        if events:
             # ========== PROJECT EVENTS ==========
             try:
-                timeline_with_project = [
+                events_with_project = [
                         {**event, "project_id": project_id}
-                        for event in timeline]
-                self.supabase.table("project_events").upsert(timeline_with_project).execute()
-                logger.debug(f'Upserted {len(timeline)} events for project {project_id} in Supabase.')
+                        for event in events]
+                self.supabase.table("project_events").upsert(events_with_project).execute()
+                logger.debug(f'Upserted {len(events)} events for project {project_id} in Supabase.')
             except Exception as e:
                 logger.error(f'Error upserting events for project {project_id} in Supabase: {e}')
 

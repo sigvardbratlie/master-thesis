@@ -428,7 +428,7 @@ class ProjectComponent:
         streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
                                                   access_token=st.session_state.access_token)
         with st.popover("Clean project element"):
-            elements = ["Timeline", "Parties", "Governing Law", "Claims", "Damages", "Deadlines",]
+            elements = ["Events", "Parties", "Governing Law", "Claims", "Damages", "Deadlines",]
             element_to_clean = st.selectbox("Select element to clean", options=elements)
             if st.button("Clean Element", icon="🧹"):
                 element_key = element_to_clean.lower().replace(" ","_")
@@ -522,10 +522,10 @@ class ProjectComponent:
         st.header("Selected Project:")
         st.markdown(f"### {factsheet.get('title')}")
         
-        with st.expander("Timeline", expanded=False, icon="🕒"):
-            timeline = factsheet.get('timeline', [])
-            sorted_timeline = sorted(timeline, key=lambda x: x.get('event_date', ''))   
-            for event in sorted_timeline:
+        with st.expander("Events", expanded=False, icon="🕒"):
+            events = factsheet.get('events', [])
+            sorted_events = sorted(events, key=lambda x: x.get('event_date', ''))
+            for event in sorted_events:
                 st.markdown(f"**{event.get('event_date', 'No Date')}**: {event.get('description', 'No Description')}")
         
         elements = {"parties" : "👥", "governing_law" : "⚖️", "claims" : "📄", "damages" : "💰", "deadlines" : "⏰",}
