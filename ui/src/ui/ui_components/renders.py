@@ -249,10 +249,9 @@ class ChatComponent:
                 request = AskAgentRequest(
                     question=question.text if hasattr(question, "text") else question,
                     session_id=st.session_state.session_id,
-                    attachments=attachment_payload,
+                    attachments=[att.model_dump() for att in attachment_payload],
                     query_id=query_id,
                     project_id = st.session_state.project_id,
-                    #agent_type=st.session_state.agent_type,
                     llm_model=st.session_state.llm_model,
                 )
 

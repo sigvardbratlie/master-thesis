@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import hashlib
+import uuid
 import base64
 import os
 import logging
@@ -19,7 +19,7 @@ class AttachmentComponent:
         self.database_service = SupabaseManager()
 
     def mk_attachment_payload(self, file : UploadedFile, query_id : str) -> AttachmentModel:
-        file_id = hashlib.md5(file.name.encode("utf-8")).hexdigest()
+        file_id = str(uuid.uuid4())
         ext = file.name.split('.')[-1]
 
         if file.type == "application/pdf":
