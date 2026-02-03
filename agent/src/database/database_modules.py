@@ -546,21 +546,20 @@ class SupabaseManager:
 
     def load_user_sessions(self, user_id: str)-> list:
         '''Load all sessions for a user from Supabase'''
-        # Implement loading user sessions from Supabase
         try:
-            sessions = self.supabase.table("sessions").select("title, session_id, updated_at").eq("user_id", user_id).execute()
+            sessions = self.supabase.table("sessions").select("title, session_id, updated_at").eq("user_id", user_id).order("updated_at", desc=True).execute()
             logger.debug(f'Loaded {len(sessions.data)} sessions for user {user_id} from Supabase.')
             return sessions.data
         except Exception as e:
             logger.error(f'Could not load sessions for user {user_id} from Supabase: {e}')
             return []
 
-    def load_session_history(self, session_id: str, 
+    def load_session_history(self, session_id: str,
                              #user_id: str = None
                              ) -> dict: #rm user_id
         '''Load session history for a given session from Supabase'''
         try:
-            session_events = self.supabase.table("session_events").select("*").eq("session_id", session_id).execute()
+            session_events = self.supabase.table("session_events").select("*").eq("session_id", session_id).order("order", desc=False).execute()
         except Exception as e:
             logger.error(f'Could not load session events for session {session_id} from Supabase: {e}')
             return {"error": str(e)}
@@ -612,9 +611,9 @@ class SupabaseManager:
             .execute()
         )
 
-        existing = result.data[0]["title"] if result.data else None
+        title = result.data[0]["title"] if result.data else None
 
-        if not existing or existing == "Ny samtale":
+        if not title or title == "Ny samtale":
             try:
                 title_msg = [msg.get("content") for msg in new_events if msg.get("type") == "human" or msg.get("type") == "ai"]
                 #title = await self.mk_title(title_msg)

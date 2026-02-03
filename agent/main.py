@@ -4,6 +4,7 @@ import os
 import asyncio
 import json
 import uvicorn
+from contextlib import asynccontextmanager
 
 load_dotenv()
 
@@ -15,6 +16,9 @@ from agent.utils import PROMPT
 from agent.tools import TOOLS
 from agent import Agent
 from database import FirestoreSaver,FirestoreManager,SupabaseManager
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg_pool import AsyncConnectionPool
+
 from auth import SupabaseAuth
 from agent.basemodels import AskAgentRequest
 
@@ -25,41 +29,74 @@ logging.getLogger("database.database_modules").setLevel(logging.DEBUG)
 logging.getLogger("database.storage_modules").setLevel(logging.DEBUG)
 logging.getLogger("database.vectorstore_modules").setLevel(logging.DEBUG)
 logger = logging.getLogger(__name__)
-    
-# ===== SETUP FASTAPI & AGENT =======
-app = FastAPI()
 
-origins = [
-    # Lokal utvikling
-    "http://localhost",
-    "http://localhost:5173",  # Standard for Vite
-    "http://localhost:63342",
-    "http://localhost:8080",
-    "http://127.0.0.1",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:8080",
-]
+connection_string = os.getenv("SUPABASE_DB_URL")
+logger.info(f"Using DB connection: {connection_string[:50]}...")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Global references (set during lifespan)
+agent: Agent = None
+pool: AsyncConnectionPool = None
 
-project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-checkpointer = FirestoreSaver(project_id=project_id,database_id="(default)")
-
-agent = Agent(
-    tools=TOOLS,
-    #llms=llms,
-    prompt=PROMPT,
-    checkpointer=checkpointer,
-)
 firestore_manager = FirestoreManager()
 conversation_manager = SupabaseManager()
 auth = SupabaseAuth()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize async resources on startup, cleanup on shutdown."""
+    global agent, pool
+
+    # Create connection pool and checkpointer (open=False prevents auto-open in constructor)
+    pool = AsyncConnectionPool(conninfo=connection_string, open=False)
+    await pool.open()
+
+    checkpointer = AsyncPostgresSaver(pool)
+
+    # Try setup, but skip if tables already exist (CREATE INDEX CONCURRENTLY fails in pooled transactions)
+    try:
+        await checkpointer.setup()
+    except Exception as e:
+        if "CONCURRENTLY" in str(e) or "already exists" in str(e):
+            logger.info("Checkpoint tables likely already exist, skipping setup")
+        else:
+            raise e
+
+    agent = Agent(
+        tools=TOOLS,
+        prompt=PROMPT,
+        checkpointer=checkpointer,
+    )
+    logger.info("Agent initialized with AsyncPostgresSaver checkpointer")
+
+    yield
+
+    # Cleanup on shutdown
+    await pool.close()
+    logger.info("Connection pool closed")
+
+# ===== SETUP FASTAPI & AGENT =======
+def setup_app():
+    app = FastAPI(lifespan=lifespan)
+    origins = [
+        # Lokal utvikling
+        "http://localhost",
+        "http://localhost:5173",  # Standard for Vite
+        "http://localhost:63342",
+        "http://localhost:8080",
+        "http://127.0.0.1",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8080",
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    return app
+
+app = setup_app()
 
 async def stream_generator(query : AskAgentRequest,
                            user_id: str = Depends(auth.get_current_user)):

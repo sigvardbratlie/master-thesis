@@ -99,8 +99,8 @@ class Agent:
             content = attachment_contents.get(file_id, "")
 
             if content:
-                prefix = f"-- FILE: {filename} (PATH: {path}) --\n"
-                attachment_texts.append(prefix + content)
+                prefix = f"--DOCUMENT: PATH {path} - FILENAME: {filename} --\n"
+                attachment_texts.append(prefix + "" + content)
 
         if not attachment_texts:
             return ""
@@ -108,9 +108,9 @@ class Agent:
         combined = "\n\n".join(attachment_texts)
 
         if user_input:
-            return f"Relevant content from attachments based on query:\n{combined}"
+            return f"Retrieved context from user's documents:\n\n{combined}" + "\n\nUse this information to answer the user's question."
         else:
-            return f"Summary of attachments:\n{self.summarizer.summarize(combined)}"
+            return f"Summary of attachment contents:\n{self.summarizer.summarize(combined)}"+ "\n\nUse this information to answer the user's question."
 
     async def _call_llm(self, state: AgentState, llm_with_tools: BaseChatModel,config: RunnableConfig) -> AgentState:
         """

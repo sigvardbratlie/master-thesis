@@ -51,3 +51,5 @@ else:
     auth_service.render_login_form()
 
 st.json(st.session_state, expanded=False)
+
+st.json(st.session_state.get("messages", []), expanded=False)

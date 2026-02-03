@@ -111,6 +111,7 @@ def read_attachment(path : str,
                     ) -> list:
     '''
     Reads and processes an attachment from Supabase storage based on the provided path.
+    Use only when the attachment content is not provided in the conversation history.
 
     Args:
         path (str): The path to the attachment in Supabase storage.
