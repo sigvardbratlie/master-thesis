@@ -17,7 +17,7 @@ class GCSManager:
 
     def __init__(self):
         self.client = storage.Client()
-        self.bucket_name = os.getenv("GCS_BUCKET_NAME", "chat-history-files")
+        self.bucket_name = os.getenv("GCS_BUCKET_NAME", "attachments")
         self.bucket = self.client.bucket(self.bucket_name)
     
     async def save_attachment(self,content : bytes | str, path : str):
