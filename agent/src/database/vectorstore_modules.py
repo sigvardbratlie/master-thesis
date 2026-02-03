@@ -1,9 +1,11 @@
 import os
 from io import BytesIO
+import tempfile
 from PyPDF2 import PdfReader
 import logging
 import base64
 from datetime import datetime
+from typing import List, Dict, Literal
 
 from langchain_core.messages import SystemMessage
 from langchain_core.documents import Document
@@ -18,6 +20,7 @@ from google.cloud import bigquery
 from google.cloud import bigquery
 
 from agent.basemodels import AttachmentModel
+import ocrmypdf
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -193,7 +196,73 @@ class DocumentProcessor:
             chunk_overlap=chunk_overlap
         )
     
+    
+    def needs_ocr(self, content_bytes: bytes) -> bool:
+        """Detect if PDF needs OCR based on text density."""
+        try:
+            reader = PdfReader(BytesIO(content_bytes))
+            total_pages = len(reader.pages)
+            pages_with_text = 0
+            total_text_length = 0
+            
+            for page in reader.pages:
+                text = page.extract_text().strip()
+                if text and len(text) > 50:  # More than metadata/page numbers
+                    pages_with_text += 1
+                    total_text_length += len(text)
+            
+            # Heuristikk: Hvis < 50% av sidene har tekst ELLER veldig lite tekst per side
+            text_coverage = pages_with_text / total_pages if total_pages > 0 else 0
+            avg_text_per_page = total_text_length / total_pages if total_pages > 0 else 0
+            
+            return text_coverage < 0.5 or avg_text_per_page < 100
+        except Exception as e:
+            logger.warning(f"Could not analyze PDF for OCR need: {e}")
+            return False  # Default to no OCR if detection fails
+
+    
+    def ocr_bytes(self, pdf_data: bytes) -> bytes:
+        """OCR a PDF with improved error handling."""
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as inp, \
+            tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as out:
+            
+            try:
+                inp.write(pdf_data)
+                inp.flush()
+                inp.close()  # Close before OCR reads it
+                
+                ocrmypdf.ocr(
+                    inp.name,
+                    out.name,
+                    deskew=True,
+                    redo_ocr=True,  # Better than force_ocr - skips already-OCR'd pages
+                    skip_text=False,  # Keep existing text
+                    optimize=1,  # Light optimization
+                    force_ocr=False  # Don't re-OCR text pages
+                )
+                
+                with open(out.name, 'rb') as f:
+                    return f.read()
+                    
+            except ocrmypdf.exceptions.PriorOcrFoundError:
+                logger.info("PDF already has OCR text, returning original")
+                return pdf_data
+            except Exception as e:
+                logger.error(f"OCR failed: {e}, returning original PDF")
+                return pdf_data
+            finally:
+                # Cleanup temp files
+                for f in [inp.name, out.name]:
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+    
     def parse_pdf(self, content_bytes: bytes, metadata: dict) -> List[Document]:
+        if self.needs_ocr(content_bytes):
+            logger.info("PDF needs OCR, processing...")
+            content_bytes = self.ocr_bytes(content_bytes)
+        
         count_without_text = 0
         try:
             reader = PdfReader(BytesIO(content_bytes))
@@ -207,7 +276,8 @@ class DocumentProcessor:
         }
         
         for i, page in enumerate(reader.pages):
-            if not page.extract_text():
+            txt = page.extract_text().strip() if page.extract_text() else ""
+            if not txt:
                 count_without_text += 1
                 logger.debug(f"Page {i + 1} has no extractable text.")
                 continue
@@ -217,7 +287,7 @@ class DocumentProcessor:
                 # ))
             else:
                 docs.append(Document(
-                    page_content=page.extract_text(),
+                    page_content=txt,
                     metadata={**base_meta, "page": i + 1}
                 ))
             
@@ -249,20 +319,20 @@ class DocumentProcessor:
             logger.error(f"Error creating Document objects: {e}")
             return []
     
-    def process_attachment(self, attachment: AttachmentModel, session_id : str) -> List[Document]:
-        if attachment.file_type == "application/pdf":
+    def process_attachment(self, content : bytes | str, file_id , file_type : Literal["application/pdf", "text/plain"], session_id : str) -> List[Document]:
+        if file_type == "application/pdf":
             try:
-                content_bytes = base64.b64decode(attachment.content)
+                content_bytes = base64.b64decode(content)
             except Exception as e:
-                logger.error(f"Failed to decode base64 content for attachment {attachment.file_id}: {e}")
+                logger.error(f"Failed to decode base64 content for attachment {file_id}: {e}")
                 return []
             return self.parse_pdf(
                 content_bytes,
-                metadata={"file_id": attachment.file_id, "session_id": session_id})
+                metadata={"file_id": file_id, "session_id": session_id})
         else:
             return self.parse_text(
-                attachment.content,
-                metadata={"file_id": attachment.file_id, "session_id": session_id}
+                content,
+                metadata={"file_id": file_id, "session_id": session_id}
             )
             
 
