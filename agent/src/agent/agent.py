@@ -95,10 +95,11 @@ class Agent:
         for att in attachments:
             file_id = att.get("file_id", "")
             filename = att.get("filename", "")
+            path = att.get("path", "")
             content = attachment_contents.get(file_id, "")
 
             if content:
-                prefix = f"-- FILE: {filename} (ID: {file_id}) --\n"
+                prefix = f"-- FILE: {filename} (PATH: {path}) --\n"
                 attachment_texts.append(prefix + content)
 
         if not attachment_texts:
@@ -171,7 +172,7 @@ class Agent:
 
         # ---- LONG CONVERSATION HANDLING ----
         sum_rate = 8
-        messages = state["messages"][1:-1] + [msg] if msg else state["messages"][1:]
+        messages = state["messages"][1:]  # All messages except SystemMessage
 
         if len(state["messages"]) > sum_rate:
             if len(messages) % sum_rate == 0:
@@ -185,18 +186,15 @@ class Agent:
         else:
             payload.extend(messages)
 
-        # ---- ADD ATTACHMENT CONTEXT TO USER MESSAGE ----
-        if attachment_context and msg:
-            msg = HumanMessage(content= attachment_context + "\n\n" + f'User query: {user_input}',
-                               
-                # [{"type": "text", "text": attachment_context},
-                # {"type": "text", "text": f"User query: {user_input}"}]
-            
+        # ---- ENHANCE LAST MESSAGE WITH ATTACHMENTS ----
+        enhanced_msg = None
+        if attachment_context and payload and isinstance(payload[-1], HumanMessage):
+            enhanced_msg = HumanMessage(
+                content=f"{attachment_context}\n\nUser query: {payload[-1].content}",
+                id=payload[-1].id,  # Same ID = will replace in state
+                additional_kwargs=msg.additional_kwargs if msg else {}
             )
-            # Replace last message in payload with enhanced message
-            if payload and isinstance(payload[-1], HumanMessage):
-                payload[-1] = msg
-
+            payload[-1] = enhanced_msg  # For LLM
 
         # === DEBUG LOGGING ===
         logger.debug(f"--- Payload Messages for query id {config.get("configurable").get("query_id", "")} (session_id {session_id} and project-id {config.get("configurable").get("custom_project_id", "")}) ---")
@@ -206,8 +204,10 @@ class Agent:
 
         try:
             message = await llm_with_tools.ainvoke(payload)
+            # Return enhanced_msg to save full context in state (with same ID to replace)
+            messages_to_return = [enhanced_msg, message] if enhanced_msg else [message]
             return {
-                "messages": [message],
+                "messages": messages_to_return,
                 "factsheet": project_data.get("factsheet") if project_data else None,
                 "attachments": project_data.get("attachments") if project_data else None
             }
@@ -406,7 +406,11 @@ class Agent:
         if query.attachments:
             docs = []
             for att in query.attachments:
-                docs.extend(self.document_processor.process_attachment(att, session_id=query.session_id))
+                docs.extend(self.document_processor.process_attachment(
+                    content = att.content, 
+                    file_id=att.file_id, 
+                    file_type=att.file_type, 
+                    session_id=query.session_id))
             # Store (same API regardless of implementation)
             self.in_memory_store.add_documents(docs, collection_id=query.session_id)
             await self.storage.save_raw_documents(attachments=query.attachments)
@@ -581,7 +585,10 @@ class Agent:
             #logger.debug(f'======= ATTACHMENT CONTENT======= \n { query.attachments }\n')
             docs = []
             for att in query.attachments:
-                docs.extend(self.document_processor.process_attachment(att, session_id=query.session_id))
+                docs.extend(self.document_processor.process_attachment(content=att.content, 
+                                                                       file_id=att.file_id, 
+                                                                       file_type=att.file_type, 
+                                                                       session_id=query.session_id))
             
             # Run both storage operations in parallel
             storage_tasks = [
@@ -742,7 +749,10 @@ class Agent:
         if query.attachments:
             docs = []
             for att in query.attachments:
-                docs.extend(self.document_processor.process_attachment(att, session_id=query.session_id))
+                docs.extend(self.document_processor.process_attachment(content=att.content, 
+                file_id=att.file_id, 
+                file_type=att.file_type, 
+                session_id=query.session_id))
             
             # Run both storage operations in parallel
             storage_tasks = [

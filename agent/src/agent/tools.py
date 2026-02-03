@@ -10,7 +10,7 @@ from langchain_tavily import TavilySearch
 from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool
 
-from database import GCSManager, BQVectorStore
+from database import SupabaseStorageManager, DocumentProcessor
 
 
 load_dotenv()
@@ -22,6 +22,7 @@ tavily_search = TavilySearch(
     max_results=5,
     topic="general",
 )
+
 
 
 @tool
@@ -74,52 +75,74 @@ def run_query(sql_query: str) -> dict:
         logger.error(f"Error executing query: {e}")
         return {"error": str(e)}
 
+# @tool
+# def read_vector_store(query: str, config : RunnableConfig ,  query_id : Optional[str] = None, file_id : Optional[str] = None) -> list[str]:
+#     '''Retrieve relevant chunks attachments from the vector store based on the query.
+#     All documents in current session are embedded to the vector store.
+
+#     Args:
+#         query (str): The user's query.
+#         session_id (str): The session ID to filter documents.
+#         query_id (Optional[str]): The query ID to filter documents.
+#         file_id (Optional[str]): The file ID to filter documents.
+#     '''
+#     user_id = config["configurable"].get("user_id", None)
+#     session_id = config["configurable"].get("session_id", None)
+#     vs = BQVectorStore(project_id=project_id)
+#     vector_store = vs.init_vector_store(table_name="attachments")
+#     filters = {"user_id" : user_id,
+#                "session_id" :  session_id,
+#                "query_id" : query_id,
+#                "file_id" : file_id} 
+#     for k,v in filters.copy().items():
+#         if v is None or v == "":
+#             filters.pop(k)
+#     try:
+#         retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4 ,
+#                                                                                         "filter" : filters})
+#         relevant_docs = retriever.invoke(query)
+#         return [doc.to_json() for doc in relevant_docs]
+#     except Exception as e:
+#         return []  # Return empty message on error
+
 @tool
-def read_vector_store(query: str, config : RunnableConfig ,  query_id : Optional[str] = None, file_id : Optional[str] = None) -> list[str]:
-    '''Retrieve relevant chunks attachments from the vector store based on the query.
-    All documents in current session are embedded to the vector store.
+def read_attachment(path : str, 
+                    #config : RunnableConfig
+                    ) -> list:
+    '''
+    Reads and processes an attachment from Supabase storage based on the provided path.
 
     Args:
-        query (str): The user's query.
-        session_id (str): The session ID to filter documents.
-        query_id (Optional[str]): The query ID to filter documents.
-        file_id (Optional[str]): The file ID to filter documents.
-    '''
-    user_id = config["configurable"].get("user_id", None)
-    session_id = config["configurable"].get("session_id", None)
-    vs = BigQueryVectorStore()
-    vector_store = vs.init_vector_store(table_name="attachments")
-    filters = {"user_id" : user_id,
-               "session_id" :  session_id,
-               "query_id" : query_id,
-               "file_id" : file_id} 
-    for k,v in filters.copy().items():
-        if v is None or v == "":
-            filters.pop(k)
-    try:
-        retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4 ,
-                                                                                        "filter" : filters})
-        relevant_docs = retriever.invoke(query)
-        return [doc.to_json() for doc in relevant_docs]
-    except Exception as e:
-        return []  # Return empty message on error
-
-@tool
-def read_attachment(file_id : str, config : RunnableConfig):
-    '''
-    Use this tool to read the content of an attachment stored in Google Cloud Storage.
-    Args:
-        file_id (str): The ID of the file to read.
-        config (RunnableConfig): The runnable configuration containing user and session information.
+        path (str): The path to the attachment in Supabase storage.
+    
     Returns:
-        str: The content of the attachment as text.
+        list: Processed content of the attachment.
     '''
-    reader = GCSManager()
-    user_id = config["configurable"].get("user_id", None)
-    session_id = config["configurable"].get("session_id", None)
-    return reader.read_attachment(session_id=session_id,
-                                     user_id=user_id,
-                                     file_id=file_id)
+    storage_manager = SupabaseStorageManager()
+    document_processor = DocumentProcessor()
+    #user_id = config["configurable"].get("user_id", None)
+    #session_id = config["configurable"].get("session_id", None)
+    content = storage_manager.read_attachment(path=path)
+    try:
+        file_id = path.split("/")[-1].split(".")[0] if "." in path else path.split("/")[-1]
+        ext = path.split(".")[-1] if "." in path else ""
+    except Exception as e:
+        logger.error(f"Error extracting file_id and extension from path: {e}")
+        return None
+    if ext in ["pdf", "docx", "txt", "md"]:
+        file_type = {
+            "pdf": "application/pdf",
+            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "txt": "text/plain",
+            "md": "text/markdown"
+        }.get(ext, "text/plain")
+        processed_content = document_processor.process_attachment(content=content,
+                                                             file_id=file_id,
+                                                             file_type=file_type,)
+        return [d.model_dump(mode = "json") for d in processed_content]
+    else:
+        logger.error(f"Unsupported file extension: {ext}")
+        return []
 
 
 
@@ -127,6 +150,6 @@ TOOLS = [
         tavily_search,
         list_table_info,
         run_query,
-        read_vector_store,
+        #read_vector_store,
         read_attachment,
       ]
