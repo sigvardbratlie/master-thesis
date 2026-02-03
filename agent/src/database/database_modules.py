@@ -603,10 +603,20 @@ class SupabaseManager:
             attachment_dict.pop("content", None)  # Remove content if present before saving
             new_attachments.append(attachment_dict)
 
-        title = self.supabase.table("sessions").select("title").eq("session_id", session_id).execute().data
-        if not title:
+        result = (
+            self.supabase
+            .table("sessions")
+            .select("title")
+            .eq("session_id", session_id)
+            .limit(1)
+            .execute()
+        )
+
+        existing = result.data[0]["title"] if result.data else None
+
+        if not existing or existing == "Ny samtale":
             try:
-                title_msg = [msg.get("data") for msg in new_events if msg.get("type") == "human" or msg.get("type") == "ai"]
+                title_msg = [msg.get("content") for msg in new_events if msg.get("type") == "human" or msg.get("type") == "ai"]
                 #title = await self.mk_title(title_msg)
                 summarizer = Summarizer()
                 title = summarizer.mk_title(title_msg)
