@@ -21,6 +21,7 @@ dependencies = [
     "langchain-openai>=1.1.7",
     "langchain-tavily>=0.2.16",
     "langgraph>=1.0.5",
+    "ocrmypdf>=16.13.0",
     "pandas-gbq>=0.33.0",
     "pyjwt>=2.10.1",
     "pypdf2>=3.0.1",

@@ -32,6 +32,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langchain-tavily" },
     { name = "langgraph" },
+    { name = "ocrmypdf" },
     { name = "pandas-gbq" },
     { name = "pyjwt" },
     { name = "pypdf2" },
@@ -56,6 +57,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=1.1.7" },
     { name = "langchain-tavily", specifier = ">=0.2.16" },
     { name = "langgraph", specifier = ">=1.0.5" },
+    { name = "ocrmypdf", specifier = ">=16.13.0" },
     { name = "pandas-gbq", specifier = ">=0.33.0" },
     { name = "pyjwt", specifier = ">=2.10.1" },
     { name = "pypdf2", specifier = ">=3.0.1" },
@@ -4131,6 +4133,7 @@ dependencies = [
     { name = "requests" },
     { name = "streamlit" },
     { name = "streamlit-pdf" },
+    { name = "supabase" },
 ]
 
 [package.metadata]
@@ -4143,6 +4146,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.32.5" },
     { name = "streamlit", specifier = ">=1.52.2" },
     { name = "streamlit-pdf", specifier = ">=0.1.0" },
+    { name = "supabase", specifier = ">=2.27.2" },
 ]
 
 [[package]]
