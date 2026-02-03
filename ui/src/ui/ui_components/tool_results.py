@@ -54,7 +54,7 @@ class ToolResultComponent:
                 try:
                     df = pd.DataFrame(json.loads(element.get("dataframe_json")))
                 except:
-                    data = extract_valid_json(element.get("dataframe_json"))
+                    data = self.extract_valid_json(element.get("dataframe_json"))
                     df = pd.DataFrame(json.loads(data))
 
                 x = element.get("x")

@@ -88,9 +88,8 @@ class SupabaseManager:
             sessions = self.supabase.table("sessions")\
                                         .select("title, session_id, updated_at")\
                                         .eq("user_id", user_id)\
-                                        .order("updated_at", desc=False)\
+                                        .order("updated_at", desc=True)\
                                         .execute()
-
             logger.debug(f'Loaded {len(sessions.data)} sessions for user {user_id} from Supabase.')
             return [SessionInfo.model_validate(s) for s in sessions.data]
         except Exception as e:
@@ -102,7 +101,10 @@ class SupabaseManager:
                              ) -> dict: #rm user_id
         '''Load session history for a given session from Supabase'''
         try:
-            session_events = self.supabase.table("session_events").select("*").eq("session_id", session_id).execute()
+            session_events = self.supabase.table("session_events").select("*")\
+                .eq("session_id", session_id)\
+                .order("order", desc=False)\
+                .execute()
         except Exception as e:
             logger.error(f'Could not load session events for session {session_id} from Supabase: {e}')
             return {"error": str(e)}
