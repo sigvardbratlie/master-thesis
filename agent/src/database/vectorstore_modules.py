@@ -76,7 +76,10 @@ class ChromaVectorStore(VectorStoreInterface):
     
     def add_documents(self, documents: List[Document], collection_id: str) -> None:
         collection = self._get_collection(collection_id)
-        collection.add_documents(documents)
+        try:
+            collection.add_documents(documents)
+        except Exception as e:
+            logger.error(f"Error adding documents to collection {collection_id}: {e}")
 
     def add_embeddings_meta(self, document : Document, ) -> None:
         """Add metadata to document before embedding."""
@@ -191,7 +194,12 @@ class DocumentProcessor:
         )
     
     def parse_pdf(self, content_bytes: bytes, metadata: dict) -> List[Document]:
-        reader = PdfReader(BytesIO(content_bytes))
+        count_without_text = 0
+        try:
+            reader = PdfReader(BytesIO(content_bytes))
+        except Exception as e:
+            logger.error(f"Error reading PDF: {e}")
+            return []
         docs = []
         base_meta = metadata | {
             "total_pages": len(reader.pages),
@@ -199,25 +207,55 @@ class DocumentProcessor:
         }
         
         for i, page in enumerate(reader.pages):
-            docs.append(Document(
-                page_content=page.extract_text(),
-                metadata={**base_meta, "page": i + 1}
-            ))
+            if not page.extract_text():
+                count_without_text += 1
+                logger.debug(f"Page {i + 1} has no extractable text.")
+                continue
+                # docs.append(Document(
+                #     page_content="No text",
+                #     metadata={**base_meta, "page": i + 1, "note": "No extractable text"}
+                # ))
+            else:
+                docs.append(Document(
+                    page_content=page.extract_text(),
+                    metadata={**base_meta, "page": i + 1}
+                ))
+            
+        if not docs or count_without_text == len(reader.pages):
+            logger.warning("No pages extracted from PDF.")
+            return []
+        logger.debug(f"Extracted {len(docs)} pages with text out of {len(reader.pages)} total pages.")
         return docs
     
     def parse_text(self, text: str, metadata: dict) -> List[Document]:
-        chunks = self.splitter.split_text(text)
-        return [
-            Document(
-                page_content=chunk,
-                metadata={**metadata, "chunk": i, "total_chunks": len(chunks)}
-            )
-            for i, chunk in enumerate(chunks)
-        ]
+        try:
+            chunks = self.splitter.split_text(text)
+        except Exception as e:
+            logger.error(f"Error splitting text: {e}")
+            chunks = [text]  # Fallback to whole text if splitting fails
+
+        if not chunks:
+            logger.warning("No chunks created from text.")
+            return []
+        try:
+            return [
+                Document(
+                    page_content=chunk,
+                    metadata={**metadata, "chunk": i, "total_chunks": len(chunks)}
+                )
+                for i, chunk in enumerate(chunks)
+            ]
+        except Exception as e:
+            logger.error(f"Error creating Document objects: {e}")
+            return []
     
     def process_attachment(self, attachment: AttachmentModel, session_id : str) -> List[Document]:
         if attachment.file_type == "application/pdf":
-            content_bytes = base64.b64decode(attachment.content)
+            try:
+                content_bytes = base64.b64decode(attachment.content)
+            except Exception as e:
+                logger.error(f"Failed to decode base64 content for attachment {attachment.file_id}: {e}")
+                return []
             return self.parse_pdf(
                 content_bytes,
                 metadata={"file_id": attachment.file_id, "session_id": session_id})

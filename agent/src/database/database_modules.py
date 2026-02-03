@@ -246,7 +246,8 @@ class FirestoreManager:
 
             if not title or title == "Ny samtale":
                 try:
-                    title_msg = [msg.get("data") for msg in new_events if msg.get("type") == "human" or msg.get("type") == "ai"]
+                    title_msg = [msg.get("content") for msg in new_events if msg.get("type") == "human" or msg.get("type") == "ai"]
+                    logger.debug(f"Generating title from messages: {title_msg}")
                     #title = await self.mk_title(title_msg)
                     title = self.summarizer.mk_title(title_msg)
                 except Exception as e:

@@ -20,6 +20,10 @@ from agent.basemodels import AskAgentRequest
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("agent.agent").setLevel(logging.DEBUG)
+logging.getLogger("agent.agent_modules").setLevel(logging.DEBUG)
+logging.getLogger("database.database_modules").setLevel(logging.DEBUG)
+logging.getLogger("database.storage_modules").setLevel(logging.DEBUG)
+logging.getLogger("database.vectorstore_modules").setLevel(logging.DEBUG)
 logger = logging.getLogger(__name__)
     
 # ===== SETUP FASTAPI & AGENT =======

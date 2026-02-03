@@ -31,7 +31,7 @@ from uuid_utils import uuid4
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -127,6 +127,7 @@ class Agent:
         session_id = msg.additional_kwargs.get("session_id", "") if msg else ""
         attachments = msg.additional_kwargs.get("attachments", []) if msg else []
         user_input = msg.content if msg else ""
+        project_id = config.get("configurable").get("custom_project_id",None)
 
         attachment_contents = {}
 
@@ -147,7 +148,7 @@ class Agent:
 
 
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
-        project_data = self.conversation_manager.load_project(project_id = config.get("configurable").get("custom_project_id",None))
+        project_data = self.conversation_manager.load_project(project_id = project_id) if project_id else None
                                                            
 
 
@@ -829,92 +830,6 @@ class Agent:
                 "deadlines" : [deadline.model_dump(mode="json") for deadline in deadlines],
                 }
             
-            
-                
-
-        # # Build intermediate factsheet with updated lists
-        # intermediate_factsheet = FactSheet(
-        #     events=events,
-        #     damages=damages if damages else None,
-        #     claims=claims if claims else None,
-        #     deadlines=deadlines if deadlines else None,
-        #     # From existing factsheet (attribute access, not .get())
-        #     parties=factsheet.parties if factsheet else [],
-        #     third_parties=factsheet.third_parties if factsheet else [],
-        #     background=factsheet.background if factsheet else "",
-        #     title=factsheet.title if factsheet else "",
-        #     disputed_facts=factsheet.disputed_facts if factsheet else [],
-        #     undisputed_facts=factsheet.undisputed_facts if factsheet else [],
-        #     governing_law=factsheet.governing_law if factsheet else GoverningLaw(
-        #         primary_jurisdiction="Unknown",
-        #         key_areas=[],
-        #         procedural_law="tvisteloven"
-        #     ),
-        # )
-
-        # update_result = await self.context_manager.update_content(factsheet=intermediate_factsheet,)
-        # initial_input = update_result.initial_input
-        # governing_law = update_result.governing_law
-        # factual_facts = update_result.factual_facts
-            
-        # # Generate UUIDs for all entities before saving
-        # for event in events:
-        #     if not event.event_id:
-        #         event.event_id = str(uuid4())
-
-        # for damage in damages:
-        #     if not damage.damage_id:
-        #         damage.damage_id = str(uuid4())
-
-        # for claim in claims:
-        #     if not claim.claim_id:
-        #         claim.claim_id = str(uuid4())
-
-        # for deadline in deadlines:
-        #     if not deadline.deadline_id:
-        #         deadline.deadline_id = str(uuid4())
-
-        # # Ensure parties have UUIDs (from initial_input if updated, else from intermediate)
-        # parties_to_use = initial_input.parties if initial_input else intermediate_factsheet.parties
-        # for party in parties_to_use or []:
-        #     if not party.party_id:
-        #         party.party_id = str(uuid4())
-
-        # # Build final factsheet
-        # result = FactSheet(
-        #     events=events,
-        #     damages=damages if damages else None,
-        #     claims=claims if claims else None,
-        #     deadlines=deadlines if deadlines else None,
-        #     governing_law=governing_law or intermediate_factsheet.governing_law,
-        #     **(factual_facts.model_dump() if factual_facts else {
-        #         "disputed_facts": intermediate_factsheet.disputed_facts,
-        #         "undisputed_facts": intermediate_factsheet.undisputed_facts
-        #     }),
-        #     **(initial_input.model_dump() if initial_input else {
-        #         "parties": intermediate_factsheet.parties,
-        #         "third_parties": intermediate_factsheet.third_parties,
-        #         "background": intermediate_factsheet.background,
-        #         "title": intermediate_factsheet.title
-        #     }),
-        # )
-
-        # self.conversation_manager.save_project(
-        #     factsheet=result,
-        #     files=files,
-        #     user_id=user_id,
-        #     session_id=query.session_id,
-        #     query_id=query.query_id,
-        #     project_id=query.project_id
-        # )
-
-        # # Return a JSON-serializable dict with all metadata
-        # return {
-        #     "llm_model": query.llm_model,
-        #     "attachments": [att.model_dump(mode='json') for att in files],
-        #     "factsheet": result.model_dump(mode='json'),
-        #     "created_session_id": query.session_id
-        # }
     
     async def cleanup_element(self,
                               query : AskAgentRequest,

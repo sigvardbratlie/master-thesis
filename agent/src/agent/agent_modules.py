@@ -19,7 +19,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from agent.basemodels import *
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class Summarizer:
