@@ -5,7 +5,7 @@ from typing import Optional
 from supabase import create_client, Client
 from ui.models import * 
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -85,7 +85,12 @@ class SupabaseManager:
         '''Load all sessions for a user from Supabase'''
         # Implement loading user sessions from Supabase
         try:
-            sessions = self.supabase.table("sessions").select("title, session_id, updated_at").eq("user_id", user_id).execute()
+            sessions = self.supabase.table("sessions")\
+                                        .select("title, session_id, updated_at")\
+                                        .eq("user_id", user_id)\
+                                        .order("updated_at", desc=False)\
+                                        .execute()
+
             logger.debug(f'Loaded {len(sessions.data)} sessions for user {user_id} from Supabase.')
             return [SessionInfo.model_validate(s) for s in sessions.data]
         except Exception as e:
