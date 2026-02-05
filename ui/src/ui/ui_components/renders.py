@@ -423,7 +423,7 @@ class ProjectComponent:
         self.backend_service = get_supabase_manager()
         self.attachment_component = get_attachment_component()
 
-    def cleanup_element(self,):
+    def clean_element(self,):
         streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
                                                   access_token=st.session_state.access_token)
         with st.popover("Clean project element"):
@@ -443,12 +443,34 @@ class ProjectComponent:
                         ),
                         element_type=element_key
                     )
-                    if response.status_code == 200 and response.json().get("message") == "success":
-                        st.success(f"Successfully cleaned {element_to_clean} element.")
+                    if response.status_code == 200 and response.json().get("success") == True:
+                        response_json = response.json()
+                        st.success(f"{response_json.get('message')}")
                         project_element = self.backend_service.load_project_element(project_id=st.session_state.project_id, 
                                                                                 element_type=element_key)
                         st.session_state.factsheet[element_key] = project_element
                         st.rerun()
+
+    def clean_factsheet(self,):
+        streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
+                                                  access_token=st.session_state.access_token)
+        if st.button("Clean Factsheet", icon="🧹"):
+            response = streaming_service.cleanup_factsheet(
+                AskAgentRequest(
+                    project_id=st.session_state.project_id,
+                    session_id=st.session_state.session_id,
+                    attachments=[],
+                    question="",
+                    query_id=str(uuid4()),
+                    llm_model=st.session_state.llm_model,
+                ),
+            )
+            if response.status_code == 200 and response.json().get("success") == True:
+                response_json = response.json()
+                st.session_state.factsheet = response_json.get('data')
+                st.success(f"{response_json.get('message')}")
+                st.rerun()
+
 
     def display_field(self, label,value, icon,factsheet):
         with st.expander(label.title(), expanded=False, icon=icon):
@@ -537,7 +559,7 @@ class ProjectComponent:
 
         with st.expander("Attachments Overview", expanded=False, icon="📎"):
             for file in st.session_state.get('attachments', []):
-                self.attachment_component.view_attachment(file)
+                self.attachment_component.view_attachment(file, key = str(uuid4()))
                 #
                 # if st.button(f"- **{file.get('filename', 'No Filename')}** ({file.get('category', 'No Category')}, {file.get('significance', 'No Significance')})", key=file.get('file_id','no-id')):
                 #     st.pdf()
@@ -751,9 +773,11 @@ class ProjectComponent:
                     if update_project:
                         st.session_state.update_project_view = True
                     with cols[1]:
-                        self.cleanup_element()
+                        self.clean_element()
                     
                     self.render_selected_project(factsheet=st.session_state.factsheet)
+
+
 
 def get_project_component() -> ProjectComponent:
     """Cached ProjectComponent instance"""

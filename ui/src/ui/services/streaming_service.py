@@ -204,6 +204,19 @@ class StreamingService:
             logger.error(f"Error cleaning up project element: {e}", exc_info=True)
             raise
 
+    def cleanup_factsheet(self, payload : AskAgentRequest):
+        try:
+            response = requests.post(
+            url=f"{self.backend_url}/cleanup-factsheet/",
+            json=payload.model_dump(),
+            headers=self.headers,
+            )
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error cleaning up factsheet: {e}", exc_info=True)
+            raise
+
 @st.cache_resource
 def get_streaming_service(backend_url: str, access_token: str) -> StreamingService:
     """Cached StreamingService instance"""
