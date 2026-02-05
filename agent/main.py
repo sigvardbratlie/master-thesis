@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from agent.utils import PROMPT
 from agent.tools import TOOLS
-from agent import Agent
+from agent.agent import Agent
 from database import FirestoreSaver,FirestoreManager,SupabaseManager
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
@@ -128,7 +128,7 @@ async def ask_agent_endpoint(query: AskAgentRequest, user_id: str = Depends(auth
             media_type="text/event-stream"
         )
     except Exception as e:
-        logger.error(f"Error in /ask-agent: {e}")
+        logger.error(f"Error in /ask-agent: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -146,7 +146,7 @@ async def init_scan_endpoint(query: AskAgentRequest, user_id: str = Depends(auth
         )
         return scan_result
     except Exception as e:
-        logger.error(f"Error in /init-scan: {e}")
+        logger.error(f"Error in /init-scan: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/update-project")
