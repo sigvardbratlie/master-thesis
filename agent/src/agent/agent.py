@@ -872,12 +872,21 @@ class Agent:
             return {"message" : "No content"}
         content_model = [valid_element_types[element_type].model_validate(c) for c in content] if content else []
         cleaned_element = await self.context_manager.clean_element(content = content_model,
-                                                                   #factsheet=factsheet,
+                                                                   factsheet=factsheet,
                                                                    )
         self.conversation_manager.save_project_element(data =cleaned_element,
                                                        project_id=query.project_id,
                                                        table_name = f"project_{element_type}")
-        return {"message" : "success"}
+        return {
+                "success": True,
+                "message": f"Successfully cleaned {element_type}",
+                "data": {
+                    "element_type": element_type,
+                    "original_count": len(content_model),
+                    "cleaned_count": len(cleaned_element),
+                    "removed": len(content_model) - len(cleaned_element)
+                }
+            }
     
     
     
@@ -904,5 +913,10 @@ class Agent:
                                                  session_id=query.session_id,
                                                  query_id=query.query_id,
                                                  project_id=query.project_id)
+        return {
+                "success": True,
+                "message": f"Successfully cleaned factsheet",
+                "data": cleaned_factsheet.model_dump(mode="json")
+            }
         
 
