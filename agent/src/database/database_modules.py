@@ -372,8 +372,9 @@ class SupabaseManager:
         project_claims = data.pop("project_claims", [])
 
         project_custom = data.pop("project_custom", {})
-        project_custom.pop("created_at", None)
-        project_custom.pop("project_id", None)
+        if project_custom:
+            project_custom.pop("created_at", None)
+            project_custom.pop("project_id", None)
 
         factsheet = FactSheet(**data,
                               **project_custom,
@@ -502,6 +503,23 @@ class SupabaseManager:
             except Exception as e:
                 logger.error(f'Error upserting claims for project {project_id} in Supabase: {e}')
 
+    def insert_project_element(self,data : list[dict],
+                    project_id : str,
+                    table_name: str):
+        if not isinstance(data, list):
+            raise ValueError("Data must be a list of BaseModel or dict instances.")
+        for item in data:
+            if not isinstance(item, dict):
+                raise ValueError("Each item in data must be a BaseModel or a dict.")
+            item["project_id"] = project_id
+        try:
+            if data: 
+                self.supabase.table(table_name).insert(data).execute()
+            
+            logger.debug(f'Inserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
+        except Exception as e:
+            logger.error(f'Error inserting items for project {project_id} in Supabase table {table_name}: {e}')
+    
     def save_project_element(self,
                     data : list[BaseModel],
                     project_id : str,
