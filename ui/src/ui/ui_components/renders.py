@@ -323,14 +323,15 @@ class SidebarComponent:
                 #"claude"
                 ),
                 horizontal=True,
-                index=0
+                index=1
             )
         
             all_models = []
             for provider, types in llm_options.items():
                 for _, model in types.items():
                     all_models.append(f"{provider} - {model}")
-            custom_llm = st.selectbox("Velg spesifikk modell (valgfritt):",options = all_models)
+            custom_llm = st.selectbox("Velg spesifikk modell (valgfritt):",
+                                      options = all_models)
             if custom_llm:
                 st.session_state.llm_model = custom_llm.replace(" - ","_")
             else:
@@ -426,23 +427,30 @@ class ProjectComponent:
     def clean_element(self,):
         streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
                                                   access_token=st.session_state.access_token)
-        with st.popover("Clean project element"):
-            elements = ["Events", "Parties", "Governing Law", "Claims", "Damages", "Deadlines",]
-            element_to_clean = st.selectbox("Select element to clean", options=elements)
+        with st.popover("Clean and update project element"):
+            relational_elements = ["Events", "Parties", "Governing Law", "Claims", "Damages", "Deadlines",]
+            metadata_elements = ["Background","Title"]
+            custom_law_elements =  ["Governing Law","Disputed & Undisputed Facts"]
+            element_to_clean = st.selectbox("Select element to clean", options=relational_elements + metadata_elements + custom_law_elements)
             if st.button("Clean Element", icon="🧹"):
                 element_key = element_to_clean.lower().replace(" ","_")
                 if element_key:
-                    response = streaming_service.cleanup_project_element(
-                        AskAgentRequest(
-                            project_id=st.session_state.project_id,
-                            session_id=st.session_state.session_id,
-                            attachments=[],
-                            question="",
-                            query_id=str(uuid4()),
-                            llm_model=st.session_state.llm_model,
-                        ),
-                        element_type=element_key
-                    )
+                    if element_to_clean in relational_elements:
+                        response = streaming_service.cleanup_project_element(
+                            AskAgentRequest(
+                                project_id=st.session_state.project_id,
+                                session_id=st.session_state.session_id,
+                                attachments=[],
+                                question="",
+                                query_id=str(uuid4()),
+                                llm_model=st.session_state.llm_model,
+                            ),
+                            element_type=element_key
+                        )
+                    elif element_to_clean in metadata_elements:
+                        pass #implement
+                    elif element_to_clean in custom_law_elements:
+                        pass
                     if response.status_code == 200 and response.json().get("success") == True:
                         response_json = response.json()
                         st.success(f"{response_json.get('message')}")
@@ -549,13 +557,24 @@ class ProjectComponent:
             for event in sorted_events:
                 st.markdown(f"**{event.get('event_date', 'No Date')}**: {event.get('description', 'No Description')}")
         
-        elements = {"parties" : "👥", "governing_law" : "⚖️", "claims" : "📄", "damages" : "💰", "deadlines" : "⏰",}
+        elements = {"parties" : "👥", "governing_law" : "⚖️", "claims" : "📄", "damages" : "💰", "deadlines" : "⏰",
+        }
         for field, icon in elements.items():
             self.display_field(label = field.replace("_"," ").title(), value = field, icon = icon, factsheet=factsheet)
         
         with st.expander("Background", expanded=False, icon="📚"):
             st.markdown(factsheet.get("background", ""))
         
+        with st.expander("disputed & undisputed facts", expanded=False, icon="⚔️"):
+            disputed_facts = factsheet.get('disputed_facts', [])
+            with st.expander("Disputed Facts", expanded=False, icon="❌"):
+                for fact in disputed_facts:
+                    st.markdown(f"- {fact}")
+            
+            with st.expander("Undisputed Facts", expanded=True, icon="✅"):
+                for fact in factsheet.get('undisputed_facts', []):
+                    st.markdown(f"- {fact}")
+            
 
         with st.expander("Attachments Overview", expanded=False, icon="📎"):
             for file in st.session_state.get('attachments', []):
@@ -613,10 +632,11 @@ class ProjectComponent:
                                     type=["txt", "csv", "xlsx", "pdf"],
                                     help="You can upload multiple files.")
         attachments = [self.attachment_component.mk_attachment_payload(f,query_id=query_id) for f in user_files] if user_files else []
+        #st.info(attachments)
         
         payload = AskAgentRequest(
             question=user_input,
-            attachments=attachments,
+            attachments=[att.model_dump() for att in attachments],
             session_id=st.session_state.session_id,
             query_id=query_id,
             llm_model=st.session_state.llm_model,
@@ -696,26 +716,31 @@ class ProjectComponent:
 
             try:
                 response = streaming_service.init_project(payload) if mode == "init" else streaming_service.update_project(payload)
+                st.json(response.json())
 
                 # Clear spinner
                 spinner_placeholder.empty()
 
                 if response.status_code == 200:
                     st.success("Project initialized successfully!")
-                    logger.info(f"Project initialized: {response.json()}")
-                    try:
-                        project_data = response.json()
-                    except Exception as e:
-                        logger.error(f"Error parsing factsheet JSON: {str(e)}")
-                        project_data = {}
+                    #logger.info(f"Project initialized: {response.json()}")
+                    if mode == "init":
+                        try:
+                            project_data = response.json()
+                        except Exception as e:
+                            logger.error(f"Error parsing factsheet JSON: {str(e)}")
+                            project_data = {}
 
-                    # Set factsheet and attachments from response
-                    st.session_state.project_data = project_data
-                    st.session_state.factsheet = project_data.get('factsheet')
-                    st.session_state.attachments = project_data.get('attachments', [])
+                        # Set factsheet and attachments from response
+                        st.session_state.project_data = project_data
+                        st.session_state.factsheet = project_data.get('factsheet')
+                        st.session_state.attachments = project_data.get('attachments', [])
+                    elif mode == "update":
+                        project_data = self.backend_service.load_project(project_id=st.session_state.project_id)
+                        st.session_state.factsheet = project_data.get('factsheet')
+                        st.session_state.attachments = project_data.get('attachments', [])
 
                     st.session_state.update_project_view = True
-
                     st.rerun()
                 else:
                     spinner_placeholder.empty()
