@@ -364,42 +364,78 @@ class ContextManager:
                                             size=size,)
             return result
 
-    async def clean_element(self,
-                         content : list[BaseModel],
-                         #factsheet : FactSheet,
-                         ) -> list:   
-        '''Function to clean and deduplicate a list of events.'''
-        map_model = {"Event" : Events,
-                     "Damage" : Damages,
-                     "Claim" : Claims,
-                     "Deadline" : Deadlines,
-                     "Party" : Parties,
-                     }
-        if not content or len(content) == 0:
-            logger.info('No content provided to clean.')
-            return
-        if not isinstance(content, list):
-            logger.warning(f'Content to clean is not a list: Instance {type(content)}. ')
-            return
+    async def clean_element(self, content: list[BaseModel], factsheet: FactSheet) -> list:   
+        '''Clean/merge items with LLM, then deduplicate with Python and assign UUIDs.'''
+        
+        if not content:
+            return []
+        
+        model_map = {
+            "Event": Events, "Damage": Damages, "Claim": Claims,
+            "Deadline": Deadlines, "Party": Parties
+        }
+        
         name = content[0].__class__.__name__
-        ContentList = map_model.get(name, None)
-
+        ContentList = model_map.get(name)
+        if not ContentList:
+            logger.error(f'Unknown content type: {name}')
+            return []
+        
+        id_field = f"{name.lower()}_id"
+        
+        # Step 1: LLM cleans/merges/fills missing info (but may create duplicates)
         structured_llm = self.llm.with_structured_output(ContentList)
-        existing_factsheet = "" #f'Existing factsheet:\n\n{factsheet.model_dump()}\n\n'
-        data = content.model_dump() if hasattr(content, 'model_dump') else content
-        prompt = existing_factsheet + f'Clean and deduplicate the {ContentList.__name__.lower()}. Remove any duplicate or irrelevant entries:\n\n{data}'
+        data = [item.model_dump() if hasattr(item, 'model_dump') else item for item in content]
+        prompt = (
+            f"Context: {factsheet.model_dump()}\n\n"
+            f"Clean, fill and update the information for these {name} items. Merge similar entries, remove duplicates and general or placeholder names:\n\n{data}"
+        )
+        
         response = await structured_llm.ainvoke(prompt)
-        if response:
-            logger.debug(f'Cleaned {len(response.model_dump().get(ContentList.__name__.lower(), []))} items from {len(content)} original items.')
-            return response.model_dump(mode = "json").get(ContentList.__name__.lower())
-        else:
+        if not response:
             logger.warning('No response from LLM during cleaning.')
+            return []
+        
+        llm_cleaned = response.model_dump(mode="json").get(ContentList.__name__.lower(), [])
+        
+        def preprocess(llm_cleaned, name, id_field):
+            # Step 2: Python deduplicates based on identity fields
+            identity_fields = {
+                "Event": ["event_date", "category", "event_name"],
+                "Damage": ["category", "file_id", "party_role"],
+                "Claim": ["relief_sought", "file_id", "party_role"],
+                "Deadline": ["file_id", "deadline_date", "party_role"],
+                "Party": ["legal_name", "role"],
+            }.get(name, [])
+            
+            seen = {}
+            result = []
+            
+            for item in llm_cleaned:
+                sig_values = tuple(item.get(field) for field in identity_fields)
+                
+                if sig_values in seen:
+                    logger.debug(f'Skipping duplicate {name}: {sig_values}')
+                    continue
+                
+                # Assign UUID if missing
+                if not item.get(id_field):
+                    item[id_field] = str(uuid.uuid4())
+                
+                seen[sig_values] = item[id_field]
+                result.append(item)
+            return result
+        
+        result = preprocess(llm_cleaned, name, id_field)
+        
+        logger.info(f'Cleaned {len(content)} {name} items -> {len(llm_cleaned)} (LLM) -> {len(result)} (deduplicated)')
+        return result
     
     async def clean_factsheet(self,
                          factsheet : FactSheet,
-                         ) -> FactualFacts:
+                         ) -> FactSheet:
         '''Function to clean and deduplicate disputed and undisputed facts.'''
-        structured_llm = self.llm.with_structured_output(FactualFacts)
+        structured_llm = self.llm.with_structured_output(FactSheet)
         factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
         prompt = f'Existing factsheet:\n\n{factsheet_data}\n\n' + f'Clean this factsheet. Remove irrelevant or duplicate contents.'
         try:
@@ -408,52 +444,7 @@ class ContextManager:
             logger.error(f'Error during factsheet cleaning: {e}', exc_info=True)
             return
     
-    # async def update_content(self,factsheet : FactSheet,
-    #                          #existing_init_input : InitialInput,
-    #                          #existing_governing_law : GoverningLaw,
-    #                          #existing_factual_facts : FactualFacts
-    #                          ) -> InitialInput | GoverningLaw | FactualFacts:
-    #     '''Method for updating parts of the factsheet based on new content.'''
-    #     class CombinedContent(BaseModel):
-    #         initial_input : InitialInput
-    #         governing_law : GoverningLaw
-    #         factual_facts : FactualFacts
-        
-    #     structured_llm = self.llm.with_structured_output(CombinedContent)
-    #     factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
-    #     prompt = f"Existing factsheet:\n\n{factsheet_data}\n\n" + f"Update the InitialInput, GoverningLaw, and FactualFacts of the factsheet"
-    #     return await structured_llm.ainvoke(prompt)
-
     
-    # async def clean_factsheet(self,
-    #                      factsheet : FactSheet,
-    #                      ) -> FactSheet:
-    #     '''Function to clean and deduplicate the entire factsheet.
-        
-    #     Args:
-    #         factsheet (FactSheet): The factsheet to clean.
-    #     Returns:
-    #         FactSheet: The cleaned factsheet.
-    #     '''
-    #     events = await self.clean(Events(events=factsheet.events))
-    #     claims = await self.clean(Claims(claims=factsheet.claims))
-    #     damages = await self.clean(Damages(damages=factsheet.damages))
-    #     deadlines = await self.clean(Deadlines(deadlines=factsheet.deadlines))
-
-    #     factsheet = FactSheet(
-    #         events=events.events,
-    #         claims=claims.claims,
-    #         damages=damages.damages,
-    #         deadlines=deadlines.deadlines,
-    #         governing_law=factsheet.governing_law,
-    #         disputed_facts=factsheet.disputed_facts,
-    #         undisputed_facts=factsheet.undisputed_facts,
-    #         parties=factsheet.parties,
-    #         background=factsheet.background,
-    #     )
-        
-    #     return factsheet
-
 class ToolManager:
     def __init__(self):
         pass
