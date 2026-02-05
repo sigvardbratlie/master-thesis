@@ -515,10 +515,16 @@ class SupabaseManager:
             data_dicts.append(item_dict)
 
         try:
-            self.supabase.table(table_name).upsert(data_dicts).execute()
-            logger.debug(f'Upserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
+            # FØRST: Slett alle eksisterende for dette prosjektet
+            self.supabase.table(table_name).delete().eq("project_id", project_id).execute()
+            
+            # SÅ: Insert de nye (cleaned) dataene
+            if data_dicts:  # Only insert if there's data
+                self.supabase.table(table_name).insert(data_dicts).execute()
+            
+            logger.debug(f'Replaced {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
-            logger.error(f'Error upserting items for project {project_id} in Supabase table {table_name}: {e}')
+            logger.error(f'Error replacing items for project {project_id} in Supabase table {table_name}: {e}')
 
     def load_projects(self,user_id: str):
         projects = self.supabase.table("projects").select("project_id, title, created_at").eq("user_id", user_id).execute()
