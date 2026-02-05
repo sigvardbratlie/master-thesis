@@ -9,14 +9,53 @@ from langgraph.graph.message import add_messages
 
 
 # ===== CONTEXT MANAGER MODELS
-party_roles = ["plaintiff", "defendant", "claimant", "respondent","witness", "expert","third_party","other"]
-entity_types = ["individual", "company", "government"]
-event_categories = [
-    "contract_signed", "breach_occurred", "notice_sent", "payment_due",
-    "payment_made", "termination", "meeting", "court_filing", "court_hearing",
-    "settlement_offer", "deadline", "other", 
+party_roles = Literal[
+    # Sivile hovedparter
+    "plaintiff",
+    "defendant",
+    "appellant",
+    "respondent",
+
+    # Straffesak
+    "prosecutor",
+    "defense_counsel",
+    "injured_party",
+    "injured_party_counsel",
+
+    # Representanter
+    "legal_rep_plaintiff",
+    "legal_rep_defendant",
+    "legal_rep_appellant",
+    "legal_rep_respondent",
+    "party_representative",   # prosessfullmektig som ikke er advokat
+    "guardian",               # verge/fullmektig
+    "estate_representative",  # bobestyrer/dødsbo
+
+    # Rettsaktører
+    "judge",
+    "court_clerk",
+    "witness",
+    "expert",
+    "translator",
+
+    # Andre prosessroller
+    "third_party",
+    "intervener",
+    "insurer",
+
+    # Real estate
+    "contractor",
+    "subcontractor",
+    "tenant",
+    "landlord",
+    "property_manager",
+
+    "other"
 ]
-significance_levels = ["high", "medium", "low"]
+
+entity_types = Literal["individual", "company", "government"]
+
+significance_levels = Literal["high", "medium", "low"]
 
 # === #Custom fields === 
 class GoverningLaw(BaseModel):
@@ -44,10 +83,10 @@ class Claim(BaseModel):
     )
     defense: Optional[str] = Field(None, description="Defense strategy if defending")
     file_id: Optional[str] = None
-    party_role : Optional[Literal["plaintiff", "defendant", "claimant", "respondent","witness", "expert","third_party","other"]] = None
+    party_role : Optional[party_roles] = None
 
 class Claims(BaseModel):
-    claims: list[Claim]
+    claims: list[Claim] = Field(description="Legal claims made by the parties, including legal and factual basis, relief sought, and strength assessment")
 
 class Damage(BaseModel):
     damage_id: Optional[str] = None
@@ -56,20 +95,20 @@ class Damage(BaseModel):
     basis: str
     supporting_evidence: list[str] = Field(description="File_IDs supporting the damage claim")
     file_id: Optional[str] = None
-    party_role: Optional[Literal["plaintiff", "defendant", "claimant", "respondent","witness", "expert","third_party","other"]] = None
+    party_role: Optional[party_roles] = None
 
 class Damages(BaseModel):
-    damages: list[Damage]
+    damages: list[Damage] = Field(description="Information about damages claimed or incurred in the case, including type, amount if mentioned, evidentiary basis, and associated party roles")
 
 class Deadline(BaseModel):
     deadline_id: Optional[str] = None
     deadline_date: date |datetime
     description: str
     file_id: Optional[str] = Field(None, description="Related attachment reference")
-    party_role : Optional[Literal["plaintiff", "defendant", "claimant", "respondent","witness", "expert","third_party","other"]] = None
+    party_role : Optional[party_roles] = None
 
 class Deadlines(BaseModel):
-    deadlines: list[Deadline]
+    deadlines: list[Deadline] = Field(description="Important deadlines mentioned in the case, e.g., contract milestones, court dates, statute of limitations, etc.")
 
 # ====== BASIC FIELDS =====
 class Contact(BaseModel):
@@ -81,15 +120,18 @@ class Contact(BaseModel):
 class Party(BaseModel):
     legal_name: str
     party_id : Optional[str] = None
-    role: Literal["plaintiff", "defendant", "claimant", "respondent","witness", "expert","third_party","other"]
-    entity_type: Literal["individual", "company", "government"]
+    role: party_roles = Field(
+        default="other",
+        description="Role of the party in the case, e.g., plaintiff, defendant, witness, legal representative, etc.")
+    entity_type: entity_types
     key_contact: Optional[Contact] = None
-    legal_representation: Optional[str] = Field(
-        None, description="Law firm representing this party"
-    )
+    #corporation : bool = Field(..., description="Is this party a company/organization (True) or an individual (False)")
+    # legal_representation: Optional[str] = Field(
+    #     None, description="Law firm representing this party"
+    # )
 
 class Parties(BaseModel):
-    parties: list[Party]
+    parties: list[Party] = Field(description="List of parties involved in the case, i.e., plaintiff, defendant, witnesses, plaintiffs legal representatives, etc.")
 
 class Event(BaseModel):
     event_id: Optional[str] = None
@@ -98,12 +140,12 @@ class Event(BaseModel):
     event_date: date | datetime
     description: str
     category: Literal[
-        "contract_signed", "breach_occurred", "notice_sent", "payment_due",
-        "payment_made", "termination", "meeting", "court_filing", "court_hearing",
-        "settlement_offer", "deadline", "other", 
-    ]
-    parties: list[Literal["plaintiff", "defendant", "claimant", "respondent","witness", "expert","third_party","other"]] = Field(description="Roles of parties involved in the event")
-    significance: Literal["high", "medium", "low"]
+    "contract_signed", "breach_occurred", "notice_sent", "payment_due",
+    "payment_made", "termination", "meeting", "court_filing", "court_hearing",
+    "settlement_offer", "deadline", "other", 
+]
+    parties: list[party_roles] = Field(description="Roles of parties involved in the event")
+    significance: significance_levels
     disputed: bool
 
 class Events(BaseModel):
@@ -111,7 +153,7 @@ class Events(BaseModel):
 
 class InitialInput(BaseModel):
     # Factual background
-    parties: list[Party]
+    parties: list[Party] = Field(description="List of parties involved in the case, i.e., plaintiff, defendant, witnesses, plaintiffs legal representatives, etc.")
     background: str
     title : str = Field(description="Title of the case or matter")
 
@@ -119,17 +161,20 @@ class AttachmentExtracted(BaseModel):
     description: str  = Field(description="Concise summary of the document content")
     key_provisions: Optional[list[str]] = Field(None, description="Important clauses or sections (for agreements)")
     #events: Optional[list[Event]] = Field(None, description="Key events mentioned in the document")
-    party_ids: Optional[list] = Field(None, description="Party_IDs mentioned in the document")
-    file_date : Optional[date] = None
+    party_roles: Optional[list[str]] = Field(None, description="Party roles mentioned in the document. E.g., plaintiff, defendant")
+    file_date : Optional[date] = Field(None, description="Date of the document (when it was created/sent, not when it was received)")
     category: Literal[
         "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
         "court_order", "invoice", "expert_report", "witness_statement", "internal_memo",
         "legal_opinion", "settlement_proposal", "power_of_attorney", "other"
-    ]
+    ] = Field(
+        default="other",
+        description="REQUIRED: Document category - select the most appropriate type. Choose 'agreement' for contracts, 'correspondence' for emails/letters, 'pleading' for court submissions, 'evidence' for supporting documents, 'court_order' for rulings, 'expert_report' for expert analyses, etc. If unclear, use 'other'"
+    )
     deadlines: Optional[list[Deadline]] = Field(None, description="Relevant deadline if the document sets one")
     damages: Optional[list[Damage]] = Field(None, description="Damage information if applicable")
     claims: Optional[list[Claim]] = Field(None, description="Claim information if applicable")
-    significance: Literal["high", "medium", "low"]
+    significance: significance_levels = Field(default="medium", description="Importance level: 'high' for core documents (contracts, pleadings, expert reports), 'medium' for supporting docs, 'low' for administrative")
 
 class Attachment(AttachmentExtracted):
     file_id: Optional[str] = None
