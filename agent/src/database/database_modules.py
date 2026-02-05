@@ -73,7 +73,7 @@ class FirestoreManager:
             return all_projects
         
         except Exception as e:
-            logger.error(f'Could not load projects for user {user_id}: {e}')
+            logger.error(f'Could not load projects for user {user_id}: {e}', exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
     def load_user_sessions(self, user_id: str):
@@ -122,7 +122,7 @@ class FirestoreManager:
             return all_sessions
         
         except Exception as e:
-            logger.error(f'Could not load sessions for user {user_id}: {e}')
+            logger.error(f'Could not load sessions for user {user_id}: {e}', exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
     def load_session_history(self, session_id: str, user_id: str):
@@ -162,7 +162,7 @@ class FirestoreManager:
             }
         
         except Exception as e:
-            logger.error(f"Error loading session history: {e}")
+            logger.error(f"Error loading session history: {e}", exc_info=True)
             return {"error": str(e)}
 
     def load_project_sessions(self, user_id: str, project_id: str):
@@ -212,7 +212,7 @@ class FirestoreManager:
             return all_sessions
         
         except Exception as e:
-            logger.error(f'Could not load sessions for user {user_id}: {e}')
+            logger.error(f'Could not load sessions for user {user_id}: {e}', exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -251,7 +251,7 @@ class FirestoreManager:
                     #title = await self.mk_title(title_msg)
                     title = self.summarizer.mk_title(title_msg)
                 except Exception as e:
-                    logger.error(f"Error creating title: {e}")
+                    logger.error(f"Error creating title: {e}", exc_info=True)
                     title = "Ny samtale"
 
             all_events.extend(new_events) if new_events else None
@@ -358,7 +358,7 @@ class SupabaseManager:
                 project_deadlines(*),
                 project_damages(*),
                 project_claims(*),
-                project_custom(*)"""
+                project_legal(*)"""
             
         project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
         
@@ -371,13 +371,15 @@ class SupabaseManager:
         project_damages = data.pop("project_damages", [])
         project_claims = data.pop("project_claims", [])
 
-        project_custom = data.pop("project_custom", {})
-        if project_custom:
-            project_custom.pop("created_at", None)
-            project_custom.pop("project_id", None)
+        project_legal = data.pop("project_legal", {})
+        if project_legal:
+            project_legal.pop("created_at", None)
+            project_legal.pop("project_id", None)
+        else:
+            logger.warning(f"No legal data found for project_id: {project_id}")
 
         factsheet = FactSheet(**data,
-                              **project_custom,
+                              **project_legal,
                               parties=project_parties,
                               events=project_events,
                               deadlines=project_deadlines,
@@ -429,7 +431,7 @@ class SupabaseManager:
             self.supabase.table("projects").upsert(factsheet_dict).execute()
             logger.debug(f'Project {project_id} upserted in Supabase.')
         except Exception as e:
-            logger.error(f'Error upserting factsheet project {project_id} in Supabase: {e}. Stopping process.')
+            logger.error(f'Error upserting factsheet project {project_id} in Supabase: {e}. Stopping process.', exc_info=True)
             return
 
         if file_dicts:
@@ -438,15 +440,15 @@ class SupabaseManager:
                 self.supabase.table("project_attachments").upsert(file_dicts).execute()
                 logger.debug(f'Upserted {len(files)} attachments for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting attachments for project {project_id} in Supabase: {e}')
+                logger.error(f'Error upserting attachments for project {project_id} in Supabase: {e}', exc_info=True)
 
         if custom:
             #========= PROJECT CUSTOM FIELDS ==========
             try:
-                self.supabase.table("project_custom").upsert({**custom, "project_id": project_id}).execute()
+                self.supabase.table("project_legal").upsert({**custom, "project_id": project_id}).execute()
                 logger.debug(f'Custom fields for project {project_id} upserted in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting custom fields for project {project_id} in Supabase: {e}')
+                logger.error(f'Error upserting custom fields for project {project_id} in Supabase: {e}', exc_info=True)
 
         if parties:
             # ========== PROJECT PARTIES ==========
@@ -457,7 +459,7 @@ class SupabaseManager:
                 self.supabase.table("project_parties").upsert(parties_with_project).execute()
                 logger.debug(f'Upserted {len(parties)} parties for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting parties for project {project_id} in Supabase: {e}')
+                logger.error(f'Error upserting parties for project {project_id} in Supabase: {e}', exc_info=True)
 
         if events:
             # ========== PROJECT EVENTS ==========
@@ -468,7 +470,7 @@ class SupabaseManager:
                 self.supabase.table("project_events").upsert(events_with_project).execute()
                 logger.debug(f'Upserted {len(events)} events for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting events for project {project_id} in Supabase: {e}')
+                logger.error(f'Error upserting events for project {project_id} in Supabase: {e}', exc_info=True)
 
         if deadlines:
             # ========== PROJECT DEADLINES ==========
@@ -479,7 +481,7 @@ class SupabaseManager:
                 self.supabase.table("project_deadlines").upsert(deadlines_with_project).execute()
                 logger.debug(f'Upserted {len(deadlines)} deadlines for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting deadlines for project {project_id} in Supabase: {e}')
+                logger.error(f'Error upserting deadlines for project {project_id} in Supabase: {e}', exc_info=True)
 
         # ========== PROJECT DAMAGES ==========
         if damages:
@@ -490,7 +492,7 @@ class SupabaseManager:
                 self.supabase.table("project_damages").upsert(damages_with_project).execute()
                 logger.debug(f'Upserted {len(damages)} damages for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting damages for project {project_id} in Supabase: {e}')
+                logger.error(f'Error upserting damages for project {project_id} in Supabase: {e}', exc_info=True)
 
         if claims:
             # ========== PROJECT CLAIMS ==========
@@ -501,29 +503,35 @@ class SupabaseManager:
                 self.supabase.table("project_claims").upsert(claims_with_project).execute()
                 logger.debug(f'Upserted {len(claims)} claims for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting claims for project {project_id} in Supabase: {e}')
+                logger.error(f'Error upserting claims for project {project_id} in Supabase: {e}', exc_info=True)
 
     def insert_project_element(self,data : list[dict],
                     project_id : str,
                     table_name: str):
+        if not data:
+            logger.warning(f"No data provided to insert for project {project_id} in table {table_name}. Skipping insert.")
+            return
         if not isinstance(data, list):
             raise ValueError("Data must be a list of BaseModel or dict instances.")
+        
         for item in data:
             if not isinstance(item, dict):
                 raise ValueError("Each item in data must be a BaseModel or a dict.")
             item["project_id"] = project_id
         try:
-            if data: 
-                self.supabase.table(table_name).insert(data).execute()
-            
+            self.supabase.table(table_name).insert(data).execute()
             logger.debug(f'Inserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
-            logger.error(f'Error inserting items for project {project_id} in Supabase table {table_name}: {e}')
+            logger.error(f'Error inserting items for project {project_id} in Supabase table {table_name}: {e}',exc_info=True)
     
-    def save_project_element(self,
+    def replace_project_element(self,
                     data : list[BaseModel],
                     project_id : str,
                     table_name: str):
+        if not data:
+            logger.warning(f"No data provided to replace for project {project_id} in table {table_name}. Skipping replace.")
+            return
+
         data_dicts = []
         for item in data:
             item_dict = item.model_dump(mode='json') if hasattr(item, 'model_dump') else item
@@ -533,12 +541,12 @@ class SupabaseManager:
             data_dicts.append(item_dict)
 
         try:
-            # FØRST: Slett alle eksisterende for dette prosjektet
             self.supabase.table(table_name).delete().eq("project_id", project_id).execute()
             
-            # SÅ: Insert de nye (cleaned) dataene
-            if data_dicts:  # Only insert if there's data
+            if data_dicts:  
                 self.supabase.table(table_name).insert(data_dicts).execute()
+            else:
+                logger.warning(f"No data provided to replace for project {project_id} in table {table_name}. Skipping insert after delete.")
             
             logger.debug(f'Replaced {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
@@ -559,7 +567,6 @@ class SupabaseManager:
     def load_project_sessions(self,project_id: str, ):
         project_sessions = self.supabase.table("sessions").select("session_id, title, updated_at, llm_model").eq("project_id", project_id).execute()
         if project_sessions.data:
-            # Sorter etter updated_at (nyeste først)
             sorted_sessions = sorted(
                 project_sessions.data, 
                 key=lambda x: x.get("updated_at") or "", 
@@ -572,42 +579,51 @@ class SupabaseManager:
         '''Load all sessions for a user from Supabase'''
         try:
             sessions = self.supabase.table("sessions").select("title, session_id, updated_at").eq("user_id", user_id).order("updated_at", desc=True).execute()
+            if sessions.data:
+                sorted_sessions = sorted(
+                sessions.data, 
+                key=lambda x: x.get("updated_at") or "", 
+                reverse=True
+            )
             logger.debug(f'Loaded {len(sessions.data)} sessions for user {user_id} from Supabase.')
-            return sessions.data
+            return sorted_sessions
+            
         except Exception as e:
-            logger.error(f'Could not load sessions for user {user_id} from Supabase: {e}')
+            logger.error(f'Could not load sessions for user {user_id} from Supabase: {e}', exc_info=True)
             return []
 
     def load_session_history(self, session_id: str,
                              #user_id: str = None
                              ) -> dict: #rm user_id
         '''Load session history for a given session from Supabase'''
-        try:
-            session_events = self.supabase.table("session_events").select("*").eq("session_id", session_id).order("order", desc=False).execute()
-        except Exception as e:
-            logger.error(f'Could not load session events for session {session_id} from Supabase: {e}')
-            return {"error": str(e)}
-        try:    
-            session_attachments = self.supabase.table("session_attachments").select("*").eq("session_id", session_id).execute()
-        except Exception as e:
-            logger.error(f'Could not load session attachments for session {session_id} from Supabase: {e}')
-            return {"error": str(e)}
-        try:
-            session = self.supabase.table("sessions").select("*").eq("session_id", session_id).execute()
+        query = """ *,
+                    session_events(*),
+                    session_attachments(*)
+                    """
+        response = self.supabase.table("sessions").select(query).eq("session_id", session_id).single().execute()
+        if response.data:
+            session_data = response.data
+            session_events = session_data.pop("session_events", [])
+            session_attachments = session_data.pop("session_attachments", [])
             logger.debug(f'Loaded session history for session {session_id} from Supabase.')
-        except Exception as e:
-            logger.error(f'Could not load session for session {session_id} from Supabase: {e}')
-            return {"error": str(e)}
-        
-        session_data = session.data[0] if session.data else {}
-        return {
-                "events": session_events.data,  
-                'attachments': session_attachments.data,
-                "project_id": session_data.get("project_id",""),
-                "title": session_data.get("title",""), 
-                "llm_model": session_data.get("llm_model"),
-                "last_updated": session_data.get("updated_at"),
-            }
+            return {
+                    "events": session_events,  
+                    'attachments': session_attachments,
+                    "project_id": session_data.get("project_id",""),
+                    "title": session_data.get("title",""), 
+                    "llm_model": session_data.get("llm_model"),
+                    "updated_at": session_data.get("updated_at"),
+                }
+        else:
+            logger.warning(f"No session found for session_id: {session_id} in Supabase.")
+            return {
+                    "events": [],
+                    'attachments': [],
+                    "project_id": "",
+                    "title": "Ny samtale", 
+                    "llm_model": None,
+                    "updated_at": None,
+                }
 
     def save_stream(self, 
                     data : StreamData,
@@ -644,7 +660,7 @@ class SupabaseManager:
                 summarizer = Summarizer()
                 title = summarizer.mk_title(title_msg)
             except Exception as e:
-                logger.error(f"Error creating title: {e}")
+                logger.error(f"Error creating title: {e}", exc_info=True)
                 title = "Ny samtale"
 
         try:
@@ -656,16 +672,16 @@ class SupabaseManager:
                 "llm_model" : data.llm_model,}).execute()
             logger.debug(f'Session {session_id} upserted in Supabase.')
         except Exception as e:
-            logger.error(f'Error upserting session {session_id} in Supabase: {e}. Stopping process.')
+            logger.error(f'Error upserting session {session_id} in Supabase: {e}. Stopping process.', exc_info=True)
             return 
 
         try:
             self.supabase.table("session_events").insert(new_events).execute() if new_events else None
             logger.debug(f'Inserted {len(new_events)} events for session {session_id} in Supabase.')
         except Exception as e:
-            logger.error(f'Error inserting events for session {session_id} in Supabase: {e}')
+            logger.error(f'Error inserting events for session {session_id} in Supabase: {e}', exc_info=True)
         try:
             self.supabase.table("session_attachments").insert(new_attachments).execute() if new_attachments else None
             logger.debug(f'Inserted {len(new_attachments)} attachments for session {session_id} in Supabase.')
         except Exception as e:
-            logger.error(f'Error inserting attachments for session {session_id} in Supabase: {e}')
+            logger.error(f'Error inserting attachments for session {session_id} in Supabase: {e}', exc_info=True)
