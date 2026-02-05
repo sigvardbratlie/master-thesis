@@ -39,6 +39,7 @@ def init_state():
 
     # UI state
     st.session_state.setdefault("question_to_process", None)
+    st.session_state.setdefault('attachment_cache', {})
     st.session_state.setdefault("files_to_process", [])
     st.session_state.setdefault("sessions_loaded", False)
     st.session_state.setdefault("current_session_loaded", False)

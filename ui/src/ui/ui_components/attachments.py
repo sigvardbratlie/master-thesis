@@ -77,14 +77,14 @@ class AttachmentComponent:
                 st.error(f"Kunne ikke laste innhold for {file.name}")
 
 
-    def view_attachment(self, attachment: dict, content_bytes: Optional[bytes] = None):
+    def view_attachment(self, attachment: dict, content_bytes: Optional[bytes] = None, key = None):
         """Display attachments from session history"""
         file_id = attachment.get('file_id')
         cache_key = f"{st.session_state.session_id}_{file_id}"
         
         open_att = st.button(
             f"- {attachment.get('filename')}",
-            key=f"att_{file_id}"
+            key=key if key else f"att_{file_id}_{uuid.uuid4()}"
         )
         
         if open_att:
