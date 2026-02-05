@@ -20,8 +20,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.documents import Document
 from langgraph.graph import StateGraph, END
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
+from langchain.chat_models import init_chat_model
 
 from agent.agent_modules import Summarizer,ContextManager, ToolManager
 from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore, DocumentProcessor
@@ -288,23 +287,29 @@ class Agent:
         result = state["messages"][-1]
         return hasattr(result, "tool_calls") and len(result.tool_calls) > 0
 
+    # Maps UI provider names to init_chat_model provider identifiers
+    PROVIDER_MAP = {
+        "google": "google_genai",
+        "openai": "openai",
+    }
+
+    def _pick_llm(self, llm_model: str) -> BaseChatModel:
+        """Create LLM via init_chat_model from 'provider_model' string (e.g. 'google_gemini-2.5-flash')."""
+        provider_key, model_name = llm_model.split("_", 1)
+        model_provider = self.PROVIDER_MAP.get(provider_key)
+        if not model_provider:
+            logger.warning(f"Unknown provider '{provider_key}', defaulting to google_genai.")
+            model_provider = "google_genai"
+        logger.debug(f'Picking LLM: Provider: {model_provider}, Model: {model_name}')
+        return init_chat_model(model_name, model_provider=model_provider)
+
     def _compile_agent(self,llm_model : str ,query_id : str,):
         """
         Compiles the agent graph with the selected LLM.
         """
 
         logger.info(f"USER INPUT COMPILE AGENT: Model name : {llm_model}")
-        llm_provider, model_name = llm_model.split("_")
-        if llm_provider == "google":
-            selected_llm = ChatGoogleGenerativeAI(project = project_id , model=model_name)
-        elif llm_provider == "openai":
-            selected_llm = ChatOpenAI(model=model_name)
-        else:
-            logger.warning(f"No valid llm provider selected, defaulting to Google Gemini.")
-            selected_llm = ChatGoogleGenerativeAI(project = project_id , model="gemini-2.5-flash")
-
-        if not selected_llm:
-            raise ValueError(f'Invalid model name: {model_name}.')
+        selected_llm = self._pick_llm(llm_model)
 
         llm = selected_llm.bind_tools(self.tools)
 
@@ -572,6 +577,7 @@ class Agent:
                                  user_id : str,
                                  ):
         '''Initial project scan to generate FactSheet from initial input and attachments'''
+        self.context_manager.llm = self._pick_llm(query.llm_model)
 
         events: list[Event] = []
         damages: list[Damage] = []
@@ -733,6 +739,7 @@ class Agent:
                              ):
         '''Update the project with new input and attachments'''
 
+        self.context_manager.llm = self._pick_llm(query.llm_model)
         # Validate project_data first
         project_data = await asyncio.to_thread(
             self.conversation_manager.load_project,
@@ -769,7 +776,7 @@ class Agent:
         deadlines: list[Deadline] = [] #factsheet.deadlines if factsheet and factsheet.deadlines else []
 
         
-        sem = asyncio.Semaphore(20)  # Increased from 5 to 20 for better parallelism
+        sem = asyncio.Semaphore(20)  
         async def analyze_new_doc_with_limit(att, factsheet,query):
             async with sem:
                 return await self.context_manager.consider_new_doc(
@@ -807,51 +814,97 @@ class Agent:
                 if result.get("events"):
                     events.extend(result.get("events"))
 
+            for event in events:
+                if not event.event_id:
+                    event.event_id = str(uuid4())
             
-            storage_saving_tasks = []  # Clear storage tasks after completion
+            for damage in damages:
+                if not damage.damage_id:
+                    damage.damage_id = str(uuid4())
             
-            storage_saving_tasks.append(self.conversation_manager.save_project_element(
-                data = events,
-                project_id=query.project_id,
-                table_name = "project_events")) if events else None
-            storage_saving_tasks.append(self.conversation_manager.save_project_element(
-                data = files,
-                project_id=query.project_id,
-                table_name = "project_attachments")) if files else None
-            storage_saving_tasks.append(self.conversation_manager.save_project_element(
-                data = damages,
-                project_id=query.project_id,
-                table_name = "project_damages")) if damages else None
-            storage_saving_tasks.append(self.conversation_manager.save_project_element(
-                data = claims,
-                project_id=query.project_id,
-                table_name = "project_claims")) if claims else None
-            storage_saving_tasks.append(self.conversation_manager.save_project_element(
-                data = deadlines,
-                project_id=query.project_id,
-                table_name = "project_deadlines")) if deadlines else None   
+            for claim in claims:
+                if not claim.claim_id:
+                    claim.claim_id = str(uuid4())
             
-            await asyncio.gather(*storage_saving_tasks)
+            for deadline in deadlines:
+                if not deadline.deadline_id:
+                    deadline.deadline_id = str(uuid4())
+            
+            # Save to database: FIRST attachments (due to foreign key constraints), THEN related data
+            # Step 1: Save attachments first
+            if files and hasattr(files[0], "model_dump"):
+                await asyncio.to_thread(
+                    self.conversation_manager.insert_project_element,
+                    data = [file.model_dump(mode="json", exclude = {"claims","damages","deadlines","events"}) for file in files],
+                    project_id=query.project_id,
+                    table_name = "project_attachments")
+            else:
+                logger.warning("No valid files to save or missing model_dump method.")
+            
+            # Step 2: Save related data in parallel (events, damages, claims, deadlines)
+            related_tasks = []
+            if events and hasattr(events[0], "model_dump"):
+                related_tasks.append(asyncio.to_thread(
+                    self.conversation_manager.insert_project_element,
+                    data = [event.model_dump(mode="json") for event in events],
+                    project_id=query.project_id,
+                    table_name = "project_events"))
+            else:
+                logger.warning("No valid events to save or missing model_dump method.")
+            if damages and hasattr(damages[0], "model_dump"):
+                related_tasks.append(asyncio.to_thread(
+                    self.conversation_manager.insert_project_element,
+                    data = [damage.model_dump(mode="json") for damage in damages],
+                    project_id=query.project_id,
+                    table_name = "project_damages"))
+            else:
+                logger.warning("No valid damages to save or missing model_dump method.")
+            if claims and hasattr(claims[0], "model_dump"):
+                related_tasks.append(asyncio.to_thread(
+                    self.conversation_manager.insert_project_element,
+                    data = [claim.model_dump(mode="json") for claim in claims],
+                    project_id=query.project_id,
+                    table_name = "project_claims"))
+            else:
+                logger.warning("No valid claims to save or missing model_dump method.")
+            if deadlines and hasattr(deadlines[0], "model_dump"):
+                related_tasks.append(asyncio.to_thread(
+                    self.conversation_manager.insert_project_element,
+                    data = [deadline.model_dump(mode="json") for deadline in deadlines],
+                    project_id=query.project_id,
+                    table_name = "project_deadlines"))
+            else:
+                logger.warning("No valid deadlines to save or missing model_dump method.")
+            if related_tasks:
+                await asyncio.gather(*related_tasks)
 
         return {"events" : [event.model_dump(mode="json") for event in events],
-                "attachments" : [file.model_dump(mode="json") for file in files],
+                "attachments" : [file.model_dump(mode="json", exclude={"claims","damages","deadlines","events"}) for file in files],
                 "damages" : [damage.model_dump(mode="json") for damage in damages],
                 "claims" : [claim.model_dump(mode="json") for claim in claims],
                 "deadlines" : [deadline.model_dump(mode="json") for deadline in deadlines],
                 }
             
-    
+    def _is_valid_uuid(self, val):
+        try:
+            uuid.UUID(str(val))
+            return True
+        except ValueError:
+            return False
+
     async def cleanup_element(self,
                               query : AskAgentRequest,
                               element_type: str,
                              ):
         '''Cleanup project data if needed'''
+        self.context_manager.llm = self._pick_llm(query.llm_model)
+
         valid_element_types = {
-            "events": Event,
-            "damages": Damage,
-            "claims": Claim,
-            "deadlines": Deadline,
-            "parties": Party,
+            "events": Events,
+            "damages": Damages,
+            "claims": Claims,
+            "deadlines": Deadlines,
+            "parties": Parties,
         }
         if element_type not in list(valid_element_types.keys()):
             raise ValueError(f"Invalid element_type: {element_type}. Must be one of {', '.join(list(valid_element_types.keys()))}")
@@ -868,12 +921,15 @@ class Agent:
         
         factsheet : FactSheet = project_data.get("factsheet", {})
         content = factsheet.model_dump().get(element_type, [])
-        if not content:
-            return {"message" : "No content"}
-        content_model = [valid_element_types[element_type].model_validate(c) for c in content] if content else []
+
+        #content_model = [valid_element_types[element_type].model_validate(c) for c in content] if content else []
+        content_model = valid_element_types[element_type].model_validate({element_type : content}) if content else None
         cleaned_element = await self.context_manager.clean_element(content = content_model,
                                                                    factsheet=factsheet,
+                                                                   element_type=element_type
                                                                    )
+        
+        
         self.conversation_manager.save_project_element(data =cleaned_element,
                                                        project_id=query.project_id,
                                                        table_name = f"project_{element_type}")
@@ -882,9 +938,9 @@ class Agent:
                 "message": f"Successfully cleaned {element_type}",
                 "data": {
                     "element_type": element_type,
-                    "original_count": len(content_model),
-                    "cleaned_count": len(cleaned_element),
-                    "removed": len(content_model) - len(cleaned_element)
+                    "original_count": len(getattr(content_model, element_type)) if content_model else 0,
+                    "cleaned_count": len(cleaned_element) if cleaned_element else 0,
+                    "removed": (len(getattr(content_model, element_type)) if content_model else 0) - (len(cleaned_element) if cleaned_element else 0)
                 }
             }
     
