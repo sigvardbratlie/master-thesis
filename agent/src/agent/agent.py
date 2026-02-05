@@ -930,7 +930,7 @@ class Agent:
                                                                    )
         
         
-        self.conversation_manager.save_project_element(data =cleaned_element,
+        self.conversation_manager.replace_project_element(data =cleaned_element,
                                                        project_id=query.project_id,
                                                        table_name = f"project_{element_type}")
         return {
