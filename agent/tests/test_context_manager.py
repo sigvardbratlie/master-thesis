@@ -1,176 +1,205 @@
-import datetime
-from langchain_core.documents import Document
-from agent.basemodels import Contact, Party,InitialInput, Attachment,FactualFacts,GoverningLaw,FactSheet
+import pytest
+import sys
+import os
+from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from tests.fixtures.context_manager_data import get_mock_agent_state, get_mock_init_input
+from tests.fixtures.supabase_data import get_mock_load_project_data
+import tiktoken
+from agent.basemodels import * 
+from typing import List
+from pydantic import BaseModel
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+from agent.agent_modules import ContextManager
+
+@pytest.fixture
+def mock_context_manager():
+    """
+    Pytest fixture som oppretter en ContextManager med mocket data.
+    
+    Eksempel bruk:
+    def test_something(mock_context_manager):
+        # mock_context_manager er allerede konfigurert
+        pass
+    """
+    
+    llm_mock = MagicMock()
+    manager = ContextManager(llm = llm_mock)
+    yield manager
+
+def test_truncate_tokens(mock_context_manager):
+    state = get_mock_agent_state()
+    enc = tiktoken.encoding_for_model("gpt-4o-mini")
+    org_token_count = sum(len(enc.encode(msg.content)) for msg in state)
+    max_tokens = 500
+    result = mock_context_manager.truncate_tokens(messages=state, max_tokens=max_tokens)
+    token_count = 0
+    for msg in result:
+        token_count += len(enc.encode(msg.content))
 
 
-init_dict = {'parties': [{'legal_name': 'Andreas Nilsen',
-   'party_id': '2bd1e4d6-506c-4676-83b3-7c6c56f838d6',
-   'role': 'claimant',
-   'entity_type': 'individual',
-   'key_contact': {'name': 'Andreas Nilsen',
-    'title': None,
-    'phone': None,
-    'email': None},
-   'legal_representation': None},
-  {'legal_name': 'Berit Johansen',
-   'party_id': '2a0108fa-eadc-444c-889b-6197d43d3952',
-   'role': 'claimant',
-   'entity_type': 'individual',
-   'key_contact': {'name': 'Berit Johansen',
-    'title': None,
-    'phone': None,
-    'email': None},
-   'legal_representation': None},
-  {'legal_name': 'Unknown Insurance Company',
-   'party_id': 'e1dd3160-7f06-41d3-a5df-76d3a6d55b63',
-   'role': 'respondent',
-   'entity_type': 'company',
-   'key_contact': None,
-   'legal_representation': None}],
- 'background': 'Andreas Nilsen and Berit Johansen purchased a detached house at Granveien 15B in Oslo in August 2023 for 15.5 million NOK. The takeover was on November 11, 2023. After takeover, they discovered several serious defects, including electrical faults and chimney problems. They sent a complaint in December 2023, and an insurance company has responded. The current date is January 2024.',
- 'title': 'Property Dispute - Granveien 15B (Defects after purchase)'}
-init_input = InitialInput().model_validate(init_dict)
+    
+    assert token_count < org_token_count
+    assert len(result) < len(state)
+    assert result[-1].content == state[-1].content
 
-analyzed_dict1 = {'description': "Purchase agreement for the property Granveien 15B, Oslo, between Camilla Marie Hansen and Daniel Erik Hansen (sellers) and Andreas Nilsen and Berit Johansen (buyers). It details the purchase price, takeover date, included documentation, and special terms, including the property being sold with seller's property insurance.",
- 'key_provisions': ['Kjøpesum: NOK 15 500 000,-',
-  'Overtakelse: 11. november 2023',
-  'Kjøper har mottatt og gjennomgått tilstandsrapport',
-  'Eiendommen selges med boligselgerforsikring',
-  'Standard vilkår i Norges Eiendomsmeglerforbunds kjøpekontrakt legges til grunn',
-  'Medfølgende dokumentasjon: Tilstandsrapport datert 30. mars 2023 fra ProTakst AS v/David Storvik'],
- 'party_ids': ['2bd1e4d6-506c-4676-83b3-7c6c56f838d6',
-  '2a0108fa-eadc-444c-889b-6197d43d3952'],
- 'file_date': '2023-08-25',
- 'category': 'agreement',
- 'deadlines': [{'deadline_id': None,
-   'deadline_date': '2023-11-11',
-   'description': 'Takeover date for the property at Granveien 15B.',
-   'file_id': 'f5375486c3936fee0e3b84d89c72c1f8',
-   'party_role': 'claimant'}],
- 'damages': None,
- 'claims': None,
- 'significance': 'high',
- 'file_id': 'f5375486c3936fee0e3b84d89c72c1f8',
- 'filename': '2023-08-25_01_kjøpekontrakt_2023-08-25.txt',
- 'path': '53d63d18-cfa1-416e-96e8-770c8f66507b/27a6c75d-e50f-4201-93b6-78ded5d25f44/f5375486c3936fee0e3b84d89c72c1f8.txt',
- 'file_type': 'text/plain',
- 'size': 1398,
- 'events': None}
-analyzed_dict2 = {'description': "An email from the seller, Daniel Hansen, to the buyers, Andreas Nilsen and Berit Johansen, responding to questions about the condition of the house at Granveien 15B. It states that the heat pumps are functional, no planned improvements are needed, and that previous renovations (bathroom, roof, electrical work) were completed by professionals and are 'all checked and in order'.",
- 'key_provisions': ['Varmepumpene: Ja, de fungerer fint.',
-  'Utbedringer: Nei, vi har ingen planlagte utbedringer. Alt vi ønsket å gjøre er ferdig. Huset er klart til innflytting.',
-  'Som dere så gjorde vi bad oppe i 2020/2021 med fagfolk (Moderne Bygg), og vi skiftet tak i 2021 (AllFix).',
-  'Elektrikeren har også vært innom og gjort det som skulle gjøres. Alt er sjekket og i orden.',
-  'Dere vil få all dokumentasjon på arbeidene vi har gjort.'],
- 'party_ids': ['2bd1e4d6-506c-4676-83b3-7c6c56f838d6',
-  '2a0108fa-eadc-444c-889b-6197d43d3952'],
- 'file_date': '2023-08-21',
- 'category': 'correspondence',
- 'deadlines': None,
- 'damages': None,
- 'claims': None,
- 'significance': 'high',
- 'file_id': 'cbb594a1c8bda2dbec6904b560d5c3ad',
- 'filename': '2023-08-21_12_epost_selger_til_kjoeper_2023-08-21.txt',
- 'path': '53d63d18-cfa1-416e-96e8-770c8f66507b/27a6c75d-e50f-4201-93b6-78ded5d25f44/cbb594a1c8bda2dbec6904b560d5c3ad.txt',
- 'file_type': 'text/plain',
- 'size': 1094,
- 'events': None}
-analyzed_docs = [Attachment().model_validate(doc) for doc in [analyzed_dict1, analyzed_dict2]]
-
-rag = [Document(metadata={'doc_id': '3479e7ee277745cdb890fd5683262775', 
-                          'date_code': 'LOV-1977-04-29-34', 
-                          'document_id': 'NL/lov/1977-04-29-34', 
-                          'department': 'Kommunal- og distriktsdepartementet', 
-                          'last_amendment_effective': '2004-01-01', 
-                          'last_amended_by': 'lov/2003-09-12-93fra 2004-01-01', 
-                          'legal_area': 'Fast eiendoms rettsforhold>AvhendingForvaltnings- og kommunalrett>Kommuner og fylkeskommuner', 
-                          'rettet': '2021-08-26 (faglige fotnoter fjernet, struktur)', 
-                          'short_title': 'Lov om kommunal forkjøpsrett til leiegårder', 
-                          'title': 'Lov om kommunal forkjøpsrett til leiegårder', 
-                          'other_about_document': None, 'ref_id': 'lov/1977-04-29-34', 
-                          'contents': 'Lov om kommunal forkjøpsrett til leiegårder§ 1.§ 2.§ 3.§ 4.§ 5.§ 6.§ 7.§ 8.§ 9.§ 10.§ 11.§ 12.', 
-                          'paragraph_number': '', 'data_name': '§9', 'paragraph_id': 'paragraf-9', 
-                          'anna_om_dokumentet': None, 'in_force_from': '1977-04-29', 'eøs-henvisning': None, 'endrar': None, 'endrer': None, 
-                          'gjelder_for': None, 'eøs-henvising': None, 'kunngjort': None, 'score': 0.8552401492658618}, 
-                          page_content='Den som etter at kommunens forkjøpsrett ble aktuell, har fått tinglyst hjemmel til leiegård som kommunen gjør gjeldende forkjøpsrett til, plikter etter krav fra kommunen å overføre leiegården eller rettigheter til kommunen mot at denne foretar oppgjør etter reglene i§ 7.'), 
-        Document(metadata={'doc_id': '36c094fe3c6a4ac6a5d48e8fbdc411e9', 'date_code': 'LOV-1988-05-13-27', 'document_id': 'NL/lov/1988-05-13-27', 'department': 'Justis- og beredskapsdepartementet', 'last_amendment_effective': '2014-11-01', 'last_amended_by': 'lov/2014-02-28-2fra 2014-11-01', 'legal_area': 'Forbruker-, kjøps- og konkurranserett>Kjøp', 'rettet': '2022-04-22 (tegnsetting i lister i loven tilpasset universell utforming)', 'short_title': 'Kjøpsloven – kjl', 
-                           'title': 'Lov om kjøp [kjøpsloven]', 
-                           'other_about_document': 'Jf.tidligerekjøpslov24 mai 1907 nr. 2. – Jf.lover 30 juni 1916 nr. 1,31 mai 1918 nr. 4,3 apr 1964 nr. 1,2 juni 1978 nr. 37(godtroerverv),16 juni 1989 nr. 63(håndverkertjenester),3 juli 1992 nr. 93(fast eiendom),21 des 2000 nr. 105(angrerett),21 juni 2002 nr. 34(forbrukerkjøp),29 juni 2007 nr. 75(verdipapirhandel),9 jan 2009 nr. 2(markedsføring). – Jf. konvensjon 11 apr 1980 (CISG), kunngjort 13 mai 1988 nr. 426, inntatt etter loven her.', 
-                           'ref_id': 'lov/1988-05-13-27', 
-                           'contents': 'Lov om kjøp [kjøpsloven]Kapittel I. Virkeområde.§ 1. Alminnelig virkeområde.§ 2. Tilvirkingskjøp. Tjenesteavtale.§ 3. Avtale og handelsbruk.§ 4. (Opphevet)§ 5. Internasjonalt kjøp.Kapittel II. Leveringen.§ 6. Hentekjøp.§ 7. Plasskjøp og sendekjøp.§ 8. Tilleggsplikter ved sendekjøp.§ 9. Leveringstid.§ 10. Selgerens tilbakeholdsrett.§ 11. Kostnader.Kapittel III. Risikoen for tingen.§ 12. Hva risikoen innebærer.§ 13. Risikoens overgang.§ 14. Identifikasjon av tingen.§ 15. Transitt.§ 16. Tilbakelevering ved kjøp med returrett.Kapittel IV. Varens egenskaper; mangler m m.§ 17. Varens egenskaper.§ 18. Opplysning om egenskaper eller bruk.§ 19. Ting solgt «som den er». Auksjonssalg.§ 20. Kjøperens onde tro, forundersøkelse m m.§ 21. Tidspunkt for mangel.Kapittel V. Kjøperens krav ved kontraktbrudd fra selgerens side.Forsinkelse§ 22. Innledende bestemmelse.§ 23. Rett til oppfyllelse.§ 24. Forespørsel.§ 25. Heving.§ 26. Heving av tilvirkingskjøp.§ 27. Erstatning.§ 28. Opplysningsplikt om hindring.§ 29. Frist for å heve.Mangler§ 30. Innledende bestemmelse.§ 31. Kjøperens undersøkelse etter leveringen.§ 32. Reklamasjon.§ 33. Unntak fra reklamasjonsreglene.§ 34. Krav på retting og omlevering (avhjelp).§ 35. Melding om krav på retting eller omlevering (avhjelp).§ 36. Selgerens rett til retting eller omlevering (avhjelp).§ 37. Prisavslag eller heving etter manglende avhjelp.§ 38. Prisavslag.§ 39. Heving.§ 40. Erstatning.Rettsmangler m m§ 41. Rettsmangler. Andre tredjemannskrav.Øvrige bestemmelser§ 42. Kjøperens tilbakeholdsrett.§ 43. Kontraktbrudd ved del av tingen.§ 44. Levering etter hvert.Kapittel VI. Kjøperens plikter.Kjøpesummens størrelse§ 45.§ 46.§ 47.Kjøpesummens betaling§ 48.§ 49.Kjøperens medvirkning ved oppfyllelse av kjøpet§ 50.Kapittel VII. Selgerens krav ved kontraktbrudd fra kjøperens side.§ 51. Innledende bestemmelse.§ 52. Rett til oppfyllelse ved å kreve betaling. Avbestilling.§ 53. Rett til oppfyllelse ved å kreve medvirkning til kjøpet.§ 54. Heving når kjøperen ikke betaler.§ 55. Heving når kjøperen ikke medvirker.§ 56. Levering etter hvert.§ 57. Erstatning.§ 58. Opplysningsplikt om hindring.§ 59. Selgerens frist for å heve.§ 60. Spesifikasjon.Kapittel VIII. Fellesregler om forventet kontraktbrudd, insolvens m m.§ 61. Forventet kontraktbrudd.§ 62. Heving ved forventet kontraktbrudd.§ 63. Insolvensbehandling.Kapittel IX. Fellesregler om heving eller omlevering.§ 64. Virkninger.§ 65. Avkasting og rente ved tilbakeføring.§ 66. Tap av krav på heving og omlevering.Kapittel X. Erstatningens omfang. Rente.Omfanget av erstatning§ 67. Alminnelig regel.§ 68. Prisforskjell ved dekningstransaksjon.§ 69. Prisforskjell når det ikke foreligger dekningstransaksjon.§ 70. Plikt til å begrense tap. Lemping av ansvaret.Rente§ 71.Kapittel XI. Omsorg for tingen.§ 72. Selgerens plikt til omsorg.§ 73. Kjøperens plikt til omsorg.§ 74. Forvaring hos tredjemann.§ 75. Erstatning og sikkerhet for kostnader.§ 76. Salg.§ 77. Annen disposisjon enn salg.§ 78. Regnskap og godskriving av utbytte.Kapittel XII. Utbytte og annen avkasting.§ 79. Avkasting av tingen.§ 80. Aksjer.§ 81. Rentebærende fordring.Kapittel XIII. Visse alminnelige bestemmelser.§ 82. Risikoen for sending av meldinger.§ 83. Forretningssted.Kapittel XIV. Krav mot tidligere salgsledd.§ 84. Vilkår for krav mot tidligere salgsledd§ 85. Reklamasjon.§ 86. Ansvar for opplysning etter § 18.Kapittel XV. Internasjonalt kjøp.§ 87. FN-konvensjonen om internasjonale løsørekjøpKapittel XVI. Ikrafttredelse. Oppheving av tidligere lov.§ 88.FN-konvensjonen 11 apr 1980 om kontrakter for internasjonale løsørekjøp.Del I. Virkeområde og alminnelige bestemmelser.Kapittel I. Virkeområde.Art 1.Art 2.Art 3.Art 4.Art 5.Art 6.Kapittel II. Alminnelige bestemmelser.Art 7.Art 8.Art 9.Art 10.Art 11.Art 12.Art 13.Del II. Avtaleinngåelse.Art 14.Art 15.Art 16.Art 17.Art 18.Art 19.Art 20.Art 21.Art 22.Art 23.Art 24.Del III. Kjøp av ting.Kapittel I. Alminnelige bestemmelser.Art 25.Art 26.Art 27.Art 28.Art 29.Kapittel II. Selgerens plikter.Art 30.Avsnitt I. Levering av salgstingen og overlevering av dokumenter.Art 31.Art 32.Art 33.Art 34.Avsnitt II. Avtalemessig salgsting og krav fra tredjemann.Art 35.Art 36.Art 37.Art 38.Art 39.Art 40.Art 41.Art 42.Art 43.Art 44.Avsnitt III. Beføyelser ved selgerens kontraktbrudd.Art 45.Art 46.Art 47.Art 48.Art 49.Art 50.Art 51.Art 52.Kapittel III. Kjøperens plikter.Art 53.Avsnitt I. Betaling av kjøpesummen.Art 54.Art 55.Art 56.Art 57.Art 58.Art 59.Avsnitt II. Leveringsmottakelse.Art 60.Avsnitt III. Beføyelser ved kjøperens kontraktbrudd.Art 61.Art 62.Art 63.Art 64.Art 65.Kapittel IV. Risikoens overgang.Art 66.Art 67.Art 68.Art 69.Art 70.Kapittel V. Felles bestemmelser for selgerens og kjøperens plikter.Avsnitt I. Antesipert kontraktbrudd og avtaler om levering etter hvert.Art 71.Art 72.Art 73.Avsnitt II. Erstatning.Art 74.Art 75.Art 76.Art 77.Avsnitt III. Renter.Art 78.Avsnitt IV. Fritak (for erstatningsplikt).Art 79.Art 80.Avsnitt V. Virkningene av heving.Art 81.Art 82.Art 83.Art 84.Avsnitt VI. Bevaring av salgstingen.Art 85.Art 86.Art 87.Art 88.Del IV. Sluttbestemmelser.Art 89.Art 90.Art 92.Art 94.', 'paragraph_number': '', 'data_name': '§77', 'paragraph_id': 'kapittel-11-paragraf-6', 
-                           'anna_om_dokumentet': None, 'in_force_from': '1989-01-01', 'eøs-henvisning': None, 'endrar': None, 'endrer': None, 'gjelder_for': None, 'eøs-henvising': None, 'kunngjort': None, 'score': 0.8592473692759276}, 
-                           page_content='Har en part rett til å selge tingen etter§ 76, men kan den ikke selges eller er det klart at salgsutbyttet ikke ville dekke salgskostnadene, kan parten rå over den på forsvarlig måte. Den annen part skal så vidt mulig gis varsel.')] 
-
-fact_dict = {'disputed_facts': ["Renovation and installation work on electrical systems in the 1st floor, 2nd floor bathroom, and outdoor lighting by Elektro Komplett and seller's own efforts, occurring between 2017 and 2021. Documentation is attached.",
-  'Professional renovation of the 2nd floor bathroom by Moderne Bygg AS, Hansen og Olsen AS (plumbing), and Elektro Komplett (electrical) between 2020-2021. Seller installed underfloor heating, which was connected by an approved electrician and resistance-measured. Documentation available.',
-  'New Nordland Douglas wooden flooring (28 mm thick) installed in the living room/kitchen on the 1st floor in 2017 by a professional. Underfloor heating cables were laid beneath the floor.',
-  "Installation of a cooling room with a cooling unit in 2017 by the seller's own efforts. Seller has education in mechanics, electrical, and refrigeration technology.",
-  'Seller stated no knowledge of moisture or rot damage beyond what is documented in the condition report.',
-  'Buyers (Andreas Nilsen and Berit Johansen) discovered several serious defects, including electrical faults and chimney problems, after taking over the property.',
-  "Email from seller Daniel Hansen to buyers Andreas Nilsen and Berit Johansen, confirming that heat pumps are functional, no planned improvements are needed, the house is ready for move-in, and recent renovations (bathroom 2020/2021, roof 2021, electrical work) were completed by professionals and are 'all checked and in order'. This communication occurred after a property viewing and prior to a purchase offer."],
- 'undisputed_facts': ["ProTakst AS issued a condition report for Granveien 15B to the sellers (Daniel and Camilla Hansen), detailing the property's state before sale. The report highlighted several defects, including issues with the electrical system (TG2) and the chimney (TG2), which later became central to the property dispute.",
-  'Andreas Nilsen and Berit Johansen purchased the detached house at Granveien 15B for 15.5 million NOK.',
-  "Seller's declaration for Granveien 15B submitted by Camilla Marie Hansen and Daniel Erik Hansen, detailing property history, maintenance, and known conditions.",
-  'New roofing, gutters, downpipes, and roof windows installed by AllFix in 2021. Certificate attached.',
-  "Kitchen renovation and modernization performed in 2017, partly by seller's own efforts and partly by a craftsman.",
-  "Work on water and drainage systems, including periodic plumber services by Hansen og Olsen AS and seller's own efforts for drainage pipes, with plumber control. All water pipe routing done by plumber.",
-  "Seller disclosed in the declaration that parts of the electrical system are older, originating from the building's construction year.",
-  "Seller disclosed in the declaration that the chimney is from the building's construction year and recommended rehabilitation.",
-  "Seller disclosed minor cosmetic wear and tear, considered normal for the property's age.",
-  'Seller declared no insurance claims related to the property in the last 5 years.',
-  'Seller declared no ongoing disputes concerning the property.',
-  'Seller declared no known boundary disputes or special rights/encumbrances beyond what is in registered documentation.',
-  'Seller disclosed extensive experience in construction, mechanics, electrical, and refrigeration technology, noting that most self-performed work was carried out by themselves.',
-  'Andreas Nilsen and Berit Johansen took over the property at Granveien 15B.',
-  'Buyers (Andreas Nilsen and Berit Johansen) sent a formal complaint regarding the discovered defects.',
-  'The insurance company (respondent) responded to the complaint sent by Andreas Nilsen and Berit Johansen.',
-  'Andreas Nilsen and Berit Johansen visited the property Granveien 15B and expressed their enthusiasm for the house to the sellers.',
-  "Andreas Nilsen and Berit Johansen sent an email to the sellers inquiring about the functionality of heat pumps and if any major improvements were planned, specifically asking if the house was 'ready for move-in'.",
-  'Purchase contract for the property at Granveien 15B was signed for NOK 15,500,000. Buyers: Andreas Nilsen and Berit Johansen. Sellers: Camilla Marie Hansen and Daniel Erik Hansen.',
-  'Andreas Nilsen and Berit Johansen took over possession of the property at Granveien 15B from the sellers.']}
-factual_facts = FactualFacts().model_validate(fact_dict)
-
-gov_dict = {'primary_jurisdiction': 'Norwegian law',
- 'key_areas': ['Contract Law', 'Property Law', 'Insurance Law'],
- 'international_elements': None,
- 'procedural_law': 'forvaltningsloven'}
-governing_law = GoverningLaw().model_validate(gov_dict)
+def test_truncate_messages(mock_context_manager):
+    state = get_mock_agent_state()
+    max_messages = 3
+    result = mock_context_manager.truncate_messages(messages=state, max_messages=max_messages)
+    
+    assert len(result) <= max_messages
+    assert len(result) < len(state)
+    assert result[-1].content == state[-1].content
 
 
-parties = [{'legal_name': 'Andreas Nilsen',
-  'party_id': '8b46f645-cb30-4922-90aa-0e3ccbb85fa4',
-  'role': 'claimant',
-  'entity_type': 'individual',
-  'key_contact': None,
-  'legal_representation': 'Advokatfirmaet Hansen & Co'},
- {'legal_name': 'Berit Johansen',
-  'party_id': '5fc1268e-b696-43bd-b84b-2738e9dfb7aa',
-  'role': 'claimant',
-  'entity_type': 'individual',
-  'key_contact': None,
-  'legal_representation': 'Advokatfirmaet Hansen & Co'},
- {'legal_name': 'Forsikringsselskapet',
-  'party_id': '53e37eea-80e2-4433-af79-7d8770e7e213',
-  'role': 'third_party',
-  'entity_type': 'company',
-  'key_contact': None,
-  'legal_representation': None},
- {'legal_name': 'Andreas Nilsen',
-  'party_id': '626d8872-ace0-46dd-b22c-524e944cb66c',
-  'role': 'claimant',
-  'entity_type': 'individual',
-  'key_contact': None,
-  'legal_representation': 'Advokatfirmaet Hansen & Co'},
- {'legal_name': 'Berit Johansen',
-  'party_id': 'e32da913-4fff-422a-89c7-f05942292556',
-  'role': 'claimant',
-  'entity_type': 'individual',
-  'key_contact': None,
-  'legal_representation': 'Advokatfirmaet Hansen & Co'},
- {'legal_name': 'Insurance Partners AS',
-  'party_id': '13eae16a-c697-4254-92f7-8adc43748da4',
-  'role': 'respondent',
-  'entity_type': 'company',
-  'key_contact': None,
-  'legal_representation': None},]
+async def test_analyze_init_input(mock_context_manager):
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    structured_llm.ainvoke.return_value = get_mock_init_input()
+    result = await mock_context_manager.analyze_init_input("Hello, world!")
+
+    mock_context_manager.llm.with_structured_output.assert_called_once()
+    structured_llm.ainvoke.assert_called_once()
+    assert isinstance(result, InitialInput)
+    assert len(result.parties) == 3
+    assert result.parties[0].legal_name == "Andreas Nilsen"
+    assert isinstance(result.background, str)
+    assert result.title == "Property Dispute - Granveien 15B (Defects after purchase)"
+
+async def test_analyze_doc(mock_context_manager):
+    from tests.fixtures.context_manager_data import analyzed_dict1
+    init_input = get_mock_init_input()
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    class AttachmentWithEvents(BaseModel):
+            attachment: AttachmentExtracted
+            events: List[Event]
+
+    att = AttachmentExtracted(
+        party_roles=analyzed_dict1.get("party_roles"),
+        claims=analyzed_dict1.get("claims"),
+        deadlines=analyzed_dict1.get("deadlines"),
+        key_provisions=analyzed_dict1.get("key_provisions"),
+        description=analyzed_dict1.get("description"),
+        file_date=analyzed_dict1.get("file_date"),
+        category=analyzed_dict1.get("category"),
+        significance=analyzed_dict1.get("significance")
+    )
+    event = Event(event_date="2023-08-25", description="Document received",
+                  event_name = "DocumentReceived", 
+                  parties = ["plaintiff"], 
+                  significance="high", 
+                  disputed=False,
+                  category="court_filing")
+    structured_llm.ainvoke.return_value = AttachmentWithEvents(attachment=att, events=[event])
+    result = await mock_context_manager.analyze_doc(initial_input=init_input,
+                                                    content = "This is a test",
+                                                    file_id="test_file_id",
+                                                    filename="test_file_name",
+                                                    path = "test_path",
+                                                    file_type = "application/pdf",
+                                                    size = 1024,
+                                                    )
+
+    mock_context_manager.llm.with_structured_output.assert_called_once()
+    structured_llm.ainvoke.assert_called_once()
+    assert isinstance(result, dict)
+    assert "file" in result
+    assert isinstance(result["file"], Attachment)
+    assert "events" in result
+    assert isinstance(result["events"], list)
+    assert isinstance(result["events"][0], Event)
+    assert result["events"][0].event_id, 'Shoudl be present'
+    assert result["events"][0].file_id == "test_file_id"
+    assert result["file"].path == "test_path"
+    assert result["file"].file_id == "test_file_id"
+
+async def test_analyze_governing_law(mock_context_manager):
+    from tests.fixtures.context_manager_data import rag, governing_law
+    events = get_mock_load_project_data().get("data").get("project_events")
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    structured_llm.ainvoke.return_value = governing_law
+    result = await mock_context_manager.analyze_governing_law(rag_content_law=rag, events=events)
+
+    mock_context_manager.llm.with_structured_output.assert_called_once()
+    structured_llm.ainvoke.assert_called_once()
+    assert isinstance(result, GoverningLaw)
+    assert result.primary_jurisdiction == "Norwegian law"
+    assert result.procedural_law == "forvaltningsloven"
+    assert "Contract Law" in result.key_areas
+
+def test_is_valid_uuid(mock_context_manager):
+    valid = "123e4567-e89b-12d3-a456-426614174000"
+    invalid = "not-a-uuid"
+    almost_valid = "123e4567-e89b-12d3-a456-42661417400Z"  # Last character is not a valid hex digit
+    assert mock_context_manager.is_valid_uuid(valid) == True
+    assert mock_context_manager.is_valid_uuid(invalid) == False
+    assert mock_context_manager.is_valid_uuid(almost_valid) == False
+
+async def test_consider_new_user_input(mock_context_manager):
+    from tests.fixtures.context_manager_data import get_mock_factsheet
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    factsheet = get_mock_factsheet()
+    if not isinstance(factsheet, FactSheet):
+         print(f"Factsheet is not of type FactSheet {type(factsheet)} | {factsheet}\ncheck the fixture data.")
+    class AttachmentExtractedWithEvents(BaseModel):
+            attachment: AttachmentExtracted
+            events: List[Event]
+    att = AttachmentExtracted(
+        party_roles=["plaintiff"], 
+        claims=factsheet.claims,
+        deadlines=factsheet.deadlines,
+        key_provisions=["prov1", "prov2"],
+        description="description",
+        file_date="2023-08-25",
+        category="agreement",
+        significance="high"
+    )
+         
+    structured_llm.ainvoke.return_value = AttachmentExtractedWithEvents(events = factsheet.events, attachment=att)
+
+    result = await mock_context_manager.consider_new_doc(factsheet = factsheet,
+                                          new_content = "This is new content",
+                                          new_user_input= "testinput",
+                                          file_id = "test_file_id",
+                                          filename = "test_filename",
+                                          path = "test_path",
+                                          file_type = "application/pdf",
+                                          size = 1024)
+    
+    assert isinstance(result, dict)
+    assert "file" in result
+    assert isinstance(result["file"], Attachment)
+    assert "events" in result
+    assert isinstance(result["events"], list)
+    assert isinstance(result["events"][0], Event)
+    assert result["events"][0].event_id, 'Shoudl be present'
+    assert result["events"][0].file_id == "test_file_id"
+    assert result["file"].path == "test_path"
+    assert result["file"].file_id == "test_file_id"
+    assert result["file"].key_provisions == ["prov1", "prov2"]
+    assert result["file"].description == "description"
+
+async def test_clean_element(mock_context_manager):
+    from tests.fixtures.context_manager_data import get_mock_clean_parties, get_mock_factsheet
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    parties = Parties(parties = get_mock_clean_parties())
+    party_id1 = parties.parties[1].party_id
+    party_id2 = parties.parties[2].party_id
+    factsheet = get_mock_factsheet()
+
+    structured_llm.ainvoke.return_value = parties
+    result = await mock_context_manager.clean_element(content = parties, factsheet=factsheet,element_type="parties")
+
+    assert isinstance(result, list)
+    assert len(result) == 4
+    assert isinstance(result[0], dict)
+    assert result[-1].get("party_id") is not None
+
+
+
+

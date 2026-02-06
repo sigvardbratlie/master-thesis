@@ -67,7 +67,7 @@ class GoverningLaw(BaseModel):
     procedural_law: Literal[
         "tvisteloven", "straffeprosessloven", "arbeidstvistloven", "voldgiftsloven",
         "forvaltningsloven", "domstolloven"
-    ] 
+    ]
 
 class FactualFacts(BaseModel):
     disputed_facts: list[str]
@@ -139,11 +139,7 @@ class Event(BaseModel):
     event_name: str
     event_date: date | datetime
     description: str
-    category: Literal[
-    "contract_signed", "breach_occurred", "notice_sent", "payment_due",
-    "payment_made", "termination", "meeting", "court_filing", "court_hearing",
-    "settlement_offer", "deadline", "other", 
-]
+    category: str = Field(description="Categorization of the event, e.g., 'court_filing', 'evidence_submission', 'contract_signing', 'communication', etc.")
     parties: list[party_roles] = Field(description="Roles of parties involved in the event")
     significance: significance_levels
     disputed: bool

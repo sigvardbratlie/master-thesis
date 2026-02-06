@@ -58,16 +58,26 @@ class ContextManager:
     # ===== TRUNCATION HELPERS =====
     def truncate_tokens(self, messages, max_tokens=7000):
         """Truncate messages to fit within max_tokens while preserving tool-call structure."""
+        if not isinstance(messages, list):
+            logger.error(f'Messages should be a list, got {type(messages)}')
+            return messages
+        # if not isinstance(messages[0], BaseMessage):
+        #     logger.error(f'Messages should be a list of BaseMessage, got {type(messages[0])}')
+        #     return messages
+        
         enc = tiktoken.encoding_for_model("gpt-4o-mini")
         token_count = 0
         truncated = []
 
         for msg in reversed(messages):
-            token_count += len(enc.encode(msg.content or ""))
-            truncated.insert(0, msg)
+            if hasattr(msg, 'content'):
+                if token_count > max_tokens:
+                    break
+                token_count += len(enc.encode(msg.content or ""))
+                truncated.insert(0, msg)
 
-            if token_count > max_tokens:
-                break
+            else:
+                raise ValueError(f'Message wrong type: {type(msg)}. Expected message with "content" attribute.')
 
         # Safety check: drop any orphan tool messages at the start
         while truncated and isinstance(truncated[0], ToolMessage):
@@ -102,32 +112,20 @@ class ContextManager:
         
         return truncated
 
+    def is_valid_uuid(self, val):
+        try:
+            uuid.UUID(str(val))
+            return True
+        except ValueError:
+            return False
+
+
     # ===== FUNCTIONS FOR INITIAL FACTSHEET CREATION =====
     async def analyze_init_input(self, init_input : str) -> InitialInput:
         structured_llm = self.llm.with_structured_output(InitialInput, method="function_calling")
         prompt = f'Analyze the following case introduction and extract key information into the InitialInput structure:\n\n{init_input}'
         return await structured_llm.ainvoke(prompt)
     
-    async def __analyze_events(self, initial_input : InitialInput , content : str,file_id: str) -> Events:
-        '''Analyzes document content to extract a list of events.
-        
-        Args:
-            initial_input (InitialInput): The initial case input data.
-            content (str): The document content to analyze.
-
-        Returns:
-            list[Event]: A list of extracted Event objects.
-        '''
-        structured_llm = self.llm.with_structured_output(Events, method="function_calling")
-        init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
-        prompt = init_prompt + f'Analyze the following document content and extract key main events:\n\n{content}'
-        response = await structured_llm.ainvoke(prompt)
-        for event in response.events:
-            event.file_id = file_id
-            event.event_id = str(uuid4())
-        return response
-    
-
     async def analyze_doc(self, 
                 initial_input : InitialInput ,
                 content: str, 
@@ -139,7 +137,10 @@ class ContextManager:
                 ) -> dict:
         ''' Function to analyze document content and extract structured data as Attachment.'''
         
-        # Kombiner til én Pydantic model
+        if not content:
+            logger.warning('No content provided for document analysis. Returning empty result.')
+            return {"file": None, "events": []}
+
         class AttachmentWithEvents(BaseModel):
             attachment: AttachmentExtracted
             events: List[Event]
@@ -189,7 +190,7 @@ class ContextManager:
                         )
         return {"file": file, "events": response.events}
     
-    async def analyze_governing_law(self, events : list[Event],rag_content_law : str) -> GoverningLaw:
+    async def analyze_governing_law(self, events : list[Event], rag_content_law : str) -> GoverningLaw:
         '''Function to analyze case events and extract governing law information.
         
         Args:
@@ -199,15 +200,31 @@ class ContextManager:
         Returns:
             GoverningLaw : The structured GoverningLaw object with extracted information.
         '''
-        if not isinstance(rag_content_law, str):
-            logger.warning(f'RAG content for governing law is not a string: Instance {type(rag_content_law)}. ')
-            if isinstance(rag_content_law, dict):
-                rag_content_law = json.dumps(rag_content_law)
-            elif isinstance(rag_content_law, list):
-                rag_content_law = " ".join([str(item) for item in rag_content_law])
-            else:
-                rag_content_law = str(rag_content_law)
-                
+        if not events:
+            logger.warning('No events provided for governing law analysis. Returning empty GoverningLaw.')
+            return
+        if not rag_content_law:
+            logger.warning('No RAG content provided for governing law analysis. Proceeding with events only.')
+        
+            if not isinstance(rag_content_law, str):
+                logger.warning(f'RAG content for governing law is not a string: Instance {type(rag_content_law)}. ')
+                if isinstance(rag_content_law, dict):
+                    logger.debug('RAG content is a dict. Converting to JSON string for analysis.')
+                    rag_content_law = json.dumps(rag_content_law)
+                elif isinstance(rag_content_law, list):
+                    if all(isinstance(item, dict) for item in rag_content_law):
+                        logger.debug('RAG content is a list of dicts. Converting to JSON string for analysis.')
+                        rag_content_law = json.dumps(rag_content_law)
+                    elif isinstance(rag_content_law[0], Document):
+                        logger.debug('RAG content is a list of Documents. Concatenating page content for analysis.')
+                        rag_content_law = "\n\n".join([doc.page_content for doc in rag_content_law])
+                    else:
+                        logger.warning('RAG content is a list but not of dicts or Documents. Converting each item to string and concatenating.')
+                        rag_content_law = " ".join(str(item) for item in rag_content_law)
+                else:
+                    logger.warning('RAG content is of an unexpected type. Converting to string for analysis.')
+                    rag_content_law = str(rag_content_law)
+        
         structured_llm = self.llm.with_structured_output(GoverningLaw, method="function_calling")
         law_context = f'Extracted legal context:\n\n{rag_content_law}\n\n' if rag_content_law else ''
         prompt = law_context + f'Based on the following case events, analyze and extract governing law information:\n\n{events}'
@@ -232,28 +249,7 @@ class ContextManager:
         return await structured_llm.ainvoke(prompt)
     
     # ===== FUNCTIONS FOR UPDATING EXISTING FACTSHEET =====
-    async def __consider_new_events(self,
-                            factsheet : FactSheet,
-                         new_content : str,
-                         new_user_input : str,
-                         file_id : str
-                         ) -> list[Event]:
-        structured_llm = self.llm.with_structured_output(Events, method="function_calling")
-        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
-        init_prompt = f'Existing factsheet:\n\n{factsheet_data}\n\n'
-        prompt = init_prompt + f'Analyze the following document content and extract key main events:\n\n{new_content}' + f'\n\nNew user input:\n\n{new_user_input}\n\n'
-        response = await structured_llm.ainvoke(prompt)
-        for event in response.events:
-            event.file_id = file_id
-        return response.events
     
-    def is_valid_uuid(self, val):
-        try:
-            uuid.UUID(str(val))
-            return True
-        except ValueError:
-            return False
-
     async def consider_new_doc(self,
                             factsheet : FactSheet,
                          new_content : str,
@@ -277,13 +273,14 @@ class ContextManager:
         Returns:
             dict: A dictionary indicating relevance and suggested updates.
         '''
+        
         class AttachmentExtractedWithEvents(BaseModel):
             attachment: AttachmentExtracted
             events: List[Event]
         
         factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
         existing_factsheet = f'Existing factsheet:\n\n{factsheet_data}\n\n'
-        prompt = existing_factsheet + f'Analyze the following document and extract BOTH attachment metadata AND timeline events:\n\n{new_content}'
+        prompt = existing_factsheet + f'Analyze the following document and extract BOTH attachment metadata AND timeline events:\n\nNew user input: {new_user_input}\n\nDocument content: {new_content}\n\n'
         structured_llm = self.llm.with_structured_output(AttachmentExtractedWithEvents, method="function_calling")
 
         for attempt in range(3):  # Retry mechanism
@@ -326,48 +323,6 @@ class ContextManager:
                             event_ids=[event.event_id for event in response.events],
                         )
         return {"file": file, "events": response.events}
-
-    async def analyze_new_input(self,
-                         factsheet : FactSheet,
-                         new_user_input : str,
-                         new_content : Optional[str] = "",
-                         file_id : Optional[str] = None,
-                         filename : Optional[str] = None,
-                         path : Optional[str] = None,
-                         file_type : Optional[str] = None,
-                         size : Optional[int] = None,
-
-                         ) -> dict:
-        '''Function to update an existing FactSheet with new input data.
-
-        Args:
-            factsheet (FactSheet | dict): The existing FactSheet to update.
-            new_user_input (str): The new input query or information from the user.
-            new_content (str, optional): New document content to consider for updating the factsheet.
-            file_id (str, optional): The unique identifier for the new document.
-            filename (str, optional): The name of the new document.
-            path (str, optional): The storage path of the new document.
-            file_type (str, optional): The MIME type of the new document.
-            size (int, optional): The size of the new document in bytes.
-
-        Returns:
-            dict: Result containing updated file, events, damages, deadlines, claims.
-        '''
-        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
-        existing_facts = f"Existing factsheet:\n\n{factsheet_data}"
-        prompt = existing_facts + f"\n\nNew user content: {new_content}" + f'\n\nReturn True if the following new input is relevant to update the existing factsheet, else return False:\n\n{new_user_input}'
-        structured_llm = self.llm.with_structured_output(RelevanceCheck, method="function_calling")  
-        relevant = await structured_llm.ainvoke(prompt)
-        if relevant.is_relevant:
-            result = await self.consider_new_doc(new_content=new_content,
-                                            new_user_input=new_user_input,
-                                            factsheet=factsheet,
-                                            file_id=file_id,
-                                            filename=filename,
-                                            path=path,
-                                            file_type=file_type,
-                                            size=size,)
-            return result
 
     async def clean_element(self, content: BaseModel, factsheet: FactSheet, element_type : str) -> list[dict]:   
         '''Clean/merge items with LLM, then deduplicate with Python and assign UUIDs.'''
@@ -421,26 +376,29 @@ class ContextManager:
                 if key.endswith('_id') and value and self.is_valid_uuid(value):
                     original_uuids[value] = key
         
-        def ensure_uuid(item, original_uuids=original_uuids, id_field=id_field):
-            # Check ALL _id fields for validity
-            for key, value in list(item.items()):
-                if key.endswith('_id') and value is not None:
-                    if not self.is_valid_uuid(value):
-                        if value in original_uuids:
-                            logger.debug(f'LLM modified original UUID for {key}: "{value}". Restoring original UUID: {original_uuids[value]}')
-                            item[key] = original_uuids[value]
-                        else:
-                            new_uuid = str(uuid.uuid4())
-                            logger.warning(f'LLM produced invalid UUID in {key}: "{value}" -> {new_uuid}')
-                            item[key] = new_uuid
-                    elif value not in original_uuids:
-                        # UUID not in original input - LLM created it
-                        logger.debug(f'LLM created new UUID for {key}: {value}')
+        # def ensure_uuid(item, original_uuids=original_uuids, id_field=id_field):
+        #     # Check ALL _id fields for validity
+        #     for key, value in list(item.items()):
+        #         if key.endswith('_id') and value is not None:
+        #             if value in original_uuids:
+        #                 if not self.is_valid_uuid(value):
+        #                     #if value in original_uuids:
+        #                     logger.warning(f'LLM modified original UUID for {key}: "{value}". Restoring original UUID: {original_uuids[value]}')
+        #                     item[key] = original_uuids[value]
+        #                 else:
+        #                     logger.info(f'LLM preserved original UUID for {key}: "{value}"')
+        #             else:
+        #                 if not self.is_valid_uuid(value):
+        #                     new_uuid = str(uuid.uuid4())
+        #                     logger.warning(f'LLM produced invalid UUID in {key}: "{value}" -> {new_uuid}')
+        #                     item[key] = new_uuid
+        #                 else:
+        #                     logger.info(f'LLM produced valid new UUID for {key}: "{value}"')
             
-            # Assign UUID if missing for main ID field
-            if not item.get(id_field):
-                logger.warning(f'Missing {id_field} in item {item}. Assigning new UUID.')
-                item[id_field] = str(uuid.uuid4())
+        #     # Assign UUID if missing for main ID field
+        #     if not item.get(id_field):
+        #         logger.warning(f'Missing {id_field} in item {item}. Assigning new UUID.')
+        #         item[id_field] = str(uuid.uuid4())
 
 
         def post_process(llm_cleaned, element_type, id_field, ):
@@ -477,14 +435,62 @@ class ContextManager:
         
         
         for item in llm_cleaned:
-            ensure_uuid(item, original_uuids=original_uuids, id_field=id_field)
+            if not item.get(id_field):
+                logger.warning(f'Missing {id_field} in LLM output item: {item}. Assigning new UUID.')
+                item[id_field] = str(uuid.uuid4())
+            elif not self.is_valid_uuid(item[id_field]):
+                logger.warning(f'Invalid UUID in LLM output for {id_field}: "{item[id_field]}". Assigning new UUID.')
+                item[id_field] = str(uuid.uuid4())
         
         result = post_process(llm_cleaned, element_type=element_type, id_field=id_field)
         
         logger.info(f'Cleaned {len(data) if data else 0} {name} items -> {len(llm_cleaned) if llm_cleaned else 0} (LLM) -> {len(result) if result else 0} (deduplicated)')
         return result
     
-    async def clean_factsheet(self,
+    # === NOT IN USE === 
+    async def __analyze_new_input(self,
+                         factsheet : FactSheet,
+                         new_user_input : str,
+                         new_content : Optional[str] = "",
+                         file_id : Optional[str] = None,
+                         filename : Optional[str] = None,
+                         path : Optional[str] = None,
+                         file_type : Optional[str] = None,
+                         size : Optional[int] = None,
+
+                         ) -> dict:
+        '''Function to update an existing FactSheet with new input data.
+
+        Args:
+            factsheet (FactSheet | dict): The existing FactSheet to update.
+            new_user_input (str): The new input query or information from the user.
+            new_content (str, optional): New document content to consider for updating the factsheet.
+            file_id (str, optional): The unique identifier for the new document.
+            filename (str, optional): The name of the new document.
+            path (str, optional): The storage path of the new document.
+            file_type (str, optional): The MIME type of the new document.
+            size (int, optional): The size of the new document in bytes.
+
+        Returns:
+            dict: Result containing updated file, events, damages, deadlines, claims.
+        '''
+        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
+        existing_facts = f"Existing factsheet:\n\n{factsheet_data}"
+        prompt = existing_facts + f"\n\nNew user content: {new_content}" + f'\n\nReturn True if the following new input is relevant to update the existing factsheet, else return False:\n\n{new_user_input}'
+        structured_llm = self.llm.with_structured_output(RelevanceCheck, method="function_calling")  
+        relevant = await structured_llm.ainvoke(prompt)
+        if relevant.is_relevant:
+            result = await self.consider_new_doc(new_content=new_content,
+                                            new_user_input=new_user_input,
+                                            factsheet=factsheet,
+                                            file_id=file_id,
+                                            filename=filename,
+                                            path=path,
+                                            file_type=file_type,
+                                            size=size,)
+            return result
+
+    async def __clean_factsheet(self,
                          factsheet : FactSheet,
                          ) -> FactSheet:
         '''Function to clean and deduplicate disputed and undisputed facts.'''
@@ -496,6 +502,40 @@ class ContextManager:
         except Exception as e:
             logger.error(f'Error during factsheet cleaning: {e}', exc_info=True)
             return
+    
+    async def __analyze_events(self, initial_input : InitialInput , content : str,file_id: str) -> Events:
+        '''Analyzes document content to extract a list of events.
+        
+        Args:
+            initial_input (InitialInput): The initial case input data.
+            content (str): The document content to analyze.
+
+        Returns:
+            list[Event]: A list of extracted Event objects.
+        '''
+        structured_llm = self.llm.with_structured_output(Events, method="function_calling")
+        init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
+        prompt = init_prompt + f'Analyze the following document content and extract key main events:\n\n{content}'
+        response = await structured_llm.ainvoke(prompt)
+        for event in response.events:
+            event.file_id = file_id
+            event.event_id = str(uuid4())
+        return response
+    
+    async def __consider_new_events(self,
+                            factsheet : FactSheet,
+                         new_content : str,
+                         new_user_input : str,
+                         file_id : str
+                         ) -> list[Event]:
+        structured_llm = self.llm.with_structured_output(Events, method="function_calling")
+        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
+        init_prompt = f'Existing factsheet:\n\n{factsheet_data}\n\n'
+        prompt = init_prompt + f'Analyze the following document content and extract key main events:\n\n{new_content}' + f'\n\nNew user input:\n\n{new_user_input}\n\n'
+        response = await structured_llm.ainvoke(prompt)
+        for event in response.events:
+            event.file_id = file_id
+        return response.events
     
     
 class ToolManager:

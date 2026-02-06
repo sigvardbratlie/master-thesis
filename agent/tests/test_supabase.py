@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 import sys
 import os
-from fixtures.project_data import *
+from tests.fixtures.supabase_data import * 
 
 # Legg til src-mappen i path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
