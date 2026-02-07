@@ -11,7 +11,6 @@ from agent.basemodels import *
 from tests.fixtures.agent_data import (
     get_mock_ask_agent_request,
     get_mock_ask_agent_request_with_attachments,
-    get_mock_project_data,
     get_mock_ai_message,
     get_mock_ai_message_with_tool_calls,
     get_mock_initial_input,
@@ -262,6 +261,11 @@ async def test_call_llm_basic(mock_agent):
 @pytest.mark.asyncio
 async def test_call_llm_with_project_data(mock_agent):
     """Test _call_llm includes factsheet when project data exists."""
+    from tests.fixtures.context_manager_data import get_mock_factsheet,get_mock_attachments
+    return_value = {
+        "factsheet": get_mock_factsheet(),
+        "attachments": get_mock_attachments()
+    }
     state = {
         "messages": [
             SystemMessage(content="System prompt"),
@@ -280,7 +284,7 @@ async def test_call_llm_with_project_data(mock_agent):
     mock_llm.ainvoke.return_value = get_mock_ai_message()
 
     config = {"configurable": {"custom_project_id": "project-001", "query_id": "query-001"}}
-    mock_agent.conversation_manager.load_project.return_value = get_mock_project_data()
+    mock_agent.conversation_manager.load_project.return_value = return_value
 
     result = await mock_agent._call_llm(state, mock_llm, config)
 
@@ -445,10 +449,15 @@ async def test_initialize_project_no_attachments(mock_agent):
 @pytest.mark.asyncio
 async def test_update_project(mock_agent):
     """Test update_project adds new attachments to existing project."""
+    from tests.fixtures.context_manager_data import get_mock_factsheet,get_mock_attachments
     query = get_mock_ask_agent_request_with_attachments()
     user_id = "user-001"
+    return_value = {
+        "factsheet": get_mock_factsheet(),
+        "attachments": get_mock_attachments()
+    }
 
-    mock_agent.conversation_manager.load_project.return_value = get_mock_project_data()
+    mock_agent.conversation_manager.load_project.return_value = return_value
     mock_agent.context_manager.consider_new_doc = AsyncMock(return_value=get_mock_analyzed_doc())
     mock_agent.document_processor.process_attachment.return_value = get_mock_vector_store_docs()
     mock_agent.storage.save_raw_documents = AsyncMock()
@@ -486,8 +495,13 @@ async def test_update_project_invalid_project_data(mock_agent):
 async def test_cleanup_element_events(mock_agent):
     """Test cleanup_element cleans events."""
     query = get_mock_ask_agent_request()
+    from tests.fixtures.context_manager_data import get_mock_attachments, get_mock_factsheet
+    return_value = {
+        "factsheet": get_mock_factsheet(),
+        "attachments": get_mock_attachments()
+    }
 
-    mock_agent.conversation_manager.load_project.return_value = get_mock_project_data()
+    mock_agent.conversation_manager.load_project.return_value = return_value
     mock_agent.context_manager.clean_element = AsyncMock(return_value=[
         {"event_id": "cleaned-event-001", "event_date": "2023-08-15"}
     ])

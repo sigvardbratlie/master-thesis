@@ -224,5 +224,8 @@ def get_mock_init_input():
 def get_mock_factsheet():
     return factsheet
 
+def get_mock_attachments():
+    return attachments
+
 def get_mock_clean_parties():
     return clean_element_parties
