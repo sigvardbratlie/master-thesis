@@ -207,8 +207,8 @@ class Agent:
             messages_to_return = [enhanced_msg, message] if enhanced_msg else [message]
             return {
                 "messages": messages_to_return,
-                "factsheet": project_data.get("factsheet") if project_data else None,
-                "attachments": project_data.get("attachments") if project_data else None
+                #"factsheet":{}, 
+                "attachments": [file.get("file_id") for file in project_data.get("attachments", [])] if project_data else []
             }
         except Exception as e:
             logger.error(f"Error invoking LLM: {e}", exc_info=True)
