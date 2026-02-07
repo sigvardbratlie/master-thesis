@@ -124,7 +124,7 @@ class Party(BaseModel):
         default="other",
         description="Role of the party in the case, e.g., plaintiff, defendant, witness, legal representative, etc.")
     entity_type: entity_types
-    key_contact: Optional[Contact] = None
+    key_contact: Optional[Contact] = Field(None, description="Primary contact person for this party")
     #corporation : bool = Field(..., description="Is this party a company/organization (True) or an individual (False)")
     # legal_representation: Optional[str] = Field(
     #     None, description="Law firm representing this party"
@@ -137,7 +137,8 @@ class Event(BaseModel):
     event_id: Optional[str] = None
     file_id: Optional[str] = None
     event_name: str
-    event_date: date | datetime
+    event_start_date: date | datetime
+    event_end_date: Optional[date | datetime] = None
     description: str
     category: str = Field(description="Categorization of the event, e.g., 'court_filing', 'evidence_submission', 'contract_signing', 'communication', etc.")
     parties: list[party_roles] = Field(description="Roles of parties involved in the event")
@@ -290,5 +291,5 @@ class StreamData(BaseModel):
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
-    factsheet : Optional[FactSheet | dict] = None
+    #factsheet : Optional[FactSheet | dict] = None
     attachments : Optional[list[Attachment] | list[dict]] = None #Annotated[list, add_tool_results]
