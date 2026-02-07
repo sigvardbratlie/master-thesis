@@ -585,7 +585,10 @@ class Agent:
         deadlines: list[Deadline] = []
         files: list[Attachment] = []
 
+        # ============= PHASE 1 =================
         # Parallelize storage operations and initial analysis
+        # ========================================
+
         storage_tasks = []
         if query.attachments:
             #logger.debug(f'======= ATTACHMENT CONTENT======= \n { query.attachments }\n')
@@ -602,13 +605,64 @@ class Agent:
                 self.storage.save_raw_documents(attachments=query.attachments)
             ]
 
-        # Analyze documents in parallel
-        sem = asyncio.Semaphore(20)
+        total_phase1 = len(storage_tasks) + 1 
+        yield {
+            "type": "status",
+            "phase": "initialization",
+            "status": "starting",
+            "data": {
+                "total_operations": total_phase1,
+                "attachments": len(query.attachments or [])
+            },
+            "timestamp": datetime.utcnow().isoformat(),
+            "query_id": query.query_id
+        }
 
-        async def analyze_doc_with_limit(att, initial_input_awaitable):
-            # ✅ Wait for initial_input OUTSIDE semaphore to avoid blocking
-            initial_input = await initial_input_awaitable
+        initial_input_task = asyncio.create_task(
+            self.context_manager.analyze_init_input(query.question)
+        )
+        completed_phase1 = 0
+        for coro in asyncio.as_completed(storage_tasks + [initial_input_task]):
+            result = await coro
+            completed_phase1 += 1
+            if result and isinstance(result, InitialInput):
+                initial_input = result
+                for party in initial_input.parties or []:
+                    party.party_id = str(uuid4())
+                logger.debug(f'\n\n ====== Analyzed Initial Input: {initial_input.model_dump(mode = "json")} ========= \n\n')
+                yield {
+                        "type": "status",
+                        "phase": "init_input",
+                        "status": "complete",
+                        "data": {
+                            "parties_found": len(initial_input.parties or []),
+                            "progress": completed_phase1,
+                            "total": total_phase1
+                        },
+                        "timestamp": datetime.now().isoformat(),
+                        "query_id": query.query_id
+                    }
+            else:
+                yield {
+                        "type": "status",
+                        "phase": "storage",
+                        "status": "complete",
+                        "data": {
+                            "progress": completed_phase1,
+                            "total": total_phase1
+                        },
+                        "timestamp": datetime.now().isoformat(),
+                        "query_id": query.query_id
+                    }
+                logger.debug(f'Storage operation completed with result: {result}')
             
+        
+        # ============= PHASE 2 =================
+        # Analyze documents and extract events, damages, claims, deadlines
+        # ========================================
+    
+        sem = asyncio.Semaphore(20)
+        async def analyze_doc_with_limit(att, initial_input):            
             # ✅ Only acquire semaphore when making LLM call
             async with sem:
                 return await self.context_manager.analyze_doc(
@@ -621,36 +675,25 @@ class Agent:
                     size=att.size,
                 )
 
-        # Start initial_input analysis immediately
-        initial_input_task = asyncio.create_task(
-            self.context_manager.analyze_init_input(query.question)
-        )
-
-        # Start document analysis in parallel
         doc_tasks = [
-            analyze_doc_with_limit(att, initial_input_task) 
+            analyze_doc_with_limit(att, initial_input) 
             for att in query.attachments or []
         ]
-
-        # Wait for ALL operations (storage + analysis) simultaneously
-        all_results = await asyncio.gather(
-            *storage_tasks,
-            initial_input_task,
-            *doc_tasks
-        )
         
-        # Extract initial_input from results (index depends on number of storage_tasks)
-        storage_offset = len(storage_tasks)
-        initial_input = all_results[storage_offset]
-        doc_results = all_results[storage_offset + 1:]
-        
-        for party in initial_input.parties or []:
-            party.party_id = str(uuid4())
-        logger.debug(f'\n\n ====== Analyzed Initial Input: {initial_input.model_dump(mode = "json")} ========= \n\n')
-
-        # Process document results
-        if doc_results:
-            for result in doc_results:
+        yield {
+            "type": "status",
+            "phase": "analyze_docs",
+            "status": "starting",
+            "data": {"total": len(query.attachments)},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id
+        }
+        completed = 0
+        for coro in asyncio.as_completed(doc_tasks):
+            result = await coro
+            completed += 1
+            if result:
+                logger.debug(f'Document analysis completed with result: {result}')
                 analyzed_doc = result.get("file")
                 logger.debug(f"\n\n ====== Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()} ========= \n\n")
 
@@ -663,6 +706,29 @@ class Agent:
                     deadlines.extend(analyzed_doc.deadlines)
                 if result.get("events"):
                     events.extend(result.get("events"))
+                
+                yield {
+                    "type": "status",
+                    "phase": "analyze_doc",
+                    "status": "complete",
+                    "data": {
+                        "filename": result["file"].filename,
+                        "file_id": result["file"].file_id,
+                        "progress": completed,
+                        "total": len(doc_tasks)
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id
+                }
+        yield {
+                "type": "status",
+                "phase": "analyze_docs",
+                "status": "complete",
+                "data": {"total": len(doc_tasks)},
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id
+            }
+                
 
         # Build RAG query from events and run in thread (sync function)
         #events_txt = " ".join([f"- {event.description} (Date: {event.event_date})" for event in events])
@@ -674,23 +740,70 @@ class Agent:
             self.context_manager.analyze_factual_facts(initial_input, events),
             self.context_manager.analyze_governing_law(events=events, rag_content_law=rag_content_law),
         ]
-        analysis_results = await asyncio.gather(*analysis_tasks)
+        
+        # ============= PHASE 3 =================
+        # Analyse factual facts and governing law
+        # ========================================
+        yield {
+            "type": "status",
+            "phase": "final_analysis",
+            "status": "starting",
+            "data": {"total_operations": 2},
+            "timestamp": datetime.utcnow().isoformat(),
+            "query_id": query.query_id
+        }
+
+        completed_analysis = 0
+        for coro in asyncio.as_completed(analysis_tasks):
+            result = await coro
+            completed_analysis += 1
+            if result:
+                if isinstance(result, FactualFacts):
+                    factual_facts = result
+                    logger.debug(f'\n\n ====== Analyzed Factual Facts: {factual_facts.model_dump(mode = "json")} ========= \n\n')
+                    yield {
+                        "type": "status",
+                        "phase": "factual_facts",
+                        "status": "complete",
+                        "data": {
+                            "progress": completed_analysis,
+                            "total": 2,
+                            "disputed_count": len(factual_facts.disputed_facts or []),
+                            "undisputed_count": len(factual_facts.undisputed_facts or [])
+                        },
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "query_id": query.query_id
+                    }
+                elif isinstance(result, GoverningLaw):
+                    governing_law = result
+                    logger.debug(f'\n\n ====== Analyzed Governing Law: {governing_law.model_dump(mode = "json")} ========= \n\n')
+                    yield {
+                            "type": "status",
+                            "phase": "governing_law",
+                            "status": "complete",
+                            "data": {
+                                "progress": completed_analysis,
+                                "total": 2,
+                                "jurisdiction": governing_law.primary_jurisdiction
+                            },
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "query_id": query.query_id
+                        }
 
         # Initialize with defaults in case analysis fails
-        factual_facts = FactualFacts(disputed_facts=[], undisputed_facts=[])
-        governing_law = GoverningLaw(
-            primary_jurisdiction="Unknown",
-            key_areas=[],
-            procedural_law="tvisteloven"
-        )
+        # factual_facts = FactualFacts(disputed_facts=[], undisputed_facts=[])
+        # governing_law = GoverningLaw(
+        #     primary_jurisdiction="Unknown",
+        #     key_areas=[],
+        #     procedural_law="tvisteloven"
+        # )
 
-        for res in analysis_results:
-            if isinstance(res, FactualFacts):
-                factual_facts = res
-                logger.debug(f'\n\n ====== Analyzed Factual Facts: {factual_facts.model_dump(mode = "json")} ========= \n\n')
-            elif isinstance(res, GoverningLaw):
-                governing_law = res
-                logger.debug(f'\n\n ====== Analyzed Governing Law: {governing_law.model_dump(mode = "json")} ========= \n\n')
+        # for res in analysis_results:
+        #     if isinstance(res, FactualFacts):
+                
+        #     elif isinstance(res, GoverningLaw):
+        #         governing_law = res
+        #         logger.debug(f'\n\n ====== Analyzed Governing Law: {governing_law.model_dump(mode = "json")} ========= \n\n')
 
         # Generate UUIDs for all entities before saving
         for event in events:

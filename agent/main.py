@@ -134,20 +134,21 @@ async def ask_agent_endpoint(query: AskAgentRequest, user_id: str = Depends(auth
 
 # INITIALIZE & UPDATE PROJECT ENDPOINTS
 @app.post("/init-project")
-async def init_scan_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
+async def init_project_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
     """
     Endpoint to initialize scanning and processing of attachments.
     """
     #attachments = [att.model_dump() for att in query.attachments] if query.attachments else None
-    try:
-        scan_result = await agent.initialize_project(
-            query=query,
-            user_id=user_id,
-        )
-        return scan_result
-    except Exception as e:
-        logger.error(f"Error in /init-scan: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    
+    async def init_stream_generator():
+        try:
+            async for chunk in agent.initialize_project(query=query, user_id=user_id):
+                yield f'data: {json.dumps(chunk)}\n\n'
+                await asyncio.sleep(0.01)
+        except Exception as e:
+            logger.error(f"Error in init_stream_generator: {e}", exc_info=True)
+            yield f'data: {json.dumps({"error": str(e)})}\n\n'
+    return StreamingResponse(init_stream_generator(), media_type="text/event-stream")
 
 @app.post("/update-project")
 async def update_project_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
