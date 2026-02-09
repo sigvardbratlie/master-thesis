@@ -155,16 +155,15 @@ async def update_project_endpoint(query: AskAgentRequest, user_id: str = Depends
     """
     Endpoint to update the project with new input and attachments.
     """
-    #attachments = [att.model_dump() for att in query.attachments] if query.attachments else None
-    try:
-        update_result = await agent.update_project(
-            query = query,
-            user_id = user_id,
-        )
-        return update_result
-    except Exception as e:
-        logger.error(f"Error in /update-project: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error in /update-project: {str(e)}")
+    async def update_stream_generator():
+        try:
+            async for chunk in agent.update_project(query=query, user_id=user_id):
+                yield f'data: {json.dumps(chunk)}\n\n'
+                await asyncio.sleep(0.01)
+        except Exception as e:
+            logger.error(f"Error in update_stream_generator: {e}", exc_info=True)
+            yield f'data: {json.dumps({"error": str(e)})}\n\n'
+    return StreamingResponse(update_stream_generator(), media_type="text/event-stream")
 
 @app.post("/cleanup-factsheet")
 async def cleanup_factsheet_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):

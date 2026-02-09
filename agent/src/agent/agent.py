@@ -906,7 +906,6 @@ class Agent:
         completed_saving_storage = 0
         for coro in asyncio.as_completed(storage_tasks + doc_tasks):
             result = await coro
-            completed_analyze_doc += 1
             logger.debug(f'Completed a storage or analysis task with result: {result}')
             if result and isinstance(result, dict) and "file" in result and "events" in result:
                 analyzed_doc = result.get("file")
@@ -921,6 +920,7 @@ class Agent:
                     deadlines.extend(analyzed_doc.deadlines)
                 if result.get("events"):
                     events.extend(result.get("events"))
+                completed_analyze_doc += 1
                 yield {
                     "type": "status",
                     "phase": ["analyze_doc"],
@@ -948,6 +948,14 @@ class Agent:
                         "timestamp": datetime.now().isoformat(),
                         "query_id": query.query_id
                     }
+        yield {
+            "type": "status",
+            "phase": ["analyze_docs"],
+            "status": "complete",
+            "data": {"total": len(doc_tasks)},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id
+        }
 
         for event in events:
             if not event.event_id:
@@ -1055,7 +1063,7 @@ class Agent:
             yield {
                 "type": "status",
                 "phase": ["storage"],
-                "status": "completed",
+                "status": "complete",
                 "data": {"total_operations": len(related_tasks),},
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id

@@ -174,27 +174,34 @@ class StreamingService:
             logger.error(f"Error in init_project stream: {e}", exc_info=True)
             raise
 
-    def update_project(self, payload: AskAgentRequest) -> requests.Response:
+    def update_project_stream(self, payload: AskAgentRequest) -> Generator[dict, None, None]:
         """
-        Initialize a new project in the backend.
+        Stream status updates from the /update-project endpoint.
 
-        Args:
-            payload: AskAgentRequest model with project details
-
-        Returns:
-            Response object from the initialization request
+        Yields parsed status event dicts as they arrive from the backend SSE stream.
         """
         try:
-            response = requests.post(
+            with requests.post(
                 url=f"{self.backend_url}/update-project",
                 json=payload.model_dump(),
                 headers=self.headers,
-                #stream=True,
-            )
-            response.raise_for_status()
-            return response
+                stream=True,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    decoded_line = line.decode('utf-8')
+                    if not decoded_line.startswith('data:'):
+                        continue
+                    try:
+                        data = json.loads(decoded_line[5:])
+                        logger.debug(f"Update project stream data: {data}")
+                        yield data
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON decode error in update_project_stream: {e}")
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error updating project: {e}", exc_info=True)
+            logger.error(f"Error in update_project stream: {e}", exc_info=True)
             raise
 
     def cleanup_project_element(self, payload : AskAgentRequest, element_type : str):

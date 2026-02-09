@@ -636,7 +636,8 @@ class ProjectComponent:
                         st.error(event["error"])
                         return False
 
-                    phase = event.get("phase", "")
+                    phase_raw = event.get("phase", "")
+                    phase = phase_raw[0] if isinstance(phase_raw, list) else phase_raw
                     event_status = event.get("status", "")
                     data = event.get("data", {})
                     emoji, label = PHASE_CONFIG.get(phase, ("⏳", phase))
@@ -692,6 +693,74 @@ class ProjectComponent:
                 logger.error(f"Error during init progress: {e}", exc_info=True)
                 return False
 
+    def _stream_update_progress(self, streaming_service, payload):
+        """Display live streaming progress for project update."""
+
+        PHASE_CONFIG = {
+            "initialization": ("🚀", "Setting up update"),
+            "storage": ("💾", "Saving documents"),
+            "analyze_docs": ("📄", "Document analysis"),
+            "analyze_doc": ("📝", "Document analyzed"),
+        }
+
+        with st.status("🔄 Updating project...", expanded=True) as status:
+            progress_bar = st.progress(0, text="Starting...")
+            total = 0
+            completed = 0
+
+            try:
+                for event in streaming_service.update_project_stream(payload):
+                    if event.get("error"):
+                        status.update(label="❌ Error occurred", state="error")
+                        st.error(event["error"])
+                        return False
+
+                    phase_raw = event.get("phase", "")
+                    phase = phase_raw[0] if isinstance(phase_raw, list) else phase_raw
+                    event_status = event.get("status", "")
+                    data = event.get("data", {})
+                    emoji, label = PHASE_CONFIG.get(phase, ("⏳", phase))
+
+                    if event_status == "starting":
+                        n = data.get("total_operations", data.get("total", 0))
+                        total += n
+                        status.update(label=f"{emoji} {label}...")
+
+                        n_att = data.get("attachments", 0)
+                        if n_att:
+                            st.caption(f"📎 {n_att} attachment(s) to process")
+
+                    elif event_status == "complete":
+                        if phase == "analyze_docs":
+                            continue
+
+                        completed += 1
+
+                        detail = ""
+                        if phase == "analyze_doc":
+                            fname = data.get("filename", "")
+                            detail = f": **{fname}**" if fname else ""
+                        elif phase == "storage":
+                            storage_types = data.get("storage_type", [])
+                            if "database" in storage_types:
+                                detail = " — database"
+
+                        st.markdown(f"✅ {label}{detail}")
+
+                        if total > 0:
+                            pct = min(completed / total, 1.0)
+                            progress_bar.progress(pct, text=f"{emoji} {label}...")
+
+                progress_bar.progress(1.0, text="Complete!")
+                status.update(label="✅ Project updated!", state="complete")
+                return True
+
+            except Exception as e:
+                status.update(label="❌ Error during update", state="error")
+                st.error(str(e))
+                logger.error(f"Error during update progress: {e}", exc_info=True)
+                return False
+
     def render_new_project_input(self, mode : Literal["update","init"] = "init"):
         streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
                                                   access_token=st.session_state.access_token)
@@ -745,21 +814,16 @@ class ProjectComponent:
                     else:
                         st.warning("Project saved but could not load data. Please refresh.")
             else:
-                try:
-                    response = streaming_service.update_project(payload)
-                    if response.status_code == 200:
-                        st.success("Project updated successfully!")
-                        project_data = self.backend_service.load_project(project_id=st.session_state.project_id)
+                success = self._stream_update_progress(streaming_service, payload)
+                if success:
+                    project_data = self.backend_service.load_project(project_id=st.session_state.project_id)
+                    if project_data:
                         st.session_state.factsheet = project_data.get('factsheet')
                         st.session_state.attachments = project_data.get('attachments', [])
                         st.session_state.update_project_view = True
                         st.rerun()
                     else:
-                        st.error(f"Error updating project: {response.text}")
-                        logger.error(f"Error updating project: {response.status_code} - {response.text}")
-                except Exception as e:
-                    st.error(f"Exception during project update: {str(e)}")
-                    logger.exception("Exception during project update")
+                        st.warning("Project updated but could not load data. Please refresh.")
 
     def on_session_select(self,):
         user_id = st.session_state.get('user_id')
