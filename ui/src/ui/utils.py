@@ -59,6 +59,8 @@ def init_state():
 
     st.session_state.setdefault("supabase_client", None)
 
+    st.session_state.setdefault("clear_input_counter", 0)
+
 @st.cache_resource
 def get_resource(resource):
     """Generic cached resource loader"""

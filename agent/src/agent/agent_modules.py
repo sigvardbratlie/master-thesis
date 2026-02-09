@@ -7,7 +7,7 @@ import logging
 from uuid import uuid4
 import asyncio
 from pydantic import BaseModel, RootModel, create_model
-
+from pydantic_core._pydantic_core import ValidationError
 from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMessage,ToolMessage,AIMessageChunk
 from langchain_core.tools import tool
 from langchain_core.documents import Document
@@ -287,12 +287,18 @@ class ContextManager:
             try:
                 response = await structured_llm.ainvoke(prompt)
                 break  # Exit loop if successful
+            except ValidationError as ve:
+                logger.error(f'Validation error during LLM invocation in consider_new_doc: {ve}', exc_info=True)
+                enhanced_prompt = f"{prompt}\n\nIMPORTANT: For party roles, use ONLY these exact values: {', '.join(party_roles.__args__)}"
+                response = await structured_llm.ainvoke(enhanced_prompt)
+                return response
             except Exception as e:
                 if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                     wait_time = 2 ** attempt  # Exponential backoff
                     logger.warning(f"Rate limit hit, retrying in {wait_time}s...")
                     await asyncio.sleep(wait_time)
                 else:
+                    logger.error(f'Error during LLM invocation in consider_new_doc: {e}', exc_info=True)
                     raise
         
         # Process events

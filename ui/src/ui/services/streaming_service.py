@@ -204,18 +204,34 @@ class StreamingService:
             logger.error(f"Error in update_project stream: {e}", exc_info=True)
             raise
 
-    def cleanup_project_element(self, payload : AskAgentRequest, element_type : str):
+    def cleanup_project_element_stream(self, payload : AskAgentRequest, element_type : str) -> Generator[dict, None, None]:
+        """
+        Stream status updates from the /cleanup-project-element endpoint.
 
+        Yields parsed status event dicts as they arrive from the backend SSE stream.
+        """
         try:
-            response = requests.post(
-            url=f"{self.backend_url}/cleanup-project-element/{element_type}",
-            json=payload.model_dump(),
-            headers=self.headers,
-            )
-            response.raise_for_status()
-            return response
+            with requests.post(
+                url=f"{self.backend_url}/cleanup-project-element/{element_type}",
+                json=payload.model_dump(),
+                headers=self.headers,
+                stream=True,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    decoded_line = line.decode('utf-8')
+                    if not decoded_line.startswith('data:'):
+                        continue
+                    try:
+                        data = json.loads(decoded_line[5:])
+                        logger.debug(f"Cleanup element stream data: {data}")
+                        yield data
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON decode error in cleanup_project_element_stream: {e}")
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error cleaning up project element: {e}", exc_info=True)
+            logger.error(f"Error in cleanup_project_element stream: {e}", exc_info=True)
             raise
 
     def cleanup_factsheet(self, payload : AskAgentRequest):

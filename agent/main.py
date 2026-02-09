@@ -37,7 +37,6 @@ logger.info(f"Using DB connection: {connection_string[:50]}...")
 agent: Agent = None
 pool: AsyncConnectionPool = None
 
-firestore_manager = FirestoreManager()
 conversation_manager = SupabaseManager()
 auth = SupabaseAuth()
 
@@ -178,14 +177,15 @@ async def cleanup_factsheet_endpoint(query: AskAgentRequest, user_id: str = Depe
 
 @app.post("/cleanup-project-element/{element_type}")
 async def cleanup_project_element_endpoint(query: AskAgentRequest, element_type : str):
-    try:
-        result = await agent.cleanup_element(
-            query = query,
-            element_type = element_type)
-        return result if result else {"message": "No cleanup needed."}
-    except Exception as e:
-        logger.error(f"Error in /cleanup-project-element: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error in /cleanup-project-element: {str(e)}")
+    async def cleanup_stream_generator():
+        try:
+            async for chunk in agent.cleanup_element(query=query, element_type=element_type):
+                yield f'data: {json.dumps(chunk)}\n\n'
+                await asyncio.sleep(0.01)
+        except Exception as e:
+            logger.error(f"Error in cleanup_stream_generator: {e}", exc_info=True)
+            yield f'data: {json.dumps({"error": str(e)})}\n\n'
+    return StreamingResponse(cleanup_stream_generator(), media_type="text/event-stream")
 
 
 # READING FROM DB

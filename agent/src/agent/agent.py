@@ -831,7 +831,6 @@ class Agent:
                                                  query_id=query.query_id,
                                                  project_id=query.project_id)
 
-
     async def update_project(self, 
                              query : AskAgentRequest,
                               user_id : str,
@@ -1192,27 +1191,65 @@ class Agent:
 
         #content_model = [valid_element_types[element_type].model_validate(c) for c in content] if content else []
         content_model = valid_element_types[element_type].model_validate({element_type : content}) if content else None
+        yield {"type": "status",
+               "phase" : [f"cleanup_{element_type}"],
+               "status": "starting",
+               "data": {
+                   "element_type": element_type,
+                   "original_count": len(getattr(content_model, element_type)) if content_model else 0,
+               },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id
+               }
         cleaned_element = await self.context_manager.clean_element(content = content_model,
                                                                    factsheet=factsheet,
                                                                    element_type=element_type
                                                                    )
         
+        yield {"type": "status",
+               "phase" : [f"cleanup_{element_type}"],
+               "status": "complete",
+               "data": {    
+                     "element_type": element_type,
+                     "original_count": len(getattr(content_model, element_type)) if content_model else 0,
+                     "cleaned_count": len(cleaned_element) if cleaned_element else 0,
+                     "removed": (len(getattr(content_model, element_type)) if content_model else 0) - (len(cleaned_element) if cleaned_element else 0)
+                },
+                 "timestamp": datetime.now().isoformat(),
+                 "query_id": query.query_id
+                }
         
+        yield {"type": "status",
+               "phase" : [f"storage"],
+                "status": "starting",
+                "data": {
+                    "element_type": element_type,
+                    "cleaned_count": len(cleaned_element) if cleaned_element else 0,
+                    "storage_type" : ["database"]
+                },
+                 "timestamp": datetime.now().isoformat(),
+                 "query_id": query.query_id
+                }
         self.conversation_manager.replace_project_element(data =cleaned_element,
                                                        project_id=query.project_id,
                                                        table_name = f"project_{element_type}")
-        return {
-                "success": True,
-                "message": f"Successfully cleaned {element_type}",
+        yield {"type": "status",
+               "phase" : [f"storage"],
+                "status": "complete",
                 "data": {
                     "element_type": element_type,
-                    "original_count": len(getattr(content_model, element_type)) if content_model else 0,
                     "cleaned_count": len(cleaned_element) if cleaned_element else 0,
-                    "removed": (len(getattr(content_model, element_type)) if content_model else 0) - (len(cleaned_element) if cleaned_element else 0)
+                    "storage_type" : ["database"]
+                },
+                 "timestamp": datetime.now().isoformat(),
+                 "query_id": query.query_id
                 }
-            }
     
-    async def cleanup_factsheet(self, 
+
+    # =================================
+    # IKKE I BRUK
+    #================================
+    async def __cleanup_factsheet(self, 
                               query : AskAgentRequest,
                               user_id : str,
                              ):

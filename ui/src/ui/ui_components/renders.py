@@ -436,28 +436,71 @@ class ProjectComponent:
                 element_key = element_to_clean.lower().replace(" ","_")
                 if element_key:
                     if element_to_clean in relational_elements:
-                        response = streaming_service.cleanup_project_element(
-                            AskAgentRequest(
-                                project_id=st.session_state.project_id,
-                                session_id=st.session_state.session_id,
-                                attachments=[],
-                                question="",
-                                query_id=str(uuid4()),
-                                llm_model=st.session_state.llm_model,
-                            ),
-                            element_type=element_key
+                        payload = AskAgentRequest(
+                            project_id=st.session_state.project_id,
+                            session_id=st.session_state.session_id,
+                            attachments=[],
+                            question="",
+                            query_id=str(uuid4()),
+                            llm_model=st.session_state.llm_model,
                         )
+                        success = self._stream_cleanup_progress(streaming_service, payload, element_key)
+                        if success:
+                            project_element = self.backend_service.load_project_element(
+                                project_id=st.session_state.project_id,
+                                element_type=element_key)
+                            st.session_state.factsheet[element_key] = project_element
+                            st.rerun()
                     elif element_to_clean in metadata_elements:
                         pass #implement
                     elif element_to_clean in custom_law_elements:
                         pass
-                    if response.status_code == 200 and response.json().get("success") == True:
-                        response_json = response.json()
-                        st.success(f"{response_json.get('message')}")
-                        project_element = self.backend_service.load_project_element(project_id=st.session_state.project_id, 
-                                                                                element_type=element_key)
-                        st.session_state.factsheet[element_key] = project_element
-                        st.rerun()
+
+    def _stream_cleanup_progress(self, streaming_service, payload, element_type):
+        """Display live streaming progress for cleanup element."""
+
+        PHASE_CONFIG = {
+            f"cleanup_{element_type}": ("🧹", f"Cleaning {element_type}"),
+            "storage": ("💾", "Saving to database"),
+        }
+
+        with st.status(f"🧹 Cleaning {element_type}...", expanded=True) as status:
+            try:
+                for event in streaming_service.cleanup_project_element_stream(payload, element_type):
+                    if event.get("error"):
+                        status.update(label="❌ Error occurred", state="error")
+                        st.error(event["error"])
+                        return False
+
+                    phase_raw = event.get("phase", "")
+                    phase = phase_raw[0] if isinstance(phase_raw, list) else phase_raw
+                    event_status = event.get("status", "")
+                    data = event.get("data", {})
+                    emoji, label = PHASE_CONFIG.get(phase, ("⏳", phase))
+
+                    if event_status == "starting":
+                        status.update(label=f"{emoji} {label}...")
+                        original = data.get("original_count", 0)
+                        if original:
+                            st.caption(f"📋 {original} {element_type} to process")
+
+                    elif event_status == "complete":
+                        detail = ""
+                        if phase == f"cleanup_{element_type}":
+                            original = data.get("original_count", 0)
+                            cleaned = data.get("cleaned_count", 0)
+                            removed = data.get("removed", 0)
+                            detail = f": {cleaned} kept, {removed} removed (from {original})"
+                        st.markdown(f"✅ {label}{detail}")
+
+                status.update(label=f"✅ {element_type.title()} cleaned!", state="complete")
+                return True
+
+            except Exception as e:
+                status.update(label="❌ Error during cleanup", state="error")
+                st.error(str(e))
+                logger.error(f"Error during cleanup progress: {e}", exc_info=True)
+                return False
 
     def clean_factsheet(self,):
         streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
@@ -767,8 +810,10 @@ class ProjectComponent:
         user_input = st.text_area("Project details",
                                 placeholder="Describe your project here...",
                                 help="Provide details about your project to initialize it.",
-                                height=150)
-
+                                height=150,
+                                key = f"project_input_{st.session_state.clear_input_counter}")
+        if "clear_input_counter" not in st.session_state:
+            st.session_state.clear_input_counter = 0
         # Bruk CSS for å gjøre file uploader større
         st.markdown("""
             <style>
@@ -787,7 +832,8 @@ class ProjectComponent:
         user_files = st.file_uploader("Upload project files:",
                                     accept_multiple_files=True,
                                     type=["txt", "csv", "xlsx", "pdf"],
-                                    help="You can upload multiple files.")
+                                    help="You can upload multiple files.",
+                                    key = f"file_uploader_{st.session_state.clear_input_counter}")
         attachments = [self.attachment_component.mk_attachment_payload(f,query_id=query_id) for f in user_files] if user_files else []
 
         payload = AskAgentRequest(
@@ -810,6 +856,7 @@ class ProjectComponent:
                         st.session_state.factsheet = project_data.get('factsheet')
                         st.session_state.attachments = project_data.get('attachments', [])
                         st.session_state.update_project_view = True
+                        st.session_state.clear_input_counter += 1
                         st.rerun()
                     else:
                         st.warning("Project saved but could not load data. Please refresh.")
@@ -821,6 +868,7 @@ class ProjectComponent:
                         st.session_state.factsheet = project_data.get('factsheet')
                         st.session_state.attachments = project_data.get('attachments', [])
                         st.session_state.update_project_view = True
+                        st.session_state.clear_input_counter += 1
                         st.rerun()
                     else:
                         st.warning("Project updated but could not load data. Please refresh.")
