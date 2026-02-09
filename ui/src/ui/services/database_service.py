@@ -27,7 +27,7 @@ class SupabaseManager:
                 project_deadlines(*),
                 project_damages(*),
                 project_claims(*),
-                project_custom(*)"""
+                project_legal(*)"""
             
         project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
         
@@ -40,13 +40,13 @@ class SupabaseManager:
         project_damages = data.pop("project_damages", [])
         project_claims = data.pop("project_claims", [])
 
-        project_custom = data.pop("project_custom", {})
-        project_custom.pop("created_at", None)
-        project_custom.pop("project_id", None)
+        project_legal = data.pop("project_legal", {})
+        project_legal.pop("created_at", None)
+        project_legal.pop("project_id", None)
 
         factsheet = {}
         factsheet = dict(**data,
-                              **project_custom,
+                              **project_legal,
                               parties=project_parties,
                               events=project_events,
                               deadlines=project_deadlines,

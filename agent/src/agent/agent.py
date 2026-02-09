@@ -376,9 +376,78 @@ class Agent:
             docs.append(doc)
         return docs
 
+    def _is_valid_uuid(self, val):
+        try:
+            uuid.UUID(str(val))
+            return True
+        except ValueError:
+            return False
+
     # =================================
     #       STREAM RESPONSE
     # =================================
+
+    def on_chat_model_stream(self, data : dict, query_id : str, token_stream : str):
+        if data.get("chunk"):
+            chunk = data.get("chunk")
+            if isinstance(chunk,AIMessageChunk) and chunk.content:
+                token_stream += chunk.content
+                return {"type": "token", "data": chunk.content, "query_id": query_id}
+
+    def on_call_llm(self, data : dict, 
+                    query_id : str,
+                    session_id : str,
+                    events : list, 
+                    event_counter : int, 
+                    token_stream : str):
+        
+        output = data.get("output")
+        if output and output.get("messages"):
+            ai_msg = output.get("messages")[-1]
+            if isinstance(ai_msg, AIMessage):
+                event_model = StreamEvent(data = EventData(
+                                                            tool_calls = ai_msg.tool_calls,
+                                                            token_stream = token_stream),
+                                          order = event_counter,
+                                          type = "ai",
+                                          created_at = datetime.now(),
+                                          query_id = query_id,
+                                            event_id = str(uuid4()),
+                                            session_id = session_id,
+                                          content = ai_msg.content,
+                                          langchain_id= ai_msg.model_dump().get("id", None))
+                events.append(event_model)
+                event_counter += 1
+                return event_model.model_dump(mode="json")
+
+    def on_call_tool(self, data : dict, 
+                     query_id : str, 
+                     session_id : str, 
+                     events : list, 
+                     event_counter : int,):
+        output = data.get("output")
+        msg = output.get("messages",[])[-1] if output.get("messages",[]) else None
+        tool_results = output.get("tool_results", [])
+        for tool_result in tool_results:
+            payload = {"type": "tool_result",
+                    "tool_name": tool_result.get("tool_name"),
+                    "tool_args": tool_result.get("tool_args"),
+                    "data": tool_result.get("tool_data"),
+                    "query_id": query_id
+                    }
+            
+            event_model = StreamEvent.model_validate(data = ToolResultData.model_validate(payload),
+                                                       order = event_counter,
+                                                       type = "tool_result",
+                                                       created_at = datetime.now(),
+                                                       query_id = query_id,
+                                                       event_id = str(uuid4()),
+                                                       session_id = session_id,
+                                                       langchain_id= msg.get("data").get("id", None))
+            events.append(event_model)
+            event_counter += 1
+            return event_model.model_dump(mode="json")
+
 
     async def stream_response(self, query : AskAgentRequest,
                                 user_id : str
@@ -506,72 +575,9 @@ class Agent:
                                                   user_id=user_id,
                                                   session_id=query.session_id)
             
-            
-
-    
-    def on_chat_model_stream(self, data : dict, query_id : str, token_stream : str):
-        if data.get("chunk"):
-            chunk = data.get("chunk")
-            if isinstance(chunk,AIMessageChunk) and chunk.content:
-                token_stream += chunk.content
-                return {"type": "token", "data": chunk.content, "query_id": query_id}
-
-    def on_call_llm(self, data : dict, 
-                    query_id : str,
-                    session_id : str,
-                    events : list, 
-                    event_counter : int, 
-                    token_stream : str):
-        
-        output = data.get("output")
-        if output and output.get("messages"):
-            ai_msg = output.get("messages")[-1]
-            if isinstance(ai_msg, AIMessage):
-                event_model = StreamEvent(data = EventData(
-                                                            tool_calls = ai_msg.tool_calls,
-                                                            token_stream = token_stream),
-                                          order = event_counter,
-                                          type = "ai",
-                                          created_at = datetime.now(),
-                                          query_id = query_id,
-                                            event_id = str(uuid4()),
-                                            session_id = session_id,
-                                          content = ai_msg.content,
-                                          langchain_id= ai_msg.model_dump().get("id", None))
-                events.append(event_model)
-                event_counter += 1
-                return event_model.model_dump(mode="json")
-
-    def on_call_tool(self, data : dict, 
-                     query_id : str, 
-                     session_id : str, 
-                     events : list, 
-                     event_counter : int,):
-        output = data.get("output")
-        msg = output.get("messages",[])[-1] if output.get("messages",[]) else None
-        tool_results = output.get("tool_results", [])
-        for tool_result in tool_results:
-            payload = {"type": "tool_result",
-                    "tool_name": tool_result.get("tool_name"),
-                    "tool_args": tool_result.get("tool_args"),
-                    "data": tool_result.get("tool_data"),
-                    "query_id": query_id
-                    }
-            
-            event_model = StreamEvent.model_validate(data = ToolResultData.model_validate(payload),
-                                                       order = event_counter,
-                                                       type = "tool_result",
-                                                       created_at = datetime.now(),
-                                                       query_id = query_id,
-                                                       event_id = str(uuid4()),
-                                                       session_id = session_id,
-                                                       langchain_id= msg.get("data").get("id", None))
-            events.append(event_model)
-            event_counter += 1
-            return event_model.model_dump(mode="json")
 
     # =================================
-    #       INITIAL PROJECT SCAN
+    #       PROJECT SCAN
     # ================================= 
     async def initialize_project(self, query : AskAgentRequest,
                                  user_id : str,
@@ -608,7 +614,7 @@ class Agent:
         total_phase1 = len(storage_tasks) + 1 
         yield {
             "type": "status",
-            "phase": "initialization",
+            "phase": ["initialization"],
             "status": "starting",
             "data": {
                 "total_operations": total_phase1,
@@ -632,7 +638,7 @@ class Agent:
                 logger.debug(f'\n\n ====== Analyzed Initial Input: {initial_input.model_dump(mode = "json")} ========= \n\n')
                 yield {
                         "type": "status",
-                        "phase": "init_input",
+                        "phase": ["init_input"],
                         "status": "complete",
                         "data": {
                             "parties_found": len(initial_input.parties or []),
@@ -645,11 +651,12 @@ class Agent:
             else:
                 yield {
                         "type": "status",
-                        "phase": "storage",
+                        "phase": ["storage"],
                         "status": "complete",
                         "data": {
                             "progress": completed_phase1,
-                            "total": total_phase1
+                            "total": total_phase1,
+                            "storage_type": ["vector_store", "file_storage"]
                         },
                         "timestamp": datetime.now().isoformat(),
                         "query_id": query.query_id
@@ -682,7 +689,7 @@ class Agent:
         
         yield {
             "type": "status",
-            "phase": "analyze_docs",
+            "phase": ["analyze_docs"],
             "status": "starting",
             "data": {"total": len(query.attachments)},
             "timestamp": datetime.now().isoformat(),
@@ -709,7 +716,7 @@ class Agent:
                 
                 yield {
                     "type": "status",
-                    "phase": "analyze_doc",
+                    "phase": ["analyze_doc"],
                     "status": "complete",
                     "data": {
                         "filename": result["file"].filename,
@@ -722,7 +729,7 @@ class Agent:
                 }
         yield {
                 "type": "status",
-                "phase": "analyze_docs",
+                "phase": ["analyze_docs"],
                 "status": "complete",
                 "data": {"total": len(doc_tasks)},
                 "timestamp": datetime.now().isoformat(),
@@ -746,10 +753,10 @@ class Agent:
         # ========================================
         yield {
             "type": "status",
-            "phase": "final_analysis",
+            "phase": ["final_analysis"],
             "status": "starting",
             "data": {"total_operations": 2},
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id
         }
 
@@ -763,7 +770,7 @@ class Agent:
                     logger.debug(f'\n\n ====== Analyzed Factual Facts: {factual_facts.model_dump(mode = "json")} ========= \n\n')
                     yield {
                         "type": "status",
-                        "phase": "factual_facts",
+                        "phase": ["factual_facts"],
                         "status": "complete",
                         "data": {
                             "progress": completed_analysis,
@@ -771,7 +778,7 @@ class Agent:
                             "disputed_count": len(factual_facts.disputed_facts or []),
                             "undisputed_count": len(factual_facts.undisputed_facts or [])
                         },
-                        "timestamp": datetime.utcnow().isoformat(),
+                        "timestamp": datetime.now().isoformat(),
                         "query_id": query.query_id
                     }
                 elif isinstance(result, GoverningLaw):
@@ -779,31 +786,17 @@ class Agent:
                     logger.debug(f'\n\n ====== Analyzed Governing Law: {governing_law.model_dump(mode = "json")} ========= \n\n')
                     yield {
                             "type": "status",
-                            "phase": "governing_law",
+                            "phase": ["governing_law"],
                             "status": "complete",
                             "data": {
                                 "progress": completed_analysis,
                                 "total": 2,
                                 "jurisdiction": governing_law.primary_jurisdiction
                             },
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": datetime.now().isoformat(),
                             "query_id": query.query_id
                         }
 
-        # Initialize with defaults in case analysis fails
-        # factual_facts = FactualFacts(disputed_facts=[], undisputed_facts=[])
-        # governing_law = GoverningLaw(
-        #     primary_jurisdiction="Unknown",
-        #     key_areas=[],
-        #     procedural_law="tvisteloven"
-        # )
-
-        # for res in analysis_results:
-        #     if isinstance(res, FactualFacts):
-                
-        #     elif isinstance(res, GoverningLaw):
-        #         governing_law = res
-        #         logger.debug(f'\n\n ====== Analyzed Governing Law: {governing_law.model_dump(mode = "json")} ========= \n\n')
 
         # Generate UUIDs for all entities before saving
         for event in events:
@@ -831,19 +824,12 @@ class Agent:
             **factual_facts.model_dump(),
             **initial_input.model_dump(),
         )
-        #logger.debug(f'\n\n ====== Generated FactSheet: {result} ========= \n\n')        
         self.conversation_manager.save_project(factsheet=result,
                                                  files=files,
                                                  user_id=user_id,
                                                  session_id=query.session_id,
                                                  query_id=query.query_id,
                                                  project_id=query.project_id)
-
-        # Return a JSON-serializable dict with all metadata
-        return {
-            "attachments": [att.model_dump(mode='json') for att in files],
-            "factsheet": result.model_dump(mode='json'),
-        }
 
 
     async def update_project(self, 
@@ -874,7 +860,6 @@ class Agent:
                 file_type=att.file_type, 
                 session_id=query.session_id))
             
-            # Run both storage operations in parallel
             storage_tasks = [
                 asyncio.to_thread(self.vs.add_documents, docs, collection_id=query.session_id),
                 self.storage.save_raw_documents(attachments=query.attachments)
@@ -882,11 +867,11 @@ class Agent:
 
         # Extract existing data from project (use direct lists, not wrapper models)
         factsheet : FactSheet = project_data.get("factsheet", {})
-        events: list[Event] = [] #factsheet.events if factsheet and factsheet.events else []
-        files: list[Attachment] = [] #project_data.get("attachments", [])
-        damages: list[Damage] = [] #factsheet.damages if factsheet and factsheet.damages else []
-        claims: list[Claim] = [] #factsheet.claims if factsheet and factsheet.claims else []
-        deadlines: list[Deadline] = [] #factsheet.deadlines if factsheet and factsheet.deadlines else []
+        events: list[Event] = [] 
+        files: list[Attachment] = [] 
+        damages: list[Damage] = [] 
+        claims: list[Claim] = [] 
+        deadlines: list[Deadline] = [] 
 
         
         sem = asyncio.Semaphore(20)  
@@ -903,19 +888,29 @@ class Agent:
                 size=att.size,
             )
 
-        tasks = [analyze_new_doc_with_limit(att, factsheet, query) for att in query.attachments or []]
+        doc_tasks = [analyze_new_doc_with_limit(att, factsheet, query) for att in query.attachments or []]
 
-        # Wait for storage operations and document analysis in parallel
-        all_results = await asyncio.gather(*storage_tasks, *tasks)
-        
-        # Extract document analysis results (skip storage results)
-        results = all_results[len(storage_tasks):]
-        
-        if results:
-            for result in results:
+        # ============= PHASE 1 =================
+        # save content to vector store and storage and analyze docs in parallel
+        # ========================================
+        yield {
+            "type": "status",
+            "phase": ["analyze_docs", "storage"],
+            "status": "starting",
+            "data": {"total": len(query.attachments),
+                     },
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id
+        }
+        completed_analyze_doc = 0
+        completed_saving_storage = 0
+        for coro in asyncio.as_completed(storage_tasks + doc_tasks):
+            result = await coro
+            completed_analyze_doc += 1
+            logger.debug(f'Completed a storage or analysis task with result: {result}')
+            if result and isinstance(result, dict) and "file" in result and "events" in result:
                 analyzed_doc = result.get("file")
                 logger.debug(f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()}")
-
                 # Collect results from analyzed documents
                 files.append(analyzed_doc)
                 if analyzed_doc.damages:
@@ -926,85 +921,237 @@ class Agent:
                     deadlines.extend(analyzed_doc.deadlines)
                 if result.get("events"):
                     events.extend(result.get("events"))
-
-            for event in events:
-                if not event.event_id:
-                    event.event_id = str(uuid4())
-            
-            for damage in damages:
-                if not damage.damage_id:
-                    damage.damage_id = str(uuid4())
-            
-            for claim in claims:
-                if not claim.claim_id:
-                    claim.claim_id = str(uuid4())
-            
-            for deadline in deadlines:
-                if not deadline.deadline_id:
-                    deadline.deadline_id = str(uuid4())
-            
-            # Save to database: FIRST attachments (due to foreign key constraints), THEN related data
-            # Step 1: Save attachments first
-            if files and hasattr(files[0], "model_dump"):
-                await asyncio.to_thread(
-                    self.conversation_manager.insert_project_element,
-                    data = [file.model_dump(mode="json", exclude = {"claims","damages","deadlines","events"}) for file in files],
-                    project_id=query.project_id,
-                    table_name = "project_attachments")
-            else:
-                logger.warning("No valid files to save or missing model_dump method.")
-            
-            # Step 2: Save related data in parallel (events, damages, claims, deadlines)
-            related_tasks = []
-            if events and hasattr(events[0], "model_dump"):
-                related_tasks.append(asyncio.to_thread(
-                    self.conversation_manager.insert_project_element,
-                    data = [event.model_dump(mode="json") for event in events],
-                    project_id=query.project_id,
-                    table_name = "project_events"))
-            else:
-                logger.warning("No valid events to save or missing model_dump method.")
-            if damages and hasattr(damages[0], "model_dump"):
-                related_tasks.append(asyncio.to_thread(
-                    self.conversation_manager.insert_project_element,
-                    data = [damage.model_dump(mode="json") for damage in damages],
-                    project_id=query.project_id,
-                    table_name = "project_damages"))
-            else:
-                logger.warning("No valid damages to save or missing model_dump method.")
-            if claims and hasattr(claims[0], "model_dump"):
-                related_tasks.append(asyncio.to_thread(
-                    self.conversation_manager.insert_project_element,
-                    data = [claim.model_dump(mode="json") for claim in claims],
-                    project_id=query.project_id,
-                    table_name = "project_claims"))
-            else:
-                logger.warning("No valid claims to save or missing model_dump method.")
-            if deadlines and hasattr(deadlines[0], "model_dump"):
-                related_tasks.append(asyncio.to_thread(
-                    self.conversation_manager.insert_project_element,
-                    data = [deadline.model_dump(mode="json") for deadline in deadlines],
-                    project_id=query.project_id,
-                    table_name = "project_deadlines"))
-            else:
-                logger.warning("No valid deadlines to save or missing model_dump method.")
-            if related_tasks:
-                await asyncio.gather(*related_tasks)
-
-        return {"events" : [event.model_dump(mode="json") for event in events],
-                "attachments" : [file.model_dump(mode="json", exclude={"claims","damages","deadlines","events"}) for file in files],
-                "damages" : [damage.model_dump(mode="json") for damage in damages],
-                "claims" : [claim.model_dump(mode="json") for claim in claims],
-                "deadlines" : [deadline.model_dump(mode="json") for deadline in deadlines],
+                yield {
+                    "type": "status",
+                    "phase": ["analyze_doc"],
+                    "status": "complete",
+                    "data": {
+                        "filename": result["file"].filename,
+                        "file_id": result["file"].file_id,
+                        "progress": completed_analyze_doc,
+                        "total": len(doc_tasks)
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id
                 }
-            
-    def _is_valid_uuid(self, val):
-        try:
-            uuid.UUID(str(val))
-            return True
-        except ValueError:
-            return False
+            else:
+                completed_saving_storage += 1
+                yield {
+                        "type": "status",
+                        "phase": ["storage"],
+                        "status": "complete",
+                        "data": {
+                            "progress": completed_saving_storage,
+                            "total": len(storage_tasks),
+                            "storage_type" : ["vector_store", "file_storage"]
+                        },
+                        "timestamp": datetime.now().isoformat(),
+                        "query_id": query.query_id
+                    }
 
+        for event in events:
+            if not event.event_id:
+                event.event_id = str(uuid4())
+        
+        for damage in damages:
+            if not damage.damage_id:
+                damage.damage_id = str(uuid4())
+        
+        for claim in claims:
+            if not claim.claim_id:
+                claim.claim_id = str(uuid4())
+        
+        for deadline in deadlines:
+            if not deadline.deadline_id:
+                deadline.deadline_id = str(uuid4())
+        
+        # ============= PHASE 2 =================
+        # Insert new documents to database (must be inserted first to avoid foreign key constraint issues)
+        # ========================================
+        if files and hasattr(files[0], "model_dump"):
+            await asyncio.to_thread(
+                self.conversation_manager.insert_project_element,
+                data = [file.model_dump(mode="json", exclude = {"claims","damages","deadlines","events"}) for file in files],
+                project_id=query.project_id,
+                table_name = "project_attachments")
+            yield {
+                        "type": "status",
+                        "phase": ["storage"],
+                        "status": "complete",
+                        "data": {"total" : len(files),
+                                 "storage_type" : ["database"]
+                        },
+                        "timestamp": datetime.now().isoformat(),
+                        "query_id": query.query_id
+                    }
+        else:
+            logger.warning("No valid files to save or missing model_dump method.")
+        
+        # ============= PHASE 3 =================
+        # Insert new data to database
+        # ========================================
+        related_tasks = []
+        if events and hasattr(events[0], "model_dump"):
+            related_tasks.append(asyncio.to_thread(
+                self.conversation_manager.insert_project_element,
+                data = [event.model_dump(mode="json") for event in events],
+                project_id=query.project_id,
+                table_name = "project_events"))
+        else:
+            logger.warning("No valid events to save or missing model_dump method.")
+        if damages and hasattr(damages[0], "model_dump"):
+            related_tasks.append(asyncio.to_thread(
+                self.conversation_manager.insert_project_element,
+                data = [damage.model_dump(mode="json") for damage in damages],
+                project_id=query.project_id,
+                table_name = "project_damages"))
+        else:
+            logger.warning("No valid damages to save or missing model_dump method.")
+        if claims and hasattr(claims[0], "model_dump"):
+            related_tasks.append(asyncio.to_thread(
+                self.conversation_manager.insert_project_element,
+                data = [claim.model_dump(mode="json") for claim in claims],
+                project_id=query.project_id,
+                table_name = "project_claims"))
+        else:
+            logger.warning("No valid claims to save or missing model_dump method.")
+        if deadlines and hasattr(deadlines[0], "model_dump"):
+            related_tasks.append(asyncio.to_thread(
+                self.conversation_manager.insert_project_element,
+                data = [deadline.model_dump(mode="json") for deadline in deadlines],
+                project_id=query.project_id,
+                table_name = "project_deadlines"))
+        else:
+            logger.warning("No valid deadlines to save or missing model_dump method.")
+
+        
+        
+        if related_tasks:
+            completed = 0
+            yield {
+            "type": "status",
+            "phase": ["storage"],
+            "status": "starting",
+            "data": {"total_operations": len(related_tasks),},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id
+        }
+            for coro in asyncio.as_completed(related_tasks):
+                await coro
+                completed += 1
+                yield {
+                        "type": "status",
+                        "phase": ["storage"],
+                        "status": "complete",
+                        "data": {
+                            "progress": completed,
+                            "total": len(related_tasks),
+                            "storage_type" : ["database"]
+                        },
+                        "timestamp": datetime.now().isoformat(),
+                        "query_id": query.query_id
+                    }
+                
+            yield {
+                "type": "status",
+                "phase": ["storage"],
+                "status": "completed",
+                "data": {"total_operations": len(related_tasks),},
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id
+            }
+     
+       
+        # # Extract document analysis results (skip storage results)
+        # results = all_results[len(storage_tasks):]
+        
+        # if results:
+        #     for result in results:
+        #         analyzed_doc = result.get("file")
+        #         logger.debug(f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()}")
+
+        #         # Collect results from analyzed documents
+        #         files.append(analyzed_doc)
+        #         if analyzed_doc.damages:
+        #             damages.extend(analyzed_doc.damages)
+        #         if analyzed_doc.claims:
+        #             claims.extend(analyzed_doc.claims)
+        #         if analyzed_doc.deadlines:
+        #             deadlines.extend(analyzed_doc.deadlines)
+        #         if result.get("events"):
+        #             events.extend(result.get("events"))
+
+        #     for event in events:
+        #         if not event.event_id:
+        #             event.event_id = str(uuid4())
+            
+        #     for damage in damages:
+        #         if not damage.damage_id:
+        #             damage.damage_id = str(uuid4())
+            
+        #     for claim in claims:
+        #         if not claim.claim_id:
+        #             claim.claim_id = str(uuid4())
+            
+        #     for deadline in deadlines:
+        #         if not deadline.deadline_id:
+        #             deadline.deadline_id = str(uuid4())
+            
+        #     # Save to database: FIRST attachments (due to foreign key constraints), THEN related data
+        #     # Step 1: Save attachments first
+        #     if files and hasattr(files[0], "model_dump"):
+        #         await asyncio.to_thread(
+        #             self.conversation_manager.insert_project_element,
+        #             data = [file.model_dump(mode="json", exclude = {"claims","damages","deadlines","events"}) for file in files],
+        #             project_id=query.project_id,
+        #             table_name = "project_attachments")
+        #     else:
+        #         logger.warning("No valid files to save or missing model_dump method.")
+            
+        #     # Step 2: Save related data in parallel (events, damages, claims, deadlines)
+        #     related_tasks = []
+        #     if events and hasattr(events[0], "model_dump"):
+        #         related_tasks.append(asyncio.to_thread(
+        #             self.conversation_manager.insert_project_element,
+        #             data = [event.model_dump(mode="json") for event in events],
+        #             project_id=query.project_id,
+        #             table_name = "project_events"))
+        #     else:
+        #         logger.warning("No valid events to save or missing model_dump method.")
+        #     if damages and hasattr(damages[0], "model_dump"):
+        #         related_tasks.append(asyncio.to_thread(
+        #             self.conversation_manager.insert_project_element,
+        #             data = [damage.model_dump(mode="json") for damage in damages],
+        #             project_id=query.project_id,
+        #             table_name = "project_damages"))
+        #     else:
+        #         logger.warning("No valid damages to save or missing model_dump method.")
+        #     if claims and hasattr(claims[0], "model_dump"):
+        #         related_tasks.append(asyncio.to_thread(
+        #             self.conversation_manager.insert_project_element,
+        #             data = [claim.model_dump(mode="json") for claim in claims],
+        #             project_id=query.project_id,
+        #             table_name = "project_claims"))
+        #     else:
+        #         logger.warning("No valid claims to save or missing model_dump method.")
+        #     if deadlines and hasattr(deadlines[0], "model_dump"):
+        #         related_tasks.append(asyncio.to_thread(
+        #             self.conversation_manager.insert_project_element,
+        #             data = [deadline.model_dump(mode="json") for deadline in deadlines],
+        #             project_id=query.project_id,
+        #             table_name = "project_deadlines"))
+        #     else:
+        #         logger.warning("No valid deadlines to save or missing model_dump method.")
+        #     if related_tasks:
+        #         await asyncio.gather(*related_tasks)
+
+        # return {"events" : [event.model_dump(mode="json") for event in events],
+        #         "attachments" : [file.model_dump(mode="json", exclude={"claims","damages","deadlines","events"}) for file in files],
+        #         "damages" : [damage.model_dump(mode="json") for damage in damages],
+        #         "claims" : [claim.model_dump(mode="json") for claim in claims],
+        #         "deadlines" : [deadline.model_dump(mode="json") for deadline in deadlines],
+        #         }
+            
     async def cleanup_element(self,
                               query : AskAgentRequest,
                               element_type: str,
@@ -1056,8 +1203,6 @@ class Agent:
                     "removed": (len(getattr(content_model, element_type)) if content_model else 0) - (len(cleaned_element) if cleaned_element else 0)
                 }
             }
-    
-    
     
     async def cleanup_factsheet(self, 
                               query : AskAgentRequest,

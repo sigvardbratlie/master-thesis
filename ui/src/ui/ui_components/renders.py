@@ -555,7 +555,14 @@ class ProjectComponent:
             events = factsheet.get('events', [])
             sorted_events = sorted(events, key=lambda x: x.get('event_date', ''))
             for event in sorted_events:
-                st.markdown(f"**{event.get('event_date', 'No Date')}**: {event.get('description', 'No Description')}")
+                start_date = event.get('event_start_date', 'No Date')
+                end_date = event.get('event_end_date', 'No Date')
+                if end_date and start_date and end_date != start_date:
+                    st.markdown(f"**{start_date} - {end_date}**: {event.get('description', 'No Description')}")
+                elif start_date and start_date != 'No Date':
+                    st.markdown(f"**{start_date}**: {event.get('description', 'No Description')}")
+                else:
+                    st.markdown(f"**No Date**: {event.get('description', 'No Description')}")
         
         elements = {"parties" : "👥", "governing_law" : "⚖️", "claims" : "📄", "damages" : "💰", "deadlines" : "⏰",
         }
@@ -603,15 +610,96 @@ class ProjectComponent:
             st.info("No sessions found for this project.")
 
         
+    def _stream_init_progress(self, streaming_service, payload):
+        """Display live streaming progress for project initialization."""
+
+        PHASE_CONFIG = {
+            "initialization": ("🚀", "Setting up project"),
+            "init_input": ("📋", "Analyzing case details"),
+            "storage": ("💾", "Saving documents"),
+            "analyze_docs": ("📄", "Starting document analysis"),
+            "analyze_doc": ("📝", "Document analyzed"),
+            "final_analysis": ("🔬", "Running final analysis"),
+            "factual_facts": ("⚖️", "Factual analysis"),
+            "governing_law": ("📜", "Legal framework analysis"),
+        }
+
+        with st.status("🚀 Initializing project...", expanded=True) as status:
+            progress_bar = st.progress(0, text="Starting...")
+            total = 0
+            completed = 0
+
+            try:
+                for event in streaming_service.init_project_stream(payload):
+                    if event.get("error"):
+                        status.update(label="❌ Error occurred", state="error")
+                        st.error(event["error"])
+                        return False
+
+                    phase = event.get("phase", "")
+                    event_status = event.get("status", "")
+                    data = event.get("data", {})
+                    emoji, label = PHASE_CONFIG.get(phase, ("⏳", phase))
+
+                    if event_status == "starting":
+                        n = data.get("total_operations", data.get("total", 0))
+                        total += n
+                        status.update(label=f"{emoji} {label}...")
+
+                        if phase == "initialization":
+                            n_att = data.get("attachments", 0)
+                            if n_att:
+                                st.caption(f"📎 {n_att} attachment(s) to process")
+
+                    elif event_status == "complete":
+                        # analyze_docs/complete is a summary event, skip counting
+                        if phase == "analyze_docs":
+                            continue
+
+                        completed += 1
+
+                        # Build detail text per phase
+                        detail = ""
+                        if phase == "init_input":
+                            n = data.get("parties_found", 0)
+                            detail = f" — {n} parties found" if n else ""
+                        elif phase == "analyze_doc":
+                            fname = data.get("filename", "")
+                            detail = f": **{fname}**" if fname else ""
+                        elif phase == "factual_facts":
+                            d = data.get("disputed_count", 0)
+                            u = data.get("undisputed_count", 0)
+                            detail = f" — {d} disputed, {u} undisputed facts"
+                        elif phase == "governing_law":
+                            j = data.get("jurisdiction", "")
+                            detail = f" — {j}" if j else ""
+
+                        st.markdown(f"✅ {label}{detail}")
+
+                        # Update progress bar
+                        if total > 0:
+                            pct = min(completed / total, 1.0)
+                            progress_bar.progress(pct, text=f"{emoji} {label}...")
+
+                # Stream finished
+                progress_bar.progress(1.0, text="Complete!")
+                status.update(label="✅ Project initialized!", state="complete")
+                return True
+
+            except Exception as e:
+                status.update(label="❌ Error during initialization", state="error")
+                st.error(str(e))
+                logger.error(f"Error during init progress: {e}", exc_info=True)
+                return False
+
     def render_new_project_input(self, mode : Literal["update","init"] = "init"):
         streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
                                                   access_token=st.session_state.access_token)
-        user_input = st.text_area("Project details", 
+        user_input = st.text_area("Project details",
                                 placeholder="Describe your project here...",
                                 help="Provide details about your project to initialize it.",
-                                height=150)  # Starthøyde
+                                height=150)
 
-            
         # Bruk CSS for å gjøre file uploader større
         st.markdown("""
             <style>
@@ -623,17 +711,16 @@ class ProjectComponent:
             }
             </style>
         """, unsafe_allow_html=True)
-        
-        query_id = str(uuid4()) 
+
+        query_id = str(uuid4())
         project_id = st.session_state.project_id if st.session_state.project_id else str(uuid4())
 
-        user_files = st.file_uploader("Upload project files:", 
-                                    accept_multiple_files=True, 
+        user_files = st.file_uploader("Upload project files:",
+                                    accept_multiple_files=True,
                                     type=["txt", "csv", "xlsx", "pdf"],
                                     help="You can upload multiple files.")
         attachments = [self.attachment_component.mk_attachment_payload(f,query_id=query_id) for f in user_files] if user_files else []
-        #st.info(attachments)
-        
+
         payload = AskAgentRequest(
             question=user_input,
             attachments=[att.model_dump() for att in attachments],
@@ -643,113 +730,36 @@ class ProjectComponent:
             project_id=project_id
         )
 
-        
         init_project = st.button("Initialize Project", icon="🚀") if mode == "init" else st.button("Update Project", icon="🚀")
         if init_project:
             st.session_state.project_id = project_id
-
-            # Spinner container 
-            spinner_placeholder = st.empty()
-
-            # Custom animated spinner with rotating text
-            spinner_html = """
-            <style>
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-            @keyframes fade {
-                0%, 100% { opacity: 0.5; }
-                50% { opacity: 1; }
-            }
-            .spinner-container {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                padding: 2rem;
-                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-                border-radius: 12px;
-                margin: 1rem 0;
-            }
-            .racket-spinner {
-                font-size: 3rem;
-                animation: spin 1.5s linear infinite;
-                margin-bottom: 1rem;
-            }
-            .text-container {
-                overflow: hidden;
-                height: 30px;
-            }
-            .rotating-text {
-                animation: slide 10s steps(5) infinite;
-            }
-            @keyframes slide {
-                0% { transform: translateY(0); }
-                100% { transform: translateY(-150px); }
-            }
-            .rotating-text span {
-                display: block;
-                height: 30px;
-                line-height: 30px;
-                color: #00d4ff;
-                font-weight: 500;
-                font-size: 1.1rem;
-            }
-            </style>
-
-            <div class="spinner-container">
-                <div class="racket-spinner">🏸</div>
-                <div class="text-container">
-                    <div class="rotating-text">
-                        <span>📄 Scanning documents...</span>
-                        <span>🔍 Analyzing content...</span>
-                        <span>📋 Extracting key information...</span>
-                        <span>📊 Building factsheet...</span>
-                        <span>🚀 Initializing project...</span>
-                    </div>
-                </div>
-            </div>
-            """
-
-            spinner_placeholder.markdown(spinner_html, unsafe_allow_html=True)
-
-            try:
-                response = streaming_service.init_project(payload) if mode == "init" else streaming_service.update_project(payload)
-                st.json(response.json())
-
-                # Clear spinner
-                spinner_placeholder.empty()
-
-                if response.status_code == 200:
-                    st.success("Project initialized successfully!")
-                    #logger.info(f"Project initialized: {response.json()}")
-                    if mode == "init":
-                        try:
-                            project_data = response.json()
-                        except Exception as e:
-                            logger.error(f"Error parsing factsheet JSON: {str(e)}")
-                            project_data = {}
-
-                        # Set factsheet and attachments from response
-                        st.session_state.project_data = project_data
+            if mode == "init":
+                success = self._stream_init_progress(streaming_service, payload)
+                if success:
+                    project_data = self.backend_service.load_project(project_id=project_id)
+                    if project_data:
                         st.session_state.factsheet = project_data.get('factsheet')
                         st.session_state.attachments = project_data.get('attachments', [])
-                    elif mode == "update":
+                        st.session_state.update_project_view = True
+                        st.rerun()
+                    else:
+                        st.warning("Project saved but could not load data. Please refresh.")
+            else:
+                try:
+                    response = streaming_service.update_project(payload)
+                    if response.status_code == 200:
+                        st.success("Project updated successfully!")
                         project_data = self.backend_service.load_project(project_id=st.session_state.project_id)
                         st.session_state.factsheet = project_data.get('factsheet')
                         st.session_state.attachments = project_data.get('attachments', [])
-
-                    st.session_state.update_project_view = True
-                    st.rerun()
-                else:
-                    spinner_placeholder.empty()
-                    st.error(f"Error initializing project: {response.text}")
-                    logger.error(f"Error initializing project: {response.status_code} - {response.text}")
-            except Exception as e:
-                spinner_placeholder.empty()
-                st.error(f"Exception during project initialization: {str(e)}")
-                logger.exception("Exception during project initialization")
+                        st.session_state.update_project_view = True
+                        st.rerun()
+                    else:
+                        st.error(f"Error updating project: {response.text}")
+                        logger.error(f"Error updating project: {response.status_code} - {response.text}")
+                except Exception as e:
+                    st.error(f"Exception during project update: {str(e)}")
+                    logger.exception("Exception during project update")
 
     def on_session_select(self,):
         user_id = st.session_state.get('user_id')

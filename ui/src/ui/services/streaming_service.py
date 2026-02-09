@@ -144,27 +144,34 @@ class StreamingService:
             logger.error(f"Streaming request failed: {e}", exc_info=True)
             raise
 
-    def init_project(self, payload: AskAgentRequest) -> requests.Response:
+    def init_project_stream(self, payload: AskAgentRequest) -> Generator[dict, None, None]:
         """
-        Initialize a new project in the backend.
+        Stream status updates from the /init-project endpoint.
 
-        Args:
-            payload: AskAgentRequest model with project details
-
-        Returns:
-            Response object from the initialization request
+        Yields parsed status event dicts as they arrive from the backend SSE stream.
         """
         try:
-            response = requests.post(
+            with requests.post(
                 url=f"{self.backend_url}/init-project",
                 json=payload.model_dump(),
                 headers=self.headers,
-                #stream=True,
-            )
-            response.raise_for_status()
-            return response
+                stream=True,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    decoded_line = line.decode('utf-8')
+                    if not decoded_line.startswith('data:'):
+                        continue
+                    try:
+                        data = json.loads(decoded_line[5:])
+                        logger.debug(f"Init project stream data: {data}")
+                        yield data
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON decode error in init_project_stream: {e}")
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error initializing project: {e}", exc_info=True)
+            logger.error(f"Error in init_project stream: {e}", exc_info=True)
             raise
 
     def update_project(self, payload: AskAgentRequest) -> requests.Response:

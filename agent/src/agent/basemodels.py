@@ -230,32 +230,12 @@ class StreamlitUserInfo(BaseModel):
     name: str
     picture: Optional[str] = None
 
-# ===== MODELS SAVING TO FIRESTORE =====
-# class HumanEventData(BaseModel):
-#     #additional_kwargs: Optional[dict] = None
-#     attachments: Optional[list[str]] = Field(None, description="List of file_ids attached to this human message")
-#     #content : Optional[str] = None
-#     #id : Optional[str] = None
-#     #name : Optional[str] = None
-#     #response_metadata : Optional[dict] = None
 
 class ToolResultData(BaseModel):
     tool_name: str
     tool_args: dict
     data : Optional[dict] = None
 
-# class AIEventData(BaseModel):
-#     #content : Optional[str] = None
-#     invalid_tool_calls : Optional[list] = None
-#     token_stream: Optional[str] = None
-#     tool_calls : Optional[list] = None
-
-#     #additional_kwargs: Optional[dict] = None
-#     #id : Optional[str] = None
-#     #name : Optional[str] = None
-#     #response_metadata : Optional[dict] = None
-#     #type : str = "ai"
-#     #usage_metadata : Optional[dict] = None
 
 class EventData(BaseModel):
     attachments: Optional[list[str]] = Field(None, description="List of file_ids attached to this human message")
