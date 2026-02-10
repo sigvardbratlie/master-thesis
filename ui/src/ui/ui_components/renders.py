@@ -210,10 +210,9 @@ class ChatComponent:
             attachment_payload = []
             email_payload = []
             for file in question.files if hasattr(question, "files") else []:
-                attachment_data = self.attachment_component.mk_attachment_payload(file = file, query_id = query_id)
-                if attachment_data:
-                    attachment_payload.extend(attachment_data.get("attachments", []))
-                    email_payload.extend(attachment_data.get("emails", []))
+                attachment = self.attachment_component.mk_attachment_payload(file = file, query_id = query_id)
+                if attachment:
+                    attachment_payload.append(attachment)
 
             # Add user message to session
             user_msg = {
@@ -252,7 +251,6 @@ class ChatComponent:
                     question=question.text if hasattr(question, "text") else question,
                     session_id=st.session_state.session_id,
                     attachments=[att.model_dump(mode = "json") for att in attachment_payload],
-                    emails=[email.model_dump(mode = "json") for email in email_payload],
                     query_id=query_id,
                     project_id = st.session_state.project_id,
                     llm_model=st.session_state.llm_model,
@@ -837,20 +835,17 @@ class ProjectComponent:
                                     type=["txt", "csv", "xlsx", "docx", "pdf", "eml", ],
                                     help="You can upload multiple files.",
                                     key = f"file_uploader_{st.session_state.clear_input_counter}")
-        attachment_data_list = [self.attachment_component.mk_attachment_payload(f,query_id=query_id) for f in user_files] if user_files else []
+        attachment_list = [self.attachment_component.mk_attachment_payload(f,query_id=query_id) for f in user_files] if user_files else []
         
         # Flatten attachments and emails from all files
         all_attachments = []
-        all_emails = []
-        for data in attachment_data_list:
-            if data:
-                all_attachments.extend(data.get("attachments", []))
-                all_emails.extend(data.get("emails", []))
+        for attachment in attachment_list:
+            if attachment:
+                all_attachments.append(attachment)
 
         payload = AskAgentRequest(
             question=user_input,
             attachments=[att.model_dump(mode = "json") for att in all_attachments],
-            emails = [email.model_dump(mode = "json") for email in all_emails],
             session_id=st.session_state.session_id,
             query_id=query_id,
             llm_model=st.session_state.llm_model,

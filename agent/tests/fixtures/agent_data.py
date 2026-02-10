@@ -148,7 +148,7 @@ Daniel og Camilla
 #         events=[
 #             Event(
 #                 event_id="event-001",
-#                 event_date="2023-08-25",
+#                 event_start_date="2023-08-25",
 #                 event_name="ContractSigned",
 #                 description="Kjøpekontrakt for Granveien 15B ble signert",
 #                 parties=["plaintiff", "defendant"],
@@ -158,7 +158,7 @@ Daniel og Camilla
 #             ),
 #             Event(
 #                 event_id="event-002",
-#                 event_date="2023-11-11",
+#                 event_start_date="2023-11-11",
 #                 event_name="PropertyTakeover",
 #                 description="Overtakelse av eiendommen Granveien 15B",
 #                 parties=["plaintiff"],
@@ -168,7 +168,7 @@ Daniel og Camilla
 #             ),
 #             Event(
 #                 event_id="event-003",
-#                 event_date="2023-12-01",
+#                 event_start_date="2023-12-01",
 #                 event_name="DefectsDiscovered",
 #                 description="Kjøperne oppdaget elektriske feil og problemer med pipa",
 #                 parties=["plaintiff"],
@@ -453,7 +453,7 @@ def get_mock_analyzed_doc() -> dict:
         "events": [
             Event(
                 event_id="event-from-doc-001",
-                event_date="2023-08-25",
+                event_start_date="2023-08-25",
                 event_name="ContractSigned",
                 description="Kjøpekontrakt for Granveien 15B ble signert",
                 parties=["plaintiff", "defendant"],
@@ -464,7 +464,7 @@ def get_mock_analyzed_doc() -> dict:
             ),
             Event(
                 event_id="event-from-doc-002",
-                event_date="2023-11-11",
+                event_start_date="2023-11-11",
                 event_name="PropertyTakeover",
                 description="Planlagt overtakelse av eiendommen",
                 parties=["plaintiff"],

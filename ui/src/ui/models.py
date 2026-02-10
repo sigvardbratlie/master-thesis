@@ -7,35 +7,34 @@ from datetime import datetime
 class AttachmentModel(BaseModel):
     """Attachment sent to backend API"""
     filename: str
-    file_id: str
-    content: str  # Base64 for PDF, text for others
-    path : str
-    file_type: str
-    size: int
-    query_id: str
-    event_id: Optional[str] = None
+    file_id: str = Field(description="Unique identifier for the file, e.g., a UUID string")
+    content: str  = Field(description="Base64 encoded content")
+    path : str = Field(description="Storage path for the attachment, e.g., 'user_id/session_id/file_id.ext'. Should also end with extension")
+    file_type: str = Field(description="MIME type of the file, e.g., 'application/pdf', 'text/plain', 'message/rfc822', etc.")
+    size: int = Field(description="Size of the file in bytes")
+    query_id: str = Field(description="ID (uuid) of the query this attachment is associated with")
+    event_id: Optional[str] = Field(None, description="ID of the event this attachment is associated with, if applicable")
 
-class EmailModel(BaseModel):
-    """Email sent to backend API"""
-    email_id : str
-    subject: str
-    sender: str
-    recipients: list[str]
-    cc: Optional[list[str]] = None
-    bcc: Optional[list[str]] = None
-    email_date: Optional[datetime] = None
-    body_text: str
-    body_html: Optional[str] = None
-    headers: Optional[dict] = None
-    attachments: Optional[list[str]] = Field(default=None, description="List of attachment file_ids")
-    query_id: str
-    event_id : Optional[str] = None
+# class EmailModel(BaseModel):
+#     """Email sent to backend API"""
+#     email_id : str
+#     subject: str
+#     sender: str
+#     recipients: list[str]
+#     cc: Optional[list[str]] = None
+#     bcc: Optional[list[str]] = None
+#     email_date: Optional[datetime] = None
+#     body_text: str
+#     body_html: Optional[str] = None
+#     headers: Optional[dict] = None
+#     attachments: Optional[list[str]] = Field(default=None, description="List of attachment file_ids")
+#     query_id: str
+#     event_id : Optional[str] = None
 
 class AskAgentRequest(BaseModel):
     """POST /ask-agent request"""
     question: str
     attachments: Optional[list[AttachmentModel]] = []
-    emails: Optional[list[EmailModel]] = []
     session_id: str
     llm_model: str
     query_id: str
