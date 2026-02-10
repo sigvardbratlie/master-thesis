@@ -5,8 +5,9 @@ import os
 import tiktoken
 import logging
 from uuid import uuid4
+import uuid
 import asyncio
-from pydantic import BaseModel, RootModel, create_model
+from pydantic import BaseModel, RootModel, create_model,Field
 from pydantic_core._pydantic_core import ValidationError
 from langchain_core.messages import HumanMessage,AIMessage,SystemMessage,BaseMessage,ToolMessage,AIMessageChunk
 from langchain_core.tools import tool
@@ -16,7 +17,8 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 from langchain.chat_models import init_chat_model
 
-from agent.basemodels import *
+from models import *
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -161,23 +163,27 @@ class ContextManager:
                 else:
                     raise
         
-        # Process events
+        # Process events from attachment (not email)
         for event in response.events:
             event.file_id = file_id
+            event.email_id = None  # This is from attachment, not email
             event.event_id = str(uuid4())
         
-        # Process attachment damages/claims/deadlines
+        # Process attachment damages/claims/deadlines (not from email)
         if response.attachment.damages:
             for damage in response.attachment.damages:
                 damage.file_id = file_id
+                damage.email_id = None  # This is from attachment, not email
                 damage.damage_id = str(uuid4())
         if response.attachment.deadlines:
             for deadline in response.attachment.deadlines:
                 deadline.file_id = file_id
+                deadline.email_id = None  # This is from attachment, not email
                 deadline.deadline_id = str(uuid4())
         if response.attachment.claims:
             for claim in response.attachment.claims:
                 claim.file_id = file_id
+                claim.email_id = None  # This is from attachment, not email
                 claim.claim_id = str(uuid4())
         
         file = Attachment(**response.attachment.model_dump(),
@@ -198,7 +204,7 @@ class ContextManager:
     async def analyze_multiple_eml(self,
                 initial_input : InitialInput,
                 emails : list[EmailModel],
-                ) -> Emails:
+                ) -> dict:
         '''Function to analyze multiple documents and extract structured data as Attachments.'''
         
         class EmailAnalysisResult(BaseModel):
@@ -209,7 +215,14 @@ class ContextManager:
         class EmailsAnalysisResult(BaseModel):
             """Result containing ALL email analyses"""
             emails: List[EmailAnalysisResult] = Field(description="List of email analysis results - one EmailAnalysisResult object per input email")
-        
+
+        # Build set of original IDs for validation
+        org_ids = set()
+        email_id_map = {}  # Map email_id -> EmailModel
+        for email in emails:
+            org_ids.add(email.file_id)
+            email_id_map[email.file_id] = email
+
         result_emails = []
         deadlines = []
         damages = []
@@ -219,48 +232,108 @@ class ContextManager:
         structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
         init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
         
+        # Format emails with clear ID separation
+        emails_formatted = "\n\n".join([
+            f"EMAIL #{idx+1} (email_id: {eml.file_id}):\n{eml.model_dump(include={'from_addr',"to","cc",'subject','body_text', "date",})}"
+            for idx, eml in enumerate(emails)
+        ])
+        
         # Clearer prompt showing the expected structure
         prompt = init_prompt + f'''Analyze the following {len(emails)} emails.
+        
+                                For EACH email, return an EmailAnalysisResult object containing:
+                                1. email: EmailExtracted - metadata from that email (MUST set email_id to the file_id shown for each email)
+                                2. events: List[Event] or null - timeline events mentioned in that email
 
-For EACH email, return an EmailAnalysisResult object containing:
-1. email: EmailExtracted - metadata from that email
-2. events: List[Event] or null - timeline events mentioned in that email
+                                IMPORTANT: Return exactly {len(emails)} EmailAnalysisResult objects in the emails array.
+                                CRITICAL: Set email_id in EmailExtracted to match the file_id from the input email.
 
-IMPORTANT: Return exactly {len(emails)} EmailAnalysisResult objects in the emails array.
-
-Emails to analyze:
-{[eml.model_dump() for eml in emails]}'''
+                                Emails to analyze:
+                                {emails_formatted}'''
         
         response = await structured_llm.ainvoke(prompt)
 
+        # Validate response structure
+        if not response or not response.emails:
+            logger.error("LLM returned empty or invalid response")
+            return {
+                "emails": [],
+                "events": [],
+                "damages": [],
+                "deadlines": [],
+                "claims": []
+            }
+
         if len(response.emails) != len(emails):
             logger.warning(f'LLM returned {len(response.emails)} emails but {len(emails)} were provided. This may indicate a parsing issue.')
+        
         for idx, email_result in enumerate(response.emails):
+            
             if idx >= len(emails):
+                logger.error(f'LLM returned more emails than provided. Stopping at index {idx}.')
                 break
-            input_email = emails[idx]
+            
             extracted = email_result.email
-            if extracted.email_id != input_email.file_id:
-                logger.warning(f'Email ID mismatch for email #{idx}: LLM returned {extracted.email_id} but input was {input_email.file_id}. Overriding with input file_id.')
-                extracted.email_id = input_email.file_id
+            logger.info(f"==== EMAIL ELEMENENT DEBUG == \n{extracted.model_dump(mode = "json")}\n \n ==== END OF ELEMENT DEBUG ====")
+            
+            # Validate that extracted email_id matches one of our original IDs
+            if extracted.email_id not in org_ids:
+                logger.warning(f'Email ID mismatch for email #{idx}: extracted "{extracted.email_id}" not in original IDs {org_ids}. Using index-based fallback.')
+                input_email = emails[idx]
             else:
-                logger.info(f'Email ID match for email #{idx}: {extracted.email_id}')
+                # Find the correct input email by matching email_id
+                input_email = email_id_map.get(extracted.email_id)
+                if not input_email:
+                    logger.error(f'Cannot find email with file_id={extracted.email_id} in email_id_map. Using index-based fallback.')
+                    input_email = emails[idx]
+                else:
+                    logger.info(f'Email #{idx+1}: Successfully matched extracted email_id={extracted.email_id} to original')
+            
+            # Critical safety check
+            if not input_email:
+                logger.error(f'CRITICAL: input_email is None at index {idx}. Skipping this email.')
+                continue
+            
+            # Log the matching
+            logger.info(f'Processing email #{idx+1}: input_file_id={input_email.file_id}, extracted_email_id={extracted.email_id}')
+            
+            # Assign email_id (not file_id!) and unique IDs to all extracted elements from this email
             if extracted.damages:
+                for damage in extracted.damages:
+                    damage.email_id = input_email.file_id  # Link damage to this email's email_id
+                    damage.file_id = None  # Clear file_id since this is from email
+                    damage.damage_id = str(uuid4())       # Generate unique damage_id
+                    logger.debug(f'  - Damage: {damage.damage_id} linked to email_id={input_email.file_id}')
                 damages.extend(extracted.damages)
+
             if extracted.deadlines:
+                for deadline in extracted.deadlines:
+                    deadline.email_id = input_email.file_id  # Link deadline to this email's email_id
+                    deadline.file_id = None  # Clear file_id since this is from email
+                    deadline.deadline_id = str(uuid4())     # Generate unique deadline_id
+                    logger.debug(f'  - Deadline: {deadline.deadline_id} linked to email_id={input_email.file_id}')
                 deadlines.extend(extracted.deadlines)
+
             if extracted.claims:
+                for claim in extracted.claims:
+                    claim.email_id = input_email.file_id  # Link claim to this email's email_id
+                    claim.file_id = None  # Clear file_id since this is from email
+                    claim.claim_id = str(uuid4())        # Generate unique claim_id
+                    logger.debug(f'  - Claim: {claim.claim_id} linked to email_id={input_email.file_id}')
                 claims.extend(extracted.claims)
             
-            # Safely handle events (can be None or empty list)
             if email_result.events:
+                for event in email_result.events:
+                    event.email_id = input_email.file_id  # Link event to this email's email_id
+                    event.file_id = None  # Clear file_id since this is from email
+                    event.event_id = str(uuid4())        # Generate unique event_id
+                    logger.debug(f'  - Event: {event.event_id} linked to email_id={input_email.file_id}')
                 events.extend(email_result.events)
-                logger.info(f'Extracted {len(email_result.events)} events from email #{idx}')
-            else:
-                logger.info(f'No events found in email #{idx}')
             
+            # Build final Email object by combining extracted data with original email metadata
             email_data = extracted.model_dump()
             email_data.update({
+                # Override with original email metadata
                 "to": input_email.to,
                 "from": input_email.from_addr,
                 "cc": input_email.cc,
@@ -276,9 +349,12 @@ Emails to analyze:
                 "body": input_email.body_text,
                 "html": input_email.body_html,
                 "headers": input_email.headers or {},
+                # Set email_id to the original file_id for consistency
                 "email_id": input_email.file_id,
             })
             result_emails.append(Email(**email_data))
+            logger.info(f'  -> Email #{idx+1} processed successfully with email_id={input_email.file_id}')
+        
         return {"emails" : result_emails,
                 "events" : events,
                 "damages" : damages,
@@ -397,23 +473,27 @@ Emails to analyze:
                     logger.error(f'Error during LLM invocation in consider_new_doc: {e}', exc_info=True)
                     raise
         
-        # Process events
+        # Process events from attachment (not email)
         for event in response.events:
             event.file_id = file_id
+            event.email_id = None  # This is from attachment, not email
             event.event_id = str(uuid4())
         
-        # Process attachment damages/claims/deadlines
+        # Process attachment damages/claims/deadlines (not from email)
         if response.attachment.damages:
             for damage in response.attachment.damages:
                 damage.file_id = file_id
+                damage.email_id = None  # This is from attachment, not email
                 damage.damage_id = str(uuid4())
         if response.attachment.deadlines:
             for deadline in response.attachment.deadlines:
                 deadline.file_id = file_id
+                deadline.email_id = None  # This is from attachment, not email
                 deadline.deadline_id = str(uuid4())
         if response.attachment.claims:
             for claim in response.attachment.claims:
                 claim.file_id = file_id
+                claim.email_id = None  # This is from attachment, not email
                 claim.claim_id = str(uuid4())
         
         file = Attachment(**response.attachment.model_dump(),
