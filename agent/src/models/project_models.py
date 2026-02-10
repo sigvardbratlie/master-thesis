@@ -61,15 +61,15 @@ significance_levels = Literal["high", "medium", "low"]
 
 # === #Custom fields === 
 class GoverningLaw(BaseModel):
-    primary_jurisdiction: str = Field(description="Which law governs (e.g., Norwegian law)")
-    key_areas: list[str] = Field(description="Relevant legal areas (contract law, tort, etc)")
+    primary_jurisdiction: str = Field(default = "norwegian_law" , description="Which law governs (e.g., Norwegian law)")
+    key_areas: list[str] = Field(default_factory=list, description="Relevant legal areas (contract law, tort, etc)")
     international_elements: Optional[str] = Field(
         None, description="Cross-border or conflicts of law issues"
     )
     procedural_law: Literal[
         "tvisteloven", "straffeprosessloven", "arbeidstvistloven", "voldgiftsloven",
         "forvaltningsloven", "domstolloven"
-    ]
+    ] = Field(default="tvisteloven",description="Applicable procedural law, if relevant")
 
 class FactualFacts(BaseModel):
     disputed_facts: list[str]
