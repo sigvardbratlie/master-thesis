@@ -7,7 +7,9 @@ import uuid
 from langgraph.graph.message import add_messages
 
 
-
+FileTypes = Literal["application/pdf", "text/plain", "application/msword","message/rfc822","text/csv",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", #"application/",
+                    ] #expand as needed
 # ===== CONTEXT MANAGER MODELS
 PartyRole = Literal[
     # Sivile hovedparter
@@ -150,9 +152,9 @@ class Events(BaseModel):
 
 class InitialInput(BaseModel):
     # Factual background
-    parties: list[Party] = Field(description="List of parties involved in the case, i.e., plaintiff, defendant, witnesses, plaintiffs legal representatives, etc.")
-    background: str
-    title : str = Field(description="Title of the case or matter")
+    parties: Optional[list[Party]] = Field([], description="List of parties involved in the case, i.e., plaintiff, defendant, witnesses, plaintiffs legal representatives, etc.")
+    background: Optional[str] = Field("", description="Brief factual background of the case, including key events, timeline, and context")
+    title : Optional[str] = Field("", description="Title of the case or matter")
 
 class BaseExtracted(BaseModel):
     """Common extraction fields for all document types and emails"""
@@ -180,7 +182,7 @@ class Attachment(AttachmentExtracted):
     file_id: Optional[str] = None
     filename: str
     path: str 
-    file_type: Literal["application/pdf", "text/plain", "application/msword",] #system generated
+    file_type: FileTypes #system generated
     size: int #system generated
     events: Optional[list[str]] = Field(None, description="event IDs mentioned in the document")
     email_id: Optional[str] = Field(None, description="If this attachment was extracted from an email, reference the email_id here")
@@ -261,7 +263,7 @@ class AttachmentModel(BaseModel):
     file_id: str
     content: Optional[str] = Field(None, description="Base64 encoded content")
     path : str = Field(description="Storage path for the attachment, e.g., 'user_id/session_id/file_id.ext'. Should also end with extension")
-    file_type: str = Field(description="MIME type of the file, e.g., 'application/pdf', 'text/plain', 'message/rfc822', etc.")
+    file_type: FileTypes = Field(description="MIME type of the file, e.g., 'application/pdf', 'text/plain', 'message/rfc822', etc.")
     size: int = Field(description="Size of the file in bytes")
     query_id: str = Field(description="ID (uuid) of the query this attachment is associated with")
     event_id: Optional[str] = Field(None, description="ID of the event this attachment is associated with, if applicable")
