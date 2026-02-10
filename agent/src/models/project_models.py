@@ -84,7 +84,8 @@ class Claim(BaseModel):
         description="Assessment of claim strength"
     )
     defense: Optional[str] = Field(None, description="Defense strategy if defending")
-    file_id: Optional[str] = None
+    file_id: Optional[str] = None  # For claims from attachments
+    email_id: Optional[str] = None  # For claims from emails
     party_role : Optional[PartyRole] = None
 
 class Claims(BaseModel):
@@ -96,7 +97,8 @@ class Damage(BaseModel):
     amount: Optional[int | float] = Field(None, description="Monetary amount if amount is known and mentioned, else None")
     basis: str
     supporting_evidence: list[str] = Field(description="File_IDs supporting the damage claim")
-    file_id: Optional[str] = None
+    file_id: Optional[str] = None  # For damages from attachments
+    email_id: Optional[str] = None  # For damages from emails
     party_role: Optional[PartyRole] = None
 
 class Damages(BaseModel):
@@ -107,6 +109,7 @@ class Deadline(BaseModel):
     deadline_date: date |datetime
     description: str
     file_id: Optional[str] = Field(None, description="Related attachment reference")
+    email_id: Optional[str] = None  # For deadlines from emails
     party_role : Optional[PartyRole] = None
 
 class Deadlines(BaseModel):
@@ -137,7 +140,8 @@ class Parties(BaseModel):
 
 class Event(BaseModel):
     event_id: Optional[str] = None
-    file_id: Optional[str] = None
+    file_id: Optional[str] = None  # For events from attachments
+    email_id: Optional[str] = None  # For events from emails
     event_name: str
     event_start_date: date | datetime
     event_end_date: Optional[date | datetime] = None
@@ -206,9 +210,9 @@ class EmailExtracted(BaseExtracted):
     """Email-specific extraction fields - what LLM extracts from email content"""
     key_points: Optional[list[str]] = Field(None, description="Important points, decisions, or action items from the email")
     # Legal metadata
-    privilege_status: Optional[Literal["attorney-client", "work_product", "none"]] = Field(
-        None, description="Privilege classification"
-    )
+    #privilege_status: Optional[Literal["attorney-client", "work_product", "none"]] = Field(
+    #     None, description="Privilege classification"
+    # )
     email_id : Optional[str] = None 
 
 class Email(EmailExtracted):
@@ -242,7 +246,6 @@ class Email(EmailExtracted):
     headers: dict = Field(default_factory=dict)
     #attachments: list[str] = Field(default_factory=list)
     size: Optional[int] = None
-    created_at: Optional[datetime] = None
     
     class Config:
         populate_by_name = True  # Accept both 'from_addr' and 'from'
