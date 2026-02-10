@@ -289,7 +289,8 @@ async def test_call_llm_with_project_data(mock_agent):
     result = await mock_agent._call_llm(state, mock_llm, config)
 
     mock_agent.conversation_manager.load_project.assert_called_once_with(project_id="project-001")
-    assert result["factsheet"] is not None
+    assert "messages" in result
+    assert "attachments" in result
 
 
 @pytest.mark.asyncio
@@ -409,8 +410,12 @@ async def test_initialize_project(mock_agent):
     with patch('agent.agent.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
 
-        result = await mock_agent.initialize_project(query, user_id)
+        result = None
+        async for chunk in mock_agent.initialize_project(query, user_id):
+            if chunk.get("type") == "result":
+                result = chunk.get("data")
 
+    assert result is not None
     assert "factsheet" in result
     assert "attachments" in result
     mock_agent.conversation_manager.save_project.assert_called_once()
@@ -436,8 +441,12 @@ async def test_initialize_project_no_attachments(mock_agent):
     with patch('agent.agent.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
 
-        result = await mock_agent.initialize_project(query, user_id)
+        result = None
+        async for chunk in mock_agent.initialize_project(query, user_id):
+            if chunk.get("type") == "result":
+                result = chunk.get("data")
 
+    assert result is not None
     assert "factsheet" in result
     assert result["attachments"] == []
 
@@ -465,8 +474,12 @@ async def test_update_project(mock_agent):
     with patch('agent.agent.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
 
-        result = await mock_agent.update_project(query, user_id)
+        result = None
+        async for chunk in mock_agent.update_project(query, user_id):
+            if chunk.get("type") == "result":
+                result = chunk.get("data")
 
+    assert result is not None
     assert "events" in result
     assert "attachments" in result
 
@@ -484,7 +497,8 @@ async def test_update_project_invalid_project_data(mock_agent):
         mock_init.return_value = MagicMock()
 
         with pytest.raises(TypeError):
-            await mock_agent.update_project(query, user_id)
+            async for chunk in mock_agent.update_project(query, user_id):
+                pass
 
 
 # ============================================
@@ -509,8 +523,12 @@ async def test_cleanup_element_events(mock_agent):
     with patch('agent.agent.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
 
-        result = await mock_agent.cleanup_element(query, element_type="events")
+        result = None
+        async for chunk in mock_agent.cleanup_element(query, element_type="events"):
+            if chunk.get("type") == "result":
+                result = chunk.get("data")
 
+    assert result is not None
     assert result["success"] is True
     mock_agent.conversation_manager.replace_project_element.assert_called_once()
 
@@ -524,7 +542,8 @@ async def test_cleanup_element_invalid_type(mock_agent):
         mock_init.return_value = MagicMock()
 
         with pytest.raises(ValueError):
-            await mock_agent.cleanup_element(query, element_type="invalid_type")
+            async for chunk in mock_agent.cleanup_element(query, element_type="invalid_type"):
+                pass
 
 
 # ============================================
