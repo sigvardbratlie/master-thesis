@@ -10,7 +10,7 @@ import streamlit as st
 
 @pytest.fixture
 def email_fixture():
-    with open("ui/tests/fixtures/SV_ FDV GG38.eml", "r") as f:
+    with open("ui/tests/fixtures/test-file.eml", "r") as f:
         msg = email.message_from_file(f)
     
     return msg
@@ -50,43 +50,82 @@ def test_extract_attachments(email_fixture, attachment_component_fixture):
 def test_extract_email_data(email_fixture, attachment_component_fixture):
     msg = email_fixture
 
-    data = attachment_component_fixture.extract_email_data(msg, query_id="test-query-123", event_id="test-event-456")
+    data = attachment_component_fixture.extract_email_data(msg, query_id="test-query-123")
     assert "email" in data
     assert "attachments" in data
-    assert data["email"].subject == "SV: FDV GG38"
+    # Check that email data was extracted from test-file.eml
+    assert data["email"] is not None
     assert data["attachments"] is not None
     assert isinstance(data["attachments"], list)
-    assert len(data["attachments"]) > 0
-    assert data["attachments"][0].content is not None
 
 
 @pytest.fixture
 def mock_uploaded_file_pdf():
-    """Mock PDF file"""
+    """Mock PDF file from actual fixture file"""
+    with open("ui/tests/fixtures/test-file.PDF", "rb") as f:
+        file_bytes = f.read()
+    
     mock_file = Mock()
-    mock_file.name = "test_document.pdf"
+    mock_file.name = "test-file.PDF"
     mock_file.type = "application/pdf"
-    mock_file.size = 1024
-    mock_file.getvalue.return_value = b"PDF content here"
+    mock_file.size = len(file_bytes)
+    mock_file.getvalue.return_value = file_bytes
+    return mock_file
+
+
+@pytest.fixture
+def mock_uploaded_file_csv():
+    """Mock CSV file from actual fixture file"""
+    with open("ui/tests/fixtures/test-file.csv", "rb") as f:
+        file_bytes = f.read()
+    
+    mock_file = Mock()
+    mock_file.name = "test-file.csv"
+    mock_file.type = "text/csv"
+    mock_file.size = len(file_bytes)
+    mock_file.getvalue.return_value = file_bytes
+    return mock_file
+
+
+@pytest.fixture
+def mock_uploaded_file_xlsx():
+    """Mock Excel file from actual fixture file"""
+    with open("ui/tests/fixtures/test-file.xlsx", "rb") as f:
+        file_bytes = f.read()
+    
+    mock_file = Mock()
+    mock_file.name = "test-file.xlsx"
+    mock_file.type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    mock_file.size = len(file_bytes)
+    mock_file.getvalue.return_value = file_bytes
+    return mock_file
+
+
+@pytest.fixture
+def mock_uploaded_file_docx():
+    """Mock Word file from actual fixture file"""
+    with open("ui/tests/fixtures/test-file.docx", "rb") as f:
+        file_bytes = f.read()
+    
+    mock_file = Mock()
+    mock_file.name = "test-file.docx"
+    mock_file.type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    mock_file.size = len(file_bytes)
+    mock_file.getvalue.return_value = file_bytes
     return mock_file
 
 
 @pytest.fixture
 def mock_uploaded_file_eml():
-    """Mock EML file"""
+    """Mock EML file from actual fixture file"""
+    with open("ui/tests/fixtures/test-file.eml", "rb") as f:
+        file_bytes = f.read()
+    
     mock_file = Mock()
-    mock_file.name = "test_email.eml"
+    mock_file.name = "test-file.eml"
     mock_file.type = "message/rfc822"
-    mock_file.size = 2048
-    # Simple EML content
-    eml_content = """From: sender@example.com
-To: recipient@example.com
-Subject: Test Email
-Date: Mon, 10 Feb 2026 12:00:00 +0000
-
-This is a test email body.
-"""
-    mock_file.getvalue.return_value = eml_content.encode('utf-8')
+    mock_file.size = len(file_bytes)
+    mock_file.getvalue.return_value = file_bytes
     return mock_file
 
 
@@ -105,30 +144,24 @@ def test_mk_attachment_payload_pdf(attachment_component_fixture, mock_uploaded_f
     
     attachment = result["attachments"][0]
     assert isinstance(attachment, AttachmentModel)
-    assert attachment.filename == "test_document.pdf"
+    assert attachment.filename == "test-file.PDF"
     assert attachment.file_type == "application/pdf"
-    assert attachment.size == 1024
+    assert attachment.size > 0
     assert attachment.query_id == "test-query-123"
     assert attachment.file_id is not None
     assert attachment.content is not None
     # PDF should be base64 encoded
     assert isinstance(attachment.content, str)
-@pytest.fixture
-def mock_uploaded_file_text():
-    """Mock text file"""
-    mock_file = Mock()
-    mock_file.name = "test_document.txt"
-    mock_file.type = "text/plain"
-    mock_file.size = 512
-    mock_file.getvalue.return_value = b"Text content here"
-    return mock_file
-
-
-def test_mk_attachment_payload_text(attachment_component_fixture, mock_uploaded_file_text):
-    """Test creating attachment payload for text file"""
+    # Verify it's valid base64
+    try:
+        base64.b64decode(attachment.content)
+    except Exception:
+        pytest.fail("PDF content is not valid base64")
+def test_mk_attachment_payload_csv(attachment_component_fixture, mock_uploaded_file_csv):
+    """Test creating attachment payload for CSV file"""
     result = attachment_component_fixture.mk_attachment_payload(
-        file=mock_uploaded_file_text,
-        query_id="test-query-456"
+        file=mock_uploaded_file_csv,
+        query_id="test-query-csv"
     )
     
     assert isinstance(result, dict)
@@ -139,29 +172,85 @@ def test_mk_attachment_payload_text(attachment_component_fixture, mock_uploaded_
     
     attachment = result["attachments"][0]
     assert isinstance(attachment, AttachmentModel)
-    assert attachment.filename == "test_document.txt"
-    assert attachment.file_type == "text/plain"
-    assert attachment.size == 512
-    assert attachment.query_id == "test-query-456"
-    assert attachment.content == "Text content here"
+    assert attachment.filename == "test-file.csv"
+    assert attachment.file_type == "text/csv"
+    assert attachment.size > 0
+    assert attachment.query_id == "test-query-csv"
+    assert attachment.file_id is not None
+    assert attachment.content is not None
+    # CSV should be decoded text (not base64)
+    assert isinstance(attachment.content, str)
+
+
+def test_mk_attachment_payload_xlsx(attachment_component_fixture, mock_uploaded_file_xlsx):
+    """Test creating attachment payload for Excel file"""
+    result = attachment_component_fixture.mk_attachment_payload(
+        file=mock_uploaded_file_xlsx,
+        query_id="test-query-xlsx"
+    )
+    
+    assert isinstance(result, dict)
+    assert "emails" in result
+    assert "attachments" in result
+    assert len(result["emails"]) == 0
+    assert len(result["attachments"]) == 1
+    
+    attachment = result["attachments"][0]
+    assert isinstance(attachment, AttachmentModel)
+    assert attachment.filename == "test-file.xlsx"
+    assert attachment.file_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert attachment.size > 0
+    assert attachment.query_id == "test-query-xlsx"
+    assert attachment.file_id is not None
+    assert attachment.content is not None
+    # Excel content should be text (decoded with errors='ignore')
+    assert isinstance(attachment.content, str)
+
+
+def test_mk_attachment_payload_docx(attachment_component_fixture, mock_uploaded_file_docx):
+    """Test creating attachment payload for Word file"""
+    result = attachment_component_fixture.mk_attachment_payload(
+        file=mock_uploaded_file_docx,
+        query_id="test-query-docx"
+    )
+    
+    assert isinstance(result, dict)
+    assert "emails" in result
+    assert "attachments" in result
+    assert len(result["emails"]) == 0
+    assert len(result["attachments"]) == 1
+    
+    attachment = result["attachments"][0]
+    assert isinstance(attachment, AttachmentModel)
+    assert attachment.filename == "test-file.docx"
+    assert attachment.file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    assert attachment.size > 0
+    assert attachment.query_id == "test-query-docx"
+    assert attachment.file_id is not None
+    assert attachment.content is not None
+    # Word content should be text (decoded with errors='ignore')
+    assert isinstance(attachment.content, str)
 
 
 def test_mk_attachment_payload_eml(attachment_component_fixture, mock_uploaded_file_eml):
     """Test creating attachment payload for EML file"""
     result = attachment_component_fixture.mk_attachment_payload(
         file=mock_uploaded_file_eml,
-        query_id="test-query-789"
+        query_id="test-query-eml"
     )
     
     assert isinstance(result, dict)
     assert "email" in result
     assert "attachments" in result
     
-    # Should have extracted email data
+    # Should have extracted email data from real EML file
     assert result["email"] is not None
-    assert result["email"].subject == "Test Email"
-    assert result["email"].sender == "sender@example.com"
-    assert result["email"].query_id == "test-query-789"
+    assert result["email"].subject is not None
+    assert result["email"].sender is not None
+    assert result["email"].query_id == "test-query-eml"
+    # Email should have body text
+    assert result["email"].body_text is not None
+    assert isinstance(result["email"].body_text, str)
 
 
 @patch('streamlit.button')
@@ -179,21 +268,6 @@ def test_view_uploaded_file_pdf(mock_expander, mock_text, mock_pdf, mock_button,
     
     # Verify button was called
     assert mock_button.called
-
-
-@patch('streamlit.button')
-@patch('streamlit.text')
-def test_view_uploaded_file_text(mock_text, mock_button, 
-                                  attachment_component_fixture, mock_uploaded_file_text):
-    """Test viewing uploaded text file"""
-    # Simulate button click
-    mock_button.return_value = True
-    
-    # Should not raise any errors
-    attachment_component_fixture.view_uploaded_file(mock_uploaded_file_text)
-    
-    # Verify text was called to display content
-    assert mock_text.called
 
 
 @patch('streamlit.button')

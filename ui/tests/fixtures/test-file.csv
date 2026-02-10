@@ -1,0 +1,119 @@
+EM,Navn,Prosjekt,Status,Godkjent Dato,Godkjent beløp,Label
+-1,Fastpris MBF,Delt,Godkjent,01.01.2024,0.00,Avtalt
+0,Fastpris andre,Delt,Godkjent,01.01.2024,0.00,Avtalt
+1,Opsjoner,Utbygging plan 7,Godkjent,07.10.2024,414072.00,Avtalt
+2,Sen kontraktssignering,Delt,Godkjent,07.07.2025,450000.00,Uforutsett
+3,Sikring barnahage.,Delt,Fakturert,11.04.2024,43000.00,Leietager
+4,Vinduer til barnehage,Vinduer,Godkjent,,0.00,Leietager
+5,El anlegg i kjeller og loft,Utbygging plan 7,Godkjent,16.01.2025,523847.00,Regningsarbeid
+6,El arbeider 2-6.etg,Heis,Fakturert,01.12.2025,387235.00,Regningsarbeid
+7,Omkobling eksisterende ventilasjon på tak,Utbygging plan 7,Godkjent,12.01.2024,415000.00,Regningsarbeid
+8,Rens av ventilasjonskanaler,Vedlikehold,Godkjent,12.01.2024,0.00,Ekstrabestilling
+9,Feil inntegnig av tak av Ark,Utbygging plan 7,Fakturert,07.10.2024,32433.00,Uforutsett
+10,Ombygging av bad i 1.etg,Heis,Fakturert,07.10.2024,25599.00,Uforutsett
+11,Bruk av BH lokaler,Delt,Godkjent,12.01.2024,-162483.00,Uforutsett
+12,Manglende søknad vinduer,Vinduer,Avvist,12.01.2024,0.00,
+13,Store steiner,Heis,Fakturert,12.01.2024,0.00,Uforutsett
+14,Utvidet graveområdet og forsterking,Heis,Fakturert,07.10.2024,220780.00,Uforutsett
+15,Bytte epoxy,Utbygging plan 7,Fakturert,15.01.2024,-52000.00,Ekstrabestilling
+16,Åpningsmekanisme vinduer,Vinduer,Utgår,15.01.2024,0.00,
+17,Demontering og remontering av utstyr,Vinduer,Avvist,16.01.2024,0.00,
+18,Midlertidig stål,Heis,Fakturert,16.01.2024,156564.00,Uforutsett
+19,Leietakerforhold,Delt,Fakturert,07.10.2024,250869.00,Leietager
+20,Sen IG,Delt,Fakturert,07.10.2024,2880.00,Uforutsett
+21,Gravearbeider,Heis,Fakturert,07.10.2024,1052257.00,Uforutsett
+22,Løst inventar,Heis,Fakturert,07.10.2024,15760.00,Leietager
+23,Fjerne barnehageutstyr,Delt,Fakturert,01.02.2024,32117.00,Leietager
+24,Feil på eksisterende fundamentplan,Heis,Fakturert,11.04.2024,40814.00,Uforutsett
+25,Mure igjen dører,Utbygging plan 7,Fakturert,06.02.2024,42561.00,Ekstrabestilling
+26,Arbeid med basestasjon,Utbygging plan 7,Fakturert,11.04.2024,9440.00,Uforutsett
+27,Forsering av arbeid med 2-6 etg,Heis,Fakturert,14.02.2024,20042.00,Leietager
+28,Sementrør i bunn av heissjakt,Heis,Fakturert,01.06.2024,72137.00,Uforutsett
+29,Asbest,Heis,Fakturert,07.10.2024,265138.00,Uforutsett
+30,Fjerne vegg i MTG 13,Utbygging plan 7,Fakturert,29.02.2024,7957.00,Uforutsett
+31,Sjekke kapasitet på vanninnlegg,Utbygging plan 7,Fakturert,28.02.2024,6105.00,Uforutsett
+32,Vannlekasje i kjeller,Vedlikehold,Fakturert,10.10.2024,5728.00,Uforutsett
+33,Pro strøm antenner,Utbygging plan 7,Fakturert,07.10.2024,19890.00,Uforutsett
+34,Notat i byggeperioden,Delt,Fakturert,08.03.2024,9000.00,Ekstrabestilling
+35,Avfallsconatiner tømming loft,Utbygging plan 7,Fakturert,07.10.2024,37913.00,Leietager
+36,Brannskap 1-6.etg,Heis,Avvist,11.03.2024,0.00,
+37,Skjæring i dekke,Heis,Fakturert,15.03.2024,116025.00,Leietager
+38,Himlingsplater kjeller,Utbygging plan 7,Fakturert,22.03.2024,6451.00,Ekstrabestilling
+39,Branndør kjeller,Utbygging plan 7,Fakturert,22.03.2024,39454.00,Uforutsett
+40,Provisorisk tilkobling VVC,Heis,Godkjent,22.03.2024,16818.00,Uforutsett
+41,Profilering stillas og uteområdet,Delt,Fakturert,03.06.2204,27803.00,Ekstrabestilling
+42,Utomhusarbeider,Vedlikehold,Fakturert,01.06.2024,293205.00,Leietager
+43,Heising av stål på kveldstid,Utbygging plan 7,Utgår,11.04.2024,0.00,
+44,Vannfast betong,Heis,Fakturert,07.10.2024,94049.00,Uforutsett
+45,Bodmerking,Utbygging plan 7,Fakturert,11.04.2024,20600.00,Ekstrabestilling
+46,Dørlukkere i kjeller,Utbygging plan 7,Fakturert,19.04.2024,9896.00,Ekstrabestilling
+47,Ny planløsning hjørneleilighet,Utbygging plan 7,Fakturert,07.10.2024,20775.00,Ekstrabestilling
+48,Utbedring lekkasje rør gravegrop,Vedlikehold,Fakturert,07.10.2024,5752.00,Uforutsett
+49,Økt takhøyde,Utbygging plan 7,Fakturert,02.05.2024,152000.00,Ekstrabestilling
+50,Feil på riveplan,Utbygging plan 7,Fakturert,12.08.2024,0.00,
+51,Vinduer som ikke eksisterer på tegninger,Vinduer,Fakturert,05.06.2024,16920.00,Uforutsett
+52,Dårlig armering,Utbygging plan 7,Fakturert,07.10.2024,25620.00,Uforutsett
+53,Feil på riveplan - Manglende utsparing,Utbygging plan 7,Fakturert,07.10.2024,35706.00,Uforutsett
+54,Maling utvendig panel,Vedlikehold,Utgår,14.06.2024,0.00,
+55,Riving av kjølerør og varmepumper,Vedlikehold,Fakturert,19.08.2024,8057.00,Ekstrabestilling
+56,Slamsuging,Vedlikehold,Fakturert,20.06.2024,17930.00,Uforutsett
+57,Høyde innvendig dører 7.etg,Utbygging plan 7,Fakturert,07.08.2024,15470.00,Ekstrabestilling
+58,Montering av sparkebord,Vinduer,Fakturert,07.10.2024,13629.00,Ekstrabestilling
+59,Knust vindu,Vinduer,Utgår,20.08.2024,0.00,
+60,Feil inntegning av vegg 7.etg ARK,Utbygging plan 7,Fakturert,02.10.2024,130400.00,Uforutsett
+61,Sertifiserte øyebolter,Heis,Fakturert,30.08.2024,18800.00,Uforutsett
+62,Støvbinding og provdører til heissjakt,Heis,Fakturert,07.10.2024,43000.00,Uforutsett
+63,Oppfølging heisleverandør,Heis,Fakturert,27.09.2024,7200.00,Uforutsett
+64,Kameraovervåkning på stillas,Delt,Fakturert,01.10.2024,24614.00,Ekstrabestilling
+65,Endring vegger 13-leiligheter,Heis,Fakturert,23.10.2024,57848.00,Ekstrabestilling
+66,Resterende El-arbeid 2-6.etg,Heis,Fakturert,02.12.2024,280670.00,Regningsarbeid
+67,Omgjøring rørføring kjøkken 3.etg,Heis,Fakturert,12.11.2024,6800.00,Leietager
+68,Endret gulvtype leiligheter 7.etg,Utbygging plan 7,Godkjent,07.04.2025,91727.00,Ekstrabestilling
+69,Besparelse endret himling,Utbygging plan 7,Fakturert,26.11.2024,-12000.00,Ekstrabestilling
+70,Endring farge vinduer Feelgood,Vinduer,Fakturert,26.11.2024,18140.00,Leietager
+71,"Utgåtte betongdekker, ventilasjonsrom",Utbygging plan 7,Fakturert,26.11.2024,-14758.00,Ekstrabestilling
+72,Pussing og beslag heisdører,Heis,Fakturert,09.01.2025,48998.00,Ekstrabestilling
+73,Feil bredde heissjakt,Heis,Godkjent,01.05.2025,16500.00,Uforutsett
+74,Tett nedløp,Vedlikehold,Godkjent,18.03.2025,43001.00,Uforutsett
+75,Ombygging av stillas for gangbane,Delt,Fakturert,09.12.2024,10237.00,Leietager
+76,"Panelovner, bryter og bryterpanel",Heis,Fakturert,14.01.2025,13666.00,Ekstrabestilling
+77,Kjerneborring for aparatskap heis,Heis,Fakturert,21.01.2025,6630.00,Uforutsett
+78,Endret antall dører i 7.etg,Utbygging plan 7,Godkjent,04.02.2025,41941.00,Ekstrabestilling
+79,Utekraner 7.etg,Utbygging plan 7,Godkjent,13.02.2025,20285.00,Ekstrabestilling
+80,Varmefolie,Utbygging plan 7,Godkjent,05.02.2025,419072.00,Ekstrabestilling
+81,Vinduspuss,Vinduer,Fakturert,17.02.2025,-22000.00,Ekstrabestilling
+82,Fliser ved ny heis 7.etg,Utbygging plan 7,Godkjent,26.02.2025,12000.00,Ekstrabestilling
+83,Brannskille korridor 7.etg,Utbygging plan 7,Godkjent,27.03.2025,75081.00,Uforutsett
+84,Sort elektroutstyr,Utbygging plan 7,Godkjent,27.02.2025,35360.00,Ekstrabestilling
+85,Lakkering innv. ventiler,Utbygging plan 7,Utgår,28.02.2025,0.00,
+86,"Porttelefon, 13-leiligheter",Heis,Avvist,03.03.2025,0.00,
+87,"Fristforlengelse, plunder og heft",Utbygging plan 7,Godkjent,30.06.2025,246471.00,Uforutsett
+88,Maling jetthetter,Utbygging plan 7,Godkjent,12.03.2025,16268.00,Ekstrabestilling
+89,Gulvlister plan 7,Utbygging plan 7,Godkjent,25.03.2025,32458.00,Ekstrabestilling
+90,Ny dør grunnet feil på dørskjema,Utbygging plan 7,Godkjent,31.03.2025,5130.00,Uforutsett
+91,Fradrag iht. endringsmelding 4 - KONE,Heis,Godkjent,31.03.2025,-26235.00,Uforutsett
+92,Skillevegger terrasse 7. etasje,Utbygging plan 7,Godkjent,03.06.2025,157037.00,Ekstrabestilling
+93,Omgjøring kjeller pga. sluse,Utbygging plan 7,Godkjent,14.05.2025,46791.00,Uforutsett
+94,Endring bodareal 1.etg,Utbygging plan 7,Godkjent,07.07.2025,544000.00,Uforutsett
+95,Spilevegger leiligheter,Utbygging plan 7,Godkjent,02.05.2025,22371.00,Ekstrabestilling
+96,Skilt til leiligheter,Utbygging plan 7,Godkjent,16.05.2025,9300.00,Ekstrabestilling
+97,"Utgått leveranse av kjøkken, garderober og baderomsinnredninger",Utbygging plan 7,Godkjent,11.06.2025,-1537620.00,Ekstrabestilling
+98,Fradrag for utgåtte malerarbeider,Utbygging plan 7,Godkjent,26.05.2025,-43200.00,Ekstrabestilling
+99,Tilbakestilling uteområdet,Delt,Godkjent,26.05.2025,-66925.00,Ekstrabestilling
+100,Utskifting dør til berederrom,Utbygging plan 7,Godkjent,03.06.2025,29194.00,Ekstrabestilling
+101,fradrag for skjevhet i gulv,Utbygging plan 7,Godkjent,12.06.2025,-35950.00,Uforutsett
+102,Over-underfordeling,Delt,Godkjent,20.08.2025,3879707.00,IA
+197,Brannutrykning,Delt,Godkjent,28.02.2025,-1211.00,Uforutsett
+198,Brannutrykning,Delt,Godkjent,03.03.2025,-1185.00,Uforutsett
+199,Prisstigning,Delt,Godkjent,01.01.2024,1132297.00,IA
+300,Frevkensomformer,Heis,Godkjent,10.04.2025,43651.00,Uforutsett
+301,Utforing vegg,Heis,Godkjent,27.06.2024,236900.00,Uforutsett
+302,Prøvetrekking,Heis,Godkjent,31.10.2024,13634.00,Uforutsett
+303,Tillegg irrasjonell drift,Heis,Godkjent,31.10.2024,29508.00,Uforutsett
+304,Montering / demontering midl.,Heis,Godkjent,28.01.2025,26235.00,Uforutsett
+305,Tillegg irrasjonell drift 2,Heis,Godkjent,11.04.2025,3000.00,Uforutsett
+395,Programmering plan 7,Heis,Godkjent,05.05.2025,11990.00,Uforutsett
+396,Prisindeksregulering,Heis,Avvist,01.03.2025,0.00,IA
+401,Fratgrekk timer Rede,Heis,Godkjent,16.10.2024,-32000.00,Uforutsett
+500,Kompensasjon Gabels Park,Heis,Godkjent,16.01.2025,235821.00,Uforutsett
+1000,Tilsyn Brann,Delt,Godkjent,01.10.2024,42000.00,Uforutsett
