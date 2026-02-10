@@ -798,23 +798,6 @@ class Agent:
                         }
 
 
-        # Generate UUIDs for all entities before saving
-        for event in events:
-            if not event.event_id:
-                event.event_id = str(uuid4())
-        
-        for damage in damages:
-            if not damage.damage_id:
-                damage.damage_id = str(uuid4())
-        
-        for claim in claims:
-            if not claim.claim_id:
-                claim.claim_id = str(uuid4())
-        
-        for deadline in deadlines:
-            if not deadline.deadline_id:
-                deadline.deadline_id = str(uuid4())
-
         result = FactSheet(
             events=events,
             damages=damages if damages else None,
@@ -955,22 +938,6 @@ class Agent:
             "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id
         }
-
-        for event in events:
-            if not event.event_id:
-                event.event_id = str(uuid4())
-        
-        for damage in damages:
-            if not damage.damage_id:
-                damage.damage_id = str(uuid4())
-        
-        for claim in claims:
-            if not claim.claim_id:
-                claim.claim_id = str(uuid4())
-        
-        for deadline in deadlines:
-            if not deadline.deadline_id:
-                deadline.deadline_id = str(uuid4())
         
         # ============= PHASE 2 =================
         # Insert new documents to database (must be inserted first to avoid foreign key constraint issues)
@@ -1068,96 +1035,6 @@ class Agent:
                 "query_id": query.query_id
             }
      
-       
-        # # Extract document analysis results (skip storage results)
-        # results = all_results[len(storage_tasks):]
-        
-        # if results:
-        #     for result in results:
-        #         analyzed_doc = result.get("file")
-        #         logger.debug(f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()}")
-
-        #         # Collect results from analyzed documents
-        #         files.append(analyzed_doc)
-        #         if analyzed_doc.damages:
-        #             damages.extend(analyzed_doc.damages)
-        #         if analyzed_doc.claims:
-        #             claims.extend(analyzed_doc.claims)
-        #         if analyzed_doc.deadlines:
-        #             deadlines.extend(analyzed_doc.deadlines)
-        #         if result.get("events"):
-        #             events.extend(result.get("events"))
-
-        #     for event in events:
-        #         if not event.event_id:
-        #             event.event_id = str(uuid4())
-            
-        #     for damage in damages:
-        #         if not damage.damage_id:
-        #             damage.damage_id = str(uuid4())
-            
-        #     for claim in claims:
-        #         if not claim.claim_id:
-        #             claim.claim_id = str(uuid4())
-            
-        #     for deadline in deadlines:
-        #         if not deadline.deadline_id:
-        #             deadline.deadline_id = str(uuid4())
-            
-        #     # Save to database: FIRST attachments (due to foreign key constraints), THEN related data
-        #     # Step 1: Save attachments first
-        #     if files and hasattr(files[0], "model_dump"):
-        #         await asyncio.to_thread(
-        #             self.conversation_manager.insert_project_element,
-        #             data = [file.model_dump(mode="json", exclude = {"claims","damages","deadlines","events"}) for file in files],
-        #             project_id=query.project_id,
-        #             table_name = "project_attachments")
-        #     else:
-        #         logger.warning("No valid files to save or missing model_dump method.")
-            
-        #     # Step 2: Save related data in parallel (events, damages, claims, deadlines)
-        #     related_tasks = []
-        #     if events and hasattr(events[0], "model_dump"):
-        #         related_tasks.append(asyncio.to_thread(
-        #             self.conversation_manager.insert_project_element,
-        #             data = [event.model_dump(mode="json") for event in events],
-        #             project_id=query.project_id,
-        #             table_name = "project_events"))
-        #     else:
-        #         logger.warning("No valid events to save or missing model_dump method.")
-        #     if damages and hasattr(damages[0], "model_dump"):
-        #         related_tasks.append(asyncio.to_thread(
-        #             self.conversation_manager.insert_project_element,
-        #             data = [damage.model_dump(mode="json") for damage in damages],
-        #             project_id=query.project_id,
-        #             table_name = "project_damages"))
-        #     else:
-        #         logger.warning("No valid damages to save or missing model_dump method.")
-        #     if claims and hasattr(claims[0], "model_dump"):
-        #         related_tasks.append(asyncio.to_thread(
-        #             self.conversation_manager.insert_project_element,
-        #             data = [claim.model_dump(mode="json") for claim in claims],
-        #             project_id=query.project_id,
-        #             table_name = "project_claims"))
-        #     else:
-        #         logger.warning("No valid claims to save or missing model_dump method.")
-        #     if deadlines and hasattr(deadlines[0], "model_dump"):
-        #         related_tasks.append(asyncio.to_thread(
-        #             self.conversation_manager.insert_project_element,
-        #             data = [deadline.model_dump(mode="json") for deadline in deadlines],
-        #             project_id=query.project_id,
-        #             table_name = "project_deadlines"))
-        #     else:
-        #         logger.warning("No valid deadlines to save or missing model_dump method.")
-        #     if related_tasks:
-        #         await asyncio.gather(*related_tasks)
-
-        # return {"events" : [event.model_dump(mode="json") for event in events],
-        #         "attachments" : [file.model_dump(mode="json", exclude={"claims","damages","deadlines","events"}) for file in files],
-        #         "damages" : [damage.model_dump(mode="json") for damage in damages],
-        #         "claims" : [claim.model_dump(mode="json") for claim in claims],
-        #         "deadlines" : [deadline.model_dump(mode="json") for deadline in deadlines],
-        #         }
             
     async def cleanup_element(self,
                               query : AskAgentRequest,
