@@ -730,24 +730,37 @@ class EmailParser:
         return {"html" : body_html, "text": body_text}
 
     def _extract_attachments(self, msg : Message) -> list:
+        allowed_types = ["application/pdf", 
+                         "application/msword", 
+                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                         "text/plain",
+                         "text/csv",
+                         "message/rfc822",
+
+                         ]
         attachments = []
         for part in msg.walk():
             content_disposition = part.get("Content-Disposition")
             if content_disposition and "attachment" in content_disposition:
                 filename = part.get_filename()
                 if filename:
-                    payload = part.get_payload(decode=True)
-                    try:
-                        content = payload.decode(part.get_content_charset() or "utf-8")
-                    except (UnicodeDecodeError, LookupError):
-                        content = base64.b64encode(payload).decode("ascii")
-                    attachments.append({
-                        "filename": filename,
-                        "file_type": part.get_content_type(),
-                        "size" : len(payload),
-                        "file_id": str(uuid.uuid4()),
-                        "content": content
-                    })
+                    if part.get_content_type() in allowed_types:
+                        payload = part.get_payload(decode=True)
+                        try:
+                            content = payload.decode(part.get_content_charset() or "utf-8")
+                        except (UnicodeDecodeError, LookupError):
+                            content = base64.b64encode(payload).decode("ascii")
+                        attachments.append({
+                            "filename": filename,
+                            "file_type": part.get_content_type(),
+                            "size" : len(payload),
+                            "file_id": str(uuid.uuid4()),
+                            "content": content
+                        })
+                    else:
+                        logger.warning(f"Attachment '{filename}' has unsupported content type '{part.get_content_type()}', skipping. Allowed types are: {allowed_types}")
+                else:
+                    logger.warning("Attachment part found without filename, skipping.")
         return attachments
  
     def _extract_email_data(self, msg : Message, query_id : str, user_id: str , session_id : str) -> dict:
