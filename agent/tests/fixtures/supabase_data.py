@@ -1,4 +1,4 @@
-from agent.basemodels import * 
+from models.api_request_models import * 
 
 
 # Mock data fra Supabase

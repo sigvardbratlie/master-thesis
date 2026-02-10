@@ -1,6 +1,6 @@
 import base64
 from langchain_core.documents import Document
-from agent.basemodels import AttachmentModel
+from models.api_request_models import AttachmentModel
 
 
 # ============================================

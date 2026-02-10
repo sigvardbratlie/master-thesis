@@ -1,6 +1,6 @@
 import os
 import logging
-from agent.basemodels import *
+from models.api_request_models import *
 from fastapi import FastAPI,HTTPException,status,Depends
 from supabase import create_client, Client
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials

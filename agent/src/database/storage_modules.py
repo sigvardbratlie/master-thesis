@@ -6,7 +6,7 @@ import tempfile
 
 from google.cloud import storage
 
-from agent.basemodels import *
+from models.api_request_models import *
 from supabase import create_client
 
 logging.basicConfig(level=logging.INFO)

@@ -3,7 +3,8 @@ Fixture data for Agent tests.
 Contains realistic mock data for testing Agent class methods.
 """
 
-from agent.basemodels import *
+from models.api_request_models import *
+from models.project_models import *
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessageChunk

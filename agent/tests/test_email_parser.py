@@ -19,7 +19,7 @@ from tests.fixtures.email_data import (
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from database.database_modules import EmailParser
-from agent.basemodels import AttachmentModel, EmailModel
+from models.api_request_models import AttachmentModel, EmailModel
 
 
 # ============================================

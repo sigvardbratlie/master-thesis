@@ -20,7 +20,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
 from auth import SupabaseAuth
-from agent.basemodels import AskAgentRequest
+from models import AskAgentRequest
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("agent.agent").setLevel(logging.DEBUG)

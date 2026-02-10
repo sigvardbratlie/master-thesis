@@ -19,7 +19,7 @@ from langchain_google_community import BigQueryVectorStore
 from google.cloud import bigquery
 from google.cloud import bigquery
 
-from agent.basemodels import AttachmentModel, EmailModel
+from models.api_request_models import AttachmentModel, EmailModel
 import ocrmypdf
 from email.message import Message
 import email

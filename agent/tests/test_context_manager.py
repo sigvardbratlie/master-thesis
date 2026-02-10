@@ -7,7 +7,7 @@ from tests.fixtures.context_manager_data import get_mock_agent_state, get_mock_i
 from tests.fixtures.supabase_data import get_mock_load_project_data
 from tests.fixtures.email_data import get_mock_email_model_list, get_mock_email_extracted
 import tiktoken
-from agent.basemodels import *
+from models import *
 from typing import List
 from pydantic import BaseModel
 

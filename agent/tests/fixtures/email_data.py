@@ -5,7 +5,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 from datetime import datetime
 
-from agent.basemodels import EmailModel, EmailExtracted, Email
+from models.api_request_models import EmailModel, EmailExtracted, Email
 
 
 # ============================================

@@ -7,7 +7,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, Tool
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from agent.agent import Agent
-from agent.basemodels import *
+from models import *
 from tests.fixtures.agent_data import (
     get_mock_ask_agent_request,
     get_mock_ask_agent_request_with_attachments,
