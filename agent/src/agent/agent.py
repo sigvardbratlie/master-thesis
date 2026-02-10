@@ -23,7 +23,7 @@ from langgraph.graph import StateGraph, END
 from langchain.chat_models import init_chat_model
 
 from agent.agent_modules import Summarizer,ContextManager, ToolManager
-from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore, DocumentProcessor
+from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore, DocumentProcessor, EmailParser
 from agent.basemodels import *  
 from uuid_utils import uuid4
 
@@ -480,23 +480,25 @@ class Agent:
         if query.attachments:
             docs = []
             for att in query.attachments:
-                docs.extend(self.document_processor.process_attachment(
+                docs.extend(self.document_processor.parse(
                     content = att.content, 
-                    file_id=att.file_id, 
-                    file_type=att.file_type, 
-                    session_id=query.session_id))
+                    metadata={"file_id": att.file_id, 
+                              "filename": att.filename, 
+                              "path": att.path, 
+                              "file_type": att.file_type, 
+                              "size": att.size},
+                    file_type=att.file_type))
             # Store (same API regardless of implementation)
             self.in_memory_store.add_documents(docs, collection_id=query.session_id)
             await self.storage.save_raw_documents(attachments=query.attachments)
 
         #add attachments without content to user message
         event_id = str(uuid4())
-        attachments_events = [] #[att.model_dump(mode = "json", exclude={"content"}) for att in query.attachments or []] #rm contents
+        attachments_events = [] 
         for att in query.attachments or []:
             att_dict = att.model_dump(mode = "json", exclude={"content"})
             att_dict["event_id"] = event_id
             attachments_events.append(att_dict)
-            #logger.info(f"Attachment for event: {att_dict}")
 
          # FIRST USER MESSAGE EVENT
         event_model = StreamEvent(data = EventData(attachments = [att.get("file_id") for att in attachments_events]), #writes back without content
@@ -590,6 +592,7 @@ class Agent:
         claims: list[Claim] = []
         deadlines: list[Deadline] = []
         files: list[Attachment] = []
+        emails = list[Email] = []
 
         # ============= PHASE 1 =================
         # Parallelize storage operations and initial analysis
@@ -600,10 +603,18 @@ class Agent:
             #logger.debug(f'======= ATTACHMENT CONTENT======= \n { query.attachments }\n')
             docs = []
             for att in query.attachments:
-                docs.extend(self.document_processor.process_attachment(content=att.content, 
-                                                                       file_id=att.file_id, 
+                extracted_docs = self.document_processor.parse(content=att.content, 
                                                                        file_type=att.file_type, 
-                                                                       session_id=query.session_id))
+                                                                       metadata={"file_id": att.file_id, 
+                                                                                 "filename": att.filename, 
+                                                                                 "path": att.path, 
+                                                                                 "file_type": att.file_type, 
+                                                                                 "size": att.size},
+                                                                       )
+                docs.extend(extracted_docs)
+                # if att.file_type == "message/rfc822":
+                #     logger.debug(f'Parsed email attachment {att.filename} with {len(extracted_docs)} extracted documents.')
+                #     txt_content = self.document_processor.to_plain_text(extracted_docs)
             
             # Run both storage operations in parallel
             storage_tasks = [
@@ -620,7 +631,7 @@ class Agent:
                 "total_operations": total_phase1,
                 "attachments": len(query.attachments or [])
             },
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id
         }
 
@@ -670,7 +681,6 @@ class Agent:
     
         sem = asyncio.Semaphore(20)
         async def analyze_doc_with_limit(att, initial_input):            
-            # ✅ Only acquire semaphore when making LLM call
             async with sem:
                 return await self.context_manager.analyze_doc(
                     initial_input, 
@@ -681,15 +691,45 @@ class Agent:
                     file_type=att.file_type,
                     size=att.size,
                 )
+        async def analyze_emails_with_limit(email_attachments, initial_input):
+            async with sem:
+                return await self.context_manager.analyze_emails( #Implement
+                    initial_input,
+                    email_attachments
+                )
 
-        doc_tasks = [
-            analyze_doc_with_limit(att, initial_input) 
-            for att in query.attachments or []
-        ]
+        # doc_tasks = [
+        #     analyze_doc_with_limit(att, initial_input) 
+        #     for att in query.attachments or []
+        # 
+        eml = EmailParser()
+        doc_tasks  = []
+        email_attachments = []
+        email_size_counter = 0 
+        threshold = 10 * 1024 * 1024 #10MB threshold for emails, can be adjusted based on needs and costs
+        for att in query.attachments or []:
+            if att.file_type != "message/rfc822": 
+                doc_tasks.append(analyze_doc_with_limit(att, initial_input))
+            elif att.file_type == "message/rfc822":
+                email_size_counter += att.size
+                data = eml.parse_email(att) #IMPLEMENT
+                email = data.get("email", [])
+                attachments = data.get("attachments", [])
+                # for email_att in attachments:
+                #     email_att.email_id = email.email_id #link attachment to parent email
+                doc_tasks.extend([analyze_doc_with_limit(att, initial_input) for att in attachments]) #analyze email attachments as separate documents
+                if email_size_counter <= threshold:
+                    email_attachments.append(email)
+                else:
+                    doc_tasks.append(analyze_emails_with_limit(email_attachments, initial_input)) # IMPLEMENT
+                    email_attachments = [] #reset for next batch of emails
+                    email_size_counter = 0
+        if email_attachments: #process any remaining email attachments
+            doc_tasks.append(analyze_emails_with_limit(email_attachments, initial_input)) #IMPLEMENT
         
         yield {
             "type": "status",
-            "phase": ["analyze_docs"],
+            "phase": ["analyze_docs", "analyze_email"],
             "status": "starting",
             "data": {"total": len(query.attachments)},
             "timestamp": datetime.now().isoformat(),
@@ -700,33 +740,59 @@ class Agent:
             result = await coro
             completed += 1
             if result:
-                logger.debug(f'Document analysis completed with result: {result}')
-                analyzed_doc = result.get("file")
-                logger.debug(f"\n\n ====== Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {analyzed_doc.model_dump()} ========= \n\n")
+                if isinstance(result, dict) and "file" in result:
+                    logger.debug(f'Document analysis completed with result: {result}')
+                    logger.debug(f"\n\n ====== Analyzed document: {result.get('file').filename} (ID: {result.get('file').file_id}) - Result {result.get('file').model_dump()} ========= \n\n")
 
-                files.append(analyzed_doc)
-                if analyzed_doc.damages:
-                    damages.extend(analyzed_doc.damages)
-                if analyzed_doc.claims:
-                    claims.extend(analyzed_doc.claims)
-                if analyzed_doc.deadlines:
-                    deadlines.extend(analyzed_doc.deadlines)
-                if result.get("events"):
-                    events.extend(result.get("events"))
-                
-                yield {
-                    "type": "status",
-                    "phase": ["analyze_doc"],
-                    "status": "complete",
-                    "data": {
-                        "filename": result["file"].filename,
-                        "file_id": result["file"].file_id,
-                        "progress": completed,
-                        "total": len(doc_tasks)
-                    },
-                    "timestamp": datetime.now().isoformat(),
-                    "query_id": query.query_id
-                }
+                    files.append(result.get("file"))
+                    damages.extend(result.get("damages", []))
+                    claims.extend(result.get("claims", []))
+                    deadlines.extend(result.get("deadlines", []))
+                    events.extend(result.get("events", []))
+
+                    # if analyzed_doc.damages:
+                    #     damages.extend(analyzed_doc.damages)
+                    # if analyzed_doc.claims:
+                    #     claims.extend(analyzed_doc.claims)
+                    # if analyzed_doc.deadlines:
+                    #     deadlines.extend(analyzed_doc.deadlines)
+                    
+                    # if result.get("events"):
+                    #     events.extend(result.get("events"))
+                    
+                    yield {
+                        "type": "status",
+                        "phase": ["analyze_doc"],
+                        "status": "complete",
+                        "data": {
+                            "filename": result["file"].filename,
+                            "file_id": result["file"].file_id,
+                            "progress": completed,
+                            "total": len(doc_tasks)
+                        },
+                        "timestamp": datetime.now().isoformat(),
+                        "query_id": query.query_id
+                    }
+                elif isinstance(result,Emails):
+                    logger.debug(f'Email analysis completed with {len(result.emails)} emails extracted.')
+                    emails.extend(result.emails)
+                    claims.extend(result.claims or [])
+                    deadlines.extend(result.deadlines or [])
+                    damages.extend(result.damages or [])
+                    events.extend(result.events or [])
+                    
+                    yield {
+                        "type": "status",
+                        "phase": ["analyze_email"],
+                        "status": "complete",
+                        "data": {
+                            "email_count": len(result.emails),
+                            "progress": completed,
+                            "total": len(doc_tasks)
+                        },
+                        "timestamp": datetime.now().isoformat(),
+                        "query_id": query.query_id
+                    }
         yield {
                 "type": "status",
                 "phase": ["analyze_docs"],
@@ -809,6 +875,7 @@ class Agent:
         )
         self.conversation_manager.save_project(factsheet=result,
                                                  files=files,
+                                                 emails = emails,
                                                  user_id=user_id,
                                                  session_id=query.session_id,
                                                  query_id=query.query_id,
@@ -837,10 +904,9 @@ class Agent:
         if query.attachments:
             docs = []
             for att in query.attachments:
-                docs.extend(self.document_processor.process_attachment(content=att.content, 
-                file_id=att.file_id, 
-                file_type=att.file_type, 
-                session_id=query.session_id))
+                docs.extend(self.document_processor.parse(content=att.content, 
+                                                             metadata = {"file_id": att.file_id, "session_id": query.session_id}, 
+                                                             file_type=att.file_type))
             
             storage_tasks = [
                 asyncio.to_thread(self.vs.add_documents, docs, collection_id=query.session_id),
