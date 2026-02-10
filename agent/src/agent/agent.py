@@ -24,8 +24,8 @@ from langchain.chat_models import init_chat_model
 
 from agent.agent_modules import Summarizer,ContextManager, ToolManager
 from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore, DocumentProcessor, EmailParser
-from agent.basemodels import *  
-from uuid_utils import uuid4
+from models import *  
+from uuid import uuid4
 
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -376,13 +376,6 @@ class Agent:
             docs.append(doc)
         return docs
 
-    def _is_valid_uuid(self, val):
-        try:
-            uuid.UUID(str(val))
-            return True
-        except ValueError:
-            return False
-
     # =================================
     #       STREAM RESPONSE
     # =================================
@@ -699,34 +692,38 @@ class Agent:
                     email_attachments
                 )
 
-        # doc_tasks = [
-        #     analyze_doc_with_limit(att, initial_input) 
-        #     for att in query.attachments or []
-        # 
+
         eml = EmailParser()
         doc_tasks  = []
         email_attachments = []
         email_size_counter = 0 
         threshold = 5 * 1024 * 1024  #5MB threshold for emails, can be adjusted based on needs and costs
+        max_emails = 7
         for att in query.attachments or []:
             logger.debug(f' \n ==== PROCESSING ATTACHMENT {att.filename} of type {att.file_type} and size {att.size} bytes ==== \n')
             if att.file_type != "message/rfc822": 
                 doc_tasks.append(analyze_doc_with_limit(att, initial_input))
             elif att.file_type == "message/rfc822":
                 email_size_counter += att.size
-                data = eml.parse_eml(content=att.content, user_id=user_id, query_id=query.query_id, session_id=query.session_id) 
+                data = eml.parse_eml(content=att.content, 
+                                     user_id=user_id, 
+                                     query_id=query.query_id, 
+                                     session_id=query.session_id,
+                                     file_id=att.file_id,) 
                 email = data.get("email", [])
-                email_attachments = data.get("attachments", [])
-                if email_attachments:
-                    logger.debug(f' === EXTRACTED {len(email_attachments)} attachments from email {att.filename} === \n')
-                doc_tasks.extend([analyze_doc_with_limit(att, initial_input) for att in email_attachments]) #analyze email attachments as separate documents
-                if email_size_counter <= threshold:
+                current_email_attachments = data.get("attachments", [])
+                logger.debug(f' === EXTRACTED {len(current_email_attachments)} attachments from email {att.filename} === \n') if current_email_attachments else logger.debug(f' === NO ATTACHMENTS EXTRACTED from email {att.filename} === \n')
+                doc_tasks.extend([analyze_doc_with_limit(att, initial_input) for att in current_email_attachments]) #analyze email attachments as separate documents
+                if email_size_counter <= threshold or len(email_attachments) < max_emails: 
                     email_attachments.append(email)
+                    logger.debug(f' === ACCUMULATED {len(email_attachments)} emails so far (size: {email_size_counter} bytes) === ')
                 else:
+                    logger.debug(f' === BATCH LIMIT REACHED: Processing batch of {len(email_attachments)} emails (size: {email_size_counter} bytes) === ')
                     doc_tasks.append(analyze_emails_with_limit(email_attachments, initial_input)) # IMPLEMENT
                     email_attachments = [] #reset for next batch of emails
                     email_size_counter = 0
         if email_attachments: #process any remaining email attachments
+            logger.debug(f' === FINAL BATCH: Sending {len(email_attachments)} emails to analyze_emails_with_limit === ')
             doc_tasks.append(analyze_emails_with_limit(email_attachments, initial_input)) 
         
         yield {
@@ -743,6 +740,7 @@ class Agent:
             completed += 1
             if result:
                 if isinstance(result, dict) and "file" in result:
+                    completed += 1
                     logger.debug(f'Document analysis completed with result: {result}')
                     logger.debug(f"\n\n ====== Analyzed document: {result.get('file').filename} (ID: {result.get('file').file_id}) - Result {result.get('file').model_dump()} ========= \n\n")
 
@@ -751,16 +749,6 @@ class Agent:
                     claims.extend(result.get("claims", []))
                     deadlines.extend(result.get("deadlines", []))
                     events.extend(result.get("events", []))
-
-                    # if analyzed_doc.damages:
-                    #     damages.extend(analyzed_doc.damages)
-                    # if analyzed_doc.claims:
-                    #     claims.extend(analyzed_doc.claims)
-                    # if analyzed_doc.deadlines:
-                    #     deadlines.extend(analyzed_doc.deadlines)
-                    
-                    # if result.get("events"):
-                    #     events.extend(result.get("events"))
                     
                     yield {
                         "type": "status",
@@ -775,20 +763,21 @@ class Agent:
                         "timestamp": datetime.now().isoformat(),
                         "query_id": query.query_id
                     }
-                elif isinstance(result,Emails):
-                    logger.debug(f'Email analysis completed with {len(result.emails)} emails extracted.')
-                    emails.extend(result.emails)
-                    claims.extend(result.claims or [])
-                    deadlines.extend(result.deadlines or [])
-                    damages.extend(result.damages or [])
-                    events.extend(result.events or [])
+                elif isinstance(result,dict) and "emails" in result:
+                    completed += 1
+                    logger.debug(f'Email analysis completed with {len(result.get("emails", []))} emails extracted.')
+                    emails.extend(result.get("emails", []))
+                    claims.extend(result.get("claims", []))
+                    deadlines.extend(result.get("deadlines", []))
+                    damages.extend(result.get("damages", []))
+                    events.extend(result.get("events", []))
                     
                     yield {
                         "type": "status",
                         "phase": ["analyze_email"],
                         "status": "complete",
                         "data": {
-                            "email_count": len(result.emails),
+                            "email_count": len(result.get("emails", [])),
                             "progress": completed,
                             "total": len(doc_tasks)
                         },
@@ -827,7 +816,11 @@ class Agent:
             "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id
         }
-
+        factual_facts = FactualFacts(disputed_facts=[], undisputed_facts=[])
+        governing_law = GoverningLaw(
+                                     key_areas=[],
+                                     )
+        
         completed_analysis = 0
         for coro in asyncio.as_completed(analysis_tasks):
             result = await coro
@@ -875,6 +868,7 @@ class Agent:
             **factual_facts.model_dump(),
             **initial_input.model_dump(),
         )
+        logger.debug(f"About to save project {query.project_id} to Supabase...")
         self.conversation_manager.save_project(factsheet=result,
                                                  files=files,
                                                  emails = emails,
@@ -883,14 +877,23 @@ class Agent:
                                                  query_id=query.query_id,
                                                  project_id=query.project_id)
         
+        logger.debug(f"Project saved successfully. About to yield final result...")
         # Yield final result for consumers that need the data
-        yield {
-            "type": "result",
-            "data": {
-                "factsheet": result.model_dump(mode="json"),
-                "attachments": [file.model_dump(mode="json") for file in files]
+        try:
+            factsheet_dict = result.model_dump(mode="json")
+            attachments_dict = [file.model_dump(mode="json") for file in files]
+            logger.debug(f"Successfully serialized factsheet and attachments. Yielding result...")
+            yield {
+                "type": "result",
+                "data": {
+                    "factsheet": factsheet_dict,
+                    "attachments": attachments_dict
+                }
             }
-        }
+            logger.debug(f"Final result yielded successfully.")
+        except Exception as e:
+            logger.error(f"Error serializing or yielding final result: {e}", exc_info=True)
+            raise
 
     async def update_project(self, 
                              query : AskAgentRequest,
@@ -900,13 +903,13 @@ class Agent:
 
         self.context_manager.llm = self._pick_llm(query.llm_model)
         # Validate project_data first
-        project_data = await asyncio.to_thread(
-            self.conversation_manager.load_project,
+        factsheet = await asyncio.to_thread(
+            self.conversation_manager.load_factsheet,
             project_id=query.project_id
         )
 
-        if project_data and not isinstance(project_data, dict):
-            error_msg = f"load_project returned {type(project_data).__name__} instead of dict. Value: {project_data}"
+        if factsheet and not isinstance(factsheet, FactSheet):
+            error_msg = f"load_factsheet returned {type(factsheet).__name__} instead of FactSheet. Value: {factsheet}"
             logger.error(f"Error in update_project: {error_msg}", exc_info=True)
             raise TypeError(error_msg)
 
@@ -931,7 +934,7 @@ class Agent:
             ]
 
         # Extract existing data from project (use direct lists, not wrapper models)
-        factsheet : FactSheet = project_data.get("factsheet", {})
+        factsheet : FactSheet = factsheet
         events: list[Event] = [] 
         files: list[Attachment] = [] 
         damages: list[Damage] = [] 
@@ -1147,16 +1150,15 @@ class Agent:
             raise ValueError(f"Invalid element_type: {element_type}. Must be one of {', '.join(list(valid_element_types.keys()))}")
         
         # == LOAD DATA ==
-        project_data = await asyncio.to_thread(
-            self.conversation_manager.load_project,
+        factsheet = await asyncio.to_thread(
+            self.conversation_manager.load_factsheet,
             project_id=query.project_id
         )
-        if project_data and not isinstance(project_data, dict):
-            error_msg = f"load_project returned {type(project_data).__name__} instead of dict. Value: {project_data}"
+        if factsheet and not isinstance(factsheet, FactSheet):
+            error_msg = f"load_factsheet returned {type(factsheet).__name__} instead of FactSheet. Value: {factsheet}"
             logger.error(f"Error in update_project: {error_msg}", exc_info=True)
             raise TypeError(error_msg)
         
-        factsheet : FactSheet = project_data.get("factsheet", {})
         content = factsheet.model_dump().get(element_type, [])
 
         #content_model = [valid_element_types[element_type].model_validate(c) for c in content] if content else []
