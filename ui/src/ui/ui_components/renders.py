@@ -188,7 +188,7 @@ class ChatComponent:
         chat_question = st.chat_input(
             "Skriv ditt spørsmål her...",
             accept_file="multiple",
-            file_type=["txt", "csv", "xlsx", "pdf"],
+            file_type=["txt", "csv",  "pdf", "xlsx", "docx", "eml"],
         )
 
         return chat_question
