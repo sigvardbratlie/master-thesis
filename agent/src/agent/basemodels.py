@@ -9,7 +9,7 @@ from langgraph.graph.message import add_messages
 
 
 # ===== CONTEXT MANAGER MODELS
-party_roles = Literal[
+PartyRole = Literal[
     # Sivile hovedparter
     "plaintiff",
     "defendant",
@@ -83,7 +83,7 @@ class Claim(BaseModel):
     )
     defense: Optional[str] = Field(None, description="Defense strategy if defending")
     file_id: Optional[str] = None
-    party_role : Optional[party_roles] = None
+    party_role : Optional[PartyRole] = None
 
 class Claims(BaseModel):
     claims: list[Claim] = Field(description="Legal claims made by the parties, including legal and factual basis, relief sought, and strength assessment")
@@ -95,7 +95,7 @@ class Damage(BaseModel):
     basis: str
     supporting_evidence: list[str] = Field(description="File_IDs supporting the damage claim")
     file_id: Optional[str] = None
-    party_role: Optional[party_roles] = None
+    party_role: Optional[PartyRole] = None
 
 class Damages(BaseModel):
     damages: list[Damage] = Field(description="Information about damages claimed or incurred in the case, including type, amount if mentioned, evidentiary basis, and associated party roles")
@@ -105,7 +105,7 @@ class Deadline(BaseModel):
     deadline_date: date |datetime
     description: str
     file_id: Optional[str] = Field(None, description="Related attachment reference")
-    party_role : Optional[party_roles] = None
+    party_role : Optional[PartyRole] = None
 
 class Deadlines(BaseModel):
     deadlines: list[Deadline] = Field(description="Important deadlines mentioned in the case, e.g., contract milestones, court dates, statute of limitations, etc.")
@@ -120,7 +120,7 @@ class Contact(BaseModel):
 class Party(BaseModel):
     legal_name: str
     party_id : Optional[str] = None
-    role: party_roles = Field(
+    role: PartyRole = Field(
         default="other",
         description="Role of the party in the case, e.g., plaintiff, defendant, witness, legal representative, etc.")
     entity_type: entity_types
@@ -141,7 +141,7 @@ class Event(BaseModel):
     event_end_date: Optional[date | datetime] = None
     description: str
     category: str = Field(description="Categorization of the event, e.g., 'court_filing', 'evidence_submission', 'contract_signing', 'communication', etc.")
-    parties: list[party_roles] = Field(description="Roles of parties involved in the event")
+    parties: list[PartyRole] = Field(description="Roles of parties involved in the event")
     significance: significance_levels
     disputed: bool
 
@@ -158,7 +158,7 @@ class BaseExtracted(BaseModel):
     """Common extraction fields for all document types and emails"""
     description: str = Field(description="Concise summary of the content")
     significance: significance_levels = Field(default="medium", description="Importance level")
-    party_roles: Optional[list[party_roles]] = Field(None, description="Party roles mentioned")
+    party_roles: Optional[list[PartyRole]] = Field(None, description="Party roles mentioned")
     deadlines: Optional[list[Deadline]] = Field(None, description="Relevant deadlines if any")
     damages: Optional[list[Damage]] = Field(None, description="Damage information if applicable")
     claims: Optional[list[Claim]] = Field(None, description="Claim information if applicable")
@@ -183,6 +183,7 @@ class Attachment(AttachmentExtracted):
     file_type: Literal["application/pdf", "text/plain", "application/msword",] #system generated
     size: int #system generated
     events: Optional[list[str]] = Field(None, description="event IDs mentioned in the document")
+    email_id: Optional[str] = Field(None, description="If this attachment was extracted from an email, reference the email_id here")
 
 
 class FactSheet(InitialInput,FactualFacts):
@@ -206,36 +207,44 @@ class EmailExtracted(BaseExtracted):
     privilege_status: Optional[Literal["attorney-client", "work_product", "none"]] = Field(
         None, description="Privilege classification"
     )
+    email_id : Optional[str] = None 
 
 class Email(EmailExtracted):
-    """Full email model for database storage with metadata and extracted content"""
-    email_id: Optional[str] = None
-    file_id: Optional[str] = Field(None, description="Reference to .eml file in project_attachments")
+    """Email model - Python-friendly names with RFC aliases"""
+    
+    # IDs
+    #email_id: Optional[str] = None
     project_id: Optional[str] = None
     
-    # Email metadata
-    sender: str = Field(description="From address")
-    recipients: list[str] = Field(description="To addresses")
-    cc: Optional[list[str]] = None
-    bcc: Optional[list[str]] = None
+    # Core RFC 5322 headers - lowercase Python names
+    from_addr: str = Field(alias="from")  # ✅ Python-friendly
+    to: list[str] = Field(default_factory=list)
+    cc: Optional[list[str]] = Field(default_factory=list)
+    bcc: Optional[list[str]] = Field(default_factory=list)
     subject: str
-    email_date: Optional[datetime] = Field(None, description="When email was sent")
+    date: datetime
     
-    # Threading info
-    thread_id: Optional[str] = Field(None, description="Email thread identifier")
-    message_id: Optional[str] = Field(None, description="Unique message ID from email headers")
-    in_reply_to: Optional[str] = Field(None, description="Message ID this email replies to")
+    # Threading
+    message_id: str = Field(alias="message-id")
+    in_reply_to: Optional[str] = Field(None, alias="in-reply-to")
+    references: Optional[str] = None
+    thread_topic: Optional[str] = Field(None, alias="thread-topic")
+    thread_index: Optional[str] = Field(None, alias="thread-index")
+    thread_id: Optional[str] = None
     
     # Content
-    body_text: str = Field(description="Plain text body")
-    body_html: Optional[str] = Field(None, description="HTML body if available")
-    headers: Optional[dict] = Field(None, description="Full email headers for forensics")
+    body: str
+    html: Optional[str] = None
     
-    # Attachments within email
-    has_attachments: bool = False
-    attachment_count: int = 0
-    attachment_files: Optional[list[str]] = Field(None, description="File IDs of attachments extracted from this email")
+    # Metadata
+    headers: dict = Field(default_factory=dict)
+    #attachments: list[str] = Field(default_factory=list)
+    size: Optional[int] = None
+    created_at: Optional[datetime] = None
     
+    class Config:
+        populate_by_name = True  # Accept both 'from_addr' and 'from'
+
 class Emails(BaseModel):
     emails: list[Email] = Field(description="List of emails in the project")
     
@@ -250,26 +259,35 @@ class AttachmentModel(BaseModel):
     """Attachment sent to backend API"""
     filename: str
     file_id: str
-    content: Optional[str] = None  # Base64 for PDF, text for others
-    path : str
-    file_type: str
-    size: int
-    query_id: str
-    event_id: Optional[str] = None
+    content: Optional[str] = Field(None, description="Base64 encoded content")
+    path : str = Field(description="Storage path for the attachment, e.g., 'user_id/session_id/file_id.ext'. Should also end with extension")
+    file_type: str = Field(description="MIME type of the file, e.g., 'application/pdf', 'text/plain', 'message/rfc822', etc.")
+    size: int = Field(description="Size of the file in bytes")
+    query_id: str = Field(description="ID (uuid) of the query this attachment is associated with")
+    event_id: Optional[str] = Field(None, description="ID of the event this attachment is associated with, if applicable")
 
 class EmailModel(BaseModel):
     """Email sent to backend API"""
-    email_id : str
+    file_id : str #foreign key
     subject: str
-    sender: str
-    recipients: list[str]
+    from_addr: str
+    to: list[str]
     cc: Optional[list[str]] = None
     bcc: Optional[list[str]] = None
-    email_date: Optional[datetime] = None
+    date: Optional[datetime] = None
+    
+    message_id: Optional[str] = None
+    in_reply_to: Optional[str] = None
+    references: Optional[str] = None
+    thread_topic: Optional[str] = None
+    thread_index: Optional[str] = None
+    thread_id: Optional[str] = None
+
     body_text: str
     body_html: Optional[str] = None
     headers: Optional[dict] = None
-    attachments: Optional[list] = None
+    
+    attachments: Optional[list] = None #file ids
 
 class AskAgentRequest(BaseModel):
     """POST /ask-agent request"""
