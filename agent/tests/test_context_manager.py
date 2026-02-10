@@ -5,7 +5,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 from tests.fixtures.context_manager_data import get_mock_agent_state, get_mock_init_input
 from tests.fixtures.supabase_data import get_mock_load_project_data
-from tests.fixtures.email_data import get_mock_email_model_list, get_mock_email_extracted
+from tests.fixtures.email_data import get_mock_email_model_list, get_mock_email_extracted, load_real_test_email
 import tiktoken
 from models import *
 from typing import List
@@ -327,6 +327,119 @@ async def test_analyze_factual_facts(mock_context_manager):
     assert isinstance(result, FactualFacts)
     assert len(result.disputed_facts) == 1
     assert len(result.undisputed_facts) == 1
+
+
+# ============================================
+#      INTEGRATION TESTS (with real LLM)
+# ============================================
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_analyze_multiple_eml_real_data_integration():
+    """Integration test: analyze_multiple_eml with real EML file and real LLM"""
+    cm = ContextManager()  # Real LLM, not mocked
+    
+    # Load real email from test-file.eml
+    test_email = load_real_test_email()
+    
+    # Create initial input
+    initial_input = InitialInput(
+        parties=[],
+        background="Testing email analysis with real data",
+        title="Integration Test Case"
+    )
+    
+    # Run analysis with real LLM
+    result = await cm.analyze_multiple_eml(
+        initial_input=initial_input,
+        emails=[test_email]
+    )
+    
+    # Validate structure
+    assert "emails" in result
+    assert "events" in result
+    assert "damages" in result
+    assert "deadlines" in result
+    assert "claims" in result
+    
+    # Validate we got back 1 email
+    assert len(result["emails"]) >= 1, "Should process at least 1 email"
+    
+    # Validate email_id matches
+    processed_email = result["emails"][0]
+    assert processed_email.email_id == test_email.file_id, f"Email ID mismatch: {processed_email.email_id} != {test_email.file_id}"
+    
+    # Validate all damages have file_id and unique damage_id
+    for damage in result["damages"]:
+        assert damage.file_id == test_email.file_id, f"Damage file_id mismatch"
+        assert damage.damage_id is not None, "Damage should have damage_id"
+        assert cm.is_valid_uuid(damage.damage_id), f"Invalid damage_id UUID: {damage.damage_id}"
+    
+    # Validate all deadlines have file_id and unique deadline_id
+    for deadline in result["deadlines"]:
+        assert deadline.file_id == test_email.file_id, f"Deadline file_id mismatch"
+        assert deadline.deadline_id is not None, "Deadline should have deadline_id"
+        assert cm.is_valid_uuid(deadline.deadline_id), f"Invalid deadline_id UUID: {deadline.deadline_id}"
+    
+    # Validate all claims have file_id and unique claim_id
+    for claim in result["claims"]:
+        assert claim.file_id == test_email.file_id, f"Claim file_id mismatch"
+        assert claim.claim_id is not None, "Claim should have claim_id"
+        assert cm.is_valid_uuid(claim.claim_id), f"Invalid claim_id UUID: {claim.claim_id}"
+    
+    # Validate all events have file_id and unique event_id
+    for event in result["events"]:
+        assert event.file_id == test_email.file_id, f"Event file_id mismatch"
+        assert event.event_id is not None, "Event should have event_id"
+        assert cm.is_valid_uuid(event.event_id), f"Invalid event_id UUID: {event.event_id}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_analyze_multiple_eml_multiple_emails_integration():
+    """Integration test: analyze_multiple_eml with multiple mock emails"""
+    cm = ContextManager()  # Real LLM
+    
+    # Use mock emails (faster than parsing multiple real EMLs)
+    emails = get_mock_email_model_list()
+    
+    initial_input = InitialInput(
+        parties=[],
+        background="Multi-email integration test",
+        title="Multi-Email Test"
+    )
+    
+    result = await cm.analyze_multiple_eml(
+        initial_input=initial_input,
+        emails=emails
+    )
+    
+    # Should process all emails
+    assert len(result["emails"]) <= len(emails), f"Should not return more emails than provided"
+    
+    # All returned emails should have valid file_ids matching input
+    input_ids = {e.file_id for e in emails}
+    for email in result["emails"]:
+        assert email.email_id in input_ids, f"Email ID {email.email_id} not in original IDs {input_ids}"
+    
+    # All elements should have valid UUIDs
+    all_file_ids = {e.file_id for e in emails}
+    
+    for damage in result["damages"]:
+        assert damage.file_id in all_file_ids
+        assert cm.is_valid_uuid(damage.damage_id)
+    
+    for deadline in result["deadlines"]:
+        assert deadline.file_id in all_file_ids
+        assert cm.is_valid_uuid(deadline.deadline_id)
+    
+    for claim in result["claims"]:
+        assert claim.file_id in all_file_ids
+        assert cm.is_valid_uuid(claim.claim_id)
+    
+    for event in result["events"]:
+        assert event.file_id in all_file_ids
+        assert cm.is_valid_uuid(event.event_id)
 
 
 

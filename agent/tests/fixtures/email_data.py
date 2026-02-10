@@ -1,11 +1,14 @@
 import base64
 import email
+from email import policy
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 from datetime import datetime
+from pathlib import Path
+from email.utils import parsedate_to_datetime
 
-from models.api_request_models import EmailModel, EmailExtracted, Email
+from models import EmailModel, EmailExtracted, Email
 
 
 # ============================================
@@ -97,6 +100,9 @@ def get_mock_email_model() -> EmailModel:
     """A valid EmailModel for testing."""
     return EmailModel(
         file_id="test-file-id-001",
+        path="test-user/test-session/test-file-id-001.eml",
+        query_id="test-query-id-001",
+        event_id=None,
         subject="Re: Eiendomssak Fjellveien 42A",
         from_addr="advokat@juridisk.no",
         to=["klient@example.com"],
@@ -116,12 +122,77 @@ def get_mock_email_model() -> EmailModel:
     )
 
 
+def load_real_test_email() -> EmailModel:
+    """Load the actual test-file.eml and convert to EmailModel"""
+    eml_path = Path(__file__).parent / "test-file.eml"
+    
+    with open(eml_path, 'rb') as f:
+        msg = email.message_from_binary_file(f, policy=policy.default)
+    
+    # Extract email data
+    date_parsed = None
+    if msg.get('Date'):
+        try:
+            date_parsed = parsedate_to_datetime(msg.get('Date'))
+        except Exception:
+            pass
+    
+    # Get body text
+    body_text = ""
+    body_html = None
+    
+    if msg.is_multipart():
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            if content_type == 'text/plain' and not body_text:
+                try:
+                    body_text = part.get_content()
+                except Exception:
+                    body_text = str(part.get_payload(decode=True), 'utf-8', errors='ignore')
+            elif content_type == 'text/html' and not body_html:
+                try:
+                    body_html = part.get_content()
+                except Exception:
+                    body_html = str(part.get_payload(decode=True), 'utf-8', errors='ignore')
+    else:
+        try:
+            body_text = msg.get_content()
+        except Exception:
+            body_text = str(msg.get_payload(decode=True), 'utf-8', errors='ignore')
+    
+    return EmailModel(
+        file_id="real-test-file-eml-001",
+        path="test-user/test-session/test-file.eml",
+        query_id="real-test-query-001",
+        event_id=None,
+        subject=msg.get('Subject', ''),
+        from_addr=msg.get('From', ''),
+        to=[msg.get('To', '')] if msg.get('To') else [],
+        cc=[msg.get('Cc')] if msg.get('Cc') else None,
+        bcc=[msg.get('Bcc')] if msg.get('Bcc') else None,
+        date=date_parsed,
+        message_id=msg.get('Message-ID'),
+        in_reply_to=msg.get('In-Reply-To'),
+        references=msg.get('References'),
+        thread_topic=msg.get('Thread-Topic'),
+        thread_index=msg.get('Thread-Index'),
+        thread_id=None,
+        body_text=body_text or "(No text body)",
+        body_html=body_html,
+        headers={k: v for k, v in msg.items()},
+        attachments=None,
+    )
+
+
 def get_mock_email_model_list() -> list[EmailModel]:
     """List of EmailModels for batch analysis testing."""
     return [
         get_mock_email_model(),
         EmailModel(
             file_id="test-file-id-002",
+            path="test-user/test-session/test-file-id-002.eml",
+            query_id="test-query-id-002",
+            event_id=None,
             subject="Oppdatering: Befaring Fjellveien 42A",
             from_addr="takstmann@protakst.no",
             to=["advokat@juridisk.no", "klient@example.com"],

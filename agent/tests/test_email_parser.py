@@ -142,7 +142,7 @@ def test_extract_email_data_simple(parser):
     raw = get_mock_eml_plain_text()
     msg = email.message_from_bytes(raw)
     result = parser._extract_email_data(
-        msg, query_id="q-001", user_id="u-001", session_id="s-001"
+        msg, file_id="f-001", query_id="q-001", user_id="u-001", session_id="s-001"
     )
 
     assert "email" in result
@@ -160,7 +160,7 @@ def test_extract_email_data_with_attachment(parser):
     raw = get_mock_eml_with_text_attachment()
     msg = email.message_from_bytes(raw)
     result = parser._extract_email_data(
-        msg, query_id="q-002", user_id="u-001", session_id="s-001"
+        msg, file_id="f-002", query_id="q-002", user_id="u-001", session_id="s-001"
     )
 
     assert "email" in result
@@ -178,7 +178,7 @@ def test_extract_email_data_headers(parser):
     raw = get_mock_eml_plain_text()
     msg = email.message_from_bytes(raw)
     result = parser._extract_email_data(
-        msg, query_id="q-003", user_id="u-001", session_id="s-001"
+        msg, file_id="f-003", query_id="q-003", user_id="u-001", session_id="s-001"
     )
 
     email_data = result["email"]
@@ -191,7 +191,7 @@ def test_extract_email_data_threading_fields(parser):
     raw = get_mock_eml_plain_text()
     msg = email.message_from_bytes(raw)
     result = parser._extract_email_data(
-        msg, query_id="q-004", user_id="u-001", session_id="s-001"
+        msg, file_id="f-004", query_id="q-004", user_id="u-001", session_id="s-001"
     )
 
     email_data = result["email"]
@@ -205,7 +205,7 @@ def test_extract_email_data_body_text(parser):
     raw = get_mock_eml_plain_text()
     msg = email.message_from_bytes(raw)
     result = parser._extract_email_data(
-        msg, query_id="q-005", user_id="u-001", session_id="s-001"
+        msg, file_id="f-005", query_id="q-005", user_id="u-001", session_id="s-001"
     )
 
     email_data = result["email"]
@@ -217,7 +217,7 @@ def test_extract_email_data_multipart_body(parser):
     raw = get_mock_eml_multipart()
     msg = email.message_from_bytes(raw)
     result = parser._extract_email_data(
-        msg, query_id="q-006", user_id="u-001", session_id="s-001"
+        msg, file_id="f-006", query_id="q-006", user_id="u-001", session_id="s-001"
     )
 
     email_data = result["email"]
@@ -236,7 +236,8 @@ def test_parse_eml_valid_plain(parser):
         content=b64_content,
         user_id="u-001",
         query_id="q-007",
-        session_id="s-001"
+        session_id="s-001",
+        file_id="f-007"
     )
 
     assert "email" in result
@@ -252,7 +253,8 @@ def test_parse_eml_valid_with_attachment(parser):
         content=b64_content,
         user_id="u-001",
         query_id="q-008",
-        session_id="s-001"
+        session_id="s-001",
+        file_id="f-008"
     )
 
     assert "email" in result
@@ -267,7 +269,8 @@ def test_parse_eml_invalid_base64(parser):
             content="!!!invalid-base64!!!",
             user_id="u-001",
             query_id="q-009",
-            session_id="s-001"
+            session_id="s-001",
+            file_id="f-009"
         )
 
 
@@ -280,7 +283,8 @@ def test_parse_eml_invalid_email_content(parser):
         content=not_an_email,
         user_id="u-001",
         query_id="q-010",
-        session_id="s-001"
+        session_id="s-001",
+        file_id="f-010"
     )
     assert "email" in result
 
@@ -292,7 +296,8 @@ def test_parse_eml_multipart(parser):
         content=b64_content,
         user_id="u-001",
         query_id="q-011",
-        session_id="s-001"
+        session_id="s-001",
+        file_id="f-011"
     )
 
     assert "email" in result
@@ -311,7 +316,8 @@ def test_parse_eml_preserves_cc_bcc(parser):
         content=b64_content,
         user_id="u-001",
         query_id="q-012",
-        session_id="s-001"
+        session_id="s-001",
+        file_id="f-012"
     )
 
     email_data = result["email"]
@@ -326,7 +332,8 @@ def test_attachment_path_format(parser):
         content=b64_content,
         user_id="user-123",
         query_id="q-013",
-        session_id="sess-456"
+        session_id="sess-456",
+        file_id="f-013"
     )
 
     if result["attachments"]:

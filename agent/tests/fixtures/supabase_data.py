@@ -1,4 +1,4 @@
-from models.api_request_models import * 
+from models import * 
 
 
 # Mock data fra Supabase
