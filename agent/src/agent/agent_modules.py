@@ -123,7 +123,7 @@ class ContextManager:
     # ===== FUNCTIONS FOR INITIAL FACTSHEET CREATION =====
     async def analyze_init_input(self, init_input : str) -> InitialInput:
         structured_llm = self.llm.with_structured_output(InitialInput, method="function_calling")
-        prompt = f'Analyze the following case introduction and extract key information into the InitialInput structure:\n\n{init_input}'
+        prompt = f'Analyze the following case introduction and extract key information into the InitialInput structure. If not sufficient information, leave blank:\n\n{init_input}. '
         return await structured_llm.ainvoke(prompt)
     
     async def analyze_doc(self, 
@@ -143,7 +143,7 @@ class ContextManager:
 
         class AttachmentWithEvents(BaseModel):
             attachment: AttachmentExtracted
-            events: List[Event]
+            events: Optional[List[Event]] = None
         
         structured_llm = self.llm.with_structured_output(AttachmentWithEvents, method="function_calling")
         init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
@@ -202,10 +202,13 @@ class ContextManager:
         '''Function to analyze multiple documents and extract structured data as Attachments.'''
         
         class EmailAnalysisResult(BaseModel):
-            email: EmailExtracted
-            events: List[Event]
+            """Result for ONE email analysis"""
+            email: EmailExtracted = Field(description="Extracted metadata and content from this specific email")
+            events: Optional[List[Event]] = Field(default=None, description="Timeline events mentioned in this email (can be empty list or null if no events found)")
+        
         class EmailsAnalysisResult(BaseModel):
-            emails: List[EmailAnalysisResult]
+            """Result containing ALL email analyses"""
+            emails: List[EmailAnalysisResult] = Field(description="List of email analysis results - one EmailAnalysisResult object per input email")
         
         result_emails = []
         deadlines = []
@@ -215,7 +218,19 @@ class ContextManager:
 
         structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
         init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
-        prompt = init_prompt + f'Analyze the following emails and extract BOTH email metadata AND timeline events:\n\n{[eml.model_dump() for eml in emails]}'
+        
+        # Clearer prompt showing the expected structure
+        prompt = init_prompt + f'''Analyze the following {len(emails)} emails.
+
+For EACH email, return an EmailAnalysisResult object containing:
+1. email: EmailExtracted - metadata from that email
+2. events: List[Event] or null - timeline events mentioned in that email
+
+IMPORTANT: Return exactly {len(emails)} EmailAnalysisResult objects in the emails array.
+
+Emails to analyze:
+{[eml.model_dump() for eml in emails]}'''
+        
         response = await structured_llm.ainvoke(prompt)
 
         if len(response.emails) != len(emails):
@@ -236,7 +251,14 @@ class ContextManager:
                 deadlines.extend(extracted.deadlines)
             if extracted.claims:
                 claims.extend(extracted.claims)
-            events.extend(email_result.events)
+            
+            # Safely handle events (can be None or empty list)
+            if email_result.events:
+                events.extend(email_result.events)
+                logger.info(f'Extracted {len(email_result.events)} events from email #{idx}')
+            else:
+                logger.info(f'No events found in email #{idx}')
+            
             email_data = extracted.model_dump()
             email_data.update({
                 "to": input_email.to,
