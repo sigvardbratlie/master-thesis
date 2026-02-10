@@ -792,7 +792,7 @@ async def test_initialize_project_real_llm_small_input():
         session_id="integration-test-session-001",
         query_id="integration-test-query-001",
         project_id="integration-test-project-001",
-        llm_model="gemini-2.5-flash",
+        llm_model="google_gemini-2.5-flash",
         attachments=[
             AttachmentModel(
                 file_id="integration-test-file-001",
@@ -898,7 +898,7 @@ async def test_initialize_project_with_email():
         session_id="integration-email-session-001",
         query_id="integration-email-query-001", 
         project_id="integration-email-project-001",
-        llm_model="gemini-2.5-flash",
+        llm_model="google_gemini-2.5-flash",
         attachments=[
             AttachmentModel(
                 file_id="integration-email-file-001",
