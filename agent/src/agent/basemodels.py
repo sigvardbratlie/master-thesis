@@ -154,24 +154,27 @@ class InitialInput(BaseModel):
     background: str
     title : str = Field(description="Title of the case or matter")
 
-class AttachmentExtracted(BaseModel):    
-    description: str  = Field(description="Concise summary of the document content")
+class BaseExtracted(BaseModel):
+    """Common extraction fields for all document types and emails"""
+    description: str = Field(description="Concise summary of the content")
+    significance: significance_levels = Field(default="medium", description="Importance level")
+    party_roles: Optional[list[party_roles]] = Field(None, description="Party roles mentioned")
+    deadlines: Optional[list[Deadline]] = Field(None, description="Relevant deadlines if any")
+    damages: Optional[list[Damage]] = Field(None, description="Damage information if applicable")
+    claims: Optional[list[Claim]] = Field(None, description="Claim information if applicable")
+
+class AttachmentExtracted(BaseExtracted):
+    """Document-specific extraction fields"""    
     key_provisions: Optional[list[str]] = Field(None, description="Important clauses or sections (for agreements)")
-    #events: Optional[list[Event]] = Field(None, description="Key events mentioned in the document")
-    party_roles: Optional[list[str]] = Field(None, description="Party roles mentioned in the document. E.g., plaintiff, defendant")
-    file_date : Optional[date] = Field(None, description="Date of the document (when it was created/sent, not when it was received)")
+    file_date: Optional[date] = Field(None, description="Date of the document (when it was created/sent, not when it was received)")
     category: Literal[
         "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
         "court_order", "invoice", "expert_report", "witness_statement", "internal_memo",
         "legal_opinion", "settlement_proposal", "power_of_attorney", "other"
     ] = Field(
         default="other",
-        description="REQUIRED: Document category - select the most appropriate type. Choose 'agreement' for contracts, 'correspondence' for emails/letters, 'pleading' for court submissions, 'evidence' for supporting documents, 'court_order' for rulings, 'expert_report' for expert analyses, etc. If unclear, use 'other'"
+        description="REQUIRED: Document category - select the most appropriate type. Choose 'agreement' for contracts, 'correspondence' for letters, 'pleading' for court submissions, 'evidence' for supporting documents, 'court_order' for rulings, 'expert_report' for expert analyses, etc. If unclear, use 'other'"
     )
-    deadlines: Optional[list[Deadline]] = Field(None, description="Relevant deadline if the document sets one")
-    damages: Optional[list[Damage]] = Field(None, description="Damage information if applicable")
-    claims: Optional[list[Claim]] = Field(None, description="Claim information if applicable")
-    significance: significance_levels = Field(default="medium", description="Importance level: 'high' for core documents (contracts, pleadings, expert reports), 'medium' for supporting docs, 'low' for administrative")
 
 class Attachment(AttachmentExtracted):
     file_id: Optional[str] = None
@@ -196,6 +199,47 @@ class RelevanceCheck(BaseModel):
     is_relevant: bool
     reasoning: str
 
+class EmailExtracted(BaseExtracted):
+    """Email-specific extraction fields - what LLM extracts from email content"""
+    key_points: Optional[list[str]] = Field(None, description="Important points, decisions, or action items from the email")
+    # Legal metadata
+    privilege_status: Optional[Literal["attorney-client", "work_product", "none"]] = Field(
+        None, description="Privilege classification"
+    )
+
+class Email(EmailExtracted):
+    """Full email model for database storage with metadata and extracted content"""
+    email_id: Optional[str] = None
+    file_id: Optional[str] = Field(None, description="Reference to .eml file in project_attachments")
+    project_id: Optional[str] = None
+    
+    # Email metadata
+    sender: str = Field(description="From address")
+    recipients: list[str] = Field(description="To addresses")
+    cc: Optional[list[str]] = None
+    bcc: Optional[list[str]] = None
+    subject: str
+    email_date: Optional[datetime] = Field(None, description="When email was sent")
+    
+    # Threading info
+    thread_id: Optional[str] = Field(None, description="Email thread identifier")
+    message_id: Optional[str] = Field(None, description="Unique message ID from email headers")
+    in_reply_to: Optional[str] = Field(None, description="Message ID this email replies to")
+    
+    # Content
+    body_text: str = Field(description="Plain text body")
+    body_html: Optional[str] = Field(None, description="HTML body if available")
+    headers: Optional[dict] = Field(None, description="Full email headers for forensics")
+    
+    # Attachments within email
+    has_attachments: bool = False
+    attachment_count: int = 0
+    attachment_files: Optional[list[str]] = Field(None, description="File IDs of attachments extracted from this email")
+    
+class Emails(BaseModel):
+    emails: list[Email] = Field(description="List of emails in the project")
+    
+    
 
 
 #=================================
@@ -213,6 +257,19 @@ class AttachmentModel(BaseModel):
     query_id: str
     event_id: Optional[str] = None
 
+class EmailModel(BaseModel):
+    """Email sent to backend API"""
+    email_id : str
+    subject: str
+    sender: str
+    recipients: list[str]
+    cc: Optional[list[str]] = None
+    bcc: Optional[list[str]] = None
+    email_date: Optional[datetime] = None
+    body_text: str
+    body_html: Optional[str] = None
+    headers: Optional[dict] = None
+    attachments: Optional[list] = None
 
 class AskAgentRequest(BaseModel):
     """POST /ask-agent request"""
