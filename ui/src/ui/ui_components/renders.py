@@ -54,7 +54,7 @@ class ChatComponent:
         user_input = st.chat_input(
             "Still et spørsmål for å komme igang...",
             accept_file="multiple",
-            file_type=["txt", "csv", "xlsx", "pdf"],
+            file_type=["txt", "csv", "xlsx", "pdf", "docx", "eml"],
         )
         if user_input:
             question = user_input
