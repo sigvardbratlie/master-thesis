@@ -44,7 +44,9 @@ if auth_service.is_logged_in():
 
 
     if not st.session_state.project_id:
-        st.title("Project View Page")
+        st.html("<div style='font-size: 3.5rem; line-height: 1;'>📁</div>")
+        st.title("Project View", anchor=False)
+        ""  # Spacer
         with st.container():
             project_component.render_new_project_input()
 

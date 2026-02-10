@@ -26,6 +26,8 @@ def init_state():
 
     # User info
     st.session_state.setdefault("user_id", None)
+    st.session_state.setdefault("user_first_name", None)
+    st.session_state.setdefault("user_last_name", None)
     st.session_state.setdefault("session_id", str(uuid.uuid4()))
     st.session_state.setdefault("project_id", None)
     st.session_state.setdefault("session_title", None)
@@ -60,6 +62,81 @@ def init_state():
     st.session_state.setdefault("supabase_client", None)
 
     st.session_state.setdefault("clear_input_counter", 0)
+
+    apply_global_styles()
+
+
+def apply_global_styles():
+    """Inject global CSS styles matching the pill/rounded design."""
+    st.markdown("""
+        <style>
+        /* Rounded buttons everywhere */
+        button {
+            border-radius: 2rem !important;
+        }
+
+        /* Rounded expanders */
+        [data-testid="stExpander"] {
+            border-radius: 1rem !important;
+            overflow: hidden;
+        }
+        [data-testid="stExpander"] details {
+            border-radius: 1rem !important;
+        }
+        [data-testid="stExpander"] summary {
+            border-radius: 1rem !important;
+        }
+
+        /* Rounded selectboxes */
+        [data-testid="stSelectbox"] > div > div {
+            border-radius: 1rem !important;
+        }
+
+        /* Rounded text inputs */
+        [data-testid="stTextInput"] > div > div > input {
+            border-radius: 1rem !important;
+        }
+
+        /* Rounded text areas */
+        [data-testid="stTextArea"] textarea {
+            border-radius: 1rem !important;
+        }
+
+        /* Rounded file uploader */
+        [data-testid="stFileUploader"] > div {
+            border-radius: 1rem !important;
+        }
+
+        /* Rounded info/warning/error/success boxes */
+        [data-testid="stAlert"] {
+            border-radius: 1rem !important;
+        }
+
+        /* Rounded popover */
+        [data-testid="stPopover"] > button {
+            border-radius: 2rem !important;
+        }
+
+        /* Rounded radio pills */
+        [data-testid="stRadio"] label > div {
+            border-radius: 2rem !important;
+        }
+
+        /* Rounded chat input */
+        [data-testid="stChatInput"] {
+            border-radius: 1.5rem !important;
+        }
+        [data-testid="stChatInput"] textarea {
+            border-radius: 1.5rem !important;
+        }
+
+        /* Rounded status containers */
+        [data-testid="stStatusWidget"] {
+            border-radius: 1rem !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
 
 @st.cache_resource
 def get_resource(resource):

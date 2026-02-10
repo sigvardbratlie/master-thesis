@@ -3,7 +3,8 @@ import logging
 import streamlit as st
 from typing import Optional
 from supabase import create_client, Client
-from ui.models import * 
+from ui.models import *
+from ui.models import UserDetails, CompanyDetails
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -146,6 +147,61 @@ class SupabaseManager:
             return elements.data
         except Exception as e:
             logger.error(f'Could not load project elements of type {element_type} for project {project_id} from Supabase: {e}')
+            return []
+
+    # ================== USER DETAILS ==================
+
+    def load_user_details(self, user_id: str) -> Optional[UserDetails]:
+        """Load user details from Supabase"""
+        try:
+            result = self.supabase.table("user_details").select("*").eq("user_id", user_id).execute()
+            if result.data:
+                return UserDetails.model_validate(result.data[0])
+            return None
+        except Exception as e:
+            logger.error(f"Could not load user details for {user_id}: {e}")
+            return None
+
+    def upsert_user_details(self, user_details: UserDetails) -> bool:
+        """Insert or update user details in Supabase"""
+        try:
+            data = user_details.model_dump(exclude_none=True)
+            self.supabase.table("user_details").upsert(data, on_conflict="user_id").execute()
+            return True
+        except Exception as e:
+            logger.error(f"Could not upsert user details: {e}")
+            return False
+
+    # ================== COMPANY DETAILS ==================
+
+    def load_company_details(self, company_id: str) -> Optional[CompanyDetails]:
+        """Load company details from Supabase"""
+        try:
+            result = self.supabase.table("company_details").select("*").eq("company_id", company_id).execute()
+            if result.data:
+                return CompanyDetails.model_validate(result.data[0])
+            return None
+        except Exception as e:
+            logger.error(f"Could not load company details for {company_id}: {e}")
+            return None
+
+    def upsert_company_details(self, company_details: CompanyDetails) -> bool:
+        """Insert or update company details in Supabase"""
+        try:
+            data = company_details.model_dump(exclude_none=True)
+            self.supabase.table("company_details").upsert(data, on_conflict="company_id").execute()
+            return True
+        except Exception as e:
+            logger.error(f"Could not upsert company details: {e}")
+            return False
+
+    def load_all_companies(self) -> list[CompanyDetails]:
+        """Load all companies from Supabase"""
+        try:
+            result = self.supabase.table("company_details").select("*").execute()
+            return [CompanyDetails.model_validate(c) for c in result.data]
+        except Exception as e:
+            logger.error(f"Could not load companies: {e}")
             return []
 
     def read_attachment(self, path : str, bucket_name : str = "attachments") -> Optional[bytes]:

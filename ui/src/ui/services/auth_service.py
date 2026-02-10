@@ -37,6 +37,7 @@ class SupabaseAuthService:
                 st.session_state.refresh_token = response.session.refresh_token
                 st.session_state._auth_initialized = True
 
+                self._load_user_details(response.user.id)
                 logger.info(f"User logged in: {email}")
                 return True
         except Exception as e:
@@ -72,6 +73,7 @@ class SupabaseAuthService:
                 if new_token != refresh_token:
                     st.query_params["rt"] = new_token
 
+                self._load_user_details(response.user.id)
                 logger.info(f"Session restored for: {response.user.email}")
                 return True
         except Exception as e:
@@ -108,6 +110,18 @@ class SupabaseAuthService:
         st.query_params.clear()
 
 
+    def _load_user_details(self, user_id: str):
+        """Load user_details from Supabase and store first/last name in session state"""
+        try:
+            result = self._client.table("user_details").select("user_first_name, user_last_name").eq("user_id", user_id).execute()
+            if result.data:
+                row = result.data[0]
+                st.session_state.user_first_name = row.get("user_first_name")
+                st.session_state.user_last_name = row.get("user_last_name")
+        except Exception as e:
+            logger.warning(f"Could not load user details: {e}")
+            #print(user_id)
+
     def is_logged_in(self,) -> bool:
         """Check if user is logged in"""
         return st.session_state.get("user_id") is not None
@@ -115,19 +129,24 @@ class SupabaseAuthService:
 
     def render_login_form(self,):
         """Render login form"""
-        st.markdown("### Logg inn")
+        col1, col2, col3 = st.columns([1, 1.5, 1])
+        with col2:
+            st.html("<div style='font-size: 3.5rem; line-height: 1; text-align: center; margin-top: 6rem;'>⚖️</div>")
+            st.title("Logg inn", anchor=False)
+            ""  # Spacer
 
-        email = st.text_input("E-post", key="login_email")
-        password = st.text_input("Passord", type="password", key="login_password")
+            email = st.text_input("E-post", key="login_email")
+            password = st.text_input("Passord", type="password", key="login_password")
 
-        if st.button("Logg inn", use_container_width=True):
-            if email and password:
-                if self.login(email, password):
-                    # Save token to URL and reload
-                    self.save_token_to_url()
-                    st.rerun()
-            else:
-                st.warning("Fyll inn e-post og passord")
+            ""  # Spacer
+
+            if st.button("Logg inn", use_container_width=True, type="primary"):
+                if email and password:
+                    if self.login(email, password):
+                        self.save_token_to_url()
+                        st.rerun()
+                else:
+                    st.warning("Fyll inn e-post og passord")
 
 @st.cache_resource
 def get_supabase_auth_service():

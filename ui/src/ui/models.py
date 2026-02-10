@@ -2,6 +2,25 @@ from typing import TypedDict, Optional, Literal, Any
 from pydantic import BaseModel
 from datetime import datetime
 
+
+# ===== User & Company Models =====
+
+class UserDetails(BaseModel):
+    """User details stored in Supabase user_details table"""
+    user_id: str
+    created_at: Optional[str] = None
+    user_role: Optional[str] = None
+    user_first_name: Optional[str] = None
+    user_last_name: Optional[str] = None
+    company_id: Optional[str] = None
+
+
+class CompanyDetails(BaseModel):
+    """Company details stored in Supabase company_details table"""
+    company_id: str
+    company_vat_nr: Optional[str] = None
+    company_name: Optional[str] = None
+
 # ===== Backend Request Models =====
 
 class AttachmentModel(BaseModel):

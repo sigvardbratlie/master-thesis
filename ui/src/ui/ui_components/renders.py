@@ -25,31 +25,23 @@ class ChatComponent:
         self.attachment_component = get_attachment_component()
         self.tool_result_component = get_tool_result_component()
     
+    SUGGESTIONS = {
+        ":blue[:material/description:] Analyser saken": "Gi meg en oppsummering av saken",
+        ":green[:material/group:] Vis parter": "Hvem er partene i saken?",
+    }
+
     def render_start_container(self):
-        max_per_row = 4
-        questions = [
-            "Spørsmål 1",
-            "Spørsmål 2",
-        ]
-
-        rows = math.ceil(len(questions) / max_per_row)
         question = None
-        q_idx = 0
 
-        for i in range(rows):
-            row_questions = questions[q_idx: q_idx + max_per_row]
-            row_length = len(row_questions)
-            cols = st.columns(
-                row_length,
-                vertical_alignment="center",
-                gap="small",
-                width="stretch",
-            )
-            for idx, q in enumerate(row_questions):
-                button_key = f"question_btn_{q_idx + idx}"
-                if cols[idx].button(q, key=button_key):
-                    question = q
-            q_idx += max_per_row
+        selected = st.pills(
+            label="Forslag",
+            label_visibility="collapsed",
+            options=self.SUGGESTIONS.keys(),
+            key="selected_suggestion",
+        )
+
+        if selected:
+            question = self.SUGGESTIONS[selected]
 
         user_input = st.chat_input(
             "Still et spørsmål for å komme igang...",
@@ -68,15 +60,19 @@ class ChatComponent:
         Returns:
             Selected question text, or None if no question selected
         """
+        user_details = self.backend_service.load_user_details(st.session_state.user_id)
+        display_name = (user_details.user_first_name if user_details else None) or st.session_state.get("user_name", "gjest")
+
         st.session_state.session_title = None
-        st.markdown(
-            f"""
-            <div style='text-align: center; margin-top: 200px;'>
-                <h1>Velkommen {st.session_state.user_name if "user_name" in st.session_state else "gjest"}! Hva lurer du på i dag?</h1>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+
+        st.html("<div style='font-size: 3.5rem; line-height: 1; text-align: center; margin-top: 6rem;'>⚖️</div>")
+
+        title_row = st.container()
+        with title_row:
+            st.title(f"Hei, {display_name}!", anchor=False)
+            st.caption("Hva lurer du på i dag?")
+
+        ""  # Spacer
 
         # Start container
         start_container = st.container(vertical_alignment="bottom", height=300, border=False)
@@ -341,7 +337,8 @@ class SidebarComponent:
     def load_session(self, session):
         if st.button(
             label=f"{session.title[:30]}...",
-            key=session.session_id
+            key=session.session_id,
+            use_container_width=True,
         ):
             response = self.backend_service.load_session_history(session.session_id)
             if response:
@@ -356,6 +353,8 @@ class SidebarComponent:
     def on_session_select(self):
         user_id = st.session_state.get('user_id')
         user_name = st.session_state.get('user_name')
+        user_first_name = st.session_state.get('user_first_name')
+        user_last_name = st.session_state.get('user_last_name')
         access_token = st.session_state.get('access_token')
         refresh_token = st.session_state.get('refresh_token')
         auth_initialized = st.session_state.get('_auth_initialized')
@@ -364,10 +363,12 @@ class SidebarComponent:
 
         st.session_state.clear()
         init_state()
-        
+
         # Restore auth credentials
         st.session_state.user_id = user_id
         st.session_state.user_name = user_name
+        st.session_state.user_first_name = user_first_name
+        st.session_state.user_last_name = user_last_name
         st.session_state.access_token = access_token
         st.session_state.refresh_token = refresh_token
         st.session_state._auth_initialized = auth_initialized
@@ -395,7 +396,7 @@ class SidebarComponent:
         st.divider()
 
         # New chat button
-        st.button("➕ Start ny samtale", on_click=self.on_session_select)
+        st.button("Start ny samtale", icon=":material/add:", on_click=self.on_session_select, type="tertiary")
 
         st.divider()
         self.llm_model_options()
@@ -409,8 +410,8 @@ class SidebarComponent:
                     self.attachment_component.view_attachment(att)
 
         # Logout button
-        st.container(height=200,border=False)
-        if st.button("Logg ut"):
+        st.container(height=200, border=False)
+        if st.button("Logg ut", icon=":material/logout:", type="tertiary"):
             self.auth_service.logout()
             st.rerun()
 
@@ -544,6 +545,8 @@ class ProjectComponent:
         # Preserve auth credentials before clearing
         user_id = st.session_state.get('user_id')
         user_name = st.session_state.get('user_name')
+        user_first_name = st.session_state.get('user_first_name')
+        user_last_name = st.session_state.get('user_last_name')
         access_token = st.session_state.get('access_token')
         refresh_token = st.session_state.get('refresh_token')
         auth_initialized = st.session_state.get('_auth_initialized')
@@ -555,6 +558,8 @@ class ProjectComponent:
         # Restore auth credentials
         st.session_state.user_id = user_id
         st.session_state.user_name = user_name
+        st.session_state.user_first_name = user_first_name
+        st.session_state.user_last_name = user_last_name
         st.session_state.access_token = access_token
         st.session_state.refresh_token = refresh_token
         st.session_state._auth_initialized = auth_initialized
@@ -583,9 +588,10 @@ class ProjectComponent:
         if projects:
             with st.expander("Projects", expanded=True):
                 for project in projects:
-                    st.button(f"{project.get('title', 'No Title')}", 
-                            on_click=lambda p=project: self.on_project_select(p), 
-                            key = project.get('project_id','no-id'))
+                    st.button(f"{project.get('title', 'No Title')}",
+                            on_click=lambda p=project: self.on_project_select(p),
+                            key=project.get('project_id', 'no-id'),
+                            use_container_width=True)
                     
         else:
             st.info("No projects found. Please initialize a new project.")
@@ -639,7 +645,11 @@ class ProjectComponent:
         sessions = self.backend_service.load_project_sessions(project_id=st.session_state.project_id)
         if sessions:
             for session in sessions:
-                session_selected = st.button(f"- **Session ID**: {session.session_id}, **Title**: {session.title if session.title else 'No Title'}")
+                session_selected = st.button(
+                    f"{session.title if session.title else 'No Title'}",
+                    key=f"psession_{session.session_id}",
+                    use_container_width=True,
+                )
                 if session_selected:
                     history = self.backend_service.load_session_history(session.session_id)
                     #st.info(history)
@@ -876,6 +886,8 @@ class ProjectComponent:
     def on_session_select(self,):
         user_id = st.session_state.get('user_id')
         user_name = st.session_state.get('user_name')
+        user_first_name = st.session_state.get('user_first_name')
+        user_last_name = st.session_state.get('user_last_name')
         access_token = st.session_state.get('access_token')
         refresh_token = st.session_state.get('refresh_token')
         auth_initialized = st.session_state.get('_auth_initialized')
@@ -884,10 +896,12 @@ class ProjectComponent:
 
         st.session_state.clear()
         init_state()
-        
+
         # Restore auth credentials
         st.session_state.user_id = user_id
         st.session_state.user_name = user_name
+        st.session_state.user_first_name = user_first_name
+        st.session_state.user_last_name = user_last_name
         st.session_state.access_token = access_token
         st.session_state.refresh_token = refresh_token
         st.session_state._auth_initialized = auth_initialized
@@ -897,7 +911,7 @@ class ProjectComponent:
         #st.rerun()
 
     def run_sidebar(self,):
-        new_project = st.button("Initialize New Project", icon="🆕")
+        new_project = st.button("Initialize New Project", icon=":material/add_circle:", type="tertiary")
         if new_project:
             st.session_state.clear()
             init_state()
@@ -909,19 +923,18 @@ class ProjectComponent:
         if st.session_state.get('project_id', None):
             with st.expander("Project Sessions", expanded=True):
                 self.render_project_sessions()
-                #st.divider()
-                st.button("New session", icon="💬",on_click=self.on_session_select)
-                    
+                st.button("New session", icon=":material/chat:", on_click=self.on_session_select, type="tertiary")
+
             st.divider()
             if st.session_state.get('factsheet', None):
-                with st.expander("Project info",expanded=False):
+                with st.expander("Project info", expanded=False):
                     cols = st.columns(2)
-                    update_project = cols[0].button("Update Project", icon="🔄")
+                    update_project = cols[0].button("Update Project", icon=":material/refresh:", type="tertiary")
                     if update_project:
                         st.session_state.update_project_view = True
                     with cols[1]:
                         self.clean_element()
-                    
+
                     self.render_selected_project(factsheet=st.session_state.factsheet)
 
 

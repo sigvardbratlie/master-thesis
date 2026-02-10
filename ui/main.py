@@ -24,7 +24,7 @@ chat_component = get_chat_component()
 sidebar_component = get_sidebar_component()
 auth_service = get_supabase_auth_service()
 
-st.set_page_config(page_title="Company Agent", layout="wide")
+st.set_page_config(page_title="Company Agent", page_icon="⚖️", layout="wide")
 
 
 # ================== AUTH ==================
