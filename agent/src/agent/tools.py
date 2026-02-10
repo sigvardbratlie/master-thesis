@@ -137,8 +137,8 @@ def read_attachment(path : str,
             "txt": "text/plain",
             "md": "text/markdown"
         }.get(ext, "text/plain")
-        processed_content = document_processor.process_attachment(content=content,
-                                                             file_id=file_id,
+        processed_content = document_processor.parse(content=content,
+                                                             metadata = {"file_id": file_id, "session_id": None},  # session_id can be added if available
                                                              file_type=file_type,)
         return [d.model_dump(mode = "json") for d in processed_content]
     else:
