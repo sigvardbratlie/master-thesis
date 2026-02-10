@@ -5,11 +5,16 @@ from google.cloud import firestore
 
 from supabase import create_client, Client
 
-from agent.basemodels import *
+from models import *
 from fastapi import FastAPI,HTTPException,status,Depends
 from agent.agent_modules import Summarizer
 import email 
-from email.message import Message
+from email.message import Message 
+
+from datetime import datetime
+from pydantic import BaseModel
+
+import uuid
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -350,6 +355,43 @@ class SupabaseManager:
         self.supabase = create_client(self.url, self.key)
         # Initialize Supabase client here if needed
 
+    def load_factsheet(self, project_id: str) -> FactSheet:
+        select_query = """
+                *,
+                project_events(*),
+                project_parties(*),
+                project_deadlines(*),
+                project_damages(*),
+                project_claims(*),
+                project_legal(*),
+                """
+            
+        project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
+        
+        # Extract nested data from single query
+        data = project.data
+        project_events = data.pop("project_events", [])
+        project_parties = data.pop("project_parties", [])
+        project_deadlines = data.pop("project_deadlines", [])
+        project_damages = data.pop("project_damages", [])
+        project_claims = data.pop("project_claims", [])
+        project_legal = data.pop("project_legal", {})
+        if project_legal:
+            project_legal.pop("created_at", None)
+            project_legal.pop("project_id", None)
+        else:
+            logger.warning(f"No legal data found for project_id: {project_id}")
+
+        factsheet = FactSheet(**data,
+                              **project_legal,
+                              parties=project_parties,
+                              events=project_events,
+                              deadlines=project_deadlines,
+                              damages=project_damages,
+                              claims=project_claims)
+        return factsheet
+
+    
     def load_project(self, project_id: str) -> dict:
         select_query = """
                 *,
@@ -359,7 +401,8 @@ class SupabaseManager:
                 project_deadlines(*),
                 project_damages(*),
                 project_claims(*),
-                project_legal(*)"""
+                project_legal(*),
+                project_emails(*)"""
             
         project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
         
@@ -371,7 +414,7 @@ class SupabaseManager:
         project_deadlines = data.pop("project_deadlines", [])
         project_damages = data.pop("project_damages", [])
         project_claims = data.pop("project_claims", [])
-
+        project_emails = data.pop("project_emails", [])
         project_legal = data.pop("project_legal", {})
         if project_legal:
             project_legal.pop("created_at", None)
@@ -387,9 +430,11 @@ class SupabaseManager:
                               damages=project_damages,
                               claims=project_claims)
         attachments_models = [Attachment(**attachment) for attachment in attachments]
+        emails_models = [Email(**email) for email in project_emails]
         return {
             "factsheet": factsheet,
-            "attachments": attachments_models
+            "attachments": attachments_models,
+            "emails": emails_models,
         }
 
     def save_project(self,
@@ -399,7 +444,7 @@ class SupabaseManager:
                        project_id : str,
                        session_id : str,
                        query_id : str = "",
-                       emails : list[Email] = None,
+                       emails : list[Email] = []
                        ):
         
         custom_fields = ["governing_law", "disputed_facts", "undisputed_facts",]
@@ -417,6 +462,9 @@ class SupabaseManager:
             for email in emails:
                 email_dict = email.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
                 email_dict["project_id"] = project_id
+                # Map from_addr to from for database compatibility
+                if "from_addr" in email_dict:
+                    email_dict["from"] = email_dict.pop("from_addr")
                 email_dicts.append(email_dict)
         
         factsheet_dict = factsheet.model_dump(mode='json')
@@ -435,19 +483,20 @@ class SupabaseManager:
         factsheet_dict["updated_query_id"] = query_id
         factsheet_dict["updated_at"] = datetime.now().isoformat()
         # ========== PROJECT FACTSHEET ==========
-        try:
-            self.supabase.table("projects").upsert(factsheet_dict).execute()
-            logger.debug(f'Project {project_id} upserted in Supabase.')
-        except Exception as e:
-            logger.error(f'Error upserting factsheet project {project_id} in Supabase: {e}. Stopping process.', exc_info=True)
-            return
-        if email_dicts:
+        if factsheet_dict:
             try:
-                # ========== PROJECT EMAILS ==========
-                self.supabase.table("project_emails").upsert(email_dicts).execute()
-                logger.debug(f'Upserted {len(emails)} emails for project {project_id} in Supabase.')
+                self.supabase.table("projects").upsert(factsheet_dict).execute()
+                logger.debug(f'Project {project_id} upserted in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting emails for project {project_id} in Supabase: {e}', exc_info=True)
+                logger.error(f'Error upserting factsheet project {project_id} in Supabase: {e}. Stopping process.', exc_info=True)
+                return
+            if email_dicts:
+                try:
+                    # ========== PROJECT EMAILS ==========
+                    self.supabase.table("project_emails").upsert(email_dicts).execute()
+                    logger.debug(f'Upserted {len(emails)} emails for project {project_id} in Supabase.')
+                except Exception as e:
+                    logger.error(f'Error upserting emails for project {project_id} in Supabase: {e}', exc_info=True)
 
         if file_dicts:
             try:
@@ -519,6 +568,8 @@ class SupabaseManager:
                 logger.debug(f'Upserted {len(claims)} claims for project {project_id} in Supabase.')
             except Exception as e:
                 logger.error(f'Error upserting claims for project {project_id} in Supabase: {e}', exc_info=True)
+        
+        logger.debug(f'Completed save_project for project {project_id}. Parties: {len(parties) if parties else 0}, Events: {len(events) if events else 0}, Deadlines: {len(deadlines) if deadlines else 0}, Damages: {len(damages) if damages else 0}, Claims: {len(claims) if claims else 0}')
 
     def insert_project_element(self,data : list[dict],
                     project_id : str,
@@ -763,8 +814,8 @@ class EmailParser:
                     logger.warning("Attachment part found without filename, skipping.")
         return attachments
  
-    def _extract_email_data(self, msg : Message, query_id : str, user_id: str , session_id : str) -> dict:
-        file_id = str(uuid.uuid4())
+    def _extract_email_data(self, msg : Message, file_id : str, query_id : str, user_id: str , session_id : str) -> dict:
+        #file_id = str(uuid.uuid4())
         attachments_list = self._extract_attachments(msg)
         attachments = []
         att_ids = []
@@ -787,6 +838,9 @@ class EmailParser:
         refs = msg.get("References")
         email_data = EmailModel(
                 file_id=file_id,
+                path = f'{user_id}/{session_id}/{file_id}.eml',
+                query_id=query_id,
+
                 subject=msg.get("Subject", ""),
                 from_addr=msg.get("From", ""),
                 to=[addr.strip() for addr in msg.get("To", "").split(",")],
@@ -810,7 +864,7 @@ class EmailParser:
 
         return {"email" : email_data, "attachments" : attachments if attachments else []}
 
-    def parse_eml(self, content: str, user_id, query_id, session_id) -> dict:
+    def parse_eml(self, content: str, user_id, query_id, session_id, file_id) -> dict:
         '''Process EML content and extract email data and attachments
         
         Args:
@@ -818,6 +872,7 @@ class EmailParser:
             user_id (str): The ID of the user associated with the email.
             query_id (str): The ID of the query associated with the email.
             session_id (str): The ID of the session associated with the email.
+            file_id (str): The ID of the file associated with the email.
         Returns:
             dict: A dictionary containing the extracted email data and attachments.
         
@@ -828,6 +883,10 @@ class EmailParser:
         except Exception as e:
             logger.error(f"Error parsing EML content: {e}", exc_info=True)
             raise ValueError("Invalid EML content") from e
-        email_data = self._extract_email_data(msg, query_id, user_id, session_id)
+        email_data = self._extract_email_data(msg, 
+                                              query_id=query_id, 
+                                              user_id=user_id, 
+                                              session_id=session_id, 
+                                              file_id=file_id)
         return email_data
     
