@@ -1,11 +1,13 @@
 import pytest
 import sys
 import os
+from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
 from tests.fixtures.context_manager_data import get_mock_agent_state, get_mock_init_input
 from tests.fixtures.supabase_data import get_mock_load_project_data
+from tests.fixtures.email_data import get_mock_email_model_list, get_mock_email_extracted
 import tiktoken
-from agent.basemodels import * 
+from agent.basemodels import *
 from typing import List
 from pydantic import BaseModel
 
@@ -86,7 +88,7 @@ async def test_analyze_doc(mock_context_manager):
         category=analyzed_dict1.get("category"),
         significance=analyzed_dict1.get("significance")
     )
-    event = Event(event_date="2023-08-25", description="Document received",
+    event = Event(event_start_date="2023-08-25", description="Document received",
                   event_name = "DocumentReceived", 
                   parties = ["plaintiff"], 
                   significance="high", 
@@ -199,6 +201,132 @@ async def test_clean_element(mock_context_manager):
     assert len(result) == 4
     assert isinstance(result[0], dict)
     assert result[-1].get("party_id") is not None
+
+
+# ============================================
+#     analyze_multiple_eml TESTS
+# ============================================
+
+async def test_analyze_multiple_eml_returns_dict(mock_context_manager):
+    """analyze_multiple_eml should return a dict with emails, events, damages, deadlines, claims."""
+    init_input = get_mock_init_input()
+    email_models = get_mock_email_model_list()
+    mock_extracted = get_mock_email_extracted()
+
+    # Build the expected LLM response structure
+    class EmailAnalysisResult(BaseModel):
+        email: EmailExtracted
+        events: List[Event]
+    class EmailsAnalysisResult(BaseModel):
+        emails: List[EmailAnalysisResult]
+
+    event = Event(
+        event_start_date=datetime(2024, 1, 15),
+        description="Email received about property case",
+        event_name="EmailReceived",
+        parties=["plaintiff"],
+        significance="medium",
+        disputed=False,
+        category="communication"
+    )
+
+    analysis_results = EmailsAnalysisResult(
+        emails=[
+            EmailAnalysisResult(email=mock_extracted, events=[event]),
+            EmailAnalysisResult(
+                email=EmailExtracted(
+                    description="Befaring update email",
+                    significance="medium",
+                    party_roles=["expert"],
+                    deadlines=None,
+                    damages=None,
+                    claims=None,
+                    key_points=["Befaring done"],
+                    privilege_status=None,
+                    email_id="test-file-id-002",
+                ),
+                events=[]
+            ),
+        ]
+    )
+
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    structured_llm.ainvoke.return_value = analysis_results
+
+    result = await mock_context_manager.analyze_multiple_eml(
+        initial_input=init_input,
+        emails=email_models,
+    )
+
+    mock_context_manager.llm.with_structured_output.assert_called_once()
+    structured_llm.ainvoke.assert_called_once()
+    assert isinstance(result, dict)
+    assert "emails" in result
+    assert "events" in result
+    assert "damages" in result
+    assert "deadlines" in result
+    assert "claims" in result
+
+
+async def test_analyze_multiple_eml_empty_list(mock_context_manager):
+    """analyze_multiple_eml with empty email list should still call LLM."""
+    init_input = get_mock_init_input()
+
+    class EmailAnalysisResult(BaseModel):
+        email: EmailExtracted
+        events: List[Event]
+    class EmailsAnalysisResult(BaseModel):
+        emails: List[EmailAnalysisResult]
+
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    structured_llm.ainvoke.return_value = EmailsAnalysisResult(emails=[])
+
+    result = await mock_context_manager.analyze_multiple_eml(
+        initial_input=init_input,
+        emails=[],
+    )
+
+    assert isinstance(result, dict)
+    assert result["emails"] == []
+    assert result["events"] == []
+
+
+async def test_analyze_factual_facts(mock_context_manager):
+    """analyze_factual_facts should return FactualFacts object."""
+    init_input = get_mock_init_input()
+    events = [
+        Event(
+            event_start_date=datetime(2024, 1, 15),
+            description="Property dispute initiated",
+            event_name="DisputeStart",
+            parties=["plaintiff", "defendant"],
+            significance="high",
+            disputed=True,
+            category="court_filing"
+        )
+    ]
+
+    mock_facts = FactualFacts(
+        disputed_facts=["Claim about defects disputed"],
+        undisputed_facts=["Property was purchased in 2023"]
+    )
+
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    structured_llm.ainvoke.return_value = mock_facts
+
+    result = await mock_context_manager.analyze_factual_facts(
+        initial_input=init_input,
+        events=events,
+    )
+
+    mock_context_manager.llm.with_structured_output.assert_called_once()
+    structured_llm.ainvoke.assert_called_once()
+    assert isinstance(result, FactualFacts)
+    assert len(result.disputed_facts) == 1
+    assert len(result.undisputed_facts) == 1
 
 
 

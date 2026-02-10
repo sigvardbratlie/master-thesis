@@ -148,7 +148,7 @@ class ContextManager:
         structured_llm = self.llm.with_structured_output(AttachmentWithEvents, method="function_calling")
         init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
         prompt = init_prompt + f'Analyze the following document and extract BOTH attachment metadata AND timeline events:\n\n{content}'
-        
+
         for attempt in range(3):  # Retry mechanism
             try:
                 response = await structured_llm.ainvoke(prompt)
@@ -188,7 +188,12 @@ class ContextManager:
                             size=size,
                             event_ids=[event.event_id for event in response.events],
                         )
-        return {"file": file, "events": response.events}
+        return {"file": file, 
+                "events": response.events,
+                "damages": response.attachment.damages if response.attachment.damages else [],
+                "claims": response.attachment.claims if response.attachment.claims else [],
+                "deadlines": response.attachment.deadlines if response.attachment.deadlines else [],
+                }
     
     async def analyze_multiple_eml(self,
                 initial_input : InitialInput,
@@ -197,15 +202,67 @@ class ContextManager:
         '''Function to analyze multiple documents and extract structured data as Attachments.'''
         
         class EmailAnalysisResult(BaseModel):
-            attachments: EmailExtracted
+            email: EmailExtracted
             events: List[Event]
         class EmailsAnalysisResult(BaseModel):
             emails: List[EmailAnalysisResult]
         
+        result_emails = []
+        deadlines = []
+        damages = []
+        claims = []
+        events = []
+
         structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
         init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
-        prompt = init_prompt + f'Analyze the following emails and extract BOTH email metadata AND timeline events:\n\n{[email.model_dump() for email in emails]}'
+        prompt = init_prompt + f'Analyze the following emails and extract BOTH email metadata AND timeline events:\n\n{[eml.model_dump() for eml in emails]}'
         response = await structured_llm.ainvoke(prompt)
+
+        if len(response.emails) != len(emails):
+            logger.warning(f'LLM returned {len(response.emails)} emails but {len(emails)} were provided. This may indicate a parsing issue.')
+        for idx, email_result in enumerate(response.emails):
+            if idx >= len(emails):
+                break
+            input_email = emails[idx]
+            extracted = email_result.email
+            if extracted.email_id != input_email.file_id:
+                logger.warning(f'Email ID mismatch for email #{idx}: LLM returned {extracted.email_id} but input was {input_email.file_id}. Overriding with input file_id.')
+                extracted.email_id = input_email.file_id
+            else:
+                logger.info(f'Email ID match for email #{idx}: {extracted.email_id}')
+            if extracted.damages:
+                damages.extend(extracted.damages)
+            if extracted.deadlines:
+                deadlines.extend(extracted.deadlines)
+            if extracted.claims:
+                claims.extend(extracted.claims)
+            events.extend(email_result.events)
+            email_data = extracted.model_dump()
+            email_data.update({
+                "to": input_email.to,
+                "from": input_email.from_addr,
+                "cc": input_email.cc,
+                "bcc": input_email.bcc,
+                "subject": input_email.subject,
+                "date": input_email.date,
+                "message-id": input_email.message_id or "",
+                "in-reply-to": input_email.in_reply_to,
+                "references": input_email.references,
+                "thread_id": input_email.thread_id,
+                "thread-index": input_email.thread_index,
+                "thread-topic": input_email.thread_topic,
+                "body": input_email.body_text,
+                "html": input_email.body_html,
+                "headers": input_email.headers or {},
+                "email_id": input_email.file_id,
+            })
+            result_emails.append(Email(**email_data))
+        return {"emails" : result_emails,
+                "events" : events,
+                "damages" : damages,
+                "deadlines" : deadlines,
+                "claims" : claims}
+
 
     async def analyze_governing_law(self, events : list[Event], rag_content_law : str) -> GoverningLaw:
         '''Function to analyze case events and extract governing law information.
@@ -306,7 +363,7 @@ class ContextManager:
                 break  # Exit loop if successful
             except ValidationError as ve:
                 logger.error(f'Validation error during LLM invocation in consider_new_doc: {ve}', exc_info=True)
-                enhanced_prompt = f"{prompt}\n\nIMPORTANT: For party roles, use ONLY these exact values: {', '.join(party_roles.__args__)}"
+                enhanced_prompt = f"{prompt}\n\nIMPORTANT: For party roles, use ONLY these exact values: {', '.join(PartyRole.__args__)}"
                 response = await structured_llm.ainvoke(enhanced_prompt)
                 return response
             except Exception as e:
@@ -345,7 +402,12 @@ class ContextManager:
                             size=size,
                             event_ids=[event.event_id for event in response.events],
                         )
-        return {"file": file, "events": response.events}
+        return {"file": file, 
+                "events": response.events,
+                "damages": response.attachment.damages if response.attachment.damages else [],
+                "claims": response.attachment.claims if response.attachment.claims else [],
+                "deadlines": response.attachment.deadlines if response.attachment.deadlines else [],
+                }
 
     async def clean_element(self, content: BaseModel, factsheet: FactSheet, element_type : str) -> list[dict]:   
         '''Clean/merge items with LLM, then deduplicate with Python and assign UUIDs.'''
