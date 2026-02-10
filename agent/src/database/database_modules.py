@@ -1,6 +1,6 @@
 import os
 import logging
-
+import base64
 from google.cloud import firestore
 
 from supabase import create_client, Client
@@ -8,7 +8,8 @@ from supabase import create_client, Client
 from agent.basemodels import *
 from fastapi import FastAPI,HTTPException,status,Depends
 from agent.agent_modules import Summarizer
-
+import email 
+from email.message import Message
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -397,19 +398,26 @@ class SupabaseManager:
                        user_id : str,
                        project_id : str,
                        session_id : str,
-                       query_id : str = ""
+                       query_id : str = "",
+                       emails : list[Email] = None,
                        ):
         
         custom_fields = ["governing_law", "disputed_facts", "undisputed_facts",]
         
         file_dicts = []
+        email_dicts = []
         if files:
             for file in files:
                 file_dict = file.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
                 file_dict["project_id"] = project_id
                 file_dicts.append(file_dict)
             logger.debug(f' ========= ATTACHEMNT CONTENTS TO SAVE ======== \n {files} \n')
-        # Implement saving project to Supabase
+        
+        if emails:
+            for email in emails:
+                email_dict = email.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
+                email_dict["project_id"] = project_id
+                email_dicts.append(email_dict)
         
         factsheet_dict = factsheet.model_dump(mode='json')
         claims = factsheet_dict.pop("claims", [])
@@ -433,6 +441,13 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f'Error upserting factsheet project {project_id} in Supabase: {e}. Stopping process.', exc_info=True)
             return
+        if email_dicts:
+            try:
+                # ========== PROJECT EMAILS ==========
+                self.supabase.table("project_emails").upsert(email_dicts).execute()
+                logger.debug(f'Upserted {len(emails)} emails for project {project_id} in Supabase.')
+            except Exception as e:
+                logger.error(f'Error upserting emails for project {project_id} in Supabase: {e}', exc_info=True)
 
         if file_dicts:
             try:
@@ -685,3 +700,121 @@ class SupabaseManager:
             logger.debug(f'Inserted {len(new_attachments)} attachments for session {session_id} in Supabase.')
         except Exception as e:
             logger.error(f'Error inserting attachments for session {session_id} in Supabase: {e}', exc_info=True)
+
+
+
+class EmailParser:
+    def __init__(self):
+        pass
+
+    def _dedoce_base64(self, content: str) -> bytes:
+        try:
+            return base64.b64decode(content)
+        except Exception as e:
+            logger.error(f"Error decoding base64 content: {e}", exc_info=True)
+            raise ValueError("Invalid base64 content") from e
+
+    def _extract_email_body(self, msg : Message) -> dict:
+        if msg.is_multipart():
+            body_text = ""
+            body_html = None
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                if content_type == "text/plain":
+                    body_text += part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8")
+                elif content_type == "text/html":
+                    body_html = part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8")
+        else:
+            body_text = msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8")
+            body_html = None
+        return {"html" : body_html, "text": body_text}
+
+    def _extract_attachments(self, msg : Message) -> list:
+        attachments = []
+        for part in msg.walk():
+            content_disposition = part.get("Content-Disposition")
+            if content_disposition and "attachment" in content_disposition:
+                filename = part.get_filename()
+                if filename:
+                    payload = part.get_payload(decode=True)
+                    try:
+                        content = payload.decode(part.get_content_charset() or "utf-8")
+                    except (UnicodeDecodeError, LookupError):
+                        content = base64.b64encode(payload).decode("ascii")
+                    attachments.append({
+                        "filename": filename,
+                        "file_type": part.get_content_type(),
+                        "size" : len(payload),
+                        "file_id": str(uuid.uuid4()),
+                        "content": content
+                    })
+        return attachments
+ 
+    def _extract_email_data(self, msg : Message, query_id : str, user_id: str , session_id : str) -> dict:
+        file_id = str(uuid.uuid4())
+        attachments_list = self._extract_attachments(msg)
+        attachments = []
+        att_ids = []
+        if attachments_list:
+            for att in attachments_list:
+                ext = os.path.splitext(att["filename"])[1].lower()
+                attachment_model = AttachmentModel(
+                    filename=att["filename"],
+                    file_id=att["file_id"],
+                    file_type=att["file_type"],
+                    size=att["size"],
+                    content=att["content"],
+                    query_id=query_id,
+                    event_id=None,
+                    path = f'{user_id}/{session_id}/{att.get("file_id")}{ext}',
+                )
+                attachments.append(attachment_model)
+                att_ids.append(att["file_id"])
+        body = self._extract_email_body(msg)
+        refs = msg.get("References")
+        email_data = EmailModel(
+                file_id=file_id,
+                subject=msg.get("Subject", ""),
+                from_addr=msg.get("From", ""),
+                to=[addr.strip() for addr in msg.get("To", "").split(",")],
+                cc=[addr.strip() for addr in msg.get("Cc", "").split(",")] if msg.get("Cc") else None,
+                bcc=[addr.strip() for addr in msg.get("Bcc", "").split(",")] if msg.get("Bcc") else None,
+                date=email.utils.parsedate_to_datetime(msg.get("Date")) if msg.get("Date") else None,
+
+                message_id=msg.get("Message-ID"),
+                in_reply_to=msg.get("In-Reply-To"),
+                references=refs,
+                thread_id=msg.get("Thread-ID"),
+                thread_index=msg.get("Thread-Index"),
+                thread_topic=msg.get("Thread-Topic"),
+
+                body_text=body.get("text", ""),
+                body_html=body.get("html"),
+                headers=dict(msg.items()) if msg.items() else None,
+
+                attachments=att_ids if att_ids else None,
+            )
+
+        return {"email" : email_data, "attachments" : attachments if attachments else []}
+
+    def parse_eml(self, content: str, user_id, query_id, session_id) -> dict:
+        '''Process EML content and extract email data and attachments
+        
+        Args:
+            content (str): The EML content as a base64 encoded string.
+            user_id (str): The ID of the user associated with the email.
+            query_id (str): The ID of the query associated with the email.
+            session_id (str): The ID of the session associated with the email.
+        Returns:
+            dict: A dictionary containing the extracted email data and attachments.
+        
+        '''
+        content = self._dedoce_base64(content)
+        try:
+            msg = email.message_from_bytes(content)
+        except Exception as e:
+            logger.error(f"Error parsing EML content: {e}", exc_info=True)
+            raise ValueError("Invalid EML content") from e
+        email_data = self._extract_email_data(msg, query_id, user_id, session_id)
+        return email_data
+    
