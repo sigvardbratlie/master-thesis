@@ -567,14 +567,17 @@ class ProjectComponent:
         # Load the factsheet for the selected project
         project_data =  self.backend_service.load_project(project_id=st.session_state.project_id)
         #st.json(project_data)
-        if project_data:
+        #st.json(project_data)
+        if project_data and "factsheet" in project_data and "attachments" in project_data and "emails" in project_data:
             st.session_state.factsheet = project_data.get('factsheet')
             st.session_state.attachments = project_data.get('attachments', [])
+            st.session_state.emails = project_data.get('emails', [])
             logger.info(f"Loaded factsheet for project: {st.session_state.project_id}")
         else:
             st.session_state.factsheet = None
             st.session_state.attachments = []
-            logger.warning(f"No factsheet found for project: {st.session_state.project_id}")
+            st.session_state.emails = []
+            logger.warning(f"No Project data found for project: {st.session_state.project_id}")
 
         #st.rerun()
 
@@ -634,6 +637,10 @@ class ProjectComponent:
                 # if st.button(f"- **{file.get('filename', 'No Filename')}** ({file.get('category', 'No Category')}, {file.get('significance', 'No Significance')})", key=file.get('file_id','no-id')):
                 #     st.pdf()
 
+        with st.expander("Correspondence Overview", expanded=False, icon="✉️"):
+            #st.info(st.session_state.get("emails", []))
+            for file in st.session_state.get("emails", []):
+                st.write(f'- **{file.get("subject", "No Subject")}** \n(From: {file.get("from", "Unknown")}, To: {file.get("to", "Unknown")}, Date: {file.get("date", "Unknown")})')
 
     def render_project_sessions(self):
         #st.header("Project Sessions")
