@@ -8,9 +8,11 @@ from typing import Optional
 from io import StringIO, BytesIO
 from google.cloud import storage
 from google.oauth2 import service_account
-from ui.models import AttachmentModel
+from ui.models import AttachmentModel, EmailModel
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 from ui.services.database_service import SupabaseManager
+import email
+from email.message import Message
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,20 @@ class AttachmentComponent:
             except Exception as e:
                 st.error(f"Error encoding file {file.name}: {e}")
                 return None
+        elif file.type == "message/rfc822":
+            try:
+                content = file.getvalue().decode('utf-8', errors='ignore')
+                data = self.extract_email_data(msg = email.message_from_string(content), 
+                                               query_id=query_id, 
+                                               )
+                return data
+                
+            except UnicodeDecodeError as e:
+                st.error(f'Error decoding EML file: {e}')
+                return None
+            except Exception as e:
+                st.error(f"Error processing file {file.name}: {e}")
+                return None
         else:
             content = file.getvalue().decode('utf-8', errors='ignore')
 
@@ -50,7 +66,8 @@ class AttachmentComponent:
             content=content,
             query_id=query_id,
         )
-        return attachment
+        return {"emails" : [], 
+                "attachments" : [attachment]}
 
 
     def view_uploaded_file(self, file : UploadedFile):
@@ -119,6 +136,72 @@ class AttachmentComponent:
                     st.text(content_bytes.decode('utf-8', errors='ignore'))
             else:
                 st.error(f'Kunne ikke hente vedlegg: {attachment.get("filename")}')
+
+    def extract_email_body(self, msg : Message) -> dict:
+        if msg.is_multipart():
+            body_text = ""
+            body_html = None
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                if content_type == "text/plain":
+                    body_text += part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8")
+                elif content_type == "text/html":
+                    body_html = part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8")
+        else:
+            body_text = msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8")
+            body_html = None
+        return {"html" : body_html, "text": body_text}
+
+    def extract_attachments(self, msg : Message) -> list:
+        attachments = []
+        for part in msg.walk():
+            content_disposition = part.get("Content-Disposition")
+            if content_disposition and "attachment" in content_disposition:
+                filename = part.get_filename()
+                if filename:
+                    attachments.append({
+                        "filename": filename,
+                        "file_type": part.get_content_type(),
+                        "size" : len(part.get_payload(decode=True)),
+                        "file_id": str(uuid.uuid4()),
+                        "content": base64.b64encode(part.get_payload(decode=True)).decode("utf-8")
+                    })
+        return attachments
+ 
+    def extract_email_data(self, msg : Message, query_id : str, ) -> dict:
+        attachments_list = self.extract_attachments(msg)
+        attachments = []
+        att_ids = []
+        if attachments_list:
+            for att in attachments_list:
+                attachment_model = AttachmentModel(
+                    filename=att["filename"],
+                    file_id=att["file_id"],
+                    file_type=att["file_type"],
+                    size=att["size"],
+                    content=att["content"],
+                    query_id=query_id,
+                    event_id=None,
+                    path = f'{st.session_state.user_id}/{st.session_state.session_id}/{att["file_id"]}'
+                )
+                attachments.append(attachment_model)
+                att_ids.append(att["file_id"])
+        email_data = EmailModel(
+                email_id=str(uuid.uuid4()),
+                subject=msg.get("Subject", ""),
+                sender=msg.get("From", ""), 
+                recipients=msg.get("To", "").split(","),
+                cc=msg.get("Cc", "").split(",") if msg.get("Cc") else None,
+                bcc=msg.get("Bcc", "").split(",") if msg.get("Bcc") else None,
+                email_date=email.utils.parsedate_to_datetime(msg.get("Date")),
+                body_text=self.extract_email_body(msg).get("text", ""),
+                body_html=self.extract_email_body(msg).get("html", None),
+                headers=dict(msg.items()) if msg.items() else None,
+                attachments= att_ids,
+                query_id=query_id,
+            )
+    
+        return {"email" : email_data, "attachments" : attachments if attachments else []}
 
 @st.cache_resource
 def get_attachment_component() -> AttachmentComponent:

@@ -1,5 +1,5 @@
 from typing import TypedDict, Optional, Literal, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 # ===== Backend Request Models =====
@@ -15,11 +15,27 @@ class AttachmentModel(BaseModel):
     query_id: str
     event_id: Optional[str] = None
 
+class EmailModel(BaseModel):
+    """Email sent to backend API"""
+    email_id : str
+    subject: str
+    sender: str
+    recipients: list[str]
+    cc: Optional[list[str]] = None
+    bcc: Optional[list[str]] = None
+    email_date: Optional[datetime] = None
+    body_text: str
+    body_html: Optional[str] = None
+    headers: Optional[dict] = None
+    attachments: Optional[list[str]] = Field(default=None, description="List of attachment file_ids")
+    query_id: str
+    event_id : Optional[str] = None
 
 class AskAgentRequest(BaseModel):
     """POST /ask-agent request"""
     question: str
-    attachments: list[AttachmentModel]
+    attachments: Optional[list[AttachmentModel]] = []
+    emails: Optional[list[EmailModel]] = []
     session_id: str
     llm_model: str
     query_id: str
