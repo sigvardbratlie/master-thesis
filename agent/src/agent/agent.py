@@ -208,7 +208,7 @@ class Agent:
             return {
                 "messages": messages_to_return,
                 #"factsheet":{}, 
-                "attachments": [file.get("file_id") for file in project_data.get("attachments", [])] if project_data else []
+                "attachments": [file.file_id for file in project_data.get("attachments", [])] if project_data else []
             }
         except Exception as e:
             logger.error(f"Error invoking LLM: {e}", exc_info=True)
@@ -448,7 +448,6 @@ class Agent:
             event_counter += 1
             return event_model.model_dump(mode="json")
 
-
     async def stream_response(self, query : AskAgentRequest,
                                 user_id : str
                              ):
@@ -486,7 +485,8 @@ class Agent:
                               "filename": att.filename, 
                               "path": att.path, 
                               "file_type": att.file_type, 
-                              "size": att.size},
+                              "size": att.size,
+                              "session_id": query.session_id,},
                     file_type=att.file_type))
             # Store (same API regardless of implementation)
             self.in_memory_store.add_documents(docs, collection_id=query.session_id)
@@ -592,7 +592,7 @@ class Agent:
         claims: list[Claim] = []
         deadlines: list[Deadline] = []
         files: list[Attachment] = []
-        emails = list[Email] = []
+        emails: list[Email] = []
 
         # ============= PHASE 1 =================
         # Parallelize storage operations and initial analysis
@@ -609,7 +609,8 @@ class Agent:
                                                                                  "filename": att.filename, 
                                                                                  "path": att.path, 
                                                                                  "file_type": att.file_type, 
-                                                                                 "size": att.size},
+                                                                                 "size": att.size,
+                                                                                 "session_id": query.session_id,},
                                                                        )
                 docs.extend(extracted_docs)
                 # if att.file_type == "message/rfc822":
@@ -693,7 +694,7 @@ class Agent:
                 )
         async def analyze_emails_with_limit(email_attachments, initial_input):
             async with sem:
-                return await self.context_manager.analyze_emails( #Implement
+                return await self.context_manager.analyze_multiple_eml(
                     initial_input,
                     email_attachments
                 )
@@ -706,18 +707,19 @@ class Agent:
         doc_tasks  = []
         email_attachments = []
         email_size_counter = 0 
-        threshold = 10 * 1024 * 1024 #10MB threshold for emails, can be adjusted based on needs and costs
+        threshold = 5 * 1024 * 1024  #5MB threshold for emails, can be adjusted based on needs and costs
         for att in query.attachments or []:
+            logger.debug(f' \n ==== PROCESSING ATTACHMENT {att.filename} of type {att.file_type} and size {att.size} bytes ==== \n')
             if att.file_type != "message/rfc822": 
                 doc_tasks.append(analyze_doc_with_limit(att, initial_input))
             elif att.file_type == "message/rfc822":
                 email_size_counter += att.size
-                data = eml.parse_email(att) #IMPLEMENT
+                data = eml.parse_eml(content=att.content, user_id=user_id, query_id=query.query_id, session_id=query.session_id) 
                 email = data.get("email", [])
-                attachments = data.get("attachments", [])
-                # for email_att in attachments:
-                #     email_att.email_id = email.email_id #link attachment to parent email
-                doc_tasks.extend([analyze_doc_with_limit(att, initial_input) for att in attachments]) #analyze email attachments as separate documents
+                email_attachments = data.get("attachments", [])
+                if email_attachments:
+                    logger.debug(f' === EXTRACTED {len(email_attachments)} attachments from email {att.filename} === \n')
+                doc_tasks.extend([analyze_doc_with_limit(att, initial_input) for att in email_attachments]) #analyze email attachments as separate documents
                 if email_size_counter <= threshold:
                     email_attachments.append(email)
                 else:
@@ -725,7 +727,7 @@ class Agent:
                     email_attachments = [] #reset for next batch of emails
                     email_size_counter = 0
         if email_attachments: #process any remaining email attachments
-            doc_tasks.append(analyze_emails_with_limit(email_attachments, initial_input)) #IMPLEMENT
+            doc_tasks.append(analyze_emails_with_limit(email_attachments, initial_input)) 
         
         yield {
             "type": "status",
@@ -880,6 +882,15 @@ class Agent:
                                                  session_id=query.session_id,
                                                  query_id=query.query_id,
                                                  project_id=query.project_id)
+        
+        # Yield final result for consumers that need the data
+        yield {
+            "type": "result",
+            "data": {
+                "factsheet": result.model_dump(mode="json"),
+                "attachments": [file.model_dump(mode="json") for file in files]
+            }
+        }
 
     async def update_project(self, 
                              query : AskAgentRequest,
@@ -905,8 +916,14 @@ class Agent:
             docs = []
             for att in query.attachments:
                 docs.extend(self.document_processor.parse(content=att.content, 
-                                                             metadata = {"file_id": att.file_id, "session_id": query.session_id}, 
-                                                             file_type=att.file_type))
+                                                                       file_type=att.file_type, 
+                                                                       metadata={"file_id": att.file_id, 
+                                                                                 "filename": att.filename, 
+                                                                                 "path": att.path, 
+                                                                                 "file_type": att.file_type, 
+                                                                                 "size": att.size,
+                                                                                 "session_id": query.session_id,},
+                                                                       ))
             
             storage_tasks = [
                 asyncio.to_thread(self.vs.add_documents, docs, collection_id=query.session_id),
@@ -1100,8 +1117,18 @@ class Agent:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id
             }
-     
-            
+        
+        # Yield final result for consumers that need the data
+        yield {
+            "type": "result",
+            "data": {
+                "events": [event.model_dump(mode="json") for event in events] if events else [],
+                "attachments": [file.model_dump(mode="json") for file in files] if files else [],
+                "damages": [damage.model_dump(mode="json") for damage in damages] if damages else [],
+                "claims": [claim.model_dump(mode="json") for claim in claims] if claims else [],
+                "deadlines": [deadline.model_dump(mode="json") for deadline in deadlines] if deadlines else []
+            }
+        }
     async def cleanup_element(self,
                               query : AskAgentRequest,
                               element_type: str,
@@ -1187,6 +1214,16 @@ class Agent:
                  "timestamp": datetime.now().isoformat(),
                  "query_id": query.query_id
                 }
+        
+        # Yield final result for consumers that need the data
+        yield {
+            "type": "result",
+            "data": {
+                "success": True,
+                "element_type": element_type,
+                "cleaned_count": len(cleaned_element) if cleaned_element else 0
+            }
+        }
     
 
     # =================================
