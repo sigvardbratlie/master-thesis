@@ -190,6 +190,23 @@ class ContextManager:
                         )
         return {"file": file, "events": response.events}
     
+    async def analyze_multiple_eml(self,
+                initial_input : InitialInput,
+                emails : list[EmailModel],
+                ) -> Emails:
+        '''Function to analyze multiple documents and extract structured data as Attachments.'''
+        
+        class EmailAnalysisResult(BaseModel):
+            attachments: EmailExtracted
+            events: List[Event]
+        class EmailsAnalysisResult(BaseModel):
+            emails: List[EmailAnalysisResult]
+        
+        structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
+        init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
+        prompt = init_prompt + f'Analyze the following emails and extract BOTH email metadata AND timeline events:\n\n{[email.model_dump() for email in emails]}'
+        response = await structured_llm.ainvoke(prompt)
+
     async def analyze_governing_law(self, events : list[Event], rag_content_law : str) -> GoverningLaw:
         '''Function to analyze case events and extract governing law information.
         
