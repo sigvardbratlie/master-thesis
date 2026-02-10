@@ -8,7 +8,7 @@ from typing import Optional
 from io import StringIO, BytesIO
 from google.cloud import storage
 from google.oauth2 import service_account
-from ui.models import AttachmentModel, EmailModel
+from ui.models import AttachmentModel
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 from ui.services.database_service import SupabaseManager
 import email
