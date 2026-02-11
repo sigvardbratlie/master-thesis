@@ -403,7 +403,7 @@ class Agent:
                                                             token_stream = token_stream),
                                           order = event_counter,
                                           type = "ai",
-                                          created_at = datetime.now(),
+                                          created_at = datetime.now().isoformat(),
                                           query_id = query_id,
                                             event_id = str(uuid4()),
                                             session_id = session_id,
@@ -432,7 +432,7 @@ class Agent:
             event_model = StreamEvent.model_validate(data = ToolResultData.model_validate(payload),
                                                        order = event_counter,
                                                        type = "tool_result",
-                                                       created_at = datetime.now(),
+                                                       created_at = datetime.now().isoformat(),
                                                        query_id = query_id,
                                                        event_id = str(uuid4()),
                                                        session_id = session_id,
@@ -501,7 +501,7 @@ class Agent:
         event_model = StreamEvent(data = EventData(attachments = [att.get("file_id") for att in attachments_events]), #writes back without content
                                     order = event_counter,
                                     type = "human",
-                                    created_at = datetime.now(),
+                                    created_at = datetime.now().isoformat(),
                                     event_id = event_id,
                                     session_id= query.session_id,
                                     content = query.question,
@@ -639,6 +639,86 @@ class Agent:
 
         return doc_tasks
 
+    def _parse_docs_with_progress(self, attachments: list, query_id: str, session_id: str):
+        """
+        Parse documents and yield progress events + return parsed results.
+        Returns (docs, parsed_contents) tuple.
+        """
+        yield {
+            "type": "status",
+            "phase": ["parse-documents"],
+            "status": "starting",
+            "data": {
+                "attachments": len(attachments or [])
+            },
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query_id
+        }
+        
+        docs = []
+        parsed_contents = {}
+        completed_text_extraction = 0
+        
+        for att in attachments:
+            yield {
+                "type": "status",
+                "phase": ["parse_doc"],
+                "status": "starting",
+                "data": {
+                    "filename": att.filename,
+                    "file_id": att.file_id,
+                    "progress": completed_text_extraction,
+                    "total": len(attachments or [])
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query_id
+            }
+            
+            extracted_docs = self.document_processor.parse(
+                content=att.content, 
+                file_type=att.file_type, 
+                metadata={
+                    "file_id": att.file_id, 
+                    "filename": att.filename, 
+                    "path": att.path, 
+                    "file_type": att.file_type, 
+                    "size": att.size,
+                    "session_id": session_id,
+                }
+            )
+            completed_text_extraction += 1
+            
+            yield {
+                "type": "status",
+                "phase": ["parse_doc"],
+                "status": "complete",
+                "data": {
+                    "filename": att.filename,
+                    "file_id": att.file_id,
+                    "progress": completed_text_extraction,
+                    "total": len(attachments or [])
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query_id
+            }
+            
+            docs.extend(extracted_docs)
+            parsed_contents[att.file_id] = self.document_processor.to_plain_text(extracted_docs)
+        
+        yield {
+            "type": "status",
+            "phase": ["parse-documents"],
+            "status": "completed",
+            "data": {
+                "attachments": len(attachments or [])
+            },
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query_id
+        }
+        
+        # Store results in instance variable to be retrieved by caller
+        self._last_parse_results = (docs, parsed_contents)
+    
     async def initialize_project(self, query : AskAgentRequest,
                                  user_id : str,
                                  ):
@@ -656,24 +736,16 @@ class Agent:
         # Parallelize storage operations and initial analysis
         # ========================================
 
-        storage_tasks = []
+        
         parsed_contents = {}
+        docs = []
+        storage_tasks = []
         if query.attachments:
-            #logger.debug(f'======= ATTACHMENT CONTENT======= \n { query.attachments }\n')
-            docs = []
-            for att in query.attachments:
-                extracted_docs = self.document_processor.parse(content=att.content, 
-                                                                       file_type=att.file_type, 
-                                                                       metadata={"file_id": att.file_id, 
-                                                                                 "filename": att.filename, 
-                                                                                 "path": att.path, 
-                                                                                 "file_type": att.file_type, 
-                                                                                 "size": att.size,
-                                                                                 "session_id": query.session_id,},
-                                                                       )
-                docs.extend(extracted_docs)
-                parsed_contents[att.file_id] = self.document_processor.to_plain_text(extracted_docs)
-
+            # Parse documents with streaming progress
+            for event in self._parse_docs_with_progress(query.attachments, query.query_id, query.session_id):
+                yield event
+            # Retrieve parsed results from instance variable
+            docs, parsed_contents = self._last_parse_results
             
             # Run both storage operations in parallel
             storage_tasks = [
@@ -732,7 +804,7 @@ class Agent:
                         "timestamp": datetime.now().isoformat(),
                         "query_id": query.query_id
                     }
-                logger.debug(f'Storage operation completed with result: {result}')
+                logger.debug(f'Storage operation completed')
             
         
         # ============= PHASE 2 =================
@@ -760,9 +832,7 @@ class Agent:
             if result:
                 if isinstance(result, dict) and "file" in result:
                     completed += 1
-                    logger.debug(f'Document analysis completed with result: {result}')
-                    if result.get("file"):
-                        logger.debug('\n\n' + '='*5 + f" Analyzed document: {result['file'].filename if result['file'] else 'Unknown'} (ID: {result['file'].file_id if result['file'] else 'Unknown'}) - Result {result['file'].model_dump() if result['file'] else 'No data'} " + '='*5 + '\n\n')
+                    logger.debug('\n\n' + '='*5 + f" Analyzed document: {result['file'].filename if result['file'] else 'Unknown'} (ID: {result['file'].file_id if result['file'] else 'Unknown'}) - Result {str(result['file'].model_dump())[:100] if result['file'] else 'No data'} " + '='*5 + '\n\n')
 
                     files.append(result.get("file")) if result.get("file") else None
                     damages.extend(result.get("damages", [])) if result.get("damages") else None
@@ -952,20 +1022,13 @@ class Agent:
         # Save attachments to vector store and storage in parallel
         storage_tasks = []
         parsed_contents = {}
+        docs = []
         if query.attachments:
-            docs = []
-            for att in query.attachments:
-                extracted_docs = self.document_processor.parse(content=att.content,
-                                                                       file_type=att.file_type,
-                                                                       metadata={"file_id": att.file_id,
-                                                                                 "filename": att.filename,
-                                                                                 "path": att.path,
-                                                                                 "file_type": att.file_type,
-                                                                                 "size": att.size,
-                                                                                 "session_id": query.session_id,},
-                                                                       )
-                docs.extend(extracted_docs)
-                parsed_contents[att.file_id] = self.document_processor.to_plain_text(extracted_docs)
+            # Parse documents with streaming progress
+            for event in self._parse_docs_with_progress(query.attachments, query.query_id, query.session_id):
+                yield event
+            # Retrieve parsed results from instance variable
+            docs, parsed_contents = self._last_parse_results
             
             storage_tasks = [
                 asyncio.to_thread(self.vs.add_documents, docs, collection_id=query.session_id),
@@ -1003,10 +1066,10 @@ class Agent:
         completed_saving_storage = 0
         for coro in asyncio.as_completed(storage_tasks + doc_tasks):
             result = await coro
-            logger.debug(f'Completed a storage or analysis task with result: {result}')
+            logger.debug(f'Completed a storage or analysis task')
             if result and isinstance(result, dict) and "file" in result and "events" in result:
                 analyzed_doc = result.get("file")
-                logger.debug("\n\n" + "="*5 + f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {str(analyzed_doc.model_dump())[:500]}" + "="*5 + "\n\n") if analyzed_doc else logger.debug(f'\n\n ======= Analyzed document with no file result ======= \n\n')
+                logger.debug("\n\n" + "="*5 + f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {str(analyzed_doc.model_dump())[:100]}" + "="*5 + "\n\n") if analyzed_doc else logger.debug(f'\n\n ======= Analyzed document with no file result ======= \n\n')
                 # Collect results from analyzed documents
                 files.append(analyzed_doc)
                 if analyzed_doc.damages:
