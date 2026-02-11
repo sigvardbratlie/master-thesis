@@ -19,8 +19,11 @@ from langchain_google_community import BigQueryVectorStore
 from google.cloud import bigquery
 from google.cloud import bigquery
 
-from agent.basemodels import AttachmentModel
+from models.api_request_models import AttachmentModel, EmailModel
 import ocrmypdf
+from email.message import Message
+import email
+import uuid
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -196,11 +199,24 @@ class DocumentProcessor:
             chunk_overlap=chunk_overlap
         )
     
+    @staticmethod
+    def to_plain_text(docs: List[Document]) -> str:
+        """Extract concatenated text from documents."""
+        return "\n\n".join([d.page_content for d in docs])
     
-    def needs_ocr(self, content_bytes: bytes) -> bool:
+    @staticmethod
+    def to_dict(docs: List[Document]) -> List[dict]:
+        """Convert to dict for JSON/BigQuery."""
+        return [{"content": d.page_content, "metadata": d.metadata} for d in docs]
+
+    # =============================
+    #      HELPER METHODS
+    # =============================
+
+    def _needs_ocr(self, content: bytes) -> bool:
         """Detect if PDF needs OCR based on text density."""
         try:
-            reader = PdfReader(BytesIO(content_bytes))
+            reader = PdfReader(BytesIO(content))
             total_pages = len(reader.pages)
             pages_with_text = 0
             total_text_length = 0
@@ -220,22 +236,21 @@ class DocumentProcessor:
             logger.warning(f"Could not analyze PDF for OCR need: {e}")
             return False  # Default to no OCR if detection fails
 
-    
-    def ocr_bytes(self, pdf_data: bytes) -> bytes:
+    def _ocr_bytes(self, content: bytes) -> bytes:
         """OCR a PDF with improved error handling."""
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as inp, \
             tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as out:
             
             try:
-                inp.write(pdf_data)
+                inp.write(content)
                 inp.flush()
                 inp.close()  # Close before OCR reads it
                 
                 ocrmypdf.ocr(
                     inp.name,
                     out.name,
-                    deskew=True,
-                    redo_ocr=True,  # Better than force_ocr - skips already-OCR'd pages
+                    deskew=True,  # Deskew pages for better OCR accuracy. Not compatibel with redo_ocr
+                    #redo_ocr=True,  # Re-OCR entire document for better text extraction. Not compatibel with deskew
                     skip_text=False,  # Keep existing text
                     optimize=1,  # Light optimization
                     force_ocr=False  # Don't re-OCR text pages
@@ -246,10 +261,10 @@ class DocumentProcessor:
                     
             except ocrmypdf.exceptions.PriorOcrFoundError:
                 logger.info("PDF already has OCR text, returning original")
-                return pdf_data
+                return content
             except Exception as e:
                 logger.error(f"OCR failed: {e}, returning original PDF")
-                return pdf_data
+                return content
             finally:
                 # Cleanup temp files
                 for f in [inp.name, out.name]:
@@ -258,14 +273,33 @@ class DocumentProcessor:
                     except:
                         pass
     
-    def parse_pdf(self, content_bytes: bytes, metadata: dict) -> List[Document]:
-        if self.needs_ocr(content_bytes):
+    def _extract_email_body(self, msg : Message) -> dict:
+        if msg.is_multipart():
+            body_text = ""
+            body_html = None
+            for part in msg.walk():
+                content_type = part.get_content_type()
+                if content_type == "text/plain":
+                    body_text += part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8")
+                elif content_type == "text/html":
+                    body_html = part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8")
+        else:
+            body_text = msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8")
+            body_html = None
+        return {"html" : body_html, "text": body_text}
+
+    # ============================
+    #      MAIN PARSE METHODS
+    # ============================
+    
+    def parse_pdf(self, content: bytes, metadata: dict) -> List[Document]:
+        if self._needs_ocr(content):
             logger.info("PDF needs OCR, processing...")
-            content_bytes = self.ocr_bytes(content_bytes)
+            content = self._ocr_bytes(content)
         
         count_without_text = 0
         try:
-            reader = PdfReader(BytesIO(content_bytes))
+            reader = PdfReader(BytesIO(content))
         except Exception as e:
             logger.error(f"Error reading PDF: {e}")
             return []
@@ -297,7 +331,8 @@ class DocumentProcessor:
         logger.debug(f"Extracted {len(docs)} pages with text out of {len(reader.pages)} total pages.")
         return docs
     
-    def parse_text(self, text: str, metadata: dict) -> List[Document]:
+    def parse_text(self, content : bytes, metadata: dict) -> List[Document]:
+        text = content.decode('utf-8', errors='ignore')
         try:
             chunks = self.splitter.split_text(text)
         except Exception as e:
@@ -318,22 +353,97 @@ class DocumentProcessor:
         except Exception as e:
             logger.error(f"Error creating Document objects: {e}")
             return []
+
+    def parse_eml(self, content: bytes, metadata : dict) -> list[Document]:
+        '''Process EML content and extract email data and attachments
+        
+        Args:
+            content (str): The EML content as a base64 encoded string.
+            user_id (str): The ID of the user associated with the email.
+            query_id (str): The ID of the query associated with the email.
+            session_id (str): The ID of the session associated with the email.
+        Returns:
+            dict: A dictionary containing the extracted email data and attachments.
+        
+        '''
+        try:
+            msg = email.message_from_bytes(content)
+        except Exception as e:
+            logger.error(f"Error parsing EML content: {e}", exc_info=True)
+            raise ValueError("Invalid EML content") from e
+        body = self._extract_email_body(msg)
+        chunks = self.splitter.split_text(body.get("text", ""))
+        docs = []
+        if not chunks:
+            logger.warning("No text chunks created from email body.")
+            chunks = [body.get("text", "")]
+        for i, chunk in enumerate(chunks):
+            logger.debug(f"Chunk {i + 1}/{len(chunks)}: {chunk[:100]}...")  # Log first 100 chars of each chunk
+            docs.append(Document(page_content=chunk, metadata={**metadata, "chunk": i, "total_chunks": len(chunks)}))
+        return docs
     
-    def process_attachment(self, content : bytes | str, file_id , file_type : Literal["application/pdf", "text/plain"], session_id : str) -> List[Document]:
+    def parse_csv(self, content: bytes, metadata: dict) -> list[Document]:
+        content_decoded = content.decode('utf-8', errors='ignore')
+        docs = []
+        chunks = self.splitter.split_text(content_decoded)
+        if not chunks:
+            logger.warning("No chunks created from CSV content.")
+            chunks = [content_decoded]
+        for i, chunk in enumerate(chunks):
+            logger.debug(f"Chunk {i + 1}/{len(chunks)}: {chunk[:100]}...")  # Log first 100 chars of each chunk
+            docs.append(Document(page_content=chunk, metadata={**metadata, "chunk": i, "total_chunks": len(chunks)}))
+        return docs
+        
+    def parse_xlsx(self, content: bytes, metadata: dict) -> list[Document]:
+        logger.warning("XLSX parsing not implemented yet.")
+        return []
+    
+    def parse_docx(self, content: bytes, metadata: dict) -> list[Document]:
+        #text = 
+        pass
+
+    def parse(self, content : str, 
+                           file_type : Literal["application/pdf", 
+                                               "text/plain", 
+                                               "text/csv", 
+                                               "message/rfc822", 
+                                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                                               "application/vnd.openxmlformats-officedocument.wordprocessingml.document"], 
+                           metadata : dict = None) -> List[Document]:
+        '''Main entry point for parsing attachments. Handles different file types and routes to appropriate parsers.
+        Args:
+            content (str): The content of the attachment, expected to be a base64 encoded string.
+            file_type (str): The MIME type of the file, used to determine parsing method.
+            metadata (dict): Additional metadata to attach to each Document, such as file_id and session_id.
+        Returns:
+            List[Document]: A list of Document objects extracted from the attachment, ready for embedding and storage.
+        '''
+
+        if "file_id" not in metadata or "session_id" not in metadata:
+            logger.error("Metadata must include 'file_id' and 'session_id'")
+            raise ValueError("Metadata must include 'file_id' and 'session_id'")
+        
+        try:
+            content_decoded = base64.b64decode(content)
+        except Exception as e:
+            logger.error(f"Failed to decode base64 content for attachment {metadata.get('file_id')}: {e}")
+            return []
+        
         if file_type == "application/pdf":
-            try:
-                content_bytes = base64.b64decode(content)
-            except Exception as e:
-                logger.error(f"Failed to decode base64 content for attachment {file_id}: {e}")
-                return []
-            return self.parse_pdf(
-                content_bytes,
-                metadata={"file_id": file_id, "session_id": session_id})
+            return self.parse_pdf(content_decoded, metadata=metadata)
+        elif file_type == "text/plain":
+            return self.parse_text(content_decoded.decode('utf-8', errors='ignore'), metadata=metadata)
+        elif file_type == "text/csv":
+            return self.parse_csv(content_decoded, metadata=metadata)
+        elif file_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            return self.parse_xlsx(content_decoded, metadata=metadata)
+        elif file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            return self.parse_docx(content_decoded, metadata=metadata)
+        elif file_type == "message/rfc822":
+            return self.parse_eml(content_decoded, metadata=metadata)
         else:
-            return self.parse_text(
-                content,
-                metadata={"file_id": file_id, "session_id": session_id}
-            )
+            logger.warning(f"Unsupported file type {file_type} for attachment {metadata.get('file_id')}")
+            return []
             
 
 

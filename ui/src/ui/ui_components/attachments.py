@@ -11,6 +11,8 @@ from google.oauth2 import service_account
 from ui.models import AttachmentModel
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 from ui.services.database_service import SupabaseManager
+import email
+from email.message import Message
 
 logger = logging.getLogger(__name__)
 
@@ -24,19 +26,15 @@ class AttachmentComponent:
     def mk_attachment_payload(self, file : UploadedFile, query_id : str) -> AttachmentModel:
         file_id = str(uuid.uuid4())
         ext = file.name.split('.')[-1]
-
-        if file.type == "application/pdf":
-            try:
-                content = base64.b64encode(file.getvalue()).decode('utf-8')
-            except UnicodeDecodeError as e:
+        try:
+            content = base64.b64encode(file.getvalue()).decode('utf-8')
+        except UnicodeDecodeError as e:
                 st.error(f'Error encoding PDF with base64: {e}')
                 return None
-            except Exception as e:
-                st.error(f"Error encoding file {file.name}: {e}")
-                return None
-        else:
-            content = file.getvalue().decode('utf-8', errors='ignore')
-
+        except Exception as e:
+            st.error(f"Error encoding file {file.name}: {e}")
+            return None
+        
         # Cache vedleggsinnholdet
         cache_key = f"{st.session_state.session_id}_{file_id}"
         st.session_state.attachment_cache[cache_key] = file.getvalue()
@@ -45,7 +43,7 @@ class AttachmentComponent:
             filename=file.name,
             file_id=file_id,
             file_type=file.type,
-            path = f'{st.session_state.user_id}/{st.session_state.session_id}/{file_id}.{ext}',
+            path = f'{st.session_state.user_id}/{st.session_state.session_id}/{file_id}.{ext or "dat"}',
             size=file.size,
             content=content,
             query_id=query_id,
@@ -120,6 +118,7 @@ class AttachmentComponent:
             else:
                 st.error(f'Kunne ikke hente vedlegg: {attachment.get("filename")}')
 
+    
 @st.cache_resource
 def get_attachment_component() -> AttachmentComponent:
     """Cached AttachmentComponent instance"""

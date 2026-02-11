@@ -7,9 +7,11 @@ import uuid
 from langgraph.graph.message import add_messages
 
 
-
+FileTypes = Literal["application/pdf", "text/plain", "application/msword","message/rfc822","text/csv",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", #"application/",
+                    ]
 # ===== CONTEXT MANAGER MODELS
-party_roles = Literal[
+PartyRole = Literal[
     # Sivile hovedparter
     "plaintiff",
     "defendant",
@@ -59,15 +61,15 @@ significance_levels = Literal["high", "medium", "low"]
 
 # === #Custom fields === 
 class GoverningLaw(BaseModel):
-    primary_jurisdiction: str = Field(description="Which law governs (e.g., Norwegian law)")
-    key_areas: list[str] = Field(description="Relevant legal areas (contract law, tort, etc)")
+    primary_jurisdiction: str = Field(default = "norwegian_law" , description="Which law governs (e.g., Norwegian law)")
+    key_areas: list[str] = Field(default_factory=list, description="Relevant legal areas (contract law, tort, etc)")
     international_elements: Optional[str] = Field(
         None, description="Cross-border or conflicts of law issues"
     )
     procedural_law: Literal[
         "tvisteloven", "straffeprosessloven", "arbeidstvistloven", "voldgiftsloven",
         "forvaltningsloven", "domstolloven"
-    ]
+    ] = Field(default="tvisteloven",description="Applicable procedural law, if relevant")
 
 class FactualFacts(BaseModel):
     disputed_facts: list[str]
@@ -82,8 +84,9 @@ class Claim(BaseModel):
         description="Assessment of claim strength"
     )
     defense: Optional[str] = Field(None, description="Defense strategy if defending")
-    file_id: Optional[str] = None
-    party_role : Optional[party_roles] = None
+    file_id: Optional[str] = None  # For claims from attachments
+    email_id: Optional[str] = None  # For claims from emails
+    party_role : Optional[PartyRole] = None
 
 class Claims(BaseModel):
     claims: list[Claim] = Field(description="Legal claims made by the parties, including legal and factual basis, relief sought, and strength assessment")
@@ -94,8 +97,9 @@ class Damage(BaseModel):
     amount: Optional[int | float] = Field(None, description="Monetary amount if amount is known and mentioned, else None")
     basis: str
     supporting_evidence: list[str] = Field(description="File_IDs supporting the damage claim")
-    file_id: Optional[str] = None
-    party_role: Optional[party_roles] = None
+    file_id: Optional[str] = None  # For damages from attachments
+    email_id: Optional[str] = None  # For damages from emails
+    party_role: Optional[PartyRole] = None
 
 class Damages(BaseModel):
     damages: list[Damage] = Field(description="Information about damages claimed or incurred in the case, including type, amount if mentioned, evidentiary basis, and associated party roles")
@@ -105,7 +109,8 @@ class Deadline(BaseModel):
     deadline_date: date |datetime
     description: str
     file_id: Optional[str] = Field(None, description="Related attachment reference")
-    party_role : Optional[party_roles] = None
+    email_id: Optional[str] = None  # For deadlines from emails
+    party_role : Optional[PartyRole] = None
 
 class Deadlines(BaseModel):
     deadlines: list[Deadline] = Field(description="Important deadlines mentioned in the case, e.g., contract milestones, court dates, statute of limitations, etc.")
@@ -120,7 +125,7 @@ class Contact(BaseModel):
 class Party(BaseModel):
     legal_name: str
     party_id : Optional[str] = None
-    role: party_roles = Field(
+    role: PartyRole = Field(
         default="other",
         description="Role of the party in the case, e.g., plaintiff, defendant, witness, legal representative, etc.")
     entity_type: entity_types
@@ -135,13 +140,14 @@ class Parties(BaseModel):
 
 class Event(BaseModel):
     event_id: Optional[str] = None
-    file_id: Optional[str] = None
+    file_id: Optional[str] = None  # For events from attachments
+    email_id: Optional[str] = None  # For events from emails
     event_name: str
     event_start_date: date | datetime
     event_end_date: Optional[date | datetime] = None
     description: str
     category: str = Field(description="Categorization of the event, e.g., 'court_filing', 'evidence_submission', 'contract_signing', 'communication', etc.")
-    parties: list[party_roles] = Field(description="Roles of parties involved in the event")
+    parties: list[PartyRole] = Field(description="Roles of parties involved in the event")
     significance: significance_levels
     disputed: bool
 
@@ -150,36 +156,41 @@ class Events(BaseModel):
 
 class InitialInput(BaseModel):
     # Factual background
-    parties: list[Party] = Field(description="List of parties involved in the case, i.e., plaintiff, defendant, witnesses, plaintiffs legal representatives, etc.")
-    background: str
-    title : str = Field(description="Title of the case or matter")
+    parties: Optional[list[Party]] = Field([], description="List of parties involved in the case, i.e., plaintiff, defendant, witnesses, plaintiffs legal representatives, etc.")
+    background: Optional[str] = Field("", description="Brief factual background of the case, including key events, timeline, and context")
+    title : Optional[str] = Field("", description="Title of the case or matter")
 
-class AttachmentExtracted(BaseModel):    
-    description: str  = Field(description="Concise summary of the document content")
+class BaseExtracted(BaseModel):
+    """Common extraction fields for all document types and emails"""
+    description: str = Field(description="Concise summary of the content")
+    significance: significance_levels = Field(default="medium", description="Importance level")
+    party_roles: Optional[list[PartyRole]] = Field(None, description="Party roles mentioned")
+    deadlines: Optional[list[Deadline]] = Field(None, description="Relevant deadlines if any")
+    damages: Optional[list[Damage]] = Field(None, description="Damage information if applicable")
+    claims: Optional[list[Claim]] = Field(None, description="Claim information if applicable")
+
+class AttachmentExtracted(BaseExtracted):
+    """Document-specific extraction fields"""    
     key_provisions: Optional[list[str]] = Field(None, description="Important clauses or sections (for agreements)")
-    #events: Optional[list[Event]] = Field(None, description="Key events mentioned in the document")
-    party_roles: Optional[list[str]] = Field(None, description="Party roles mentioned in the document. E.g., plaintiff, defendant")
-    file_date : Optional[date] = Field(None, description="Date of the document (when it was created/sent, not when it was received)")
+    file_date: Optional[date] = Field(None, description="Date of the document (when it was created/sent, not when it was received)")
     category: Literal[
         "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
         "court_order", "invoice", "expert_report", "witness_statement", "internal_memo",
         "legal_opinion", "settlement_proposal", "power_of_attorney", "other"
     ] = Field(
         default="other",
-        description="REQUIRED: Document category - select the most appropriate type. Choose 'agreement' for contracts, 'correspondence' for emails/letters, 'pleading' for court submissions, 'evidence' for supporting documents, 'court_order' for rulings, 'expert_report' for expert analyses, etc. If unclear, use 'other'"
+        description="REQUIRED: Document category - select the most appropriate type. Choose 'agreement' for contracts, 'correspondence' for letters, 'pleading' for court submissions, 'evidence' for supporting documents, 'court_order' for rulings, 'expert_report' for expert analyses, etc. If unclear, use 'other'"
     )
-    deadlines: Optional[list[Deadline]] = Field(None, description="Relevant deadline if the document sets one")
-    damages: Optional[list[Damage]] = Field(None, description="Damage information if applicable")
-    claims: Optional[list[Claim]] = Field(None, description="Claim information if applicable")
-    significance: significance_levels = Field(default="medium", description="Importance level: 'high' for core documents (contracts, pleadings, expert reports), 'medium' for supporting docs, 'low' for administrative")
 
 class Attachment(AttachmentExtracted):
     file_id: Optional[str] = None
     filename: str
     path: str 
-    file_type: Literal["application/pdf", "text/plain", "application/msword",] #system generated
+    file_type: FileTypes #system generated
+    body : Optional[str] = None
     size: int #system generated
     events: Optional[list[str]] = Field(None, description="event IDs mentioned in the document")
+    email_id: Optional[str] = Field(None, description="If this attachment was extracted from an email, reference the email_id here")
 
 
 class FactSheet(InitialInput,FactualFacts):
@@ -196,80 +207,51 @@ class RelevanceCheck(BaseModel):
     is_relevant: bool
     reasoning: str
 
+class EmailExtracted(BaseExtracted):
+    """Email-specific extraction fields - what LLM extracts from email content"""
+    key_points: Optional[list[str]] = Field(None, description="Important points, decisions, or action items from the email")
+    # Legal metadata
+    #privilege_status: Optional[Literal["attorney-client", "work_product", "none"]] = Field(
+    #     None, description="Privilege classification"
+    # )
+    email_id : Optional[str] = None 
 
-
-#=================================
-# ===== API REQUEST MODELS =======
-#=================================
-
-class AttachmentModel(BaseModel):
-    """Attachment sent to backend API"""
-    filename: str
-    file_id: str
-    content: Optional[str] = None  # Base64 for PDF, text for others
-    path : str
-    file_type: str
-    size: int
-    query_id: str
-    event_id: Optional[str] = None
-
-
-class AskAgentRequest(BaseModel):
-    """POST /ask-agent request"""
-    question: str
-    attachments: Optional[list[AttachmentModel]] = None
-    session_id: str
-    llm_model : str
-    query_id: str
+class Email(EmailExtracted):
+    """Email model - Python-friendly names with RFC aliases"""
+    
+    # IDs
+    #email_id: Optional[str] = None
     project_id: Optional[str] = None
+    
+    # Core RFC 5322 headers - lowercase Python names
+    from_addr: str = Field(alias="from")  # ✅ Python-friendly
+    to: list[str] = Field(default_factory=list)
+    cc: Optional[list[str]] = Field(default_factory=list)
+    bcc: Optional[list[str]] = Field(default_factory=list)
+    subject: str
+    date: datetime
+    
+    # Threading
+    message_id: str = Field(alias="message-id")
+    in_reply_to: Optional[str] = Field(None, alias="in-reply-to")
+    references: Optional[str] = None
+    thread_topic: Optional[str] = Field(None, alias="thread-topic")
+    thread_index: Optional[str] = Field(None, alias="thread-index")
+    thread_id: Optional[str] = None
+    
+    # Content
+    body: str
+    html: Optional[str] = None
+    
+    # Metadata
+    headers: dict = Field(default_factory=dict)
+    #attachments: list[str] = Field(default_factory=list)
+    size: Optional[int] = None
+    
+    class Config:
+        populate_by_name = True  # Accept both 'from_addr' and 'from'
 
-
-class StreamlitUserInfo(BaseModel):
-    sub: str  # Unique Google ID
-    email: str
-    name: str
-    picture: Optional[str] = None
-
-
-class ToolResultData(BaseModel):
-    tool_name: str
-    tool_args: dict
-    data : Optional[dict] = None
-
-
-class EventData(BaseModel):
-    attachments: Optional[list[str]] = Field(None, description="List of file_ids attached to this human message")
-    invalid_tool_calls : Optional[list] = None
-    tool_calls : Optional[list] = None
-    token_stream: Optional[str] = None
-
-
-class StreamEvent(BaseModel):
-    order: int
-    type: Literal["human", "ai", "tool_result"]
-    created_at: datetime
-    query_id: str
-    event_id : str 
-    session_id : str
-    langchain_id: Optional[str] = None
-    content : Optional[str] = None
-    data : EventData | ToolResultData
-
-class StreamData(BaseModel):
-    llm_model : str
-    project_id: Optional[str] = None
-    title : Optional[str] = None
-    last_updated : Optional[datetime] = None
-    last_query_id : str
-    events : list[StreamEvent]
-    attachments : Optional[list[AttachmentModel]] = None
-
-
-
-# def add_tool_results(existing: list, new: list) -> list:
-#     return existing + new
-
-class AgentState(TypedDict):
-    messages: Annotated[Sequence[BaseMessage], add_messages]
-    #factsheet : Optional[FactSheet | dict] = None
-    attachments : Optional[list[Attachment] | list[dict]] = None #Annotated[list, add_tool_results]
+class Emails(BaseModel):
+    emails: list[Email] = Field(description="List of emails in the project")
+    
+    

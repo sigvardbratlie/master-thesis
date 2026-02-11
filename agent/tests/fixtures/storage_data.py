@@ -1,5 +1,5 @@
 import base64
-from agent.basemodels import AttachmentModel
+from models.api_request_models import AttachmentModel
 
 
 def get_mock_pdf_content() -> str:

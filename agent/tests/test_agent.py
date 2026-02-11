@@ -1,13 +1,14 @@
 import pytest
 import sys
 import os
+from datetime import datetime
 from unittest.mock import AsyncMock, patch, MagicMock
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage, AIMessageChunk
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from agent.agent import Agent
-from agent.basemodels import *
+from models import *
 from tests.fixtures.agent_data import (
     get_mock_ask_agent_request,
     get_mock_ask_agent_request_with_attachments,
@@ -184,15 +185,6 @@ def test_pick_llm_unknown_provider(mock_agent):
         mock_init.assert_called_once_with("some-model", model_provider="google_genai")
 
 
-def test_is_valid_uuid(mock_agent):
-    """Test _is_valid_uuid validation."""
-    valid_uuid = "123e4567-e89b-12d3-a456-426614174000"
-    invalid_uuid = "not-a-uuid"
-
-    assert mock_agent._is_valid_uuid(valid_uuid) is True
-    assert mock_agent._is_valid_uuid(invalid_uuid) is False
-
-
 def test_load_msg_as_document(mock_agent):
     """Test _load_msg_as_document conversion."""
     msg = {
@@ -289,7 +281,8 @@ async def test_call_llm_with_project_data(mock_agent):
     result = await mock_agent._call_llm(state, mock_llm, config)
 
     mock_agent.conversation_manager.load_project.assert_called_once_with(project_id="project-001")
-    assert result["factsheet"] is not None
+    assert "messages" in result
+    assert "attachments" in result
 
 
 @pytest.mark.asyncio
@@ -409,8 +402,12 @@ async def test_initialize_project(mock_agent):
     with patch('agent.agent.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
 
-        result = await mock_agent.initialize_project(query, user_id)
+        result = None
+        async for chunk in mock_agent.initialize_project(query, user_id):
+            if chunk.get("type") == "result":
+                result = chunk.get("data")
 
+    assert result is not None
     assert "factsheet" in result
     assert "attachments" in result
     mock_agent.conversation_manager.save_project.assert_called_once()
@@ -436,8 +433,12 @@ async def test_initialize_project_no_attachments(mock_agent):
     with patch('agent.agent.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
 
-        result = await mock_agent.initialize_project(query, user_id)
+        result = None
+        async for chunk in mock_agent.initialize_project(query, user_id):
+            if chunk.get("type") == "result":
+                result = chunk.get("data")
 
+    assert result is not None
     assert "factsheet" in result
     assert result["attachments"] == []
 
@@ -452,24 +453,25 @@ async def test_update_project(mock_agent):
     from tests.fixtures.context_manager_data import get_mock_factsheet,get_mock_attachments
     query = get_mock_ask_agent_request_with_attachments()
     user_id = "user-001"
-    return_value = {
-        "factsheet": get_mock_factsheet(),
-        "attachments": get_mock_attachments()
-    }
 
-    mock_agent.conversation_manager.load_project.return_value = return_value
-    mock_agent.context_manager.consider_new_doc = AsyncMock(return_value=get_mock_analyzed_doc())
-    mock_agent.document_processor.process_attachment.return_value = get_mock_vector_store_docs()
+    mock_agent.conversation_manager.load_factsheet.return_value = get_mock_factsheet()
+    mock_agent.context_manager.analyze_doc = AsyncMock(return_value=get_mock_analyzed_doc())
+    mock_agent.document_processor.parse.return_value = get_mock_vector_store_docs()
+    mock_agent.document_processor.to_plain_text.return_value = "parsed plain text content"
     mock_agent.storage.save_raw_documents = AsyncMock()
 
     with patch('agent.agent.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
 
-        result = await mock_agent.update_project(query, user_id)
+        result = None
+        async for chunk in mock_agent.update_project(query, user_id):
+            if chunk.get("type") == "result":
+                result = chunk.get("data")
 
+    assert result is not None
     assert "events" in result
     assert "attachments" in result
-
+    #assert "emails" in result
 
 @pytest.mark.asyncio
 async def test_update_project_invalid_project_data(mock_agent):
@@ -478,13 +480,14 @@ async def test_update_project_invalid_project_data(mock_agent):
     user_id = "user-001"
 
     # Return invalid data type
-    mock_agent.conversation_manager.load_project.return_value = "invalid_data"
+    mock_agent.conversation_manager.load_factsheet.return_value = "invalid_data"
 
     with patch('agent.agent.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
 
         with pytest.raises(TypeError):
-            await mock_agent.update_project(query, user_id)
+            async for chunk in mock_agent.update_project(query, user_id):
+                pass
 
 
 # ============================================
@@ -495,13 +498,13 @@ async def test_update_project_invalid_project_data(mock_agent):
 async def test_cleanup_element_events(mock_agent):
     """Test cleanup_element cleans events."""
     query = get_mock_ask_agent_request()
-    from tests.fixtures.context_manager_data import get_mock_attachments, get_mock_factsheet
-    return_value = {
-        "factsheet": get_mock_factsheet(),
-        "attachments": get_mock_attachments()
-    }
+    from tests.fixtures.context_manager_data import get_mock_factsheet
 
-    mock_agent.conversation_manager.load_project.return_value = return_value
+    mock_agent.conversation_manager.load_project.return_value = {
+        "factsheet": get_mock_factsheet(),
+        "attachments": [],
+        "emails": []
+    }
     mock_agent.context_manager.clean_element = AsyncMock(return_value=[
         {"event_id": "cleaned-event-001", "event_date": "2023-08-15"}
     ])
@@ -509,8 +512,12 @@ async def test_cleanup_element_events(mock_agent):
     with patch('agent.agent.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
 
-        result = await mock_agent.cleanup_element(query, element_type="events")
+        result = None
+        async for chunk in mock_agent.cleanup_element(query, element_type="events"):
+            if chunk.get("type") == "result":
+                result = chunk.get("data")
 
+    assert result is not None
     assert result["success"] is True
     mock_agent.conversation_manager.replace_project_element.assert_called_once()
 
@@ -524,7 +531,8 @@ async def test_cleanup_element_invalid_type(mock_agent):
         mock_init.return_value = MagicMock()
 
         with pytest.raises(ValueError):
-            await mock_agent.cleanup_element(query, element_type="invalid_type")
+            async for chunk in mock_agent.cleanup_element(query, element_type="invalid_type"):
+                pass
 
 
 # ============================================
@@ -641,3 +649,378 @@ async def test_load_or_create_conversation_existing(mock_agent):
 
     # Should not update state for existing conversation
     mock_agent_instance.aupdate_state.assert_not_called()
+
+
+# ============================================
+#      INITIALIZE PROJECT INTEGRATION TESTS
+# ============================================
+
+@pytest.mark.asyncio
+async def test_initialize_project_with_mocks(mock_agent):
+    """Integration test: initialize_project with mocked LLM (fast, for CI/CD)"""
+    # Setup mock responses for the entire flow
+    mock_initial_input = InitialInput(
+        title="Test Eiendomssak",
+        background="Test case about property dispute",
+        parties=[
+            Party(
+                party_id="party-001",
+                legal_name="Test Plaintiff",
+                role="plaintiff",
+                entity_type="individual"
+            )
+        ]
+    )
+    
+    mock_analyzed_doc_result = {
+        "file": Attachment(
+            file_id="fc545f59-ac93-4cda-8b41-83eed0d04ee3",
+            filename="test.pdf",
+            path="user/session/test.pdf",
+            file_type="application/pdf",
+            size=1000,
+            description="Test document",
+            significance="high",
+            category="agreement"
+        ),
+        "events": [
+            Event(
+                event_id="event-001",
+                event_name="Contract Signed",
+                event_start_date=datetime(2023, 8, 25),
+                description="Purchase contract signed",
+                category="contract_signing",
+                parties=["plaintiff", "defendant"],
+                significance="high",
+                disputed=False,
+                file_id="fc545f59-ac93-4cda-8b41-83eed0d04ee3"
+            )
+        ],
+        "damages": [],
+        "claims": [],
+        "deadlines": []
+    }
+    
+    mock_factual_facts = FactualFacts(
+        disputed_facts=["Property defects disputed"],
+        undisputed_facts=["Contract signed on 2023-08-25"]
+    )
+    
+    mock_governing_law = GoverningLaw(
+        primary_jurisdiction="Norwegian law",
+        key_areas=["Contract law", "Property law"],
+        procedural_law="tvisteloven"
+    )
+    
+    # Configure context_manager mocks
+    mock_agent.context_manager.analyze_init_input = AsyncMock(return_value=mock_initial_input)
+    mock_agent.context_manager.analyze_doc = AsyncMock(return_value=mock_analyzed_doc_result)
+    mock_agent.context_manager.analyze_factual_facts = AsyncMock(return_value=mock_factual_facts)
+    mock_agent.context_manager.analyze_governing_law = AsyncMock(return_value=mock_governing_law)
+    
+    # Configure storage mocks
+    mock_agent.storage.save_raw_documents = AsyncMock(return_value={"status": "success"})
+    mock_agent.vs.add_documents = MagicMock(return_value=None)
+    mock_agent.conversation_manager.save_project = MagicMock(return_value=None)
+    
+    # Create request
+    request = get_mock_ask_agent_request_with_attachments()
+    
+    # Run initialize_project
+    results = []
+    async for chunk in mock_agent.initialize_project(
+        query=request,
+        user_id="test-user-001"
+    ):
+        results.append(chunk)
+    
+    # Verify we got status updates and final result
+    assert len(results) > 0
+    
+    # Check for status updates in correct phases
+    status_types = [r.get("type") for r in results]
+    assert "status" in status_types
+    assert "result" in status_types
+    
+    # Get final result
+    final_result = next((r for r in results if r.get("type") == "result"), None)
+    assert final_result is not None
+    assert "factsheet" in final_result["data"]
+    assert "attachments" in final_result["data"]
+    
+    # Verify factsheet structure
+    factsheet = final_result["data"]["factsheet"]
+    assert factsheet["title"] == "Test Eiendomssak"
+    assert len(factsheet["events"]) >= 1, "Should have at least one event from documents"
+    assert len(factsheet["parties"]) >= 1, "Should have at least one party"
+    
+    # Verify context_manager calls
+    mock_agent.context_manager.analyze_init_input.assert_called_once()
+    assert mock_agent.context_manager.analyze_doc.call_count >= 1
+    mock_agent.context_manager.analyze_factual_facts.assert_called_once()
+    mock_agent.context_manager.analyze_governing_law.assert_called_once()
+    
+    # Verify storage calls
+    mock_agent.storage.save_raw_documents.assert_called_once()
+    mock_agent.conversation_manager.save_project.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_initialize_project_real_llm_small_input():
+    """Integration test: initialize_project with real LLM and minimal data
+    
+    This test uses REAL API calls to verify the entire initialize_project flow.
+    Requires: GOOGLE_API_KEY or GEMINI_API_KEY
+    """
+    # Mock saving and BigQuery
+    with patch('agent.agent.SupabaseManager.save_project') as mock_save_project, \
+         patch('agent.agent.BQVectorStore') as mock_bq:
+        
+        mock_save_project.return_value = None
+        
+        # Mock BQ vector store instance
+        mock_bq_instance = MagicMock()
+        mock_bq_instance.add_documents = MagicMock(return_value=None)
+        mock_bq.return_value = mock_bq_instance
+        
+        agent = Agent(
+            tools=[],
+            prompt="You are a helpful legal assistant analyzing case documents."
+        )
+        
+        # Create minimal request with simple text attachment
+        request = AskAgentRequest(
+            question="""Vi har en tvist om eiendomskjøp. 
+        Meg (Andreas Nilsen) og min kone Berit kjøpte hus fra Daniel og Camilla Hansen.
+        Kontrakten ble signert 25. august 2023 for 15.5 millioner kroner.
+        Vi overtok boligen 11. november 2023.
+        Etter overtakelsen oppdaget vi elektriske feil og problemer med pipa.""",
+            session_id="integration-test-session-001",
+            query_id="integration-test-query-001",
+            project_id="integration-test-project-001",
+            llm_model="google_gemini-2.5-flash",
+            attachments=[
+                AttachmentModel(
+                    file_id="integration-test-file-001",
+                    filename="simple_case_summary.txt",
+                    file_type="text/plain",
+                    content="""SAKSAMMENDRAG
+
+Kjøper: Andreas Nilsen og Berit Johansen
+Selger: Daniel Hansen og Camilla Hansen
+Eiendom: Granveien 15B, Oslo
+Kjøpesum: NOK 15 500 000
+Kontraktsdato: 25. august 2023
+Overtakelse: 11. november 2023
+
+Mangler oppdaget:
+- Elektriske feil (flere stikkontakter fungerer ikke)
+- Problemer med pipa/skorstein
+
+Reklamasjon sendt til selger: 15. desember 2023
+""",
+                    size=350,
+                    path="integration-test/integration-test-session-001/integration-test-file-001.txt",
+                    query_id="integration-test-query-001"
+                )
+            ]
+        )
+        
+        # Run initialize_project with real LLM
+        results = []
+        async for chunk in agent.initialize_project(
+            query=request,
+            user_id="integration-test-user-001"
+        ):
+            results.append(chunk)
+        
+        # Verify we got results
+        assert len(results) > 0, "Should receive status updates and final result"
+        
+        # Check for required phases
+        phases_seen = set()
+        for result in results:
+            if result.get("type") == "status":
+                phase = result.get("phase", [])
+                if isinstance(phase, list):
+                    phases_seen.update(phase)
+                else:
+                    phases_seen.add(phase)
+        
+        # Should see key phases
+        assert "initialization" in phases_seen or "init_input" in phases_seen
+        assert "analyze_docs" in phases_seen or "analyze_doc" in phases_seen
+        assert "final_analysis" in phases_seen or "factual_facts" in phases_seen or "governing_law" in phases_seen
+        
+        # Get final result
+        final_result = next((r for r in results if r.get("type") == "result"), None)
+        assert final_result is not None, "Should have final result chunk"
+        assert "data" in final_result
+        assert "factsheet" in final_result["data"]
+        
+        # Verify factsheet has expected structure
+        factsheet = final_result["data"]["factsheet"]
+        
+        # Should have analyzed parties (Andreas, Berit, Daniel, Camilla)
+        assert "parties" in factsheet
+        assert len(factsheet["parties"]) >= 2, "Should identify at least buyers and sellers"
+        
+        # Should have events (contract signing, takeover, etc)
+        assert "events" in factsheet
+        assert len(factsheet["events"]) >= 1, "Should identify key events like contract signing"
+        
+        # Should have governing law
+        assert "governing_law" in factsheet
+        assert factsheet["governing_law"] is not None
+        
+        # Should have factual facts
+        assert "disputed_facts" in factsheet
+        assert "undisputed_facts" in factsheet
+        
+        # Attachments should be processed
+        assert "attachments" in final_result["data"]
+        assert len(final_result["data"]["attachments"]) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration  
+async def test_initialize_project_with_email_without_saving():
+    """Integration test: initialize_project with email attachment and real LLM
+    
+    Tests email parsing and analysis flow end-to-end.
+    Requires: GOOGLE_API_KEY or GEMINI_API_KEY
+    """
+    from tests.fixtures.email_data import get_mock_eml_plain_text_b64
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    # Set absolute path to gcloud credentials if using relative path
+    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "gcloud-keys.json")
+    if not os.path.isabs(creds_path):
+        # Convert to absolute path relative to agent directory
+        agent_dir = os.path.join(os.path.dirname(__file__), '..')
+        creds_path = os.path.join(agent_dir, creds_path)
+    
+    if not os.path.exists(creds_path):
+        pytest.skip(f"Google Cloud credentials not found at {creds_path}. Skipping integration test.")
+    
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+
+    # Mock saving and BigQuery to avoid needing actual BQ setup
+    with patch('agent.agent.SupabaseManager.save_project') as mock_save_project, \
+         patch('agent.agent.BQVectorStore') as mock_bq:
+        
+        mock_save_project.return_value = None
+        
+        # Mock BQ vector store instance
+        mock_bq_instance = MagicMock()
+        mock_bq_instance.add_documents = MagicMock(return_value=None)
+        mock_bq.return_value = mock_bq_instance
+        
+        # Create real agent (with mocked BQ)
+        agent = Agent(
+            tools=[],
+            prompt="You are a helpful legal assistant."
+        )
+        
+        # Create request with email attachment
+        request = AskAgentRequest(
+            question="Analyser denne emailen i forbindelse med eiendomssaken.",
+            session_id="integration-email-session-001",
+            query_id="integration-email-query-001", 
+            project_id="integration-email-project-001",
+            llm_model="google_gemini-2.5-flash",
+            attachments=[
+                AttachmentModel(
+                    file_id="integration-email-file-001",
+                    filename="test-email.eml",
+                    file_type="message/rfc822",
+                    content=get_mock_eml_plain_text_b64(),
+                    size=1500,
+                    path="integration-test/integration-email-session-001/integration-email-file-001.eml",
+                    query_id="integration-email-query-001"
+                )
+            ]
+        )
+        
+        # Run initialize_project
+        results = []
+        async for chunk in agent.initialize_project(
+            query=request,
+            user_id="integration-test-user-001"
+        ):
+            results.append(chunk)
+        
+        # Verify results
+        assert len(results) > 0
+        
+        # Should have email analysis phase
+        phases = [r.get("phase", []) for r in results if r.get("type") == "status"]
+        all_phases = []
+        for phase in phases:
+            if isinstance(phase, list):
+                all_phases.extend(phase)
+            else:
+                all_phases.append(phase)
+        
+        # Either analyze_email or analyze_doc should be present
+        assert any("email" in str(p).lower() or "doc" in str(p).lower() for p in all_phases)
+        
+        # Get final result
+        final_result = next((r for r in results if r.get("type") == "result"), None)
+        assert final_result is not None
+        
+        # Should have processed the email
+        factsheet = final_result["data"]["factsheet"]
+        assert factsheet is not None
+
+
+@pytest.mark.asyncio
+async def test_initialize_project_empty_attachments(mock_agent):
+    """Integration test: initialize_project with no attachments"""
+    # Setup minimal mocks
+    mock_initial_input = InitialInput(
+        title="Minimal Test Case",
+        background="Just a question without documents",
+        parties=[]
+    )
+    
+    mock_factual_facts = FactualFacts(
+        disputed_facts=[],
+        undisputed_facts=[]
+    )
+    
+    mock_governing_law = GoverningLaw(
+        primary_jurisdiction="Norwegian law",
+        key_areas=[],
+        procedural_law="tvisteloven"
+    )
+    
+    mock_agent.context_manager.analyze_init_input = AsyncMock(return_value=mock_initial_input)
+    mock_agent.context_manager.analyze_factual_facts = AsyncMock(return_value=mock_factual_facts)
+    mock_agent.context_manager.analyze_governing_law = AsyncMock(return_value=mock_governing_law)
+    mock_agent.conversation_manager.save_project = MagicMock(return_value=None)
+    
+    # Request without attachments
+    request = get_mock_ask_agent_request()
+    
+    # Run initialize_project
+    results = []
+    async for chunk in mock_agent.initialize_project(
+        query=request,
+        user_id="test-user-001"
+    ):
+        results.append(chunk)
+    
+    # Should still get results
+    assert len(results) > 0
+    
+    # Should have final result
+    final_result = next((r for r in results if r.get("type") == "result"), None)
+    assert final_result is not None
+    
+    # Factsheet should exist but with empty events/files
+    factsheet = final_result["data"]["factsheet"]
+    assert factsheet["events"] == []
+    assert len(final_result["data"]["attachments"]) == 0

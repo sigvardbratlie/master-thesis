@@ -19,22 +19,21 @@ class SupabaseManager:
         self.supabase = st.session_state.supabase_client
         # Initialize Supabase client here if needed
 
-    def load_project(self, project_id: str) -> dict:
+    def load_factsheet(self, project_id: str) -> dict:
         select_query = """
                 *,
-                project_attachments(*),
                 project_events(*),
                 project_parties(*),
                 project_deadlines(*),
                 project_damages(*),
                 project_claims(*),
-                project_legal(*)"""
+                project_legal(*)
+                """
             
         project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
         
         # Extract nested data from single query
         data = project.data
-        attachments = data.pop("project_attachments", [])
         project_events = data.pop("project_events", [])
         project_parties = data.pop("project_parties", [])
         project_deadlines = data.pop("project_deadlines", [])
@@ -53,9 +52,50 @@ class SupabaseManager:
                               deadlines=project_deadlines,
                               damages=project_damages,
                               claims=project_claims)
+        return factsheet
+    
+    def load_project(self, project_id: str) -> dict:
+        select_query = """
+                *,
+                project_attachments(*),
+                project_events(*),
+                project_parties(*),
+                project_deadlines(*),
+                project_damages(*),
+                project_claims(*),
+                project_legal(*),
+                project_emails(*)
+                """
+            
+        project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
+        
+        # Extract nested data from single query
+        data = project.data
+        attachments = data.pop("project_attachments", [])
+        project_events = data.pop("project_events", [])
+        project_parties = data.pop("project_parties", [])
+        project_deadlines = data.pop("project_deadlines", [])
+        project_damages = data.pop("project_damages", [])
+        project_claims = data.pop("project_claims", [])
+        project_emails = data.pop("project_emails", [])
+
+        project_legal = data.pop("project_legal", {})
+        project_legal.pop("created_at", None)
+        project_legal.pop("project_id", None)
+
+        factsheet = {}
+        factsheet = dict(**data,
+                              **project_legal,
+                              parties=project_parties,
+                              events=project_events,
+                              deadlines=project_deadlines,
+                              damages=project_damages,
+                              claims=project_claims)
+        print(f'length of attachments: {len(attachments)} | len of emails {len(project_emails)}')
         return {
             "factsheet": factsheet,
-            "attachments": attachments
+            "attachments": attachments,
+            "emails": project_emails
         }
 
     def load_projects(self,user_id: str):

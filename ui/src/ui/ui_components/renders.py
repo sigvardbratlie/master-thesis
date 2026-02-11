@@ -46,7 +46,7 @@ class ChatComponent:
         user_input = st.chat_input(
             "Still et spørsmål for å komme igang...",
             accept_file="multiple",
-            file_type=["txt", "csv", "xlsx", "pdf"],
+            file_type=["txt", "csv", "xlsx", "pdf", "docx", "eml"],
         )
         if user_input:
             question = user_input
@@ -184,7 +184,7 @@ class ChatComponent:
         chat_question = st.chat_input(
             "Skriv ditt spørsmål her...",
             accept_file="multiple",
-            file_type=["txt", "csv", "xlsx", "pdf"],
+            file_type=["txt", "csv",  "pdf", "xlsx", "docx", "eml"],
         )
 
         return chat_question
@@ -204,6 +204,7 @@ class ChatComponent:
 
             # Prepare attachment payload
             attachment_payload = []
+            email_payload = []
             for file in question.files if hasattr(question, "files") else []:
                 attachment = self.attachment_component.mk_attachment_payload(file = file, query_id = query_id)
                 if attachment:
@@ -214,7 +215,7 @@ class ChatComponent:
                 "type": "human",
                 "data": {
                     "content": question.text if hasattr(question, "text") else question,
-                    "attachments": [att.model_dump() for att in attachment_payload]
+                    "attachments": [att.model_dump(mode = "json") for att in attachment_payload]
                 }
             }
             st.session_state.messages.append(user_msg)
@@ -245,7 +246,7 @@ class ChatComponent:
                 request = AskAgentRequest(
                     question=question.text if hasattr(question, "text") else question,
                     session_id=st.session_state.session_id,
-                    attachments=[att.model_dump() for att in attachment_payload],
+                    attachments=[att.model_dump(mode = "json") for att in attachment_payload],
                     query_id=query_id,
                     project_id = st.session_state.project_id,
                     llm_model=st.session_state.llm_model,
@@ -429,45 +430,53 @@ class ProjectComponent:
         streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
                                                   access_token=st.session_state.access_token)
         with st.popover("Clean and update project element"):
-            relational_elements = ["Events", "Parties", "Governing Law", "Claims", "Damages", "Deadlines",]
-            metadata_elements = ["Background","Title"]
-            custom_law_elements =  ["Governing Law","Disputed & Undisputed Facts"]
-            element_to_clean = st.selectbox("Select element to clean", options=relational_elements + metadata_elements + custom_law_elements)
+            # Separate element types clearly
+            relational_elements = ["Events", "Parties", "Claims", "Damages", "Deadlines"]
+            metadata_elements = ["Background", "Title"]
+            custom_law_elements = ["Governing Law", "Disputed Facts", "Undisputed Facts"]
+            
+            all_elements = relational_elements + metadata_elements + custom_law_elements
+            element_to_clean = st.selectbox("Select element to clean", options=all_elements)
+            
             if st.button("Clean Element", icon="🧹"):
-                element_key = element_to_clean.lower().replace(" ","_")
-                if element_key:
-                    if element_to_clean in relational_elements:
-                        payload = AskAgentRequest(
-                            project_id=st.session_state.project_id,
-                            session_id=st.session_state.session_id,
-                            attachments=[],
-                            question="",
-                            query_id=str(uuid4()),
-                            llm_model=st.session_state.llm_model,
-                        )
-                        success = self._stream_cleanup_progress(streaming_service, payload, element_key)
-                        if success:
-                            project_element = self.backend_service.load_project_element(
-                                project_id=st.session_state.project_id,
-                                element_type=element_key)
-                            st.session_state.factsheet[element_key] = project_element
-                            st.rerun()
-                    elif element_to_clean in metadata_elements:
-                        pass #implement
-                    elif element_to_clean in custom_law_elements:
-                        pass
+                # Map display names to backend keys
+                element_key_map = {
+                    "Disputed Facts": "disputed_facts",
+                    "Undisputed Facts": "undisputed_facts",
+                }
+                element_key = element_key_map.get(element_to_clean, element_to_clean.lower().replace(" ", "_"))
+                
+                payload = AskAgentRequest(
+                    project_id=st.session_state.project_id,
+                    session_id=st.session_state.session_id,
+                    attachments=[],
+                    question="",
+                    query_id=str(uuid4()),
+                    llm_model=st.session_state.llm_model,
+                )
+                
+                # Route to correct cleaning function
+                if element_to_clean in relational_elements:
+                    success = self._stream_cleanup_progress(streaming_service.cleanup_project_element_stream, payload, element_key)
+                elif element_to_clean in custom_law_elements:
+                    success = self._stream_cleanup_progress(streaming_service.cleanup_attr_stream, payload, element_key)
+                else:  # metadata_elements
+                    success = self._stream_cleanup_progress(streaming_service.cleanup_attr_stream, payload, element_key)
+                
+                if success:
+                    project_element = self.backend_service.load_project_element(
+                        project_id=st.session_state.project_id,
+                        element_type=element_key)
+                    st.session_state.factsheet[element_key] = project_element
+                    st.rerun()
+                    
 
-    def _stream_cleanup_progress(self, streaming_service, payload, element_type):
+    def _stream_cleanup_progress(self, streaming_function : callable, payload, element_type):
         """Display live streaming progress for cleanup element."""
-
-        PHASE_CONFIG = {
-            f"cleanup_{element_type}": ("🧹", f"Cleaning {element_type}"),
-            "storage": ("💾", "Saving to database"),
-        }
 
         with st.status(f"🧹 Cleaning {element_type}...", expanded=True) as status:
             try:
-                for event in streaming_service.cleanup_project_element_stream(payload, element_type):
+                for event in streaming_function(payload, element_type):
                     if event.get("error"):
                         status.update(label="❌ Error occurred", state="error")
                         st.error(event["error"])
@@ -477,6 +486,12 @@ class ProjectComponent:
                     phase = phase_raw[0] if isinstance(phase_raw, list) else phase_raw
                     event_status = event.get("status", "")
                     data = event.get("data", {})
+                    
+                    # Build PHASE_CONFIG dynamically
+                    PHASE_CONFIG = {
+                        f"cleanup_{element_type}": ("🧹", f"Cleaning {element_type}"),
+                        "storage": ("💾", "Saving to database"),
+                    }
                     emoji, label = PHASE_CONFIG.get(phase, ("⏳", phase))
 
                     if event_status == "starting":
@@ -571,14 +586,17 @@ class ProjectComponent:
         # Load the factsheet for the selected project
         project_data =  self.backend_service.load_project(project_id=st.session_state.project_id)
         #st.json(project_data)
-        if project_data:
+        #st.json(project_data)
+        if project_data and "factsheet" in project_data and "attachments" in project_data and "emails" in project_data:
             st.session_state.factsheet = project_data.get('factsheet')
             st.session_state.attachments = project_data.get('attachments', [])
+            st.session_state.emails = project_data.get('emails', [])
             logger.info(f"Loaded factsheet for project: {st.session_state.project_id}")
         else:
             st.session_state.factsheet = None
             st.session_state.attachments = []
-            logger.warning(f"No factsheet found for project: {st.session_state.project_id}")
+            st.session_state.emails = []
+            logger.warning(f"No Project data found for project: {st.session_state.project_id}")
 
         #st.rerun()
 
@@ -639,6 +657,10 @@ class ProjectComponent:
                 # if st.button(f"- **{file.get('filename', 'No Filename')}** ({file.get('category', 'No Category')}, {file.get('significance', 'No Significance')})", key=file.get('file_id','no-id')):
                 #     st.pdf()
 
+        with st.expander("Correspondence Overview", expanded=False, icon="✉️"):
+            #st.info(st.session_state.get("emails", []))
+            for file in st.session_state.get("emails", []):
+                st.write(f'- **{file.get("subject", "No Subject")}** \n(From: {file.get("from", "Unknown")}, To: {file.get("to", "Unknown")}, Date: {file.get("date", "Unknown")})')
 
     def render_project_sessions(self):
         #st.header("Project Sessions")
@@ -841,14 +863,20 @@ class ProjectComponent:
 
         user_files = st.file_uploader("Upload project files:",
                                     accept_multiple_files=True,
-                                    type=["txt", "csv", "xlsx", "pdf"],
+                                    type=["txt", "csv", "xlsx", "docx", "pdf", "eml", ],
                                     help="You can upload multiple files.",
                                     key = f"file_uploader_{st.session_state.clear_input_counter}")
-        attachments = [self.attachment_component.mk_attachment_payload(f,query_id=query_id) for f in user_files] if user_files else []
+        attachment_list = [self.attachment_component.mk_attachment_payload(f,query_id=query_id) for f in user_files] if user_files else []
+        
+        # Flatten attachments and emails from all files
+        all_attachments = []
+        for attachment in attachment_list:
+            if attachment:
+                all_attachments.append(attachment)
 
         payload = AskAgentRequest(
             question=user_input,
-            attachments=[att.model_dump() for att in attachments],
+            attachments=[att.model_dump(mode = "json") for att in all_attachments],
             session_id=st.session_state.session_id,
             query_id=query_id,
             llm_model=st.session_state.llm_model,
