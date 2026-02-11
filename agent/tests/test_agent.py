@@ -773,6 +773,7 @@ async def test_initialize_project_real_llm_small_input():
     This test uses REAL API calls to verify the entire initialize_project flow.
     Requires: GOOGLE_API_KEY or GEMINI_API_KEY
     """
+    from base64 import b64encode
     # Mock saving and BigQuery
     with patch('agent.agent.SupabaseManager.save_project') as mock_save_project, \
          patch('agent.agent.BQVectorStore') as mock_bq:
@@ -788,24 +789,7 @@ async def test_initialize_project_real_llm_small_input():
             tools=[],
             prompt="You are a helpful legal assistant analyzing case documents."
         )
-        
-        # Create minimal request with simple text attachment
-        request = AskAgentRequest(
-            question="""Vi har en tvist om eiendomskjøp. 
-        Meg (Andreas Nilsen) og min kone Berit kjøpte hus fra Daniel og Camilla Hansen.
-        Kontrakten ble signert 25. august 2023 for 15.5 millioner kroner.
-        Vi overtok boligen 11. november 2023.
-        Etter overtakelsen oppdaget vi elektriske feil og problemer med pipa.""",
-            session_id="integration-test-session-001",
-            query_id="integration-test-query-001",
-            project_id="integration-test-project-001",
-            llm_model="google_gemini-2.5-flash",
-            attachments=[
-                AttachmentModel(
-                    file_id="integration-test-file-001",
-                    filename="simple_case_summary.txt",
-                    file_type="text/plain",
-                    content="""SAKSAMMENDRAG
+        content_txt = """SAKSAMMENDRAG
 
 Kjøper: Andreas Nilsen og Berit Johansen
 Selger: Daniel Hansen og Camilla Hansen
@@ -819,7 +803,26 @@ Mangler oppdaget:
 - Problemer med pipa/skorstein
 
 Reklamasjon sendt til selger: 15. desember 2023
-""",
+"""
+        # Create minimal request with simple text attachment
+        request = AskAgentRequest(
+            question="""Vi har en tvist om eiendomskjøp. 
+        Meg (Andreas Nilsen) og min kone Berit kjøpte hus fra Daniel og Camilla Hansen.
+        Kontrakten ble signert 25. august 2023 for 15.5 millioner kroner.
+        Vi overtok boligen 11. november 2023.
+        Etter overtakelsen oppdaget vi elektriske feil og problemer med pipa.""",
+
+        
+            session_id="integration-test-session-001",
+            query_id="integration-test-query-001",
+            project_id="integration-test-project-001",
+            llm_model="google_gemini-2.5-pro",
+            attachments=[
+                AttachmentModel(
+                    file_id="integration-test-file-001",
+                    filename="simple_case_summary.txt",
+                    file_type="text/plain",
+                    content=b64encode(content_txt.encode("utf-8")), 
                     size=350,
                     path="integration-test/integration-test-session-001/integration-test-file-001.txt",
                     query_id="integration-test-query-001"
@@ -858,6 +861,8 @@ Reklamasjon sendt til selger: 15. desember 2023
         assert final_result is not None, "Should have final result chunk"
         assert "data" in final_result
         assert "factsheet" in final_result["data"]
+
+        print(f'\n\n FINAL RESULT \n\n {final_result["data"].get("factsheet")}\n\n {final_result["data"].get("attachments")}\n\n {final_result["data"].get("emails")}\n\n')
         
         # Verify factsheet has expected structure
         factsheet = final_result["data"]["factsheet"]

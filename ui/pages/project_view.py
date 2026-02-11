@@ -91,4 +91,4 @@ else:
     # Login screen
     auth_service.render_login_form()
 
-st.json(st.session_state.factsheet)
+st.json(st.session_state.factsheet, expanded=False)

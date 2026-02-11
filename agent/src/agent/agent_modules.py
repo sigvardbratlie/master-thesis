@@ -209,7 +209,7 @@ class ContextManager:
                 }
     
     async def analyze_multiple_eml(self,
-                initial_ : InitialInput | FactSheet,
+                input_ : InitialInput | FactSheet,
                 emails : list[EmailModel],
                 ) -> dict:
         '''Function to analyze multiple documents and extract structured data as Attachments.'''
@@ -237,7 +237,7 @@ class ContextManager:
         events = []
 
         structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
-        init_prompt = f'Case input: {initial_.model_dump()}\n\n'
+        init_prompt = f'Case input: {input_.model_dump()}\n\n'
         
         # Format emails with clear ID separation
         emails_formatted = "\n\n".join([

@@ -598,7 +598,7 @@ class Agent:
         async def analyze_emails_with_limit(email_attachments, input_):
             async with sem:
                 return await self.context_manager.analyze_multiple_eml(
-                    initial_=input_,
+                    input_=  input_,
                     emails=email_attachments
                 )
 
@@ -988,12 +988,14 @@ class Agent:
         try:
             factsheet_dict = result.model_dump(mode="json")
             attachments_dict = [file.model_dump(mode="json") for file in files]
+            emails = [email.model_dump(mode="json") for email in emails]
             logger.debug(f"Successfully serialized factsheet and attachments. Yielding result...")
             yield {
                 "type": "result",
                 "data": {
                     "factsheet": factsheet_dict,
-                    "attachments": attachments_dict
+                    "attachments": attachments_dict,
+                    "emails" : emails
                 }
             }
             logger.debug(f"Final result yielded successfully.")

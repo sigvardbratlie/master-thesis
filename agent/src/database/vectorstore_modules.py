@@ -432,7 +432,7 @@ class DocumentProcessor:
         if file_type == "application/pdf":
             return self.parse_pdf(content_decoded, metadata=metadata)
         elif file_type == "text/plain":
-            return self.parse_text(content_decoded.decode('utf-8', errors='ignore'), metadata=metadata)
+            return self.parse_text(content_decoded, metadata=metadata)
         elif file_type == "text/csv":
             return self.parse_csv(content_decoded, metadata=metadata)
         elif file_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
