@@ -455,8 +455,9 @@ async def test_update_project(mock_agent):
     user_id = "user-001"
 
     mock_agent.conversation_manager.load_factsheet.return_value = get_mock_factsheet()
-    mock_agent.context_manager.consider_new_doc = AsyncMock(return_value=get_mock_analyzed_doc())
-    mock_agent.document_processor.process_attachment.return_value = get_mock_vector_store_docs()
+    mock_agent.context_manager.analyze_doc = AsyncMock(return_value=get_mock_analyzed_doc())
+    mock_agent.document_processor.parse.return_value = get_mock_vector_store_docs()
+    mock_agent.document_processor.to_plain_text.return_value = "parsed plain text content"
     mock_agent.storage.save_raw_documents = AsyncMock()
 
     with patch('agent.agent.init_chat_model') as mock_init:
@@ -499,7 +500,11 @@ async def test_cleanup_element_events(mock_agent):
     query = get_mock_ask_agent_request()
     from tests.fixtures.context_manager_data import get_mock_factsheet
 
-    mock_agent.conversation_manager.load_factsheet.return_value = get_mock_factsheet()
+    mock_agent.conversation_manager.load_project.return_value = {
+        "factsheet": get_mock_factsheet(),
+        "attachments": [],
+        "emails": []
+    }
     mock_agent.context_manager.clean_element = AsyncMock(return_value=[
         {"event_id": "cleaned-event-001", "event_date": "2023-08-15"}
     ])
