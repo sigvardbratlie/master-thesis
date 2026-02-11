@@ -44,6 +44,9 @@ PartyRole = Literal[
     "third_party",
     "intervener",
     "insurer",
+    "employer",
+    "employee",
+    
 
     # Real estate
     "contractor",
@@ -147,7 +150,7 @@ class Event(BaseModel):
     event_end_date: Optional[date | datetime] = None
     description: str
     category: str = Field(description="Categorization of the event, e.g., 'court_filing', 'evidence_submission', 'contract_signing', 'communication', etc.")
-    parties: list[PartyRole] = Field(description="Roles of parties involved in the event")
+    parties: Optional[list[str]] = Field(None, description="Roles of parties involved in the event")
     significance: significance_levels
     disputed: bool
 
@@ -164,7 +167,7 @@ class BaseExtracted(BaseModel):
     """Common extraction fields for all document types and emails"""
     description: str = Field(description="Concise summary of the content")
     significance: significance_levels = Field(default="medium", description="Importance level")
-    party_roles: Optional[list[PartyRole]] = Field(None, description="Party roles mentioned")
+    party_roles: Optional[list[str]] = Field(None, description="Party roles mentioned")
     deadlines: Optional[list[Deadline]] = Field(None, description="Relevant deadlines if any")
     damages: Optional[list[Damage]] = Field(None, description="Damage information if applicable")
     claims: Optional[list[Claim]] = Field(None, description="Claim information if applicable")
@@ -172,7 +175,7 @@ class BaseExtracted(BaseModel):
 class AttachmentExtracted(BaseExtracted):
     """Document-specific extraction fields"""    
     key_provisions: Optional[list[str]] = Field(None, description="Important clauses or sections (for agreements)")
-    file_date: Optional[date] = Field(None, description="Date of the document (when it was created/sent, not when it was received)")
+    file_date: Optional[date | datetime] = Field(None, description="Date of the document (when it was created/sent, not when it was received). Must be a valid date or datetime (e.g., '2023-05-01' or '2023-05-01T14:30:00')")
     category: Literal[
         "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
         "court_order", "invoice", "expert_report", "witness_statement", "internal_memo",
