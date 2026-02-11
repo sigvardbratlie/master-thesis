@@ -648,7 +648,7 @@ class ContextManager:
             f'Return ONLY the cleaned {element_type} itself, no explanation or preamble.\n\n'
             f'Original {element_type}:\n{content}'
         )
-        logger.debug(f" ====== PROMPT FOR CLEANING {element_type.upper()} ====== \n{prompt}\n\n")
+        #logger.debug(f" ====== PROMPT FOR CLEANING {element_type.upper()} ====== \n{prompt}\n\n")
         
         structured_llm = self.llm.with_structured_output(CleanedText, method="function_calling")
         response = await structured_llm.ainvoke(prompt)

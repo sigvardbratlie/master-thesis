@@ -58,7 +58,7 @@ class GCSManager:
         await asyncio.gather(*tasks)
 
 class SupabaseStorageManager:
-    def __init__(self, max_concurrent_uploads: int = 5):
+    def __init__(self, max_concurrent_uploads: int = 1):
         self.url = os.getenv("SUPABASE_URL")
         self.key = os.getenv("SUPABASE_KEY")
         self.supabase = create_client(self.url, self.key)
@@ -92,6 +92,11 @@ class SupabaseStorageManager:
             except Exception as e:
                 last_error = e
                 error_msg = str(e)
+                
+                # Check if file already exists (409 Duplicate)
+                if "409" in error_msg or "Duplicate" in error_msg or "already exists" in error_msg:
+                    logger.info(f"File already exists at {path}, treating as success")
+                    return path
                 
                 # Retry on transient errors
                 if "Resource temporarily unavailable" in error_msg or "[Errno 35]" in error_msg:
