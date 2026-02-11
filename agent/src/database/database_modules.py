@@ -787,7 +787,12 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f'Error inserting attachments for session {session_id} in Supabase: {e}', exc_info=True)
 
-
+    def delete_project(self, project_id: str):
+        try:
+            self.supabase.table("projects").delete().eq("project_id", project_id).execute()
+            logger.debug(f'Project {project_id} deleted from Supabase.')
+        except Exception as e:
+            logger.error(f'Error deleting project {project_id} from Supabase: {e}', exc_info=True)
 
 class EmailParser:
     def __init__(self):
