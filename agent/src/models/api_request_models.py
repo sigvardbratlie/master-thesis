@@ -49,6 +49,7 @@ class EmailModel(BaseModel):
     body_text: str
     body_html: Optional[str] = None
     headers: Optional[dict] = None
+    size: Optional[int] = None
     
     attachments: Optional[list] = None #file ids
 
