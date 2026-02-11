@@ -363,7 +363,7 @@ class SupabaseManager:
                 project_deadlines(*),
                 project_damages(*),
                 project_claims(*),
-                project_legal(*),
+                project_legal(*)
                 """
             
         project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
@@ -618,6 +618,41 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f'Error replacing items for project {project_id} in Supabase table {table_name}: {e}')
 
+    def upsert_project_custom(self,
+                    data : dict | str,
+                    element_type : str, 
+                    project_id : str,
+                    table_name = "project_legal"):
+        if not data:
+            logger.warning(f"No custom field data provided to replace for project {project_id}. Skipping replace.")
+            return
+        if not isinstance(data, dict):
+            data = {element_type: data}
+
+        data["project_id"] = project_id
+
+        try:
+            self.supabase.table(table_name).upsert(data).execute()
+            logger.debug(f'Replaced custom fields for project {project_id} in Supabase table {table_name}.')
+        except Exception as e:
+            logger.error(f'Error replacing custom fields for project {project_id} in Supabase: {e}')
+
+    def upsert_project(self, 
+                       data: dict | str, 
+                       element_type: str,
+                       project_id: str):
+        if not data:
+            logger.warning(f"No data provided to upsert for project {project_id}. Skipping upsert.")
+            return
+        if not isinstance(data, dict):
+            data = {element_type: data}
+        data["project_id"] = project_id
+        try:
+            self.supabase.table("projects").upsert(data).execute()
+            logger.debug(f'Project {project_id} upserted in Supabase.')
+        except Exception as e:
+            logger.error(f'Error upserting project {project_id} in Supabase: {e}')
+
     def load_projects(self,user_id: str):
         projects = self.supabase.table("projects").select("project_id, title, created_at").eq("user_id", user_id).execute()
         if projects.data:
@@ -836,6 +871,7 @@ class EmailParser:
                 att_ids.append(att["file_id"])
         body = self._extract_email_body(msg)
         refs = msg.get("References")
+        email_size = len(msg.as_bytes()) if hasattr(msg, 'as_bytes') else len(msg.as_string().encode('utf-8'))
         email_data = EmailModel(
                 file_id=file_id,
                 path = f'{user_id}/{session_id}/{file_id}.eml',
@@ -858,6 +894,7 @@ class EmailParser:
                 body_text=body.get("text", ""),
                 body_html=body.get("html"),
                 headers=dict(msg.items()) if msg.items() else None,
+                size=email_size,
 
                 attachments=att_ids if att_ids else None,
             )
