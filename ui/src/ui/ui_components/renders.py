@@ -469,7 +469,6 @@ class ProjectComponent:
                     st.session_state.factsheet[element_key] = project_element
                     st.rerun()
                     
-
     def _stream_cleanup_progress(self, streaming_function : callable, payload, element_type):
         """Display live streaming progress for cleanup element."""
 
@@ -682,6 +681,8 @@ class ProjectComponent:
             "initialization": ("🚀", "Setting up project"),
             "init_input": ("📋", "Analyzing case details"),
             "storage": ("💾", "Saving documents"),
+            "parse-documents": ("📑", "Parsing documents"),
+            "parse_doc": ("📄", "Document parsed"),
             "analyze_docs": ("📄", "Starting document analysis"),
             "analyze_doc": ("📝", "Document analyzed"),
             "final_analysis": ("🔬", "Running final analysis"),
@@ -710,7 +711,13 @@ class ProjectComponent:
                     if event_status == "starting":
                         n = data.get("total_operations", data.get("total", 0))
                         total += n
-                        status.update(label=f"{emoji} {label}...")
+                        
+                        # Build detail for starting events
+                        if phase == "parse_doc":
+                            fname = data.get("filename", "")
+                            status.update(label=f"{emoji} Parsing {fname}..." if fname else f"{emoji} {label}...")
+                        else:
+                            status.update(label=f"{emoji} {label}...")
 
                         if phase == "initialization":
                             n_att = data.get("attachments", 0)
@@ -729,6 +736,11 @@ class ProjectComponent:
                         if phase == "init_input":
                             n = data.get("parties_found", 0)
                             detail = f" — {n} parties found" if n else ""
+                        elif phase == "parse_doc":
+                            fname = data.get("filename", "")
+                            progress = data.get("progress", 0)
+                            total_files = data.get("total", 0)
+                            detail = f": **{fname}** ({progress}/{total_files})" if fname else ""
                         elif phase == "analyze_doc":
                             fname = data.get("filename", "")
                             detail = f": **{fname}**" if fname else ""
@@ -764,6 +776,8 @@ class ProjectComponent:
         PHASE_CONFIG = {
             "initialization": ("🚀", "Setting up update"),
             "storage": ("💾", "Saving documents"),
+            "parse-documents": ("📑", "Parsing documents"),
+            "parse_doc": ("📄", "Document parsed"),
             "analyze_docs": ("📄", "Document analysis"),
             "analyze_doc": ("📝", "Document analyzed"),
         }
@@ -789,7 +803,13 @@ class ProjectComponent:
                     if event_status == "starting":
                         n = data.get("total_operations", data.get("total", 0))
                         total += n
-                        status.update(label=f"{emoji} {label}...")
+                        
+                        # Build detail for starting events
+                        if phase == "parse_doc":
+                            fname = data.get("filename", "")
+                            status.update(label=f"{emoji} Parsing {fname}..." if fname else f"{emoji} {label}...")
+                        else:
+                            status.update(label=f"{emoji} {label}...")
 
                         n_att = data.get("attachments", 0)
                         if n_att:
@@ -802,7 +822,12 @@ class ProjectComponent:
                         completed += 1
 
                         detail = ""
-                        if phase == "analyze_doc":
+                        if phase == "parse_doc":
+                            fname = data.get("filename", "")
+                            progress = data.get("progress", 0)
+                            total_files = data.get("total", 0)
+                            detail = f": **{fname}** ({progress}/{total_files})" if fname else ""
+                        elif phase == "analyze_doc":
                             fname = data.get("filename", "")
                             detail = f": **{fname}**" if fname else ""
                         elif phase == "storage":
