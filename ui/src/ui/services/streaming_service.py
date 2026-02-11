@@ -234,18 +234,44 @@ class StreamingService:
             logger.error(f"Error in cleanup_project_element stream: {e}", exc_info=True)
             raise
 
-    def cleanup_factsheet(self, payload : AskAgentRequest):
+    # def cleanup_factsheet(self, payload : AskAgentRequest):
+    #     try:
+    #         response = requests.post(
+    #         url=f"{self.backend_url}/cleanup-factsheet/",
+    #         json=payload.model_dump(),
+    #         headers=self.headers,
+    #         )
+    #         response.raise_for_status()
+    #         return response
+    #     except requests.exceptions.RequestException as e:
+    #         logger.error(f"Error cleaning up factsheet: {e}", exc_info=True)
+    #         raise
+
+    def cleanup_attr_stream(self, payload : AskAgentRequest, element_type : str) -> Generator[dict, None, None]:
         try:
-            response = requests.post(
-            url=f"{self.backend_url}/cleanup-factsheet/",
-            json=payload.model_dump(),
-            headers=self.headers,
-            )
-            response.raise_for_status()
-            return response
+            with requests.post(
+                url=f"{self.backend_url}/cleanup-project-attr/{element_type}",
+                json=payload.model_dump(),
+                headers=self.headers,
+                stream=True,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    decoded_line = line.decode('utf-8')
+                    if not decoded_line.startswith('data:'):
+                        continue
+                    try:
+                        data = json.loads(decoded_line[5:])
+                        logger.debug(f"Cleanup attr stream data: {data}")
+                        yield data
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON decode error in cleanup_project_attr_stream: {e}")
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error cleaning up factsheet: {e}", exc_info=True)
+            logger.error(f"Error in cleanup_project_attr stream: {e}", exc_info=True)
             raise
+
 
 @st.cache_resource
 def get_streaming_service(backend_url: str, access_token: str) -> StreamingService:
