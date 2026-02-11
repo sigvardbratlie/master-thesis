@@ -2,6 +2,7 @@ import json
 from pyexpat import model
 from typing import Dict, Type,TypedDict,List,Union,Annotated,Sequence,Optional, Literal, Tuple, Any
 import os
+from urllib import response
 import tiktoken
 import logging
 from uuid import uuid4
@@ -129,7 +130,7 @@ class ContextManager:
         return await structured_llm.ainvoke(prompt)
     
     async def analyze_doc(self, 
-                initial_input : InitialInput ,
+                input_ : InitialInput | FactSheet ,
                 content: str, 
                 file_id : str, 
                 filename: str, 
@@ -141,14 +142,19 @@ class ContextManager:
         
         if not content:
             logger.warning('No content provided for document analysis. Returning empty result.')
-            return {"file": None, "events": []}
+            return {"file": None, 
+                    "events": [],
+                    "damages": [],
+                    "claims": [],
+                    "deadlines": []
+                    }
 
         class AttachmentWithEvents(BaseModel):
             attachment: AttachmentExtracted
-            events: Optional[List[Event]] = None
+            events: Optional[List[Event]] = []
         
         structured_llm = self.llm.with_structured_output(AttachmentWithEvents, method="function_calling")
-        init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
+        init_prompt = f'Case input: {input_.model_dump()}\n\n'
         prompt = init_prompt + f'Analyze the following document and extract BOTH attachment metadata AND timeline events:\n\n{content}'
 
         for attempt in range(3):  # Retry mechanism
@@ -164,7 +170,7 @@ class ContextManager:
                     raise
         
         # Process events from attachment (not email)
-        for event in response.events:
+        for event in response.events or []:
             event.file_id = file_id
             event.email_id = None  # This is from attachment, not email
             event.event_id = str(uuid4())
@@ -190,6 +196,7 @@ class ContextManager:
                             file_id=file_id,
                             filename=filename,
                             path=path,
+                            body = content,
                             file_type=file_type,
                             size=size,
                             event_ids=[event.event_id for event in response.events],
@@ -202,7 +209,7 @@ class ContextManager:
                 }
     
     async def analyze_multiple_eml(self,
-                initial_input : InitialInput,
+                initial_ : InitialInput | FactSheet,
                 emails : list[EmailModel],
                 ) -> dict:
         '''Function to analyze multiple documents and extract structured data as Attachments.'''
@@ -230,7 +237,7 @@ class ContextManager:
         events = []
 
         structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
-        init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
+        init_prompt = f'Case input: {initial_.model_dump()}\n\n'
         
         # Format emails with clear ID separation
         emails_formatted = "\n\n".join([
@@ -274,7 +281,7 @@ class ContextManager:
                 break
             
             extracted = email_result.email
-            logger.info(f"==== EMAIL ELEMENENT DEBUG == \n{extracted.model_dump(mode = "json")}\n \n ==== END OF ELEMENT DEBUG ====")
+            #logger.info(f"==== EMAIL ELEMENENT DEBUG == \n{extracted.model_dump(mode = "json")}\n \n ==== END OF ELEMENT DEBUG ====")
             
             # Validate that extracted email_id matches one of our original IDs
             if extracted.email_id not in org_ids:
@@ -295,7 +302,7 @@ class ContextManager:
                 continue
             
             # Log the matching
-            logger.info(f'Processing email #{idx+1}: input_file_id={input_email.file_id}, extracted_email_id={extracted.email_id}')
+            #logger.info(f'Processing email #{idx+1}: input_file_id={input_email.file_id}, extracted_email_id={extracted.email_id}')
             
             # Assign email_id (not file_id!) and unique IDs to all extracted elements from this email
             if extracted.damages:
@@ -422,96 +429,102 @@ class ContextManager:
     
     # ===== FUNCTIONS FOR UPDATING EXISTING FACTSHEET =====
     
-    async def consider_new_doc(self,
-                            factsheet : FactSheet,
-                         new_content : str,
-                         new_user_input : str,
-                         file_id : str,
-                         filename : str,
-                         path : str,
-                         file_type : str,
-                         size : int,
-                         ) -> dict:
-        '''Function to analyze new document content in relation to existing FactSheet.
-        Args:
-            factsheet (FactSheet | dict): The existing FactSheet object or dict.
-            content (str): The new document content to analyze.
-            file_id (str): The unique identifier for the file.
-            filename (str): The name of the file.
-            path (str): The storage path of the file.
-            file_type (str): The MIME type of the file.
-            size (int): The size of the file in bytes.
+    # async def consider_new_doc(self,
+    #                         factsheet : FactSheet,
+    #                      new_content : str,
+    #                      new_user_input : str,
+    #                      file_id : str,
+    #                      filename : str,
+    #                      path : str,
+    #                      file_type : str,
+    #                      size : int,
+    #                      ) -> dict:
+    #     '''Function to analyze new document content in relation to existing FactSheet.
+    #     Args:
+    #         factsheet (FactSheet | dict): The existing FactSheet object or dict.
+    #         content (str): The new document content to analyze.
+    #         file_id (str): The unique identifier for the file.
+    #         filename (str): The name of the file.
+    #         path (str): The storage path of the file.
+    #         file_type (str): The MIME type of the file.
+    #         size (int): The size of the file in bytes.
 
-        Returns:
-            dict: A dictionary indicating relevance and suggested updates.
-        '''
+    #     Returns:
+    #         dict: A dictionary indicating relevance and suggested updates.
+    #     '''
         
-        class AttachmentExtractedWithEvents(BaseModel):
-            attachment: AttachmentExtracted
-            events: List[Event]
+    #     class AttachmentExtractedWithEvents(BaseModel):
+    #         attachment: AttachmentExtracted
+    #         events: List[Event]
         
-        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
-        existing_factsheet = f'Existing factsheet:\n\n{factsheet_data}\n\n'
-        prompt = existing_factsheet + f'Analyze the following document and extract BOTH attachment metadata AND timeline events:\n\nNew user input: {new_user_input}\n\nDocument content: {new_content}\n\n'
-        structured_llm = self.llm.with_structured_output(AttachmentExtractedWithEvents, method="function_calling")
+    #     factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
+    #     existing_factsheet = f'Existing factsheet:\n\n{factsheet_data}\n\n'
+    #     prompt = existing_factsheet + f'Analyze the following document and extract BOTH attachment metadata AND timeline events:\n\nNew user input: {new_user_input}\n\nDocument content: {new_content}\n\n'
+    #     structured_llm = self.llm.with_structured_output(AttachmentExtractedWithEvents, method="function_calling")
 
-        for attempt in range(3):  # Retry mechanism
-            try:
-                response = await structured_llm.ainvoke(prompt)
-                break  # Exit loop if successful
-            except ValidationError as ve:
-                logger.error(f'Validation error during LLM invocation in consider_new_doc: {ve}', exc_info=True)
-                enhanced_prompt = f"{prompt}\n\nIMPORTANT: For party roles, use ONLY these exact values: {', '.join(PartyRole.__args__)}"
-                response = await structured_llm.ainvoke(enhanced_prompt)
-                return response
-            except Exception as e:
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    wait_time = 2 ** attempt  # Exponential backoff
-                    logger.warning(f"Rate limit hit, retrying in {wait_time}s...")
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.error(f'Error during LLM invocation in consider_new_doc: {e}', exc_info=True)
-                    raise
+    #     for attempt in range(3):  # Retry mechanism
+    #         try:
+    #             response = await structured_llm.ainvoke(prompt)
+    #             break  # Exit loop if successful
+    #         except ValidationError as ve:
+    #             logger.error(f'Validation error during LLM invocation in consider_new_doc: {ve}', exc_info=True)
+    #             enhanced_prompt = f"{prompt}\n\nIMPORTANT: For party roles, use ONLY these exact values: {', '.join(PartyRole.__args__)}"
+    #             response = await structured_llm.ainvoke(enhanced_prompt)
+    #             return response
+    #         except Exception as e:
+    #             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+    #                 wait_time = 2 ** attempt  # Exponential backoff
+    #                 logger.warning(f"Rate limit hit, retrying in {wait_time}s...")
+    #                 await asyncio.sleep(wait_time)
+    #             else:
+    #                 logger.error(f'Error during LLM invocation in consider_new_doc: {e}', exc_info=True)
+    #                 raise
         
-        # Process events from attachment (not email)
-        for event in response.events:
-            event.file_id = file_id
-            event.email_id = None  # This is from attachment, not email
-            event.event_id = str(uuid4())
+    #     # Process events from attachment (not email)
+    #     for event in response.events:
+    #         event.file_id = file_id
+    #         event.email_id = None  # This is from attachment, not email
+    #         event.event_id = str(uuid4())
         
-        # Process attachment damages/claims/deadlines (not from email)
-        if response.attachment.damages:
-            for damage in response.attachment.damages:
-                damage.file_id = file_id
-                damage.email_id = None  # This is from attachment, not email
-                damage.damage_id = str(uuid4())
-        if response.attachment.deadlines:
-            for deadline in response.attachment.deadlines:
-                deadline.file_id = file_id
-                deadline.email_id = None  # This is from attachment, not email
-                deadline.deadline_id = str(uuid4())
-        if response.attachment.claims:
-            for claim in response.attachment.claims:
-                claim.file_id = file_id
-                claim.email_id = None  # This is from attachment, not email
-                claim.claim_id = str(uuid4())
+    #     # Process attachment damages/claims/deadlines (not from email)
+    #     if response.attachment.damages:
+    #         for damage in response.attachment.damages:
+    #             damage.file_id = file_id
+    #             damage.email_id = None  # This is from attachment, not email
+    #             damage.damage_id = str(uuid4())
+    #     if response.attachment.deadlines:
+    #         for deadline in response.attachment.deadlines:
+    #             deadline.file_id = file_id
+    #             deadline.email_id = None  # This is from attachment, not email
+    #             deadline.deadline_id = str(uuid4())
+    #     if response.attachment.claims:
+    #         for claim in response.attachment.claims:
+    #             claim.file_id = file_id
+    #             claim.email_id = None  # This is from attachment, not email
+    #             claim.claim_id = str(uuid4())
         
-        file = Attachment(**response.attachment.model_dump(),
-                            file_id=file_id,
-                            filename=filename,
-                            path=path,
-                            file_type=file_type,
-                            size=size,
-                            event_ids=[event.event_id for event in response.events],
-                        )
-        return {"file": file, 
-                "events": response.events,
-                "damages": response.attachment.damages if response.attachment.damages else [],
-                "claims": response.attachment.claims if response.attachment.claims else [],
-                "deadlines": response.attachment.deadlines if response.attachment.deadlines else [],
-                }
+    #     file = Attachment(**response.attachment.model_dump(),
+    #                         file_id=file_id,
+    #                         filename=filename,
+    #                         path=path,
+    #                         file_type=file_type,
+    #                         size=size,
+    #                         event_ids=[event.event_id for event in response.events],
+    #                     )
+    #     return {"file": file, 
+    #             "events": response.events,
+    #             "damages": response.attachment.damages if response.attachment.damages else [],
+    #             "claims": response.attachment.claims if response.attachment.claims else [],
+    #             "deadlines": response.attachment.deadlines if response.attachment.deadlines else [],
+    #             }
 
-    async def clean_element(self, content: BaseModel, factsheet: FactSheet, element_type : str) -> list[dict]:   
+    async def clean_element(self, 
+                            content: BaseModel, 
+                            factsheet: FactSheet, 
+                            element_type : str,
+                            attachments : Optional[List[Attachment]] = None,
+                            emails : Optional[List[dict]] = None,
+                            ) -> list[dict]:   
         '''Clean/merge items with LLM, then deduplicate with Python and assign UUIDs.'''
         
         if not content:
@@ -542,8 +555,10 @@ class ContextManager:
         else:
             data = []
         prompt = (
-            f"Context: {factsheet.model_dump()}\n\n"
-            f'Use the context of the existing factsheet to clean, fill in missing information, '
+            f"Context factsheet: {factsheet.model_dump(mode = "json")}\n\n"
+            f'Context from attachments:\n{[att.model_dump(mode="json", include = {"file_id", "filename", "description", "file_date"}) for att in attachments] if attachments else "No attachments"}\n\n'
+            f'Context from emails:\n{[eml.model_dump(mode="json", include = {"from","from_addr", "to", "subject", "body","date"}) for eml in emails] if emails else "No emails"}\n\n'
+            f'Use the context of the existing factsheet to clean, fill in missing information,'
             f'and merge similar entries for the following {name} items.'
             "I.e for party, fill in all relevant roles such as plaintiff, defendant, witness, legal representative, etc. For events, fill in event dates and categorize the type of event. For damages, fill in type of damage and amount if mentioned. For claims, fill in legal basis and relief sought. For deadlines, fill in deadline date and associated party role.\n\n'"
             f":\n\n{data}"
@@ -563,31 +578,6 @@ class ContextManager:
                 if key.endswith('_id') and value and self.is_valid_uuid(value):
                     original_uuids[value] = key
         
-        # def ensure_uuid(item, original_uuids=original_uuids, id_field=id_field):
-        #     # Check ALL _id fields for validity
-        #     for key, value in list(item.items()):
-        #         if key.endswith('_id') and value is not None:
-        #             if value in original_uuids:
-        #                 if not self.is_valid_uuid(value):
-        #                     #if value in original_uuids:
-        #                     logger.warning(f'LLM modified original UUID for {key}: "{value}". Restoring original UUID: {original_uuids[value]}')
-        #                     item[key] = original_uuids[value]
-        #                 else:
-        #                     logger.info(f'LLM preserved original UUID for {key}: "{value}"')
-        #             else:
-        #                 if not self.is_valid_uuid(value):
-        #                     new_uuid = str(uuid.uuid4())
-        #                     logger.warning(f'LLM produced invalid UUID in {key}: "{value}" -> {new_uuid}')
-        #                     item[key] = new_uuid
-        #                 else:
-        #                     logger.info(f'LLM produced valid new UUID for {key}: "{value}"')
-            
-        #     # Assign UUID if missing for main ID field
-        #     if not item.get(id_field):
-        #         logger.warning(f'Missing {id_field} in item {item}. Assigning new UUID.')
-        #         item[id_field] = str(uuid.uuid4())
-
-
         def post_process(llm_cleaned, element_type, id_field, ):
             logger.info(f"\n=== POST-PROCESSING {len(llm_cleaned)} {name} items ===")
             logger.info(f"llm_cleaned: \n{llm_cleaned}\n\n")
@@ -620,7 +610,6 @@ class ContextManager:
             logger.info(f"=== POST-PROCESSING COMPLETE: {len(result)} unique items ===\n")
             return result
         
-        
         for item in llm_cleaned:
             if not item.get(id_field):
                 logger.warning(f'Missing {id_field} in LLM output item: {item}. Assigning new UUID.')
@@ -634,6 +623,79 @@ class ContextManager:
         logger.info(f'Cleaned {len(data) if data else 0} {name} items -> {len(llm_cleaned) if llm_cleaned else 0} (LLM) -> {len(result) if result else 0} (deduplicated)')
         return result
     
+    async def clean_metadata(self, content : str, 
+                             factsheet : FactSheet, 
+                             element_type : str,
+                             attachments: Optional[List[dict]] = None,
+                             emails : Optional[List[dict]] = None) -> str:
+        """Clean metadata fields (title, background) using structured output to avoid LLM wrapper text."""
+        
+        if element_type not in ["title", "background"]:
+            logger.error(f'Unknown element type for metadata cleaning: {element_type}')
+            return content
+        
+        # Create a generic single-field model dynamically
+        CleanedText = create_model(
+            'CleanedText',
+            cleaned_text=(str, Field(description=f"The cleaned and revised {element_type}, without any preamble or explanation"))
+        )
+        
+        prompt = (
+            f'Context from factsheet:\n{factsheet.model_dump(mode="json")}\n\n'
+            f'Context from attachments:\n{[att.model_dump(mode="json", include = {"file_id", "filename", "description", "file_date"}) for att in attachments] if attachments else "No attachments"}\n\n'
+            f'Context from emails:\n{[eml.model_dump(mode="json", include = {"from","from_addr", "to", "subject", "description","date"}) for eml in emails] if emails else "No emails"}\n\n'
+            f'Task: Clean and/or rewrite the following {element_type} according to the context. '
+            f'Return ONLY the cleaned {element_type} itself, no explanation or preamble.\n\n'
+            f'Original {element_type}:\n{content}'
+        )
+        logger.debug(f" ====== PROMPT FOR CLEANING {element_type.upper()} ====== \n{prompt}\n\n")
+        
+        structured_llm = self.llm.with_structured_output(CleanedText, method="function_calling")
+        response = await structured_llm.ainvoke(prompt)
+        
+        return response.cleaned_text if hasattr(response, 'cleaned_text') else str(response)
+    
+    async def clean_legal_attr(self, 
+                               content : BaseModel, 
+                               factsheet : FactSheet, 
+                               element_type : str,
+                               attachments: Optional[List[dict]] = None,
+                                 emails : Optional[List[dict]] = None
+                               ) -> dict:
+        '''Clean/fill a simple attribute (e.g. case title) with LLM.
+        
+        Returns:
+            - List[str] for "disputed_facts" and "undisputed_facts"
+            - dict for "governing_law"
+        '''
+        # Define which types need structured output
+        structured_types = {
+            "disputed_facts": List[str],
+            "undisputed_facts": List[str],
+            "governing_law": GoverningLaw,
+        }
+        if element_type not in structured_types:
+            raise ValueError(f'Unknown element type for cleaning: {element_type}')
+        
+        prompt = (
+            f'Context from factsheet:\n{factsheet.model_dump(mode="json")}\n\n'
+            f'Context from attachments:\n{[att.model_dump(mode="json", include = {"file_id", "filename", "description", "file_date"}) for att in attachments] if attachments else "No attachments"}\n\n'
+            f'Context from emails:\n{[eml.model_dump(mode="json", include = {"from","from_addr", "to", "subject", "description","date"}) for eml in emails] if emails else "No emails"}\n\n'
+            f'Task: Clean and revise the following {element_type}. '
+            f'Return ONLY the cleaned {element_type} itself, no explanation or preamble.\n\n'
+            f'Original {element_type}:\n{content}'
+        )
+        
+        structured_llm = self.llm.with_structured_output(structured_types[element_type], method="function_calling")
+        response = await structured_llm.ainvoke(prompt)
+        
+        # Return based on type
+        if hasattr(response, 'model_dump'):  # Pydantic model (GoverningLaw)
+            return response.model_dump()
+        else:  # List[str]
+            return response
+            
+
     # === NOT IN USE === 
     async def __analyze_new_input(self,
                          factsheet : FactSheet,
