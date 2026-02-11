@@ -249,8 +249,8 @@ class DocumentProcessor:
                 ocrmypdf.ocr(
                     inp.name,
                     out.name,
-                    deskew=True,
-                    redo_ocr=True,  # Better than force_ocr - skips already-OCR'd pages
+                    deskew=True,  # Deskew pages for better OCR accuracy. Not compatibel with redo_ocr
+                    #redo_ocr=True,  # Re-OCR entire document for better text extraction. Not compatibel with deskew
                     skip_text=False,  # Keep existing text
                     optimize=1,  # Light optimization
                     force_ocr=False  # Don't re-OCR text pages
@@ -287,58 +287,6 @@ class DocumentProcessor:
             body_text = msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8")
             body_html = None
         return {"html" : body_html, "text": body_text}
-
-    # def _extract_attachments(self, msg : Message) -> list:
-    #     attachments = []
-    #     for part in msg.walk():
-    #         content_disposition = part.get("Content-Disposition")
-    #         if content_disposition and "attachment" in content_disposition:
-    #             filename = part.get_filename()
-    #             if filename:
-    #                 attachments.append({
-    #                     "filename": filename,
-    #                     "file_type": part.get_content_type(),
-    #                     "size" : len(part.get_payload(decode=True)),
-    #                     "file_id": str(uuid.uuid4()),
-    #                     "content": part.get_payload(decode=True).decode("utf-8")
-    #                 })
-    #     return attachments
- 
-    # def _extract_email_data(self, msg : Message, query_id : str, user_id: str , session_id : str) -> dict:
-    #     attachments_list = self._extract_attachments(msg)
-    #     attachments = []
-    #     att_ids = []
-    #     if attachments_list:
-    #         for att in attachments_list:
-    #             ext = os.path.splitext(att["filename"])[1].lower()
-    #             attachment_model = AttachmentModel(
-    #                 filename=att["filename"],
-    #                 file_id=att["file_id"],
-    #                 file_type=att["file_type"],
-    #                 size=att["size"],
-    #                 content=att["content"],
-    #                 query_id=query_id,
-    #                 event_id=None,
-    #                 path = f'{user_id}/{session_id}/{att.get("file_id")}.{ext}'
-    #             )
-    #             attachments.append(attachment_model)
-    #             att_ids.append(att["file_id"])
-    #     email_data = EmailModel(
-    #             email_id=str(uuid.uuid4()),
-    #             subject=msg.get("Subject", ""),
-    #             sender=msg.get("From", ""), 
-    #             recipients=msg.get("To", "").split(","),
-    #             cc=msg.get("Cc", "").split(",") if msg.get("Cc") else None,
-    #             bcc=msg.get("Bcc", "").split(",") if msg.get("Bcc") else None,
-    #             email_date=email.utils.parsedate_to_datetime(msg.get("Date")),
-    #             body_text=self._extract_email_body(msg).get("text", ""),
-    #             body_html=self._extract_email_body(msg).get("html", None),
-    #             headers=dict(msg.items()) if msg.items() else None,
-    #             attachments= att_ids,
-    #             query_id=query_id,
-    #         )
-    
-    #     return {"email" : email_data, "attachments" : attachments if attachments else []}
 
     # ============================
     #      MAIN PARSE METHODS
