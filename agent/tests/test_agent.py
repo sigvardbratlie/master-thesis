@@ -453,12 +453,8 @@ async def test_update_project(mock_agent):
     from tests.fixtures.context_manager_data import get_mock_factsheet,get_mock_attachments
     query = get_mock_ask_agent_request_with_attachments()
     user_id = "user-001"
-    return_value = {
-        "factsheet": get_mock_factsheet(),
-        "attachments": get_mock_attachments()
-    }
 
-    mock_agent.conversation_manager.load_project.return_value = return_value
+    mock_agent.conversation_manager.load_factsheet.return_value = get_mock_factsheet()
     mock_agent.context_manager.consider_new_doc = AsyncMock(return_value=get_mock_analyzed_doc())
     mock_agent.document_processor.process_attachment.return_value = get_mock_vector_store_docs()
     mock_agent.storage.save_raw_documents = AsyncMock()
@@ -474,7 +470,7 @@ async def test_update_project(mock_agent):
     assert result is not None
     assert "events" in result
     assert "attachments" in result
-
+    #assert "emails" in result
 
 @pytest.mark.asyncio
 async def test_update_project_invalid_project_data(mock_agent):
@@ -483,7 +479,7 @@ async def test_update_project_invalid_project_data(mock_agent):
     user_id = "user-001"
 
     # Return invalid data type
-    mock_agent.conversation_manager.load_project.return_value = "invalid_data"
+    mock_agent.conversation_manager.load_factsheet.return_value = "invalid_data"
 
     with patch('agent.agent.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
@@ -501,13 +497,9 @@ async def test_update_project_invalid_project_data(mock_agent):
 async def test_cleanup_element_events(mock_agent):
     """Test cleanup_element cleans events."""
     query = get_mock_ask_agent_request()
-    from tests.fixtures.context_manager_data import get_mock_attachments, get_mock_factsheet
-    return_value = {
-        "factsheet": get_mock_factsheet(),
-        "attachments": get_mock_attachments()
-    }
+    from tests.fixtures.context_manager_data import get_mock_factsheet
 
-    mock_agent.conversation_manager.load_project.return_value = return_value
+    mock_agent.conversation_manager.load_factsheet.return_value = get_mock_factsheet()
     mock_agent.context_manager.clean_element = AsyncMock(return_value=[
         {"event_id": "cleaned-event-001", "event_date": "2023-08-15"}
     ])
@@ -776,29 +768,39 @@ async def test_initialize_project_real_llm_small_input():
     This test uses REAL API calls to verify the entire initialize_project flow.
     Requires: GOOGLE_API_KEY or GEMINI_API_KEY
     """
-    # Create real agent (no mocks)
-    agent = Agent(
-        tools=[],
-        prompt="You are a helpful legal assistant analyzing case documents."
-    )
-    
-    # Create minimal request with simple text attachment
-    request = AskAgentRequest(
-        question="""Vi har en tvist om eiendomskjøp. 
+    # Mock saving and BigQuery
+    with patch('agent.agent.SupabaseManager.save_project') as mock_save_project, \
+         patch('agent.agent.BQVectorStore') as mock_bq:
+        
+        mock_save_project.return_value = None
+        
+        # Mock BQ vector store instance
+        mock_bq_instance = MagicMock()
+        mock_bq_instance.add_documents = MagicMock(return_value=None)
+        mock_bq.return_value = mock_bq_instance
+        
+        agent = Agent(
+            tools=[],
+            prompt="You are a helpful legal assistant analyzing case documents."
+        )
+        
+        # Create minimal request with simple text attachment
+        request = AskAgentRequest(
+            question="""Vi har en tvist om eiendomskjøp. 
         Meg (Andreas Nilsen) og min kone Berit kjøpte hus fra Daniel og Camilla Hansen.
         Kontrakten ble signert 25. august 2023 for 15.5 millioner kroner.
         Vi overtok boligen 11. november 2023.
         Etter overtakelsen oppdaget vi elektriske feil og problemer med pipa.""",
-        session_id="integration-test-session-001",
-        query_id="integration-test-query-001",
-        project_id="integration-test-project-001",
-        llm_model="google_gemini-2.5-flash",
-        attachments=[
-            AttachmentModel(
-                file_id="integration-test-file-001",
-                filename="simple_case_summary.txt",
-                file_type="text/plain",
-                content="""SAKSAMMENDRAG
+            session_id="integration-test-session-001",
+            query_id="integration-test-query-001",
+            project_id="integration-test-project-001",
+            llm_model="google_gemini-2.5-flash",
+            attachments=[
+                AttachmentModel(
+                    file_id="integration-test-file-001",
+                    filename="simple_case_summary.txt",
+                    file_type="text/plain",
+                    content="""SAKSAMMENDRAG
 
 Kjøper: Andreas Nilsen og Berit Johansen
 Selger: Daniel Hansen og Camilla Hansen
@@ -813,135 +815,160 @@ Mangler oppdaget:
 
 Reklamasjon sendt til selger: 15. desember 2023
 """,
-                size=350,
-                path="integration-test/integration-test-session-001/integration-test-file-001.txt",
-                query_id="integration-test-query-001"
-            )
-        ]
-    )
-    
-    # Run initialize_project with real LLM
-    results = []
-    async for chunk in agent.initialize_project(
-        query=request,
-        user_id="integration-test-user-001"
-    ):
-        results.append(chunk)
-    
-    # Verify we got results
-    assert len(results) > 0, "Should receive status updates and final result"
-    
-    # Check for required phases
-    phases_seen = set()
-    for result in results:
-        if result.get("type") == "status":
-            phase = result.get("phase", [])
-            if isinstance(phase, list):
-                phases_seen.update(phase)
-            else:
-                phases_seen.add(phase)
-    
-    # Should see key phases
-    assert "initialization" in phases_seen or "init_input" in phases_seen
-    assert "analyze_docs" in phases_seen or "analyze_doc" in phases_seen
-    assert "final_analysis" in phases_seen or "factual_facts" in phases_seen or "governing_law" in phases_seen
-    
-    # Get final result
-    final_result = next((r for r in results if r.get("type") == "result"), None)
-    assert final_result is not None, "Should have final result chunk"
-    assert "data" in final_result
-    assert "factsheet" in final_result["data"]
-    
-    # Verify factsheet has expected structure
-    factsheet = final_result["data"]["factsheet"]
-    
-    # Should have analyzed parties (Andreas, Berit, Daniel, Camilla)
-    assert "parties" in factsheet
-    assert len(factsheet["parties"]) >= 2, "Should identify at least buyers and sellers"
-    
-    # Should have events (contract signing, takeover, etc)
-    assert "events" in factsheet
-    assert len(factsheet["events"]) >= 1, "Should identify key events like contract signing"
-    
-    # Should have governing law
-    assert "governing_law" in factsheet
-    assert factsheet["governing_law"] is not None
-    
-    # Should have factual facts
-    assert "disputed_facts" in factsheet
-    assert "undisputed_facts" in factsheet
-    
-    # Attachments should be processed
-    assert "attachments" in final_result["data"]
-    assert len(final_result["data"]["attachments"]) == 1
+                    size=350,
+                    path="integration-test/integration-test-session-001/integration-test-file-001.txt",
+                    query_id="integration-test-query-001"
+                )
+            ]
+        )
+        
+        # Run initialize_project with real LLM
+        results = []
+        async for chunk in agent.initialize_project(
+            query=request,
+            user_id="integration-test-user-001"
+        ):
+            results.append(chunk)
+        
+        # Verify we got results
+        assert len(results) > 0, "Should receive status updates and final result"
+        
+        # Check for required phases
+        phases_seen = set()
+        for result in results:
+            if result.get("type") == "status":
+                phase = result.get("phase", [])
+                if isinstance(phase, list):
+                    phases_seen.update(phase)
+                else:
+                    phases_seen.add(phase)
+        
+        # Should see key phases
+        assert "initialization" in phases_seen or "init_input" in phases_seen
+        assert "analyze_docs" in phases_seen or "analyze_doc" in phases_seen
+        assert "final_analysis" in phases_seen or "factual_facts" in phases_seen or "governing_law" in phases_seen
+        
+        # Get final result
+        final_result = next((r for r in results if r.get("type") == "result"), None)
+        assert final_result is not None, "Should have final result chunk"
+        assert "data" in final_result
+        assert "factsheet" in final_result["data"]
+        
+        # Verify factsheet has expected structure
+        factsheet = final_result["data"]["factsheet"]
+        
+        # Should have analyzed parties (Andreas, Berit, Daniel, Camilla)
+        assert "parties" in factsheet
+        assert len(factsheet["parties"]) >= 2, "Should identify at least buyers and sellers"
+        
+        # Should have events (contract signing, takeover, etc)
+        assert "events" in factsheet
+        assert len(factsheet["events"]) >= 1, "Should identify key events like contract signing"
+        
+        # Should have governing law
+        assert "governing_law" in factsheet
+        assert factsheet["governing_law"] is not None
+        
+        # Should have factual facts
+        assert "disputed_facts" in factsheet
+        assert "undisputed_facts" in factsheet
+        
+        # Attachments should be processed
+        assert "attachments" in final_result["data"]
+        assert len(final_result["data"]["attachments"]) == 1
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration  
-async def test_initialize_project_with_email():
+async def test_initialize_project_with_email_without_saving():
     """Integration test: initialize_project with email attachment and real LLM
     
     Tests email parsing and analysis flow end-to-end.
     Requires: GOOGLE_API_KEY or GEMINI_API_KEY
     """
     from tests.fixtures.email_data import get_mock_eml_plain_text_b64
+    from dotenv import load_dotenv
+    load_dotenv()
     
-    # Create real agent
-    agent = Agent(
-        tools=[],
-        prompt="You are a helpful legal assistant."
-    )
+    # Set absolute path to gcloud credentials if using relative path
+    creds_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "gcloud-keys.json")
+    if not os.path.isabs(creds_path):
+        # Convert to absolute path relative to agent directory
+        agent_dir = os.path.join(os.path.dirname(__file__), '..')
+        creds_path = os.path.join(agent_dir, creds_path)
     
-    # Create request with email attachment
-    request = AskAgentRequest(
-        question="Analyser denne emailen i forbindelse med eiendomssaken.",
-        session_id="integration-email-session-001",
-        query_id="integration-email-query-001", 
-        project_id="integration-email-project-001",
-        llm_model="google_gemini-2.5-flash",
-        attachments=[
-            AttachmentModel(
-                file_id="integration-email-file-001",
-                filename="test-email.eml",
-                file_type="message/rfc822",
-                content=get_mock_eml_plain_text_b64(),
-                size=1500,
-                path="integration-test/integration-email-session-001/integration-email-file-001.eml",
-                query_id="integration-email-query-001"
-            )
-        ]
-    )
+    if not os.path.exists(creds_path):
+        pytest.skip(f"Google Cloud credentials not found at {creds_path}. Skipping integration test.")
     
-    # Run initialize_project
-    results = []
-    async for chunk in agent.initialize_project(
-        query=request,
-        user_id="integration-test-user-001"
-    ):
-        results.append(chunk)
-    
-    # Verify results
-    assert len(results) > 0
-    
-    # Should have email analysis phase
-    phases = [r.get("phase", []) for r in results if r.get("type") == "status"]
-    all_phases = []
-    for phase in phases:
-        if isinstance(phase, list):
-            all_phases.extend(phase)
-        else:
-            all_phases.append(phase)
-    
-    # Either analyze_email or analyze_doc should be present
-    assert any("email" in str(p).lower() or "doc" in str(p).lower() for p in all_phases)
-    
-    # Get final result
-    final_result = next((r for r in results if r.get("type") == "result"), None)
-    assert final_result is not None
-    
-    # Should have processed the email
-    factsheet = final_result["data"]["factsheet"]
-    assert factsheet is not None
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+
+    # Mock saving and BigQuery to avoid needing actual BQ setup
+    with patch('agent.agent.SupabaseManager.save_project') as mock_save_project, \
+         patch('agent.agent.BQVectorStore') as mock_bq:
+        
+        mock_save_project.return_value = None
+        
+        # Mock BQ vector store instance
+        mock_bq_instance = MagicMock()
+        mock_bq_instance.add_documents = MagicMock(return_value=None)
+        mock_bq.return_value = mock_bq_instance
+        
+        # Create real agent (with mocked BQ)
+        agent = Agent(
+            tools=[],
+            prompt="You are a helpful legal assistant."
+        )
+        
+        # Create request with email attachment
+        request = AskAgentRequest(
+            question="Analyser denne emailen i forbindelse med eiendomssaken.",
+            session_id="integration-email-session-001",
+            query_id="integration-email-query-001", 
+            project_id="integration-email-project-001",
+            llm_model="google_gemini-2.5-flash",
+            attachments=[
+                AttachmentModel(
+                    file_id="integration-email-file-001",
+                    filename="test-email.eml",
+                    file_type="message/rfc822",
+                    content=get_mock_eml_plain_text_b64(),
+                    size=1500,
+                    path="integration-test/integration-email-session-001/integration-email-file-001.eml",
+                    query_id="integration-email-query-001"
+                )
+            ]
+        )
+        
+        # Run initialize_project
+        results = []
+        async for chunk in agent.initialize_project(
+            query=request,
+            user_id="integration-test-user-001"
+        ):
+            results.append(chunk)
+        
+        # Verify results
+        assert len(results) > 0
+        
+        # Should have email analysis phase
+        phases = [r.get("phase", []) for r in results if r.get("type") == "status"]
+        all_phases = []
+        for phase in phases:
+            if isinstance(phase, list):
+                all_phases.extend(phase)
+            else:
+                all_phases.append(phase)
+        
+        # Either analyze_email or analyze_doc should be present
+        assert any("email" in str(p).lower() or "doc" in str(p).lower() for p in all_phases)
+        
+        # Get final result
+        final_result = next((r for r in results if r.get("type") == "result"), None)
+        assert final_result is not None
+        
+        # Should have processed the email
+        factsheet = final_result["data"]["factsheet"]
+        assert factsheet is not None
 
 
 @pytest.mark.asyncio
