@@ -187,6 +187,7 @@ class Attachment(AttachmentExtracted):
     filename: str
     path: str 
     file_type: FileTypes #system generated
+    body : Optional[str] = None
     size: int #system generated
     events: Optional[list[str]] = Field(None, description="event IDs mentioned in the document")
     email_id: Optional[str] = Field(None, description="If this attachment was extracted from an email, reference the email_id here")
