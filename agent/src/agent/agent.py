@@ -152,7 +152,7 @@ class Agent:
 
 
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
-        project_data = self.conversation_manager.load_project(project_id = project_id) if project_id else None
+        factsheet = self.conversation_manager.load_factsheet(project_id=project_id) if project_id else None
                                                            
 
 
@@ -167,9 +167,9 @@ class Agent:
         payload = [SystemMessage(content=self.prompt)]
 
         # Add factsheet context
-        if project_data and project_data.get("factsheet"):
+        if factsheet and isinstance(factsheet, FactSheet):
             factsheet_message = HumanMessage(
-                content="Here is the current FactSheet for the case: " + json.dumps(project_data.get("factsheet").model_dump(mode="json"))
+                content="Here is the current FactSheet for the case: " + json.dumps(factsheet.model_dump(mode="json"))
             )
             payload.append(factsheet_message)
 
@@ -211,8 +211,6 @@ class Agent:
             messages_to_return = [enhanced_msg, message] if enhanced_msg else [message]
             return {
                 "messages": messages_to_return,
-                #"factsheet":{}, 
-                "attachments": [file.file_id for file in project_data.get("attachments", [])] if project_data else []
             }
         except Exception as e:
             logger.error(f"Error invoking LLM: {e}", exc_info=True)
