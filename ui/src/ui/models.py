@@ -2,7 +2,19 @@ from typing import TypedDict, Optional, Literal, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 
-
+FileType = Literal["application/pdf", "text/plain", "application/msword","message/rfc822","text/csv",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation", 
+                    #"application/vnd.ms-powerpoint", 
+                    #"application/msword",
+                    #"application/vnd.ms-excel", 
+                    ]
+FileExt = [".pdf", ".txt",  ".eml", ".csv", ".xlsx",".pptx",".docx",
+           #OLD MS
+           #".doc", ".xls",  ".ppt",
+           ]
+           
 # ===== User & Company Models =====
 
 class UserDetails(BaseModel):
@@ -29,7 +41,7 @@ class AttachmentModel(BaseModel):
     file_id: str = Field(description="Unique identifier for the file, e.g., a UUID string")
     content: str  = Field(description="Base64 encoded content")
     path : str = Field(description="Storage path for the attachment, e.g., 'user_id/session_id/file_id.ext'. Should also end with extension")
-    file_type: str = Field(description="MIME type of the file, e.g., 'application/pdf', 'text/plain', 'message/rfc822', etc.")
+    file_type: FileType = Field(description="MIME type of the file, e.g., 'application/pdf', 'text/plain', 'message/rfc822', etc.")
     size: int = Field(description="Size of the file in bytes")
     query_id: str = Field(description="ID (uuid) of the query this attachment is associated with")
     event_id: Optional[str] = Field(None, description="ID of the event this attachment is associated with, if applicable")
@@ -102,37 +114,6 @@ class TokenEvent(BaseModel):
     type: Literal["token"]
     data: str
     query_id: str
-
-
-# class ToolCallData(BaseModel): #UTDATERT
-#     """Tool call within AI message"""
-#     name: str
-#     args: dict[str, Any]
-
-
-# class AIMessageData(BaseModel):  #UTDAERT
-#     """Data for AI message"""
-#     content: str
-#     tool_calls: Optional[list[ToolCallData]] = None
-#     token_stream: Optional[str] = None
-
-
-# class AIEvent(BaseModel): #UTDATERT
-#     """SSE event type: ai"""
-#     type: Literal["ai"]
-#     data: AIMessageData
-#     query_id: str
-
-
-# class ToolResultEvent(BaseModel): #UTDATERT
-#     """SSE event type: tool_result"""
-#     type: Literal["tool_result"]
-#     tool_name: str
-#     tool_args: Optional[dict[str, Any]] = None
-#     data: Any
-#     query_id: str
-#     token_stream: Optional[str] = None
-
 
 # ===== MODELS SAVING TO FIRESTORE =====
 class HumanEventData(BaseModel):

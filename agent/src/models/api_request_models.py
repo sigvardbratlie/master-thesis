@@ -6,8 +6,13 @@ from datetime import datetime,date
 import uuid
 from langgraph.graph.message import add_messages
 
-FileTypes = Literal["application/pdf", "text/plain", "application/msword","message/rfc822","text/csv",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", #"application/",
+FileType = Literal["application/pdf", "text/plain", "application/msword","message/rfc822","text/csv",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+                    "application/vnd.openxmlformats-officedocument.presentationml.presentation", 
+                    #"application/vnd.ms-powerpoint", 
+                    #"application/msword",
+                    #"application/vnd.ms-excel", 
                     ]
 #=================================
 # ===== API REQUEST MODELS =======
@@ -20,7 +25,7 @@ class AttachmentModel(BaseModel):
     file_id: str
     content: Optional[str] = Field(None, description="Base64 encoded content")
     path : str = Field(description="Storage path for the attachment, e.g., 'user_id/session_id/file_id.ext'. Should also end with extension")
-    file_type: FileTypes = Field(description="MIME type of the file, e.g., 'application/pdf', 'text/plain', 'message/rfc822', etc.")
+    file_type: FileType = Field(description="MIME type of the file, e.g., 'application/pdf', 'text/plain', 'message/rfc822', etc.")
     size: int = Field(description="Size of the file in bytes")
     query_id: str = Field(description="ID (uuid) of the query this attachment is associated with")
     event_id: Optional[str] = Field(None, description="ID of the event this attachment is associated with, if applicable")
@@ -103,4 +108,28 @@ class StreamData(BaseModel):
     events : list[StreamEvent]
     attachments : Optional[list[AttachmentModel]] = None
 
+
+class VectorStoreMetadata(BaseModel):
+    #doc_id : str #auto generated
+    #content : str #txt content of chunk
+    #embedding  : list[float] repeated
+    file_id: str
+    filename: str
+    file_type: FileType
+    file_size : Optional[int] = None
+    user_id: str
+    session_id: str
+    query_id: str
+    uploaded_at : Optional[datetime] = None
+    created_at : Optional[datetime] = None
+    updated_at : Optional[datetime] = None
+    chunk : Optional[int] = None
+    total_chunks : Optional[int] = None
+    creator : Optional[str] = None
+    producer : Optional[str] = None
+    embedding_model : str = None
+    title : Optional[str] = None
+    language : Optional[str] = None
+    comments : Optional[str] = None
+    keywords : Optional[str] = None
 

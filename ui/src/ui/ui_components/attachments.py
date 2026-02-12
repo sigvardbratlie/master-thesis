@@ -56,6 +56,7 @@ class AttachmentComponent:
         # Generer en unik nøkkel basert på filnavn og størrelse
         file_key = f"{file.name}_{file.size}"
         
+        
         # Cache innholdet ved første tilgang
         if file_key not in st.session_state.attachment_cache:
             st.session_state.attachment_cache[file_key] = file.getvalue()

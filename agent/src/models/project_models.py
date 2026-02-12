@@ -5,11 +5,9 @@ from langchain_core.messages import BaseMessage
 from datetime import datetime,date
 import uuid
 from langgraph.graph.message import add_messages
+from .api_request_models import FileType
 
 
-FileTypes = Literal["application/pdf", "text/plain", "application/msword","message/rfc822","text/csv",
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document", #"application/",
-                    ]
 # ===== CONTEXT MANAGER MODELS
 PartyRole = Literal[
     # Sivile hovedparter
@@ -189,7 +187,7 @@ class Attachment(AttachmentExtracted):
     file_id: Optional[str] = None
     filename: str
     path: str 
-    file_type: FileTypes #system generated
+    file_type: FileType #system generated
     body : Optional[str] = None
     size: int #system generated
     events: Optional[list[str]] = Field(None, description="event IDs mentioned in the document")

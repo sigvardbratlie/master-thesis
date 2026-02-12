@@ -4,7 +4,7 @@ from .agent_models import AgentState
 
 __all__ = [
     "PartyRole",
-    "FileTypes",
+    "FileType",
     # PROJECT MODELS
     "GoverningLaw",
     "FactualFacts",

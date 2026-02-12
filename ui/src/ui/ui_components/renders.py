@@ -46,7 +46,7 @@ class ChatComponent:
         user_input = st.chat_input(
             "Still et spørsmål for å komme igang...",
             accept_file="multiple",
-            file_type=["txt", "csv", "xlsx", "pdf", "docx", "eml"],
+            file_type=FileExt,
         )
         if user_input:
             question = user_input
@@ -184,7 +184,7 @@ class ChatComponent:
         chat_question = st.chat_input(
             "Skriv ditt spørsmål her...",
             accept_file="multiple",
-            file_type=["txt", "csv",  "pdf", "xlsx", "docx", "eml"],
+            file_type=FileExt,
         )
 
         return chat_question
@@ -652,9 +652,7 @@ class ProjectComponent:
         with st.expander("Attachments Overview", expanded=False, icon="📎"):
             for file in st.session_state.get('attachments', []):
                 self.attachment_component.view_attachment(file, key = str(uuid4()))
-                #
-                # if st.button(f"- **{file.get('filename', 'No Filename')}** ({file.get('category', 'No Category')}, {file.get('significance', 'No Significance')})", key=file.get('file_id','no-id')):
-                #     st.pdf()
+
 
         with st.expander("Correspondence Overview", expanded=False, icon="✉️"):
             #st.info(st.session_state.get("emails", []))
@@ -888,7 +886,7 @@ class ProjectComponent:
 
         user_files = st.file_uploader("Upload project files:",
                                     accept_multiple_files=True,
-                                    type=["txt", "csv", "xlsx", "docx", "pdf", "eml", ],
+                                    type=FileExt,
                                     help="You can upload multiple files.",
                                     key = f"file_uploader_{st.session_state.clear_input_counter}")
         attachment_list = [self.attachment_component.mk_attachment_payload(f,query_id=query_id) for f in user_files] if user_files else []
