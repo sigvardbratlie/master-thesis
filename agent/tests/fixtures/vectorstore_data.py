@@ -82,6 +82,10 @@ def get_mock_metadata() -> dict:
     return {
         "file_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
         "session_id": "s1-test-session-id",
+        "embedding_model": "google_gemini-embedding-001",
+        "filename": "test-document.pdf",
+        "user_id": "user-123",
+        "query_id": "query-456",
     }
 
 
@@ -175,3 +179,29 @@ def get_mock_text_attachment_for_processing() -> AttachmentModel:
         size=512,
         query_id="q1-test-query-id",
     )
+
+
+def get_mock_docx_bytes() -> bytes:
+    """Read real docx file from fixtures."""
+    import os
+    fixture_path = os.path.join(os.path.dirname(__file__), "test-file.docx")
+    with open(fixture_path, 'rb') as f:
+        return f.read()
+
+
+def get_mock_docx_base64() -> str:
+    """Base64 encoded real docx file for routing tests."""
+    return base64.b64encode(get_mock_docx_bytes()).decode("utf-8")
+
+
+def get_mock_pptx_bytes() -> bytes:
+    """Read real pptx file from fixtures."""
+    import os
+    fixture_path = os.path.join(os.path.dirname(__file__), "test-file.pptx")
+    with open(fixture_path, 'rb') as f:
+        return f.read()
+
+
+def get_mock_pptx_base64() -> str:
+    """Base64 encoded real pptx file for routing tests."""
+    return base64.b64encode(get_mock_pptx_bytes()).decode("utf-8")

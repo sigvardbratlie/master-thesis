@@ -233,4 +233,8 @@ def get_mock_eml_metadata() -> dict:
     return {
         "file_id": "eml-file-id-001",
         "session_id": "eml-session-id-001",
+        "embedding_model": "google_gemini-embedding-001",
+        "filename": "test-email.eml",
+        "user_id": "user-123",
+        "query_id": "query-456",
     }
