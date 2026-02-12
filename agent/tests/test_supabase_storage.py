@@ -44,17 +44,16 @@ def test_save_attachment_with_bytes(mock_storage_manager):
     assert result == path  # Should return path on success
 
 
-def test_save_attachment_with_string(mock_storage_manager):
-    """Test save_attachment converts string to bytes before saving."""
-    content = "dette er tekstinnhold"
+def test_save_attachment_only_accepts_bytes(mock_storage_manager):
+    """Test save_attachment rejects non-bytes content."""
+    content = "string content"  # Not bytes
     path = "user123/session456/file.txt"
 
+    # Should fail when trying to write a string
     result = mock_storage_manager.save_attachment(content=content, path=path)
-
-    mock_storage_manager.supabase.storage.from_.assert_called_once_with("attachments")
-    mock_storage_manager.supabase.storage.from_.return_value.upload.assert_called_once()
-    assert result == path  # Should return path on success
-
+    
+    # Should return None on failure
+    assert result is None
 
 def test_save_attachment_custom_bucket(mock_storage_manager):
     """Test save_attachment with custom bucket name."""
@@ -85,7 +84,7 @@ def test_save_attachment_handles_error(mock_storage_manager):
 
 @pytest.mark.asyncio
 async def test_save_raw_documents_pdf_and_text(mock_storage_manager):
-    """Test save_raw_documents processes both PDF and text attachments."""
+    """Test save_raw_documents processes both PDF and text attachments (both base64-encoded)."""
     attachments = get_mock_attachments_list()
 
     with patch.object(mock_storage_manager, 'save_attachment') as mock_save:
@@ -94,39 +93,35 @@ async def test_save_raw_documents_pdf_and_text(mock_storage_manager):
         assert mock_save.call_count == 2
         assert isinstance(results, dict)
         assert len(results) == 2
+        
+        # Verify all calls were made with bytes (decoded from base64)
+        for call in mock_save.call_args_list:
+            content_arg = call.kwargs.get("content") or call[0][0]
+            assert isinstance(content_arg, bytes), "All content must be bytes"
 
 
 @pytest.mark.asyncio
-async def test_save_raw_documents_decodes_pdf_base64(mock_storage_manager):
-    """Test that PDF content is base64-decoded before saving."""
+async def test_save_raw_documents_decodes_base64(mock_storage_manager):
+    """Test that all content is base64-decoded before saving (PDF and text)."""
     pdf_att = get_mock_pdf_attachment()
-
-    with patch.object(mock_storage_manager, 'save_attachment') as mock_save:
-        mock_save.return_value = pdf_att.path
-        results = await mock_storage_manager.save_raw_documents([pdf_att])
-
-        mock_save.assert_called_once()
-        call_kwargs = mock_save.call_args
-        content_arg = call_kwargs.kwargs.get("content") or call_kwargs[1].get("content") or call_kwargs[0][0]
-        # Content should be decoded bytes, not the original base64 string
-        assert isinstance(content_arg, bytes)
-        assert results[pdf_att.file_id] == pdf_att.path
-
-
-@pytest.mark.asyncio
-async def test_save_raw_documents_text_not_decoded(mock_storage_manager):
-    """Test that text content is passed through without base64 decoding."""
     text_att = get_mock_text_attachment()
 
     with patch.object(mock_storage_manager, 'save_attachment') as mock_save:
-        mock_save.return_value = text_att.path
-        results = await mock_storage_manager.save_raw_documents([text_att])
+        mock_save.return_value = pdf_att.path
+        results = await mock_storage_manager.save_raw_documents([pdf_att, text_att])
 
-        mock_save.assert_called_once()
-        call_kwargs = mock_save.call_args
-        content_arg = call_kwargs.kwargs.get("content") or call_kwargs[1].get("content") or call_kwargs[0][0]
-        assert isinstance(content_arg, str)
-        assert results[text_att.file_id] == text_att.path
+        assert mock_save.call_count == 2
+        
+        # Both PDF and text should be decoded to bytes
+        for call in mock_save.call_args_list:
+            content_arg = call.kwargs.get("content") or call[0][0]
+            assert isinstance(content_arg, bytes), "All content must be decoded to bytes"
+            # Verify it's not the original base64 string
+            assert content_arg != pdf_att.content
+            assert content_arg != text_att.content
+
+
+
 
 
 @pytest.mark.asyncio

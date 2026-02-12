@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class GCSManager:
-
+    #OUTDATED - MUST BE REWRITTEN TO SUPPORT CODE
     def __init__(self):
         self.client = storage.Client()
         self.bucket_name = os.getenv("GCS_BUCKET_NAME", "attachments")
@@ -64,10 +64,18 @@ class SupabaseStorageManager:
         self.supabase = create_client(self.url, self.key)
         self.max_concurrent_uploads = max_concurrent_uploads
 
-    def save_attachment(self, content: bytes | str, path : str, bucket_name: str = "attachments", max_retries: int = 3) -> Optional[str]:
-        """Save attachment with retry logic for transient errors"""
-        if isinstance(content, str):
-            content = content.encode('utf-8')
+    def save_attachment(self, content: bytes, path : str, bucket_name: str = "attachments", max_retries: int = 3) -> Optional[str]:
+        """Save attachment with retry logic for transient errors
+        
+        Args:
+            content: File content as bytes
+            path : Storage path for the attachment, e.g., 'user_id/session_id/file_id.ext'. Should also end with extension
+            bucket_name: Name of the Supabase Storage bucket
+            max_retries: Maximum number of retries for transient errors
+
+        Returns:
+            The storage path if upload is successful or file already exists, None if all retries fail
+        """
         
         tmp_path = None
         last_error = None
@@ -131,10 +139,7 @@ class SupabaseStorageManager:
             """Upload single attachment with semaphore control"""
             async with semaphore:
                 path = att.path
-                if att.file_type == "application/pdf":
-                    content_bytes = base64.b64decode(att.content)
-                else:
-                    content_bytes = att.content
+                content_bytes = base64.b64decode(att.content)
 
                 # Kjør blocking I/O i thread → slipper å blokkere event loop
                 result = await asyncio.to_thread(

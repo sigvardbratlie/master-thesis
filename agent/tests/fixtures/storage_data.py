@@ -17,8 +17,9 @@ def get_mock_pdf_content() -> str:
 
 
 def get_mock_text_content() -> str:
-    """Plain text content for testing."""
-    return "Dette er et testdokument med innhold om en eiendomstvist i Stavanger kommune."
+    """Base64-encoded text content for testing."""
+    text = "Dette er et testdokument med innhold om en eiendomstvist i Stavanger kommune."
+    return base64.b64encode(text.encode('utf-8')).decode('utf-8')
 
 
 def get_mock_pdf_attachment() -> AttachmentModel:
@@ -37,7 +38,7 @@ def get_mock_text_attachment() -> AttachmentModel:
     return AttachmentModel(
         filename="epost_korrespondanse.txt",
         file_id="b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        content=get_mock_text_content(),
+        content=get_mock_text_content(),  # Now base64-encoded
         path="user123/session456/b2c3d4e5-f6a7-8901-bcde-f12345678901.txt",
         file_type="text/plain",
         size=512,
