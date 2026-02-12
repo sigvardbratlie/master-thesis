@@ -111,7 +111,7 @@ class ContextManager:
         
         if not attachment.body:
             logger.warning('No content provided for document analysis. Returning empty result.')
-            return {"attachment": None, 
+            return {"attachments": [], 
                     "events": [],
                     "damages": [],
                     "claims": [],
@@ -126,7 +126,7 @@ class ContextManager:
         init_prompt = f'Case input: {input_.model_dump()}\n\n'
         prompt = init_prompt + f'Analyze the following document and extract BOTH attachment metadata AND timeline events:\n\n{attachment.body}'
 
-        for attempt in range(3):  # Retry mechanism
+        for attempt in range(3):  
             try:
                 response = await structured_llm.ainvoke(prompt)
                 break  # Exit loop if successful
@@ -137,6 +137,14 @@ class ContextManager:
                     await asyncio.sleep(wait_time)
                 else:
                     raise
+        if not response:
+            logger.error("LLM returned empty response for document analysis.")
+            return {"attachments": [], 
+                    "events": [],
+                    "damages": [],
+                    "claims": [],
+                    "deadlines": []
+                    }
         
         # Process events from attachment (not email)
         for event in response.events or []:
@@ -170,7 +178,7 @@ class ContextManager:
                             "size":attachment.size,}
         file = Attachment.model_validate(attachment_dict)
                         
-        return {"attachment": file, 
+        return {"attachments": [file], 
                 "events": response.events,
                 "damages": response.attachment.damages if response.attachment.damages else [],
                 "claims": response.attachment.claims if response.attachment.claims else [],
@@ -191,7 +199,7 @@ class ContextManager:
         
         if not attachments:
             logger.warning('No content provided for document analysis. Returning empty result.')
-            return {"attachments": None, 
+            return {"attachments": [], 
                     "events": [],
                     "damages": [],
                     "claims": [],

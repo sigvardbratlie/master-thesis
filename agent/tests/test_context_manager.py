@@ -106,16 +106,17 @@ async def test_analyze_doc(mock_context_manager):
     mock_context_manager.llm.with_structured_output.assert_called_once()
     structured_llm.ainvoke.assert_called_once()
     assert isinstance(result, dict)
-    assert "attachment" in result
-    assert isinstance(result["attachment"], Attachment)
+    assert "attachments" in result
+    assert isinstance(result["attachments"], list)
+    assert isinstance(result["attachments"][0], Attachment)
     assert "events" in result
     assert isinstance(result["events"], list)
     assert isinstance(result["events"][0], Event)
     assert result["events"][0].event_id, 'Should be present'
     assert result["events"][0].file_id == "test_file_id"
-    assert result["attachment"].path == attachment_model.path
-    assert result["attachment"].file_id == "test_file_id"
-    assert result["attachment"].body == attachment_model.body
+    assert result["attachments"][0].path == attachment_model.path
+    assert result["attachments"][0].file_id == "test_file_id"
+    assert result["attachments"][0].body == attachment_model.body
 
 
 async def test_analyze_doc_empty_body(mock_context_manager):
@@ -128,7 +129,7 @@ async def test_analyze_doc_empty_body(mock_context_manager):
                                                     attachment=attachment_model)
 
     mock_context_manager.llm.with_structured_output.assert_not_called()
-    assert result["attachment"] is None
+    assert result["attachments"] == []
     assert result["events"] == []
     assert result["damages"] == []
     assert result["claims"] == []
@@ -277,7 +278,7 @@ async def test_analyze_multiple_docs_empty_list(mock_context_manager):
 
     mock_context_manager.llm.with_structured_output.assert_not_called()
     assert isinstance(result, dict)
-    assert result["attachments"] is None
+    assert result["attachments"] == []
     assert result["events"] == []
 
 
