@@ -143,51 +143,6 @@ def test_is_valid_uuid(mock_context_manager):
     assert mock_context_manager.is_valid_uuid(invalid) == False
     assert mock_context_manager.is_valid_uuid(almost_valid) == False
 
-# async def test_consider_new_user_input(mock_context_manager):
-#     from tests.fixtures.context_manager_data import get_mock_factsheet
-#     structured_llm = AsyncMock()
-#     mock_context_manager.llm.with_structured_output.return_value = structured_llm
-#     factsheet = get_mock_factsheet()
-#     if not isinstance(factsheet, FactSheet):
-#          print(f"Factsheet is not of type FactSheet {type(factsheet)} | {factsheet}\ncheck the fixture data.")
-#     class AttachmentExtractedWithEvents(BaseModel):
-#             attachment: AttachmentExtracted
-#             events: List[Event]
-#     att = AttachmentExtracted(
-#         party_roles=["plaintiff"], 
-#         claims=factsheet.claims,
-#         deadlines=factsheet.deadlines,
-#         key_provisions=["prov1", "prov2"],
-#         description="description",
-#         file_date="2023-08-25",
-#         category="agreement",
-#         significance="high"
-#     )
-         
-#     structured_llm.ainvoke.return_value = AttachmentExtractedWithEvents(events = factsheet.events, attachment=att)
-
-#     result = await mock_context_manager.consider_new_doc(factsheet = factsheet,
-#                                           new_content = "This is new content",
-#                                           new_user_input= "testinput",
-#                                           file_id = "test_file_id",
-#                                           filename = "test_filename",
-#                                           path = "test_path",
-#                                           file_type = "application/pdf",
-#                                           size = 1024)
-    
-#     assert isinstance(result, dict)
-#     assert "file" in result
-#     assert isinstance(result["file"], Attachment)
-#     assert "events" in result
-#     assert isinstance(result["events"], list)
-#     assert isinstance(result["events"][0], Event)
-#     assert result["events"][0].event_id, 'Shoudl be present'
-#     assert result["events"][0].file_id == "test_file_id"
-#     assert result["file"].path == "test_path"
-#     assert result["file"].file_id == "test_file_id"
-#     assert result["file"].key_provisions == ["prov1", "prov2"]
-#     assert result["file"].description == "description"
-
 async def test_clean_element(mock_context_manager):
     from tests.fixtures.context_manager_data import get_mock_clean_parties, get_mock_factsheet
     structured_llm = AsyncMock()
