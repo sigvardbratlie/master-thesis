@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 #           DOCUMENT PROCESSOR TESTS
 # ============================================
 
-from database.vectorstore_modules import DocumentProcessor
+from database import DocumentProcessor
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ def test_needs_ocr_invalid_bytes(doc_processor):
 def test_needs_ocr_with_text(doc_processor):
     """PDF with sufficient text should not need OCR."""
     # Mock PdfReader to simulate a PDF with text on all pages
-    with patch('database.vectorstore_modules.PdfReader') as mock_reader_cls:
+    with patch('database.document_modules.PdfReader') as mock_reader_cls:
         mock_page = MagicMock()
         mock_page.extract_text.return_value = "A" * 200  # Plenty of text
         mock_reader = MagicMock()
@@ -69,7 +69,7 @@ def test_needs_ocr_with_text(doc_processor):
 
 def test_needs_ocr_low_text_coverage(doc_processor):
     """PDF where <50% of pages have text should need OCR."""
-    with patch('database.vectorstore_modules.PdfReader') as mock_reader_cls:
+    with patch('database.document_modules.PdfReader') as mock_reader_cls:
         page_with_text = MagicMock()
         page_with_text.extract_text.return_value = "A" * 200
 
@@ -92,7 +92,7 @@ def test_ocr_bytes_success(doc_processor):
     input_bytes = b"fake pdf input"
     expected_output = b"ocr processed output"
 
-    with patch('database.vectorstore_modules.ocrmypdf') as mock_ocr:
+    with patch('database.document_modules.ocrmypdf') as mock_ocr:
         mock_ocr.ocr.return_value = None  # ocrmypdf.ocr returns None on success
         # Mock the output file read
         with patch('builtins.open', MagicMock()) as mock_open:
@@ -110,7 +110,7 @@ def test_ocr_bytes_prior_ocr_returns_original(doc_processor):
     import ocrmypdf
     input_bytes = b"already ocr'd pdf"
 
-    with patch('database.vectorstore_modules.ocrmypdf') as mock_ocr_module:
+    with patch('database.document_modules.ocrmypdf') as mock_ocr_module:
         mock_ocr_module.ocr.side_effect = ocrmypdf.exceptions.PriorOcrFoundError()
         mock_ocr_module.exceptions = ocrmypdf.exceptions
 
@@ -123,7 +123,7 @@ def test_ocr_bytes_error_returns_original(doc_processor):
     """Test OCR returns original PDF on general failure."""
     input_bytes = b"problematic pdf"
 
-    with patch('database.vectorstore_modules.ocrmypdf') as mock_ocr_module:
+    with patch('database.document_modules.ocrmypdf') as mock_ocr_module:
         import ocrmypdf
         mock_ocr_module.ocr.side_effect = RuntimeError("OCR failed")
         mock_ocr_module.exceptions = ocrmypdf.exceptions
@@ -140,13 +140,26 @@ def test_parse_pdf_with_text(doc_processor):
     metadata = get_mock_metadata()
 
     with patch.object(doc_processor, '_needs_ocr', return_value=False):
-        with patch('database.vectorstore_modules.PdfReader') as mock_reader_cls:
+        with patch('database.document_modules.PdfReader') as mock_reader_cls:
             mock_page = MagicMock()
             mock_page.extract_text.return_value = "Innhold fra side 1 om eiendomstvist"
 
             mock_reader = MagicMock()
+            metamock = MagicMock()
+            metamock.title = "TestPDF"
+            metamock.subject = "TestPDF"
+            metamock.author = "TestAuthor"
+            metamock.created = datetime(2024, 1, 15)
+            metamock.modified = datetime(2024, 1, 15)
+            metamock.creation_date = datetime(2024, 1, 15)
+            metamock.modification_date = datetime(2024, 1, 15)
+            metamock.creator = "TestCreator"
+            metamock.producer = "TestProducer"
+            metamock.get = MagicMock(return_value=None)
+            metamock.comments = None
+            metamock.language = None
             mock_reader.pages = [mock_page, mock_page]
-            mock_reader.metadata = {"/Creator": "TestPDF"}
+            mock_reader.metadata = metamock
             mock_reader_cls.return_value = mock_reader
 
             result = doc_processor.parse_pdf(b"fake pdf bytes", metadata)
@@ -158,7 +171,7 @@ def test_parse_pdf_with_text(doc_processor):
             assert result[0].metadata["chunk"] == 1
             assert result[1].metadata["chunk"] == 2
             assert result[0].metadata["total_chunks"] == 2
-            assert result[0].metadata["creator"] == "TestPDF"
+            assert result[0].metadata["creator"] == "TestCreator"
 
 
 def test_parse_pdf_empty_pages(doc_processor):
@@ -166,7 +179,7 @@ def test_parse_pdf_empty_pages(doc_processor):
     metadata = get_mock_metadata()
 
     with patch.object(doc_processor, '_needs_ocr', return_value=False):
-        with patch('database.vectorstore_modules.PdfReader') as mock_reader_cls:
+        with patch('database.document_modules.PdfReader') as mock_reader_cls:
             mock_page = MagicMock()
             mock_page.extract_text.return_value = ""
 
@@ -184,7 +197,7 @@ def test_parse_pdf_skips_empty_pages(doc_processor):
     metadata = get_mock_metadata()
 
     with patch.object(doc_processor, '_needs_ocr', return_value=False):
-        with patch('database.vectorstore_modules.PdfReader') as mock_reader_cls:
+        with patch('database.document_modules.PdfReader') as mock_reader_cls:
             page_with_text = MagicMock()
             page_with_text.extract_text.return_value = "Innhold om rettssaken"
 
@@ -208,7 +221,7 @@ def test_parse_pdf_triggers_ocr_when_needed(doc_processor):
 
     with patch.object(doc_processor, '_needs_ocr', return_value=True):
         with patch.object(doc_processor, '_ocr_bytes', return_value=b"ocr output") as mock_ocr:
-            with patch('database.vectorstore_modules.PdfReader') as mock_reader_cls:
+            with patch('database.document_modules.PdfReader') as mock_reader_cls:
                 mock_page = MagicMock()
                 mock_page.extract_text.return_value = "OCR extracted text"
 
@@ -227,7 +240,7 @@ def test_parse_pdf_invalid_pdf(doc_processor):
     metadata = get_mock_metadata()
 
     with patch.object(doc_processor, '_needs_ocr', return_value=False):
-        with patch('database.vectorstore_modules.PdfReader', side_effect=Exception("Invalid PDF")):
+        with patch('database.document_modules.PdfReader', side_effect=Exception("Invalid PDF")):
             result = doc_processor.parse_pdf(b"invalid", metadata)
             assert result == []
 
@@ -493,7 +506,7 @@ def test_parse_docx_empty_document(doc_processor):
     content = b"fake docx bytes"
     metadata = get_mock_metadata()
 
-    with patch('database.vectorstore_modules.DocxDocument') as mock_docx:
+    with patch('database.document_modules.DocxDocument') as mock_docx:
         mock_doc = MagicMock()
         
         mock_props = MagicMock()
@@ -524,7 +537,7 @@ def test_parse_docx_invalid_bytes(doc_processor):
     content = b"not a real docx file"
     metadata = get_mock_metadata()
 
-    with patch('database.vectorstore_modules.DocxDocument', side_effect=Exception("Invalid DOCX")):
+    with patch('database.document_modules.DocxDocument', side_effect=Exception("Invalid DOCX")):
         result = doc_processor.parse_docx(content, metadata)
         assert result == []
 
@@ -573,7 +586,7 @@ def test_parse_pptx_empty_presentation(doc_processor):
     content = b"fake pptx bytes"
     metadata = get_mock_metadata()
 
-    with patch('database.vectorstore_modules.Presentation') as mock_pptx:
+    with patch('database.document_modules.Presentation') as mock_pptx:
         mock_pres = MagicMock()
         
         mock_props = MagicMock()
@@ -604,7 +617,7 @@ def test_parse_pptx_invalid_bytes(doc_processor):
     content = b"not a real pptx file"
     metadata = get_mock_metadata()
 
-    with patch('database.vectorstore_modules.Presentation', side_effect=Exception("Invalid PPTX")):
+    with patch('database.document_modules.Presentation', side_effect=Exception("Invalid PPTX")):
         result = doc_processor.parse_pptx(content, metadata)
         assert result == []
 
