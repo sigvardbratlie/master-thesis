@@ -19,6 +19,7 @@ class AttachmentModel(BaseModel):
     filename: str
     file_id: str
     content: Optional[str] = Field(None, description="Base64 encoded content")
+    body : Optional[str] = Field(None, description="Text content of the file, if applicable (e.g., for text files or extracted text from PDFs)")
     path : str = Field(description="Storage path for the attachment, e.g., 'user_id/session_id/file_id.ext'. Should also end with extension")
     file_type: FileTypes = Field(description="MIME type of the file, e.g., 'application/pdf', 'text/plain', 'message/rfc822', etc.")
     size: int = Field(description="Size of the file in bytes")
