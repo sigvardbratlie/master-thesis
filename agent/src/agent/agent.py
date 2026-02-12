@@ -851,7 +851,7 @@ class Agent:
             if result:
                 if isinstance(result, dict) and "attachments" in result:
                     completed += 1
-                    logger.debug('\n\n' + '='*5 + f" Analyzed document: {result['attachments'][0].filename if result['attachments'] else 'Unknown'} (ID: {result['attachments'][0].file_id if result['attachments'] else 'Unknown'}) - Result {str(result['attachments'][0].model_dump())[:100] if result['attachments'] else 'No data'} " + '='*5 + '\n\n')
+                    logger.debug('\n\n' + '='*5 + f" Analyzed document: {len(result.get("attachments"))}" + '='*5 + '\n\n')
 
                     attachments.extend(result.get("attachments", [])) if result.get("attachments") else None
                     damages.extend(result.get("damages", [])) if result.get("damages") else None
