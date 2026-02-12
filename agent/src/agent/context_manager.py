@@ -185,7 +185,7 @@ class ContextManager:
                 "deadlines": response.attachment.deadlines if response.attachment.deadlines else [],
                 }
     
-    async def analyze_multiple_docs(self,
+    async def analyze_docs(self,
                 input_ : InitialInput | FactSheet,
                 attachments : list[AttachmentModel],
                 ) -> dict:
@@ -323,7 +323,7 @@ class ContextManager:
                "deadlines" : deadlines,
                 }
         
-    async def analyze_multiple_eml(self,
+    async def analyze_emails(self,
                 input_ : InitialInput | FactSheet,
                 emails : list[EmailModel],
                 ) -> dict:

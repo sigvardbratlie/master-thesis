@@ -594,7 +594,7 @@ class Agent:
 
         async def analyze_docs_with_limit(attatchments: list[AttachmentModel], input_,):
             async with sem:
-                return await self.context_manager.analyze_multiple_docs(
+                return await self.context_manager.analyze_docs(
                     input_=input_,
                     attachments = attatchments
                 )
@@ -602,7 +602,7 @@ class Agent:
         
         async def analyze_emails_with_limit(emails: list[EmailModel], input_):
             async with sem:
-                return await self.context_manager.analyze_multiple_eml(
+                return await self.context_manager.analyze_emails(
                     input_=  input_,
                     emails=emails
                 )

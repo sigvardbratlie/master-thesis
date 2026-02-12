@@ -177,11 +177,11 @@ async def test_clean_element(mock_context_manager):
 
 
 # ============================================
-#     analyze_multiple_docs TESTS
+#     analyze_docs TESTS
 # ============================================
 
-async def test_analyze_multiple_docs_returns_dict(mock_context_manager):
-    """analyze_multiple_docs should return a dict with attachments, events, damages, deadlines, claims."""
+async def test_analyze_docs_returns_dict(mock_context_manager):
+    """analyze_docs should return a dict with attachments, events, damages, deadlines, claims."""
     init_input = get_mock_init_input()
     attachment_models = get_mock_attachment_model_list()
 
@@ -231,7 +231,7 @@ async def test_analyze_multiple_docs_returns_dict(mock_context_manager):
     mock_context_manager.llm.with_structured_output.return_value = structured_llm
     structured_llm.ainvoke.return_value = analysis_result
 
-    result = await mock_context_manager.analyze_multiple_docs(
+    result = await mock_context_manager.analyze_docs(
         input_=init_input,
         attachments=attachment_models,
     )
@@ -267,11 +267,11 @@ async def test_analyze_multiple_docs_returns_dict(mock_context_manager):
     assert result["events"][0].email_id is None
 
 
-async def test_analyze_multiple_docs_empty_list(mock_context_manager):
-    """analyze_multiple_docs with empty attachment list should return empty results without calling LLM."""
+async def test_analyze_docs_empty_list(mock_context_manager):
+    """analyze_docs with empty attachment list should return empty results without calling LLM."""
     init_input = get_mock_init_input()
 
-    result = await mock_context_manager.analyze_multiple_docs(
+    result = await mock_context_manager.analyze_docs(
         input_=init_input,
         attachments=[],
     )
@@ -282,8 +282,8 @@ async def test_analyze_multiple_docs_empty_list(mock_context_manager):
     assert result["events"] == []
 
 
-async def test_analyze_multiple_docs_file_id_mismatch_fallback(mock_context_manager):
-    """analyze_multiple_docs should use index-based fallback when LLM returns mismatched file_ids."""
+async def test_analyze_docs_file_id_mismatch_fallback(mock_context_manager):
+    """analyze_docs should use index-based fallback when LLM returns mismatched file_ids."""
     init_input = get_mock_init_input()
     attachment_models = get_mock_attachment_model_list()
 
@@ -321,7 +321,7 @@ async def test_analyze_multiple_docs_file_id_mismatch_fallback(mock_context_mana
     mock_context_manager.llm.with_structured_output.return_value = structured_llm
     structured_llm.ainvoke.return_value = analysis_result
 
-    result = await mock_context_manager.analyze_multiple_docs(
+    result = await mock_context_manager.analyze_docs(
         input_=init_input,
         attachments=attachment_models,
     )
@@ -334,11 +334,11 @@ async def test_analyze_multiple_docs_file_id_mismatch_fallback(mock_context_mana
 
 
 # ============================================
-#     analyze_multiple_eml TESTS
+#     analyze_emails TESTS
 # ============================================
 
-async def test_analyze_multiple_eml_returns_dict(mock_context_manager):
-    """analyze_multiple_eml should return a dict with emails, events, damages, deadlines, claims."""
+async def test_analyze_emails_returns_dict(mock_context_manager):
+    """analyze_emails should return a dict with emails, events, damages, deadlines, claims."""
     init_input = get_mock_init_input()
     email_models = get_mock_email_model_list()
     mock_extracted = get_mock_email_extracted()
@@ -384,7 +384,7 @@ async def test_analyze_multiple_eml_returns_dict(mock_context_manager):
     mock_context_manager.llm.with_structured_output.return_value = structured_llm
     structured_llm.ainvoke.return_value = analysis_results
 
-    result = await mock_context_manager.analyze_multiple_eml(
+    result = await mock_context_manager.analyze_emails(
         input_=init_input,
         emails=email_models,
     )
@@ -399,8 +399,8 @@ async def test_analyze_multiple_eml_returns_dict(mock_context_manager):
     assert "claims" in result
 
 
-async def test_analyze_multiple_eml_empty_list(mock_context_manager):
-    """analyze_multiple_eml with empty email list should still call LLM."""
+async def test_analyze_emails_empty_list(mock_context_manager):
+    """analyze_emails with empty email list should still call LLM."""
     init_input = get_mock_init_input()
 
     class EmailAnalysisResult(BaseModel):
@@ -413,7 +413,7 @@ async def test_analyze_multiple_eml_empty_list(mock_context_manager):
     mock_context_manager.llm.with_structured_output.return_value = structured_llm
     structured_llm.ainvoke.return_value = EmailsAnalysisResult(emails=[])
 
-    result = await mock_context_manager.analyze_multiple_eml(
+    result = await mock_context_manager.analyze_emails(
         input_=init_input,
         emails=[],
     )
@@ -465,8 +465,8 @@ async def test_analyze_factual_facts(mock_context_manager):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_analyze_multiple_eml_real_data_integration():
-    """Integration test: analyze_multiple_eml with real EML file and real LLM"""
+async def test_analyze_emails_real_data_integration():
+    """Integration test: analyze_emails with real EML file and real LLM"""
     from dotenv import load_dotenv
     load_dotenv()  # Load environment variables from .env file, including LLM API keys
     if not os.getenv("GOOGLE_API_KEY"):
@@ -485,7 +485,7 @@ async def test_analyze_multiple_eml_real_data_integration():
     )
     
     # Run analysis with real LLM
-    result = await cm.analyze_multiple_eml(
+    result = await cm.analyze_emails(
         input_=initial_input,
         emails=[test_email]
     )
@@ -531,8 +531,8 @@ async def test_analyze_multiple_eml_real_data_integration():
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_analyze_multiple_eml_multiple_emails_integration():
-    """Integration test: analyze_multiple_eml with multiple mock emails"""
+async def test_analyze_emails_multiple_emails_integration():
+    """Integration test: analyze_emails with multiple mock emails"""
     from dotenv import load_dotenv
     load_dotenv()  # Load environment variables from .env file, including LLM API keys
     if not os.getenv("GOOGLE_API_KEY"):
@@ -548,7 +548,7 @@ async def test_analyze_multiple_eml_multiple_emails_integration():
         title="Multi-Email Test"
     )
     
-    result = await cm.analyze_multiple_eml(
+    result = await cm.analyze_emails(
         input_=initial_input,
         emails=emails
     )
