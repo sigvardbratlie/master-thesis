@@ -336,10 +336,12 @@ class SidebarComponent:
         st.info(f'Model: **{st.session_state.llm_model.replace("_"," - ")}**')
 
     def load_session(self, session):
+        is_selected = st.session_state.get('session_id') == session.session_id
         if st.button(
             label=f"{session.title[:30]}...",
             key=session.session_id,
             use_container_width=True,
+            type="primary" if is_selected else "secondary",
         ):
             response = self.backend_service.load_session_history(session.session_id)
             if response:
@@ -605,10 +607,12 @@ class ProjectComponent:
         if projects:
             with st.expander("Projects", expanded=True):
                 for project in projects:
+                    is_selected = st.session_state.get('project_id') == project.get('project_id')
                     st.button(f"{project.get('title', 'No Title')}",
                             on_click=lambda p=project: self.on_project_select(p),
                             key=project.get('project_id', 'no-id'),
-                            use_container_width=True)
+                            use_container_width=True,
+                            type="primary" if is_selected else "secondary")
                     
         else:
             st.info("No projects found. Please initialize a new project.")
@@ -664,10 +668,12 @@ class ProjectComponent:
         sessions = self.backend_service.load_project_sessions(project_id=st.session_state.project_id)
         if sessions:
             for session in sessions:
+                is_selected = st.session_state.get('session_id') == session.session_id
                 session_selected = st.button(
                     f"{session.title if session.title else 'No Title'}",
                     key=f"psession_{session.session_id}",
                     use_container_width=True,
+                    type="primary" if is_selected else "secondary",
                 )
                 if session_selected:
                     history = self.backend_service.load_session_history(session.session_id)
@@ -972,6 +978,9 @@ class ProjectComponent:
         self.render_projects()
         st.divider()
         if st.session_state.get('project_id', None):
+            project_title = st.session_state.get('factsheet', {}).get('title', '') if st.session_state.get('factsheet') else ''
+            if project_title:
+                st.caption(f"Aktivt prosjekt: **{project_title}**")
             with st.expander("Project Sessions", expanded=True):
                 self.render_project_sessions()
                 st.button("New session", icon=":material/chat:", on_click=self.on_session_select, type="tertiary")
