@@ -56,15 +56,15 @@ class SupabaseManager:
     
     def load_project(self, project_id: str) -> dict:
         select_query = """
-                *,
-                project_attachments(*),
+                *, 
+                project_attachments(file_id, filename, file_type, path, created_at),
                 project_events(*),
                 project_parties(*),
                 project_deadlines(*),
                 project_damages(*),
                 project_claims(*),
                 project_legal(*),
-                project_emails(*)
+                project_emails(email_id, from, to, cc, bcc, subject, body, date, created_at)
                 """
             
         project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()

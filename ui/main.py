@@ -1,18 +1,9 @@
 import streamlit as st
 import logging
 
-# Import auth functions
+
 from ui.services.auth_service import SupabaseAuthService
-# (
-#     is_logged_in,
-#     restore_session,
-#     render_login_form,
-#     save_token_to_url
-# )
-
 from ui.services import get_supabase_auth_service
-
-# Import UI components
 from ui.ui_components import get_chat_component, get_sidebar_component
 from ui.utils import init_state
 
@@ -24,7 +15,7 @@ chat_component = get_chat_component()
 sidebar_component = get_sidebar_component()
 auth_service = get_supabase_auth_service()
 
-st.set_page_config(page_title="Company Agent", page_icon="⚖️", layout="wide")
+st.set_page_config(page_title="Agent", page_icon="⚖️", layout="wide")
 
 
 # ================== AUTH ==================
