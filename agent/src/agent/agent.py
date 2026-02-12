@@ -133,18 +133,21 @@ class Agent:
 
         # ---- FETCH ATTACHMENT CONTENTS ONCE ----
         if attachments:
-            if user_input:
-                docs = self.in_memory_store.query(user_input, collection_id=session_id, k=3)
-            else:
-                docs = self.in_memory_store.get_all(collection_id=session_id)
+            for att in attachments:
+                file_id = att.get("file_id", "")
+                attachment_contents[file_id] = att.get("body", "")  if att.get("body", "") else "NO BODY CONTENT"
+            # if user_input:
+            #     docs = self.in_memory_store.query(user_input, collection_id=session_id, k=5)
+            # else:
+            #     docs = self.in_memory_store.get_all(collection_id=session_id)
 
-            for doc in docs:
-                file_id = doc.metadata.get("file_id", "")
-                if file_id:
-                    if file_id in attachment_contents:
-                        attachment_contents[file_id] += "\n" + doc.page_content
-                    else:
-                        attachment_contents[file_id] = doc.page_content
+            # for doc in docs:
+            #     file_id = doc.metadata.get("file_id", "")
+            #     if file_id:
+            #         if file_id in attachment_contents:
+            #             attachment_contents[file_id] += "\n" + doc.page_content
+            #         else:
+            #             attachment_contents[file_id] = doc.page_content
 
 
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
@@ -447,8 +450,7 @@ class Agent:
         """
         This is a generator function that yields status updates and the final response.
         """
-        
-        
+
         # =================================
         #               SETUP
         # ================================
@@ -477,6 +479,8 @@ class Agent:
                     content = att.content, 
                     metadata={"file_id": att.file_id, 
                               "filename": att.filename, 
+                              "user_id": user_id,
+                              "query_id": query.query_id,
                               "path": att.path, 
                               "file_type": att.file_type, 
                               "size": att.size,
@@ -486,7 +490,7 @@ class Agent:
                 docs.extend(extracted_docs)
                 parsed_contents[att.file_id] = self.document_processor.to_plain_text(extracted_docs)
             # Store (same API regardless of implementation)
-            self.in_memory_store.add_documents(docs, collection_id=query.session_id)
+            #self.in_memory_store.add_documents(docs, collection_id=query.session_id)
             await self.storage.save_raw_documents(attachments=query.attachments)
 
         #add attachments without content to user message
@@ -640,7 +644,7 @@ class Agent:
 
         return doc_tasks
 
-    def _parse_docs_with_progress(self, attachments: list, query_id: str, session_id: str):
+    def _parse_docs_with_progress(self, attachments: list, query_id: str, session_id: str, user_id : str):
         """
         Parse documents and yield progress events + return parsed results.
         Returns (docs, parsed_contents) tuple.
@@ -681,6 +685,8 @@ class Agent:
                 metadata={
                     "file_id": att.file_id, 
                     "filename": att.filename, 
+                    "user_id": user_id,
+                    "query_id": query_id, 
                     "path": att.path, 
                     "file_type": att.file_type, 
                     "size": att.size,
@@ -744,7 +750,10 @@ class Agent:
         storage_tasks = []
         if query.attachments:
             # Parse documents with streaming progress
-            for event in self._parse_docs_with_progress(query.attachments, query.query_id, query.session_id):
+            for event in self._parse_docs_with_progress(attachments=query.attachments, 
+                                                        query_id = query.query_id, 
+                                                        session_id=query.session_id,
+                                                        user_id=user_id):
                 yield event
             # Retrieve parsed results from instance variable
             docs, parsed_contents = self._last_parse_results
@@ -1029,7 +1038,10 @@ class Agent:
         docs = []
         if query.attachments:
             # Parse documents with streaming progress
-            for event in self._parse_docs_with_progress(query.attachments, query.query_id, query.session_id):
+            for event in self._parse_docs_with_progress(attachments=query.attachments, 
+                                                        query_id =  query.query_id, 
+                                                        session_id = query.session_id,
+                                                        user_id=user_id):
                 yield event
             # Retrieve parsed results from instance variable
             docs, parsed_contents = self._last_parse_results
