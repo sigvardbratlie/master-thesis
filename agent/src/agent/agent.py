@@ -480,7 +480,8 @@ class Agent:
                               "path": att.path, 
                               "file_type": att.file_type, 
                               "size": att.size,
-                              "session_id": query.session_id,},
+                              "session_id": query.session_id,
+                              "embedding_model" : self.in_memory_store.embedding_model,},
                     file_type=att.file_type)
                 docs.extend(extracted_docs)
                 parsed_contents[att.file_id] = self.document_processor.to_plain_text(extracted_docs)
@@ -684,6 +685,7 @@ class Agent:
                     "file_type": att.file_type, 
                     "size": att.size,
                     "session_id": session_id,
+                    "embedding_model" : self.vs.embedding_model,
                 }
             )
             completed_text_extraction += 1
