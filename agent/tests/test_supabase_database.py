@@ -66,7 +66,7 @@ def test_save_project(mock_supabase_manager):
     #self.supabase.table("project_legal").upsert({**custom, "project_id": project_id}).execute()
 
     mock_supabase_manager.save_project(factsheet=data["factsheet"], 
-                                       files=data["attachments"],
+                                       attachments=data["attachments"],
                                        user_id="test_user_id", project_id="test_project_id",
                                        session_id="test_session_id", query_id="test_query_id")
     

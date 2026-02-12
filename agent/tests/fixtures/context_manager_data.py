@@ -164,3 +164,43 @@ def get_mock_attachments():
 
 def get_mock_clean_parties():
     return clean_element_parties
+
+
+def get_mock_attachment_model() -> AttachmentModel:
+    """Single AttachmentModel with body for testing analyze_doc."""
+    return AttachmentModel(
+        filename="2023-08-25_kjøpekontrakt.txt",
+        file_id="test_file_id",
+        content=None,
+        body="This is a test document with parsed text content about the property purchase agreement.",
+        path="test-user/test-session/test_file_id.txt",
+        file_type="text/plain",
+        size=1024,
+        query_id="test-query-id",
+    )
+
+
+def get_mock_attachment_model_list() -> list[AttachmentModel]:
+    """List of AttachmentModels for testing analyze_multiple_docs."""
+    return [
+        AttachmentModel(
+            filename="2023-08-25_kjøpekontrakt.txt",
+            file_id="att-file-id-001",
+            content=None,
+            body="Purchase agreement for the property Granveien 15B. Price: NOK 15,500,000. Takeover date: November 11, 2023.",
+            path="test-user/test-session/att-file-id-001.txt",
+            file_type="text/plain",
+            size=1398,
+            query_id="test-query-id-001",
+        ),
+        AttachmentModel(
+            filename="2023-08-21_epost_selger.txt",
+            file_id="att-file-id-002",
+            content=None,
+            body="Email from seller Daniel Hansen to buyers about house condition. Heat pumps functional, no planned improvements.",
+            path="test-user/test-session/att-file-id-002.txt",
+            file_type="text/plain",
+            size=1094,
+            query_id="test-query-id-002",
+        ),
+    ]

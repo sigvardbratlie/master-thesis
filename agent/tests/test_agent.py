@@ -386,7 +386,7 @@ async def test_initialize_project(mock_agent):
 
     # Setup mocks
     mock_agent.context_manager.analyze_init_input = AsyncMock(return_value=get_mock_initial_input())
-    mock_agent.context_manager.analyze_doc = AsyncMock(return_value=get_mock_analyzed_doc())
+    mock_agent.context_manager.analyze_docs = AsyncMock(return_value=get_mock_analyzed_doc())
     mock_agent.context_manager.analyze_factual_facts = AsyncMock(return_value=FactualFacts(
         disputed_facts=["Fact 1"],
         undisputed_facts=["Fact 2"]
@@ -455,7 +455,7 @@ async def test_update_project(mock_agent):
     user_id = "user-001"
 
     mock_agent.conversation_manager.load_factsheet.return_value = get_mock_factsheet()
-    mock_agent.context_manager.analyze_doc = AsyncMock(return_value=get_mock_analyzed_doc())
+    mock_agent.context_manager.analyze_docs = AsyncMock(return_value=get_mock_analyzed_doc())
     mock_agent.document_processor.parse.return_value = get_mock_vector_store_docs()
     mock_agent.document_processor.to_plain_text.return_value = "parsed plain text content"
     mock_agent.storage.save_raw_documents = AsyncMock()
@@ -673,7 +673,7 @@ async def test_initialize_project_with_mocks(mock_agent):
     )
     
     mock_analyzed_doc_result = {
-        "file": Attachment(
+        "attachments": [Attachment(
             file_id="fc545f59-ac93-4cda-8b41-83eed0d04ee3",
             filename="test.pdf",
             path="user/session/test.pdf",
@@ -682,7 +682,7 @@ async def test_initialize_project_with_mocks(mock_agent):
             description="Test document",
             significance="high",
             category="agreement"
-        ),
+        )],
         "events": [
             Event(
                 event_id="event-001",
@@ -714,6 +714,8 @@ async def test_initialize_project_with_mocks(mock_agent):
     
     # Configure context_manager mocks
     mock_agent.context_manager.analyze_init_input = AsyncMock(return_value=mock_initial_input)
+    mock_agent.context_manager.analyze_docs = AsyncMock(return_value=mock_analyzed_doc_result)
+    mock_agent.context_manager.analyze_emails = AsyncMock(return_value=mock_analyzed_doc_result)
     mock_agent.context_manager.analyze_doc = AsyncMock(return_value=mock_analyzed_doc_result)
     mock_agent.context_manager.analyze_factual_facts = AsyncMock(return_value=mock_factual_facts)
     mock_agent.context_manager.analyze_governing_law = AsyncMock(return_value=mock_governing_law)
@@ -749,6 +751,7 @@ async def test_initialize_project_with_mocks(mock_agent):
     assert "attachments" in final_result["data"]
     
     # Verify factsheet structure
+    print(f'=======FINAL RESULT====\n{final_result}\n\n')
     factsheet = final_result["data"]["factsheet"]
     assert factsheet["title"] == "Test Eiendomssak"
     assert len(factsheet["events"]) >= 1, "Should have at least one event from documents"
@@ -756,7 +759,7 @@ async def test_initialize_project_with_mocks(mock_agent):
     
     # Verify context_manager calls
     mock_agent.context_manager.analyze_init_input.assert_called_once()
-    assert mock_agent.context_manager.analyze_doc.call_count >= 1
+    assert mock_agent.context_manager.analyze_docs.call_count >= 1
     mock_agent.context_manager.analyze_factual_facts.assert_called_once()
     mock_agent.context_manager.analyze_governing_law.assert_called_once()
     

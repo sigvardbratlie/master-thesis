@@ -4,7 +4,7 @@ import sys
 import os
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
-from tests.fixtures.context_manager_data import get_mock_agent_state, get_mock_init_input
+from tests.fixtures.context_manager_data import get_mock_agent_state, get_mock_init_input, get_mock_attachment_model, get_mock_attachment_model_list
 from tests.fixtures.supabase_data import get_mock_load_project_data
 from tests.fixtures.email_data import get_mock_email_model_list, get_mock_email_extracted, load_real_test_email
 import tiktoken
@@ -13,7 +13,7 @@ from typing import List
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-from agent.agent_modules import ContextManager
+from agent import ContextManager
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,7 @@ async def test_analyze_init_input(mock_context_manager):
 async def test_analyze_doc(mock_context_manager):
     from tests.fixtures.context_manager_data import analyzed_dict1
     init_input = get_mock_init_input()
+    attachment_model = get_mock_attachment_model()
     structured_llm = AsyncMock()
     mock_context_manager.llm.with_structured_output.return_value = structured_llm
     class AttachmentWithEvents(BaseModel):
@@ -92,33 +93,47 @@ async def test_analyze_doc(mock_context_manager):
         significance=analyzed_dict1.get("significance")
     )
     event = Event(event_start_date="2023-08-25", description="Document received",
-                  event_name = "DocumentReceived", 
-                  parties = ["plaintiff"], 
-                  significance="high", 
+                  event_name = "DocumentReceived",
+                  parties = ["plaintiff"],
+                  significance="high",
                   disputed=False,
                   category="court_filing")
     structured_llm.ainvoke.return_value = AttachmentWithEvents(attachment=att, events=[event])
     result = await mock_context_manager.analyze_doc(input_=init_input,
-                                                    content = "This is a test",
-                                                    file_id="test_file_id",
-                                                    filename="test_file_name",
-                                                    path = "test_path",
-                                                    file_type = "application/pdf",
-                                                    size = 1024,
+                                                    attachment=attachment_model,
                                                     )
 
     mock_context_manager.llm.with_structured_output.assert_called_once()
     structured_llm.ainvoke.assert_called_once()
     assert isinstance(result, dict)
-    assert "file" in result
-    assert isinstance(result["file"], Attachment)
+    assert "attachments" in result
+    assert isinstance(result["attachments"], list)
+    assert isinstance(result["attachments"][0], Attachment)
     assert "events" in result
     assert isinstance(result["events"], list)
     assert isinstance(result["events"][0], Event)
-    assert result["events"][0].event_id, 'Shoudl be present'
+    assert result["events"][0].event_id, 'Should be present'
     assert result["events"][0].file_id == "test_file_id"
-    assert result["file"].path == "test_path"
-    assert result["file"].file_id == "test_file_id"
+    assert result["attachments"][0].path == attachment_model.path
+    assert result["attachments"][0].file_id == "test_file_id"
+    assert result["attachments"][0].body == attachment_model.body
+
+
+async def test_analyze_doc_empty_body(mock_context_manager):
+    """analyze_doc with empty body should return empty results without calling LLM."""
+    init_input = get_mock_init_input()
+    attachment_model = get_mock_attachment_model()
+    attachment_model.body = None  # No parsed content
+
+    result = await mock_context_manager.analyze_doc(input_=init_input,
+                                                    attachment=attachment_model)
+
+    mock_context_manager.llm.with_structured_output.assert_not_called()
+    assert result["attachments"] == []
+    assert result["events"] == []
+    assert result["damages"] == []
+    assert result["claims"] == []
+    assert result["deadlines"] == []
 
 async def test_analyze_governing_law(mock_context_manager):
     from tests.fixtures.context_manager_data import rag, governing_law
@@ -162,11 +177,168 @@ async def test_clean_element(mock_context_manager):
 
 
 # ============================================
-#     analyze_multiple_eml TESTS
+#     analyze_docs TESTS
 # ============================================
 
-async def test_analyze_multiple_eml_returns_dict(mock_context_manager):
-    """analyze_multiple_eml should return a dict with emails, events, damages, deadlines, claims."""
+async def test_analyze_docs_returns_dict(mock_context_manager):
+    """analyze_docs should return a dict with attachments, events, damages, deadlines, claims."""
+    init_input = get_mock_init_input()
+    attachment_models = get_mock_attachment_model_list()
+
+    class AttachmentWithEvents(BaseModel):
+        attachment: AttachmentExtracted
+        events: List[Event]
+
+    class MultipleAttachmentsResult(BaseModel):
+        attachments: List[AttachmentWithEvents]
+
+    att1 = AttachmentExtracted(
+        file_id="att-file-id-001",
+        description="Purchase agreement for the property",
+        significance="high",
+        party_roles=["plaintiff", "defendant"],
+        key_provisions=["Purchase price: NOK 15,500,000"],
+        file_date="2023-08-25",
+        category="agreement",
+    )
+    att2 = AttachmentExtracted(
+        file_id="att-file-id-002",
+        description="Email from seller about house condition",
+        significance="medium",
+        party_roles=["defendant"],
+        key_provisions=["Heat pumps functional"],
+        file_date="2023-08-21",
+        category="correspondence",
+    )
+    event1 = Event(
+        event_start_date="2023-08-25",
+        description="Purchase agreement signed",
+        event_name="AgreementSigned",
+        parties=["plaintiff", "defendant"],
+        significance="high",
+        disputed=False,
+        category="contract_signed",
+    )
+
+    analysis_result = MultipleAttachmentsResult(
+        attachments=[
+            AttachmentWithEvents(attachment=att1, events=[event1]),
+            AttachmentWithEvents(attachment=att2, events=[]),
+        ]
+    )
+
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    structured_llm.ainvoke.return_value = analysis_result
+
+    result = await mock_context_manager.analyze_docs(
+        input_=init_input,
+        attachments=attachment_models,
+    )
+
+    mock_context_manager.llm.with_structured_output.assert_called_once()
+    structured_llm.ainvoke.assert_called_once()
+    assert isinstance(result, dict)
+    assert "attachments" in result
+    assert "events" in result
+    assert "damages" in result
+    assert "deadlines" in result
+    assert "claims" in result
+
+    # Should have 2 attachments
+    assert len(result["attachments"]) == 2
+    assert isinstance(result["attachments"][0], Attachment)
+    assert isinstance(result["attachments"][1], Attachment)
+
+    # file_id should come from original input, not LLM
+    assert result["attachments"][0].file_id == "att-file-id-001"
+    assert result["attachments"][1].file_id == "att-file-id-002"
+
+    # Metadata should come from original input
+    assert result["attachments"][0].filename == "2023-08-25_kjøpekontrakt.txt"
+    assert result["attachments"][0].body == attachment_models[0].body
+    assert result["attachments"][1].filename == "2023-08-21_epost_selger.txt"
+
+    # Events should have file_id and event_id assigned
+    assert len(result["events"]) == 1
+    assert result["events"][0].file_id == "att-file-id-001"
+    assert result["events"][0].event_id is not None
+    assert mock_context_manager.is_valid_uuid(result["events"][0].event_id)
+    assert result["events"][0].email_id is None
+
+
+async def test_analyze_docs_empty_list(mock_context_manager):
+    """analyze_docs with empty attachment list should return empty results without calling LLM."""
+    init_input = get_mock_init_input()
+
+    result = await mock_context_manager.analyze_docs(
+        input_=init_input,
+        attachments=[],
+    )
+
+    mock_context_manager.llm.with_structured_output.assert_not_called()
+    assert isinstance(result, dict)
+    assert result["attachments"] == []
+    assert result["events"] == []
+
+
+async def test_analyze_docs_file_id_mismatch_fallback(mock_context_manager):
+    """analyze_docs should use index-based fallback when LLM returns mismatched file_ids."""
+    init_input = get_mock_init_input()
+    attachment_models = get_mock_attachment_model_list()
+
+    class AttachmentWithEvents(BaseModel):
+        attachment: AttachmentExtracted
+        events: List[Event]
+
+    class MultipleAttachmentsResult(BaseModel):
+        attachments: List[AttachmentWithEvents]
+
+    # LLM returns wrong file_ids (hallucinated)
+    att1 = AttachmentExtracted(
+        file_id="hallucinated-id-999",
+        description="Purchase agreement",
+        significance="high",
+        party_roles=["plaintiff"],
+        category="agreement",
+    )
+    att2 = AttachmentExtracted(
+        file_id="hallucinated-id-888",
+        description="Email from seller",
+        significance="medium",
+        party_roles=["defendant"],
+        category="correspondence",
+    )
+
+    analysis_result = MultipleAttachmentsResult(
+        attachments=[
+            AttachmentWithEvents(attachment=att1, events=[]),
+            AttachmentWithEvents(attachment=att2, events=[]),
+        ]
+    )
+
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    structured_llm.ainvoke.return_value = analysis_result
+
+    result = await mock_context_manager.analyze_docs(
+        input_=init_input,
+        attachments=attachment_models,
+    )
+
+    # Should still produce valid results via index-based fallback
+    assert len(result["attachments"]) == 2
+    # file_id should be overridden from original input (not hallucinated)
+    assert result["attachments"][0].file_id == "att-file-id-001"
+    assert result["attachments"][1].file_id == "att-file-id-002"
+
+
+# ============================================
+#     analyze_emails TESTS
+# ============================================
+
+async def test_analyze_emails_returns_dict(mock_context_manager):
+    """analyze_emails should return a dict with emails, events, damages, deadlines, claims."""
     init_input = get_mock_init_input()
     email_models = get_mock_email_model_list()
     mock_extracted = get_mock_email_extracted()
@@ -212,7 +384,7 @@ async def test_analyze_multiple_eml_returns_dict(mock_context_manager):
     mock_context_manager.llm.with_structured_output.return_value = structured_llm
     structured_llm.ainvoke.return_value = analysis_results
 
-    result = await mock_context_manager.analyze_multiple_eml(
+    result = await mock_context_manager.analyze_emails(
         input_=init_input,
         emails=email_models,
     )
@@ -227,8 +399,8 @@ async def test_analyze_multiple_eml_returns_dict(mock_context_manager):
     assert "claims" in result
 
 
-async def test_analyze_multiple_eml_empty_list(mock_context_manager):
-    """analyze_multiple_eml with empty email list should still call LLM."""
+async def test_analyze_emails_empty_list(mock_context_manager):
+    """analyze_emails with empty email list should still call LLM."""
     init_input = get_mock_init_input()
 
     class EmailAnalysisResult(BaseModel):
@@ -241,7 +413,7 @@ async def test_analyze_multiple_eml_empty_list(mock_context_manager):
     mock_context_manager.llm.with_structured_output.return_value = structured_llm
     structured_llm.ainvoke.return_value = EmailsAnalysisResult(emails=[])
 
-    result = await mock_context_manager.analyze_multiple_eml(
+    result = await mock_context_manager.analyze_emails(
         input_=init_input,
         emails=[],
     )
@@ -293,8 +465,8 @@ async def test_analyze_factual_facts(mock_context_manager):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_analyze_multiple_eml_real_data_integration():
-    """Integration test: analyze_multiple_eml with real EML file and real LLM"""
+async def test_analyze_emails_real_data_integration():
+    """Integration test: analyze_emails with real EML file and real LLM"""
     from dotenv import load_dotenv
     load_dotenv()  # Load environment variables from .env file, including LLM API keys
     if not os.getenv("GOOGLE_API_KEY"):
@@ -313,7 +485,7 @@ async def test_analyze_multiple_eml_real_data_integration():
     )
     
     # Run analysis with real LLM
-    result = await cm.analyze_multiple_eml(
+    result = await cm.analyze_emails(
         input_=initial_input,
         emails=[test_email]
     )
@@ -359,8 +531,8 @@ async def test_analyze_multiple_eml_real_data_integration():
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_analyze_multiple_eml_multiple_emails_integration():
-    """Integration test: analyze_multiple_eml with multiple mock emails"""
+async def test_analyze_emails_multiple_emails_integration():
+    """Integration test: analyze_emails with multiple mock emails"""
     from dotenv import load_dotenv
     load_dotenv()  # Load environment variables from .env file, including LLM API keys
     if not os.getenv("GOOGLE_API_KEY"):
@@ -376,7 +548,7 @@ async def test_analyze_multiple_eml_multiple_emails_integration():
         title="Multi-Email Test"
     )
     
-    result = await cm.analyze_multiple_eml(
+    result = await cm.analyze_emails(
         input_=initial_input,
         emails=emails
     )

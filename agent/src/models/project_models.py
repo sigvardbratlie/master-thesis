@@ -171,7 +171,8 @@ class BaseExtracted(BaseModel):
     claims: Optional[list[Claim]] = Field(None, description="Claim information if applicable")
 
 class AttachmentExtracted(BaseExtracted):
-    """Document-specific extraction fields"""    
+    """Document-specific extraction fields"""
+    file_id: Optional[str] = None
     key_provisions: Optional[list[str]] = Field(None, description="Important clauses or sections (for agreements)")
     file_date: Optional[date | datetime] = Field(None, description="Date of the document (when it was created/sent, not when it was received). Must be a valid date or datetime (e.g., '2023-05-01' or '2023-05-01T14:30:00')")
     category: Literal[
@@ -190,7 +191,7 @@ class Attachment(AttachmentExtracted):
     file_type: FileType #system generated
     body : Optional[str] = None
     size: int #system generated
-    events: Optional[list[str]] = Field(None, description="event IDs mentioned in the document")
+    #events: Optional[list[str]] = Field(None, description="event IDs mentioned in the document")
     email_id: Optional[str] = Field(None, description="If this attachment was extracted from an email, reference the email_id here")
 
 

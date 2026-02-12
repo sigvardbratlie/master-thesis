@@ -439,7 +439,7 @@ class SupabaseManager:
 
     def save_project(self,
                        factsheet : FactSheet,
-                       files  : list[Attachment],
+                       attachments  : list[Attachment],
                        user_id : str,
                        project_id : str,
                        session_id : str,
@@ -449,14 +449,14 @@ class SupabaseManager:
         
         custom_fields = ["governing_law", "disputed_facts", "undisputed_facts",]
         
-        file_dicts = []
+        attachment_dicts = []
         email_dicts = []
-        if files:
-            for file in files:
-                file_dict = file.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
-                file_dict["project_id"] = project_id
-                file_dicts.append(file_dict)
-            logger.debug(f' ========= ATTACHEMNT CONTENTS TO SAVE ======== \n {files} \n')
+        if attachments:
+            for attachment in attachments:
+                attachment_dict = attachment.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
+                attachment_dict["project_id"] = project_id
+                attachment_dicts.append(attachment_dict)
+            logger.debug(f' ========= ATTACHEMNT CONTENTS TO SAVE ======== \n {attachment_dicts} \n')
         
         if emails:
             for email in emails:
@@ -498,11 +498,11 @@ class SupabaseManager:
                 except Exception as e:
                     logger.error(f'Error upserting emails for project {project_id} in Supabase: {e}', exc_info=True)
 
-        if file_dicts:
+        if attachment_dicts:
             try:
                 # ========== PROJECT ATTACHMENTS ==========
-                self.supabase.table("project_attachments").upsert(file_dicts).execute()
-                logger.debug(f'Upserted {len(files)} attachments for project {project_id} in Supabase.')
+                self.supabase.table("project_attachments").upsert(attachment_dicts).execute()
+                logger.debug(f'Upserted {len(attachments)} attachments for project {project_id} in Supabase.')
             except Exception as e:
                 logger.error(f'Error upserting attachments for project {project_id} in Supabase: {e}', exc_info=True)
 
