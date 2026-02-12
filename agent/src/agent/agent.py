@@ -22,7 +22,8 @@ from langgraph.graph import StateGraph, END
 
 from langchain.chat_models import init_chat_model
 
-from agent.agent_modules import Summarizer,ContextManager, ToolManager
+from .agent_modules import Summarizer, ToolManager
+from .context_manager import ContextManager
 from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore, DocumentProcessor, EmailParser
 from models import *  
 from uuid import uuid4
@@ -471,7 +472,6 @@ class Agent:
         # SAVE ATTACHMENTS to both vector store and file storage
         if query.attachments:
             docs = []
-            parsed_contents = {}
             for att in query.attachments:
                 extracted_docs = self.document_processor.parse(
                     content = att.content, 
@@ -483,7 +483,7 @@ class Agent:
                               "session_id": query.session_id,},
                     file_type=att.file_type)
                 docs.extend(extracted_docs)
-                parsed_contents[att.file_id] = self.document_processor.to_plain_text(extracted_docs)
+                att.body = self.document_processor.to_plain_text(extracted_docs)
             # Store (same API regardless of implementation)
             self.in_memory_store.add_documents(docs, collection_id=query.session_id)
             await self.storage.save_raw_documents(attachments=query.attachments)
@@ -494,7 +494,6 @@ class Agent:
         for att in query.attachments or []:
             att_dict = att.model_dump(mode = "json", exclude={"content"})
             att_dict["event_id"] = event_id
-            att_dict["body"] = parsed_contents.get(att.file_id, "")
             attachments_events.append(att_dict)
 
          # FIRST USER MESSAGE EVENT
@@ -578,40 +577,57 @@ class Agent:
     # =================================
     #       PROJECT SCAN
     # =================================
-    def _prepare_analysis_tasks(self, attachments: list, user_id: str, query: AskAgentRequest,
-                                input_: FactSheet | InitialInput, parsed_contents: dict) -> list:
+    def _prepare_analysis_tasks(self, attachments: list[AttachmentModel], 
+                                user_id: str, 
+                                query: AskAgentRequest,
+                                input_: FactSheet | InitialInput, 
+                                ) -> list:
         """Route attachments to doc/email analysis tasks, batching emails by size/count."""
         sem = asyncio.Semaphore(20)
 
-        async def analyze_doc_with_limit(att, input_, parsed_contents):
+        async def analyze_doc_with_limit(attatchment: AttachmentModel, input_,):
             async with sem:
                 return await self.context_manager.analyze_doc(
                     input_=input_,
-                    content=parsed_contents.get(att.file_id, ""),
-                    file_id=att.file_id,
-                    filename=att.filename,
-                    path=att.path or f"{user_id}/{query.session_id}/{att.file_id}",
-                    file_type=att.file_type,
-                    size=att.size,
+                    attachment = attatchment
                 )
 
-        async def analyze_emails_with_limit(email_attachments, input_):
+        async def analyze_docs_with_limit(attatchments: list[AttachmentModel], input_,):
+            async with sem:
+                return await self.context_manager.analyze_multiple_docs(
+                    input_=input_,
+                    attachments = attatchments
+                )
+
+        
+        async def analyze_emails_with_limit(emails: list[EmailModel], input_):
             async with sem:
                 return await self.context_manager.analyze_multiple_eml(
                     input_=  input_,
-                    emails=email_attachments
+                    emails=emails
                 )
 
-        eml = EmailParser()
+        
         doc_tasks = []
+        threshold = 5 * 1024 * 1024  # 5MB threshold for emails
+        max_attachments = 7
+
+        eml = EmailParser()
         email_attachments = []
         email_size_counter = 0
-        threshold = 5 * 1024 * 1024  # 5MB threshold for emails
-        max_emails = 7
+        
+        doc_size_counter = 0
+        doc_attachments = []
 
         for att in attachments or []:
             if att.file_type != "message/rfc822":
-                doc_tasks.append(analyze_doc_with_limit(att, input_=input_, parsed_contents=parsed_contents))
+                doc_size_counter += att.size or len(att.content or "")
+                if doc_size_counter <= threshold and len(doc_attachments) < max_attachments:
+                    doc_attachments.append(att)
+                else:
+                    doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_=input_,))
+                    doc_attachments = []
+                    doc_size_counter = 0
             elif att.file_type == "message/rfc822":
                 email_size_counter += att.size
                 data = eml.parse_eml(content=att.content,
@@ -621,10 +637,11 @@ class Agent:
                                      file_id=att.file_id)
                 email = data.get("email", [])
                 current_email_attachments = data.get("attachments", [])
-                doc_tasks.extend([analyze_doc_with_limit(att, input_=input_, parsed_contents=parsed_contents) for att in current_email_attachments])
+                doc_tasks.extend([analyze_doc_with_limit(attatchment = att, input_=input_, 
+                                                         ) for att in current_email_attachments])
                 logger.debug(f' === EXTRACTED {len(current_email_attachments)} attachments from email {att.filename} === \n') if current_email_attachments else logger.debug(f' === NO ATTACHMENTS EXTRACTED from email {att.filename} === \n')
 
-                if email_size_counter <= threshold or len(email_attachments) < max_emails:
+                if email_size_counter <= threshold and len(email_attachments) < max_attachments:
                     email_attachments.append(email)
                     logger.debug(f' === ACCUMULATED {len(email_attachments)} emails so far (size: {email_size_counter} bytes) === ')
                 else:
@@ -636,13 +653,17 @@ class Agent:
         if email_attachments:
             logger.debug(f' === FINAL BATCH: Sending {len(email_attachments)} emails to analyze_emails_with_limit === ')
             doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
+        
+        if doc_attachments:
+            logger.debug(f' === FINAL BATCH: Sending {len(doc_attachments)} documents to analyze_docs_with_limit === ')
+            doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_))
 
         return doc_tasks
 
     def _parse_docs_with_progress(self, attachments: list, query_id: str, session_id: str):
         """
         Parse documents and yield progress events + return parsed results.
-        Returns (docs, parsed_contents) tuple.
+        Returns docs
         """
         yield {
             "type": "status",
@@ -656,7 +677,6 @@ class Agent:
         }
         
         docs = []
-        parsed_contents = {}
         completed_text_extraction = 0
         
         for att in attachments:
@@ -703,7 +723,7 @@ class Agent:
             }
             
             docs.extend(extracted_docs)
-            parsed_contents[att.file_id] = self.document_processor.to_plain_text(extracted_docs)
+            att.body = self.document_processor.to_plain_text(extracted_docs) #store parsed content in body for later use without hitting token limits in metadata
         
         yield {
             "type": "status",
@@ -717,7 +737,7 @@ class Agent:
         }
         
         # Store results in instance variable to be retrieved by caller
-        self._last_parse_results = (docs, parsed_contents)
+        self._last_parse_results = docs
     
     async def initialize_project(self, query : AskAgentRequest,
                                  user_id : str,
@@ -729,7 +749,7 @@ class Agent:
         damages: list[Damage] = []
         claims: list[Claim] = []
         deadlines: list[Deadline] = []
-        files: list[Attachment] = []
+        attachments: list[Attachment] = []
         emails: list[Email] = []
 
         # ============= PHASE 1 =================
@@ -737,7 +757,6 @@ class Agent:
         # ========================================
 
         
-        parsed_contents = {}
         docs = []
         storage_tasks = []
         if query.attachments:
@@ -745,7 +764,7 @@ class Agent:
             for event in self._parse_docs_with_progress(query.attachments, query.query_id, query.session_id):
                 yield event
             # Retrieve parsed results from instance variable
-            docs, parsed_contents = self._last_parse_results
+            docs = self._last_parse_results
             
             # Run both storage operations in parallel
             storage_tasks = [
@@ -814,7 +833,7 @@ class Agent:
         doc_tasks = self._prepare_analysis_tasks(
             attachments=query.attachments,
             user_id=user_id, query=query,
-            input_=initial_input, parsed_contents=parsed_contents
+            input_=initial_input, 
         )
         
         yield {
@@ -830,24 +849,23 @@ class Agent:
             result = await coro
             completed += 1
             if result:
-                if isinstance(result, dict) and "file" in result:
+                if isinstance(result, dict) and "attachments" in result:
                     completed += 1
-                    logger.debug('\n\n' + '='*5 + f" Analyzed document: {result['file'].filename if result['file'] else 'Unknown'} (ID: {result['file'].file_id if result['file'] else 'Unknown'}) - Result {str(result['file'].model_dump())[:100] if result['file'] else 'No data'} " + '='*5 + '\n\n')
+                    logger.debug('\n\n' + '='*5 + f" Analyzed document: {result['attachments'][0].filename if result['attachments'] else 'Unknown'} (ID: {result['attachments'][0].file_id if result['attachments'] else 'Unknown'}) - Result {str(result['attachments'][0].model_dump())[:100] if result['attachments'] else 'No data'} " + '='*5 + '\n\n')
 
-                    files.append(result.get("file")) if result.get("file") else None
+                    attachments.extend(result.get("attachments", [])) if result.get("attachments") else None
                     damages.extend(result.get("damages", [])) if result.get("damages") else None
                     claims.extend(result.get("claims", [])) if result.get("claims") else None
                     deadlines.extend(result.get("deadlines", [])) if result.get("deadlines") else None
                     events.extend(result.get("events", [])) if result.get("events") else None
-                    
-                    if result.get("file"):
+
+                    if result.get("attachments"):
                         yield {
                             "type": "status",
                             "phase": ["analyze_doc"],
                             "status": "complete",
                             "data": {
-                                "filename": result["file"].filename,
-                                "file_id": result["file"].file_id,
+                                "attachment_count": len(result.get("attachments", [])),
                                 "progress": completed,
                                 "total": len(doc_tasks)
                             },
@@ -868,6 +886,29 @@ class Agent:
                             "timestamp": datetime.now().isoformat(),
                             "query_id": query.query_id
                         }
+                elif isinstance(result, dict) and "attachment" in result:
+                    # Single doc result from analyze_doc
+                    att = result.get("attachment")
+                    if att:
+                        attachments.append(att)
+                        logger.debug('\n\n' + '='*5 + f" Analyzed single document: {att.filename} (ID: {att.file_id})" + '='*5 + '\n\n')
+                    damages.extend(result.get("damages", [])) if result.get("damages") else None
+                    claims.extend(result.get("claims", [])) if result.get("claims") else None
+                    deadlines.extend(result.get("deadlines", [])) if result.get("deadlines") else None
+                    events.extend(result.get("events", [])) if result.get("events") else None
+                    completed += 1
+                    yield {
+                        "type": "status",
+                        "phase": ["analyze_doc"],
+                        "status": "complete",
+                        "data": {
+                            "attachment_count": 1 if att else 0,
+                            "progress": completed,
+                            "total": len(doc_tasks)
+                        },
+                        "timestamp": datetime.now().isoformat(),
+                        "query_id": query.query_id
+                    }
                 elif isinstance(result,dict) and "emails" in result:
                     if result.get("emails"):
                         logger.debug('\n\n' + '='*5 + f" Email analysis completed with {len(result.get('emails', []))} emails extracted. " + '='*5 + '\n\n')
@@ -976,7 +1017,7 @@ class Agent:
         )
         logger.debug(f"About to save project {query.project_id} to Supabase...")
         self.conversation_manager.save_project(factsheet=result,
-                                                 files=files,
+                                                 attachments=attachments,
                                                  emails = emails,
                                                  user_id=user_id,
                                                  session_id=query.session_id,
@@ -987,7 +1028,7 @@ class Agent:
         # Yield final result for consumers that need the data
         try:
             factsheet_dict = result.model_dump(mode="json")
-            attachments_dict = [file.model_dump(mode="json") for file in files]
+            attachments_dict = [file.model_dump(mode="json") for file in attachments]
             emails = [email.model_dump(mode="json") for email in emails]
             logger.debug(f"Successfully serialized factsheet and attachments. Yielding result...")
             yield {
@@ -1023,14 +1064,13 @@ class Agent:
 
         # Save attachments to vector store and storage in parallel
         storage_tasks = []
-        parsed_contents = {}
         docs = []
         if query.attachments:
             # Parse documents with streaming progress
             for event in self._parse_docs_with_progress(query.attachments, query.query_id, query.session_id):
                 yield event
             # Retrieve parsed results from instance variable
-            docs, parsed_contents = self._last_parse_results
+            docs = self._last_parse_results
             
             storage_tasks = [
                 asyncio.to_thread(self.vs.add_documents, docs, collection_id=query.session_id),
@@ -1040,7 +1080,7 @@ class Agent:
         # Extract existing data from project (use direct lists, not wrapper models)
         factsheet : FactSheet = factsheet
         events: list[Event] = []
-        files: list[Attachment] = []
+        attachments: list[Attachment] = []
         damages: list[Damage] = []
         claims: list[Claim] = []
         deadlines: list[Deadline] = []
@@ -1049,7 +1089,7 @@ class Agent:
         doc_tasks = self._prepare_analysis_tasks(
             attachments=query.attachments,
             user_id=user_id, query=query,
-            input_=factsheet, parsed_contents=parsed_contents
+            input_=factsheet, 
         )
 
         # ============= PHASE 1 =================
@@ -1069,27 +1109,46 @@ class Agent:
         for coro in asyncio.as_completed(storage_tasks + doc_tasks):
             result = await coro
             logger.debug(f'Completed a storage or analysis task')
-            if result and isinstance(result, dict) and "file" in result and "events" in result:
-                analyzed_doc = result.get("file")
-                logger.debug("\n\n" + "="*5 + f"Analyzed document: {analyzed_doc.filename} (ID: {analyzed_doc.file_id}) - Result {str(analyzed_doc.model_dump())[:100]}" + "="*5 + "\n\n") if analyzed_doc else logger.debug(f'\n\n ======= Analyzed document with no file result ======= \n\n')
+            if result and isinstance(result, dict) and "attachments" in result and "events" in result:
+                logger.debug("\n\n" + "="*5 + f"Analyzed document: {len(result.get("attachments"))}\n\n")
                 # Collect results from analyzed documents
-                files.append(analyzed_doc)
-                if analyzed_doc.damages:
-                    damages.extend(analyzed_doc.damages)
-                if analyzed_doc.claims:
-                    claims.extend(analyzed_doc.claims)
-                if analyzed_doc.deadlines:
-                    deadlines.extend(analyzed_doc.deadlines)
-                if result.get("events"):
-                    events.extend(result.get("events"))
+                attachments.extend(result.get("attachments", [])) if result.get("attachments") else None
+                damages.extend(result.get("damages", [])) if result.get("damages") else None
+                claims.extend(result.get("claims", [])) if result.get("claims") else None
+                deadlines.extend(result.get("deadlines", [])) if result.get("deadlines") else None
+                events.extend(result.get("events", [])) if result.get("events") else None
+
                 completed_analyze_doc += 1
                 yield {
                     "type": "status",
                     "phase": ["analyze_doc"],
                     "status": "complete",
                     "data": {
-                        "filename": result["file"].filename,
-                        "file_id": result["file"].file_id,
+                        "attachment_count": len(result.get("attachments", [])),
+                        "progress": completed_analyze_doc,
+                        "total": len(doc_tasks)
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id
+                }
+            elif result and isinstance(result, dict) and "attachment" in result:
+                # Single doc result from analyze_doc
+                att = result.get("attachment")
+                if att:
+                    attachments.append(att)
+                    logger.debug("\n\n" + "="*5 + f"Analyzed single document: {att.filename} (ID: {att.file_id})" + "="*5 + "\n\n")
+                damages.extend(result.get("damages", [])) if result.get("damages") else None
+                claims.extend(result.get("claims", [])) if result.get("claims") else None
+                deadlines.extend(result.get("deadlines", [])) if result.get("deadlines") else None
+                events.extend(result.get("events", [])) if result.get("events") else None
+
+                completed_analyze_doc += 1
+                yield {
+                    "type": "status",
+                    "phase": ["analyze_doc"],
+                    "status": "complete",
+                    "data": {
+                        "attachment_count": 1 if att else 0,
                         "progress": completed_analyze_doc,
                         "total": len(doc_tasks)
                     },
@@ -1143,17 +1202,17 @@ class Agent:
         # ============= PHASE 2 =================
         # Insert new documents to database (must be inserted first to avoid foreign key constraint issues)
         # ========================================
-        if files and hasattr(files[0], "model_dump"):
+        if attachments and hasattr(attachments[0], "model_dump"):
             await asyncio.to_thread(
                 self.conversation_manager.insert_project_element,
-                data = [file.model_dump(mode="json", exclude = {"claims","damages","deadlines","events"}) for file in files],
+                data = [file.model_dump(mode="json", exclude = {"claims","damages","deadlines","events"}) for file in attachments],
                 project_id=query.project_id,
                 table_name = "project_attachments")
             yield {
                         "type": "status",
                         "phase": ["storage"],
                         "status": "complete",
-                        "data": {"total" : len(files),
+                        "data": {"total" : len(attachments),
                                  "storage_type" : ["database"]
                         },
                         "timestamp": datetime.now().isoformat(),
@@ -1249,7 +1308,7 @@ class Agent:
             "type": "result",
             "data": {
                 "events": [event.model_dump(mode="json") for event in events] if events else [],
-                "attachments": [file.model_dump(mode="json") for file in files] if files else [],
+                "attachments": [file.model_dump(mode="json") for file in attachments] if attachments else [],
                 "damages": [damage.model_dump(mode="json") for damage in damages] if damages else [],
                 "claims": [claim.model_dump(mode="json") for claim in claims] if claims else [],
                 "deadlines": [deadline.model_dump(mode="json") for deadline in deadlines] if deadlines else [],
