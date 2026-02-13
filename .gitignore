@@ -34,3 +34,6 @@ supabase.ipynb
 
 *debug.ipynb
 
+data/lovdata/nl/
+*bz2
+*tar.gz
