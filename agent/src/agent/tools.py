@@ -130,6 +130,8 @@ def clean_element(element_type : Literal["events", "parties", "title", "backgrou
 TOOLS = [
         tavily_search,
         read_attachment,
+        read_project_attachments,
+        read_laws,
         update_project,
         clean_element,
       ]
