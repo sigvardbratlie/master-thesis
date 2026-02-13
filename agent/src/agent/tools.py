@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 import json
-from typing import Optional
+from typing import Optional, Literal
 import logging
 
 from google.cloud import bigquery
@@ -10,7 +10,7 @@ from langchain_tavily import TavilySearch
 from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool
 
-from database import SupabaseStorageManager, DocumentProcessor
+from database import SupabaseStorageManager, DocumentProcessor, BQVectorStore
 
 
 load_dotenv()
@@ -75,40 +75,10 @@ def run_query(sql_query: str) -> dict:
         logger.error(f"Error executing query: {e}")
         return {"error": str(e)}
 
-# @tool
-# def read_vector_store(query: str, config : RunnableConfig ,  query_id : Optional[str] = None, file_id : Optional[str] = None) -> list[str]:
-#     '''Retrieve relevant chunks attachments from the vector store based on the query.
-#     All documents in current session are embedded to the vector store.
-
-#     Args:
-#         query (str): The user's query.
-#         session_id (str): The session ID to filter documents.
-#         query_id (Optional[str]): The query ID to filter documents.
-#         file_id (Optional[str]): The file ID to filter documents.
-#     '''
-#     user_id = config["configurable"].get("user_id", None)
-#     session_id = config["configurable"].get("session_id", None)
-#     vs = BQVectorStore(project_id=project_id)
-#     vector_store = vs.init_vector_store(table_name="attachments")
-#     filters = {"user_id" : user_id,
-#                "session_id" :  session_id,
-#                "query_id" : query_id,
-#                "file_id" : file_id} 
-#     for k,v in filters.copy().items():
-#         if v is None or v == "":
-#             filters.pop(k)
-#     try:
-#         retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4 ,
-#                                                                                         "filter" : filters})
-#         relevant_docs = retriever.invoke(query)
-#         return [doc.to_json() for doc in relevant_docs]
-#     except Exception as e:
-#         return []  # Return empty message on error
-
 @tool
 def read_attachment(path : str, 
                     #config : RunnableConfig
-                    ) -> list:
+                    ) -> str:
     '''
     Reads and processes an attachment from Supabase storage based on the provided path.
     Use only when the attachment content is not provided in the conversation history.
@@ -117,12 +87,10 @@ def read_attachment(path : str,
         path (str): The path to the attachment in Supabase storage.
     
     Returns:
-        list: Processed content of the attachment.
+        str: Processed content of the attachment.
     '''
     storage_manager = SupabaseStorageManager()
     document_processor = DocumentProcessor()
-    #user_id = config["configurable"].get("user_id", None)
-    #session_id = config["configurable"].get("session_id", None)
     content = storage_manager.read_attachment(path=path)
     try:
         file_id = path.split("/")[-1].split(".")[0] if "." in path else path.split("/")[-1]
@@ -130,28 +98,61 @@ def read_attachment(path : str,
     except Exception as e:
         logger.error(f"Error extracting file_id and extension from path: {e}")
         return None
-    if ext in ["pdf", "docx", "txt", "md"]:
+    if ext in ["pdf", "docx", "pptx", "eml", "txt", "md"]:
         file_type = {
             "pdf": "application/pdf",
             "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "eml": "message/rfc822",
             "txt": "text/plain",
             "md": "text/markdown"
         }.get(ext, "text/plain")
-        processed_content = document_processor.parse(content=content,
-                                                             metadata = {"file_id": file_id, "session_id": None,
-                                                                         "embedding_model": None},  # session_id can be added if available
-                                                             file_type=file_type,)
-        return [d.model_dump(mode = "json") for d in processed_content]
+        docs = document_processor.parse(content=content,
+                                        metadata = {"file_id": file_id, 
+                                                    "session_id": None,
+                                                    "embedding_model": None},  
+                                        file_type=file_type,)
+        content_txt = document_processor.to_plain_text(docs)
+        return f"Content for file path {path}: \n{content_txt}\n\n"
     else:
         logger.error(f"Unsupported file extension: {ext}")
         return []
 
+@tool
+def read_project_vectorstore(query:  str, 
+                             project_id: str,
+                             k: int = 5
+                             ) -> str:
+    '''Function to read from the vectorstore of a specific project. 
+    Use when you want to query the vectorstore directly for information retrieval (RAG).
+    
+    Args:
+        query (str): The query to search in the vectorstore.
+        project_id (str): The project id to identify which vectorstore to query.
+        k (int): The number of top results to retrieve from the vectorstore. Default is 5.
+    Returns:
+        str: The retrieved information from the vectorstore based on the query.
+    '''
+    vectorstore = BQVectorStore()
+    results = vectorstore.query(query=query, collection_id=project_id, k=k)
+    if not results:
+        return f"No relevant information found in the vectorstore for project {project_id}."
+    retrieved_content = "\n".join([f"- {doc.page_content}" for doc in results])
+    return f"Retrieved information from vectorstore for project {project_id}:\n{retrieved_content}"
 
+@tool
+def update_project(project_id: str,):
+    '''Use this function to trigger an update of the projects state to include the conversations current information'''
+    return f"Project {project_id} has been sent for update"
+
+def clean_element(element_type : Literal["events", "parties", "title", "background", "claims", "deadlines", "damages", "disputed_facts", "undisputed_facts"], project_id):
+    '''Use this function to trigger a cleaning of a specific element in the projects state. 
+    For example, if you want to clean the vectorstore of the project, use element_type 'vectorstore'.'''
+    return f"Element {element_type} in project {project_id} has been sent for cleaning"
 
 TOOLS = [
         tavily_search,
-        list_table_info,
-        run_query,
-        #read_vector_store,
+        #list_table_info,
+        #run_query,
         read_attachment,
       ]
