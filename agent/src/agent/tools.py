@@ -84,8 +84,14 @@ def read_project_attachments(query:  str,
     results = vectorstore.query(query=query, collection_id="attachments", k=k, filter = {"project_id": project_id})
     if not results:
         return f"No relevant information found in the vectorstore for project {project_id}."
-    retrieved_content = "\n".join([f"- {doc.page_content}" for doc in results])
-    return f"Retrieved information from vectorstore for project {project_id}:\n{retrieved_content}"
+    res = "=== Retrieved relevant chunks from vectorstore: ===\n"
+    for doc in results:
+        res += f'filename: {doc.metadata.get("filename", "Unknown")}' \
+        f'title: {doc.metadata.get("title", "Unknown")} | ' \
+        f'path: {doc.metadata.get("path", "Unknown")} | ' \
+        f'| chunk: {doc.metadata.get("chunk", "Unknown")} of {doc.metadata.get("total_chunks", "Unknown")} total chunks\n'
+        res += f"{doc.page_content}\n\n"
+    return res
 
 @tool
 def read_laws(query: str, k: int = 5) -> str:
@@ -98,11 +104,17 @@ def read_laws(query: str, k: int = 5) -> str:
         str: The retrieved information from the vectorstore based on the query.
     '''
     vectorstore = BQVectorStore()
+    query = '''Jeg kjøpt en elektrisk sparkesykkel som ikke fungerer og virker farlig å kjøpe på. 
+    Hva skal jeg gjøre? Hva er mine frister og rettigheter?'''
+    k = 5
     results = vectorstore.query(query=query, collection_id="laws", k=k)
     if not results:
         return "No relevant laws found in the vectorstore."
-    retrieved_content = "\n".join([f"- {doc.page_content}" for doc in results])
-    return f"Retrieved relevant laws from vectorstore:\n{retrieved_content}"
+    res = "=== Retrieved relevant laws from vectorstore: ===\n"
+    for doc in results:
+        res += f'Title {doc.metadata.get("title", "Unknown")} | Paragraph {doc.metadata.get("paragraph_number", "Unknown")} |Legal area: {doc.metadata.get("legal_area", "Unknown")}\n'
+        res += f"{doc.page_content}\n\n"
+    return res
 
 @tool
 def update_project(project_id: str,):
