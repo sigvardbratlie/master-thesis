@@ -661,7 +661,7 @@ class Agent:
 
         return doc_tasks
 
-    def _parse_docs_with_progress(self, attachments: list, query_id: str, session_id: str, user_id : str):
+    def _parse_docs_with_progress(self, attachments: list, query_id: str, session_id: str, user_id : str, project_id : str):
         """
         Parse documents and yield progress events + return parsed results.
         Returns docs
@@ -705,6 +705,7 @@ class Agent:
                     "query_id": query_id, 
                     "path": att.path, 
                     "file_type": att.file_type, 
+                    "project_id": project_id,
                     "size": att.size,
                     "session_id": session_id,
                     "embedding_model" : self.vs.embedding_model,
@@ -768,6 +769,7 @@ class Agent:
             for event in self._parse_docs_with_progress(attachments=query.attachments, 
                                                         query_id = query.query_id, 
                                                         session_id=query.session_id,
+                                                        project_id=query.project_id,
                                                         user_id=user_id):
                 yield event
             # Retrieve parsed results from instance variable
@@ -775,7 +777,7 @@ class Agent:
             
             # Run both storage operations in parallel
             storage_tasks = [
-                asyncio.to_thread(self.vs.add_documents, docs, collection_id=query.session_id),
+                asyncio.to_thread(self.vs.add_documents, docs, collection_id="attachments"),
                 self.storage.save_raw_documents(attachments=query.attachments)
             ]
 
@@ -1077,13 +1079,14 @@ class Agent:
             for event in self._parse_docs_with_progress(attachments=query.attachments, 
                                                         query_id =  query.query_id, 
                                                         session_id = query.session_id,
+                                                        project_id=query.project_id,
                                                         user_id=user_id):
                 yield event
             # Retrieve parsed results from instance variable
             docs = self._last_parse_results
             
             storage_tasks = [
-                asyncio.to_thread(self.vs.add_documents, docs, collection_id=query.session_id),
+                asyncio.to_thread(self.vs.add_documents, docs, collection_id="attachments"),
                 self.storage.save_raw_documents(attachments=query.attachments)
             ]
 
@@ -1426,6 +1429,7 @@ class Agent:
                 "cleaned_count": len(cleaned_element) if cleaned_element else 0
             }
         }
+    
     async def cleanup_attr(self,
                               query : AskAgentRequest,
                               element_type: str,

@@ -144,7 +144,7 @@ class BQVectorStore(VectorStoreInterface):
             )
         return self._stores[collection_id]
     
-    def add_documents(self, documents: List[Document], collection_id: str, add_embeddings_meta = True) -> None:
+    def add_documents(self, documents: List[Document], collection_id: str = "attachments", add_embeddings_meta = True) -> None:
         if add_embeddings_meta:
             for doc in documents:
                 self.add_embeddings_meta(doc)
@@ -160,9 +160,10 @@ class BQVectorStore(VectorStoreInterface):
         })
         document.metadata = metadata
     
-    def query(self, query: str, collection_id: str, k: int = 3) -> List[Document]:
+    def query(self, query: str, collection_id: str = "attachments", k: int = 3, filter= {}) -> List[Document]:
         store = self._get_store(collection_id)
-        retriever = store.as_retriever(search_kwargs={"k": k})
+        retriever = store.as_retriever(search_kwargs={"k": k},
+                                       filter = filter)
         return retriever.invoke(query)
     
     def delete_collection(self, collection_id: str) -> None:

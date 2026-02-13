@@ -67,12 +67,11 @@ def read_attachment(path : str,
         return []
 
 @tool
-def read_project_vectorstore(query:  str, 
+def read_project_attachments(query:  str, 
                              project_id: str,
                              k: int = 5
                              ) -> str:
-    '''Function to read from the vectorstore of a specific project. 
-    Use when you want to query the vectorstore directly for information retrieval (RAG).
+    '''Function to use RAG to retrieve documents of a specific project.
     
     Args:
         query (str): The query to search in the vectorstore.
@@ -82,11 +81,28 @@ def read_project_vectorstore(query:  str,
         str: The retrieved information from the vectorstore based on the query.
     '''
     vectorstore = BQVectorStore()
-    results = vectorstore.query(query=query, collection_id=project_id, k=k)
+    results = vectorstore.query(query=query, collection_id="attachments", k=k, filter = {"project_id": project_id})
     if not results:
         return f"No relevant information found in the vectorstore for project {project_id}."
     retrieved_content = "\n".join([f"- {doc.page_content}" for doc in results])
     return f"Retrieved information from vectorstore for project {project_id}:\n{retrieved_content}"
+
+@tool
+def read_laws(query: str, k: int = 5) -> str:
+    '''Function to use RAG to retrieve relevant laws based on a query.
+    
+    Args:
+        query (str): The query to search in the vectorstore.
+        k (int): The number of top results to retrieve from the vectorstore. Default is 5.
+    Returns:
+        str: The retrieved information from the vectorstore based on the query.
+    '''
+    vectorstore = BQVectorStore()
+    results = vectorstore.query(query=query, collection_id="laws", k=k)
+    if not results:
+        return "No relevant laws found in the vectorstore."
+    retrieved_content = "\n".join([f"- {doc.page_content}" for doc in results])
+    return f"Retrieved relevant laws from vectorstore:\n{retrieved_content}"
 
 @tool
 def update_project(project_id: str,):

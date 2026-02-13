@@ -122,6 +122,7 @@ class VectorStoreMetadata(BaseModel):
     session_id: str
     query_id: str
     path : Optional[str] = None
+    project_id: Optional[str] = None
     uploaded_at : Optional[datetime] = None
     created_at : Optional[datetime] = None
     updated_at : Optional[datetime] = None
