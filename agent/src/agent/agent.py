@@ -384,8 +384,11 @@ class Agent:
         if data.get("chunk"):
             chunk = data.get("chunk")
             if isinstance(chunk,AIMessageChunk) and chunk.content:
-                token_stream += chunk.content
-                return {"type": "token", "data": chunk.content, "query_id": query_id}
+                if chunk.content and isinstance(chunk.content, str):
+                    token_stream += chunk.content
+                    return {"type": "token", "data": chunk.content, "query_id": query_id}
+                else:
+                    logger.warning(f"Received non-string content in AIMessageChunk: {chunk.content}. - Type: {type(chunk.content)}")
 
     def on_call_llm(self, data : dict, 
                     query_id : str,
