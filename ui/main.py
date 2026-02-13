@@ -5,6 +5,7 @@ import logging
 from ui.services.auth_service import SupabaseAuthService
 from ui.services import get_supabase_auth_service
 from ui.ui_components import get_chat_component, get_sidebar_component
+from ui.ui_components.attachments import get_attachment_component
 from ui.utils import init_state
 
 logging.basicConfig(level=logging.INFO)
@@ -13,6 +14,7 @@ init_state()
 
 chat_component = get_chat_component()
 sidebar_component = get_sidebar_component()
+attachment_component = get_attachment_component()
 auth_service = get_supabase_auth_service()
 
 st.set_page_config(page_title="Agent", page_icon="⚖️", layout="wide")
@@ -25,7 +27,9 @@ auth_service.restore_session()
 
 if auth_service.is_logged_in():
     auth_service.save_token_to_url()
-
+    
+    # Render attachment dialog if one is selected
+    attachment_component.render_attachment_dialog()
 
     with st.sidebar:
         sidebar_component.render_sidebar()

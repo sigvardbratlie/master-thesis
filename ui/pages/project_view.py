@@ -24,6 +24,7 @@ backend_service = get_supabase_manager()
 chat_component = get_chat_component()
 sidebar_component = get_sidebar_component()
 auth_service = get_supabase_auth_service()
+attachment_component = get_attachment_component()
 
 # ================== AUTH ==================
 auth_service.restore_session()
@@ -31,6 +32,8 @@ auth_service.restore_session()
 # ================== MAIN APP LOGIC ==================
 
 if auth_service.is_logged_in():
+    # Render attachment dialog if one is selected
+    attachment_component.render_attachment_dialog()
 
     #st.json(st.session_state.factsheet)
     if st.session_state.session_id is None:

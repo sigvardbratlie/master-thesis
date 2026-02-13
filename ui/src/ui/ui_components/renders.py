@@ -107,12 +107,25 @@ class ChatComponent:
             # Display user message
             user_msg = next((m for m in cycle if m.get("type") == "human"), None)
             if user_msg:
-                #st.info(user_msg)
                 with st.chat_message("user"):
                     st.markdown(user_msg.get("content", {}))
-                    for att in st.session_state.attachments:
-                        if att.get("event_id") == user_msg.get("event_id"):
-                            self.attachment_component.view_attachment(att)
+                    
+                    # Find attachments for this message
+                    user_event_id = user_msg.get("event_id")
+                    user_query_id = user_msg.get("query_id")  # Alternative match key
+                    
+                    for att in st.session_state.get("attachments", []):
+                        if att:
+                            att_event_id = att.get("event_id")
+                            att_query_id = att.get("query_id")
+                            
+                            # Match on event_id or query_id
+                            if (user_event_id and att_event_id == user_event_id) or \
+                               (user_query_id and att_query_id == user_query_id):
+                                self.attachment_component.view_attachment(
+                                    att, 
+                                    key=f"hist_{att.get('file_id', 'unknown')}_{user_event_id or user_query_id}"
+                                )
 
             # Prepare containers for this cycle
             with st.chat_message("assistant"):
@@ -406,11 +419,17 @@ class SidebarComponent:
 
         st.divider()
         st.markdown("Vedleggsoversikt for denne samtalen")
-        with st.popover("📎 Vedlegg", use_container_width=False):
-            st.markdown("Liste over vedlegg lastet opp i denne samtalen:")
-            for att in st.session_state.get("attachments", []):
-                if att:
-                    self.attachment_component.view_attachment(att)
+        attachments = st.session_state.get("attachments", [])
+        if attachments:
+            with st.expander(f"📎 Vedlegg ({len(attachments)})", expanded=False):
+                for i, att in enumerate(attachments):
+                    if att:
+                        self.attachment_component.view_attachment(
+                            att, 
+                            key=f"sidebar_att_{att.get('file_id', i)}"
+                        )
+        else:
+            st.caption("Ingen vedlegg i denne samtalen")
 
         # Logout button
         st.container(height=200, border=False)
