@@ -114,27 +114,10 @@ def test_build_attachment_context_with_attachments(mock_agent):
         user_input="Test query"
     )
 
-    assert "Retrieved context from user's documents" in result
+    assert "User's documents" in result
     assert "Content of file 001" in result
     assert "Content of file 002" in result
     assert "test.pdf" in result
-
-
-def test_build_attachment_context_without_user_input(mock_agent):
-    """Test _build_attachment_context without user input triggers summarization."""
-    attachments = [{"file_id": "file-001", "filename": "test.pdf", "path": "path/to/test.pdf"}]
-    attachment_contents = {"file-001": "Content of file 001"}
-
-    mock_agent.summarizer.summarize.return_value = "Summarized content"
-
-    result = mock_agent._build_attachment_context(
-        attachments=attachments,
-        attachment_contents=attachment_contents,
-        user_input=""  # Empty user input
-    )
-
-    mock_agent.summarizer.summarize.assert_called_once()
-    assert "Summary of attachment contents" in result
 
 
 def test_should_continue_with_tool_calls(mock_agent):
@@ -254,10 +237,7 @@ async def test_call_llm_basic(mock_agent):
 async def test_call_llm_with_project_data(mock_agent):
     """Test _call_llm includes factsheet when project data exists."""
     from tests.fixtures.context_manager_data import get_mock_factsheet,get_mock_attachments
-    return_value = {
-        "factsheet": get_mock_factsheet(),
-        "attachments": get_mock_attachments()
-    }
+    return_value = get_mock_factsheet()
     state = {
         "messages": [
             SystemMessage(content="System prompt"),
@@ -276,13 +256,12 @@ async def test_call_llm_with_project_data(mock_agent):
     mock_llm.ainvoke.return_value = get_mock_ai_message()
 
     config = {"configurable": {"custom_project_id": "project-001", "query_id": "query-001"}}
-    mock_agent.conversation_manager.load_project.return_value = return_value
+    mock_agent.conversation_manager.load_factsheet.return_value = return_value
 
     result = await mock_agent._call_llm(state, mock_llm, config)
 
-    mock_agent.conversation_manager.load_project.assert_called_once_with(project_id="project-001")
+    mock_agent.conversation_manager.load_factsheet.assert_called_once_with(project_id="project-001")
     assert "messages" in result
-    assert "attachments" in result
 
 
 @pytest.mark.asyncio

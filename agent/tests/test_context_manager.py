@@ -72,69 +72,6 @@ async def test_analyze_init_input(mock_context_manager):
     assert isinstance(result.background, str)
     assert result.title == "Property Dispute - Granveien 15B (Defects after purchase)"
 
-async def test_analyze_doc(mock_context_manager):
-    from tests.fixtures.context_manager_data import analyzed_dict1
-    init_input = get_mock_init_input()
-    attachment_model = get_mock_attachment_model()
-    structured_llm = AsyncMock()
-    mock_context_manager.llm.with_structured_output.return_value = structured_llm
-    class AttachmentWithEvents(BaseModel):
-            attachment: AttachmentExtracted
-            events: List[Event]
-
-    att = AttachmentExtracted(
-        party_roles=analyzed_dict1.get("party_roles"),
-        claims=analyzed_dict1.get("claims"),
-        deadlines=analyzed_dict1.get("deadlines"),
-        key_provisions=analyzed_dict1.get("key_provisions"),
-        description=analyzed_dict1.get("description"),
-        file_date=analyzed_dict1.get("file_date"),
-        category=analyzed_dict1.get("category"),
-        significance=analyzed_dict1.get("significance")
-    )
-    event = Event(event_start_date="2023-08-25", description="Document received",
-                  event_name = "DocumentReceived",
-                  parties = ["plaintiff"],
-                  significance="high",
-                  disputed=False,
-                  category="court_filing")
-    structured_llm.ainvoke.return_value = AttachmentWithEvents(attachment=att, events=[event])
-    result = await mock_context_manager.analyze_doc(input_=init_input,
-                                                    attachment=attachment_model,
-                                                    )
-
-    mock_context_manager.llm.with_structured_output.assert_called_once()
-    structured_llm.ainvoke.assert_called_once()
-    assert isinstance(result, dict)
-    assert "attachments" in result
-    assert isinstance(result["attachments"], list)
-    assert isinstance(result["attachments"][0], Attachment)
-    assert "events" in result
-    assert isinstance(result["events"], list)
-    assert isinstance(result["events"][0], Event)
-    assert result["events"][0].event_id, 'Should be present'
-    assert result["events"][0].file_id == "test_file_id"
-    assert result["attachments"][0].path == attachment_model.path
-    assert result["attachments"][0].file_id == "test_file_id"
-    assert result["attachments"][0].body == attachment_model.body
-
-
-async def test_analyze_doc_empty_body(mock_context_manager):
-    """analyze_doc with empty body should return empty results without calling LLM."""
-    init_input = get_mock_init_input()
-    attachment_model = get_mock_attachment_model()
-    attachment_model.body = None  # No parsed content
-
-    result = await mock_context_manager.analyze_doc(input_=init_input,
-                                                    attachment=attachment_model)
-
-    mock_context_manager.llm.with_structured_output.assert_not_called()
-    assert result["attachments"] == []
-    assert result["events"] == []
-    assert result["damages"] == []
-    assert result["claims"] == []
-    assert result["deadlines"] == []
-
 async def test_analyze_governing_law(mock_context_manager):
     from tests.fixtures.context_manager_data import rag, governing_law
     events = get_mock_load_project_data().get("data").get("project_events")

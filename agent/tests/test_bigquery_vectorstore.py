@@ -133,7 +133,7 @@ def test_bq_query(mock_bq_store):
 
     result = mock_bq_store.query("eiendomstvist", collection_id="test-collection", k=5)
 
-    mock_store.as_retriever.assert_called_once_with(search_kwargs={"k": 5})
+    mock_store.as_retriever.assert_called_once_with(search_kwargs={"k": 5}, filter = {})
     mock_retriever.invoke.assert_called_once_with("eiendomstvist")
     assert result == expected
 
