@@ -107,10 +107,8 @@ class Agent:
 
         combined = "\n\n".join(attachment_texts)
 
-        if user_input:
-            return f"Retrieved context from user's documents:\n\n{combined}" + "\n\nUse this information to answer the user's question."
-        else:
-            return f"Summary of attachment contents:\n{self.summarizer.summarize(combined)}"+ "\n\nUse this information to answer the user's question."
+        return f"User's documents:\n\n{combined}" + "\n\nUse this information to answer the user's question."
+        
 
     async def _call_llm(self, state: AgentState, llm_with_tools: BaseChatModel,config: RunnableConfig) -> AgentState:
         """
