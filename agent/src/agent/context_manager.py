@@ -103,88 +103,6 @@ class ContextManager:
         prompt = f'Analyze the following case introduction and extract key information into the InitialInput structure. If not sufficient information, leave blank:\n\n{init_input}. '
         return await structured_llm.ainvoke(prompt)
     
-    async def analyze_doc(self, 
-                input_ : InitialInput | FactSheet ,
-                attachment : AttachmentModel
-                ) -> dict:
-        ''' Function to analyze document content and extract structured data as Attachment.'''
-        
-        if not attachment.body:
-            logger.warning('No content provided for document analysis. Returning empty result.')
-            return {"attachments": [], 
-                    "events": [],
-                    "damages": [],
-                    "claims": [],
-                    "deadlines": []
-                    }
-
-        class AttachmentWithEvents(BaseModel):
-            attachment: AttachmentExtracted
-            events: Optional[List[Event]] = []
-        
-        structured_llm = self.llm.with_structured_output(AttachmentWithEvents, method="function_calling")
-        init_prompt = f'Case input: {input_.model_dump()}\n\n'
-        prompt = init_prompt + f'Analyze the following document and extract BOTH attachment metadata AND timeline events:\n\n{attachment.body}'
-
-        for attempt in range(3):  
-            try:
-                response = await structured_llm.ainvoke(prompt)
-                break  # Exit loop if successful
-            except Exception as e:
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    wait_time = 2 ** attempt  # Exponential backoff
-                    logger.warning(f"Rate limit hit, retrying in {wait_time}s...")
-                    await asyncio.sleep(wait_time)
-                else:
-                    raise
-        if not response:
-            logger.error("LLM returned empty response for document analysis.")
-            return {"attachments": [], 
-                    "events": [],
-                    "damages": [],
-                    "claims": [],
-                    "deadlines": []
-                    }
-        
-        # Process events from attachment (not email)
-        for event in response.events or []:
-            event.file_id = attachment.file_id
-            event.email_id = None  # This is from attachment, not email
-            event.event_id = str(uuid4())
-        
-        # Process attachment damages/claims/deadlines (not from email)
-        if response.attachment.damages:
-            for damage in response.attachment.damages:
-                damage.file_id = attachment.file_id
-                damage.email_id = None  # This is from attachment, not email
-                damage.damage_id = str(uuid4())
-        if response.attachment.deadlines:
-            for deadline in response.attachment.deadlines:
-                deadline.file_id = attachment.file_id
-                deadline.email_id = None  # This is from attachment, not email
-                deadline.deadline_id = str(uuid4())
-        if response.attachment.claims:
-            for claim in response.attachment.claims:
-                claim.file_id = attachment.file_id
-                claim.email_id = None  # This is from attachment, not email
-                claim.claim_id = str(uuid4())
-        
-        attachment_dict = {**response.attachment.model_dump(),
-                            "file_id":attachment.file_id,  # Ensure we keep the original file_id
-                            "filename":attachment.filename,
-                            "path":attachment.path,
-                            "body" : attachment.body,
-                            "file_type":attachment.file_type,
-                            "size":attachment.size,}
-        file = Attachment.model_validate(attachment_dict)
-                        
-        return {"attachments": [file], 
-                "events": response.events,
-                "damages": response.attachment.damages if response.attachment.damages else [],
-                "claims": response.attachment.claims if response.attachment.claims else [],
-                "deadlines": response.attachment.deadlines if response.attachment.deadlines else [],
-                }
-    
     async def analyze_docs(self,
                 input_ : InitialInput | FactSheet,
                 attachments : list[AttachmentModel],
@@ -214,7 +132,7 @@ class ContextManager:
             attachments: List[AttachmentWithEvents]
 
         documents_formatted = "\n\n".join([
-            f"DOCUMENT #{idx+1} (file_id: {att.file_id}):\n{att.model_dump(include={"body","event_id", "query_id","size"})}"
+            f"DOCUMENT #{idx+1} (file_id: {att.file_id}):\n{att.model_dump(include={'body','file_type',})}"
             for idx, att in enumerate(attachments)
         ])
 
@@ -356,7 +274,7 @@ class ContextManager:
         
         # Format emails with clear ID separation
         emails_formatted = "\n\n".join([
-            f"EMAIL #{idx+1} (email_id: {eml.file_id}):\n{eml.model_dump(include={'from_addr',"to","cc",'subject','body_text', "date",})}"
+            f"EMAIL #{idx+1} (email_id: {eml.file_id}):\n{eml.model_dump(include={'from_addr',"to","cc","bcc",'subject','body_text', "date",})}"
             for idx, eml in enumerate(emails)
         ])
         
@@ -720,94 +638,3 @@ class ContextManager:
         else:  # List[str]
             return response
             
-
-    # === NOT IN USE === 
-    async def __analyze_new_input(self,
-                         factsheet : FactSheet,
-                         new_user_input : str,
-                         new_content : Optional[str] = "",
-                         file_id : Optional[str] = None,
-                         filename : Optional[str] = None,
-                         path : Optional[str] = None,
-                         file_type : Optional[str] = None,
-                         size : Optional[int] = None,
-
-                         ) -> dict:
-        '''Function to update an existing FactSheet with new input data.
-
-        Args:
-            factsheet (FactSheet | dict): The existing FactSheet to update.
-            new_user_input (str): The new input query or information from the user.
-            new_content (str, optional): New document content to consider for updating the factsheet.
-            file_id (str, optional): The unique identifier for the new document.
-            filename (str, optional): The name of the new document.
-            path (str, optional): The storage path of the new document.
-            file_type (str, optional): The MIME type of the new document.
-            size (int, optional): The size of the new document in bytes.
-
-        Returns:
-            dict: Result containing updated file, events, damages, deadlines, claims.
-        '''
-        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
-        existing_facts = f"Existing factsheet:\n\n{factsheet_data}"
-        prompt = existing_facts + f"\n\nNew user content: {new_content}" + f'\n\nReturn True if the following new input is relevant to update the existing factsheet, else return False:\n\n{new_user_input}'
-        structured_llm = self.llm.with_structured_output(RelevanceCheck, method="function_calling")  
-        relevant = await structured_llm.ainvoke(prompt)
-        if relevant.is_relevant:
-            result = await self.consider_new_doc(new_content=new_content,
-                                            new_user_input=new_user_input,
-                                            factsheet=factsheet,
-                                            file_id=file_id,
-                                            filename=filename,
-                                            path=path,
-                                            file_type=file_type,
-                                            size=size,)
-            return result
-
-    async def __clean_factsheet(self,
-                         factsheet : FactSheet,
-                         ) -> FactSheet:
-        '''Function to clean and deduplicate disputed and undisputed facts.'''
-        structured_llm = self.llm.with_structured_output(FactSheet, method="function_calling")
-        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
-        prompt = f'Existing factsheet:\n\n{factsheet_data}\n\n' + f'Clean this factsheet. Remove irrelevant or duplicate contents.'
-        try:
-            return await structured_llm.ainvoke(prompt)
-        except Exception as e:
-            logger.error(f'Error during factsheet cleaning: {e}', exc_info=True)
-            return
-    
-    async def __analyze_events(self, initial_input : InitialInput , content : str,file_id: str) -> Events:
-        '''Analyzes document content to extract a list of events.
-        
-        Args:
-            initial_input (InitialInput): The initial case input data.
-            content (str): The document content to analyze.
-
-        Returns:
-            list[Event]: A list of extracted Event objects.
-        '''
-        structured_llm = self.llm.with_structured_output(Events, method="function_calling")
-        init_prompt = f'Initial case input: {initial_input.model_dump()}\n\n'
-        prompt = init_prompt + f'Analyze the following document content and extract key main events:\n\n{content}'
-        response = await structured_llm.ainvoke(prompt)
-        for event in response.events:
-            event.file_id = file_id
-            event.event_id = str(uuid4())
-        return response
-    
-    async def __consider_new_events(self,
-                            factsheet : FactSheet,
-                         new_content : str,
-                         new_user_input : str,
-                         file_id : str
-                         ) -> list[Event]:
-        structured_llm = self.llm.with_structured_output(Events, method="function_calling")
-        factsheet_data = factsheet.model_dump() if hasattr(factsheet, 'model_dump') else factsheet
-        init_prompt = f'Existing factsheet:\n\n{factsheet_data}\n\n'
-        prompt = init_prompt + f'Analyze the following document content and extract key main events:\n\n{new_content}' + f'\n\nNew user input:\n\n{new_user_input}\n\n'
-        response = await structured_llm.ainvoke(prompt)
-        for event in response.events:
-            event.file_id = file_id
-        return response.events
-    
