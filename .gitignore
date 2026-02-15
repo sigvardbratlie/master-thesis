@@ -18,21 +18,14 @@ wheels/
 *.log
 *.env
 *.json
+*.ipynb
+
 
 secrets.toml
 
-**/examples.ipynb
-
-**/*playground*.ipynb
-*playground*.ipynb
-agent/playground_vectorstore.ipynb
-*playground_vectorstore.ipynb
-
-supabase.ipynb
 .vscode/
 .idea/
 
-*debug.ipynb
 
 data/lovdata/nl/
 *bz2
