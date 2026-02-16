@@ -1,18 +1,4 @@
-"""
-Test Pipeline Manuscript - Sak TOSL-2024-103311
-Eiendomskjøp med elektriske og bygningstekniske mangler - Granveien 15B, Oslo
-
-Manuscript struktur:
-- Session 0: Prosjekt-initialisering
-- Session 1: Salgsoppgave og visning (mars 2023)
-- Session 2: Budkonferanse og kjøpsavtale (august 2023)
-- Session 3: Overtakelse og første problemer (november-desember 2023)
-- Session 4: Ekspertutsendelse og reklamasjon (desember 2023 - februar 2024)
-- Session 5: Forliksforhandlinger og stevning (mai-juni 2024)
-- Session 6: Prosessskriv og forberedelser til rettssak (september 2024-januar 2025)
-"""
-
-anomymization_dict = {
+parts_map = {
     "parter": {
         "Stian Kristensen": "Andreas Nilsen",
         "Ellen Gunderson": "Berit Johansen",
@@ -71,679 +57,394 @@ anomymization_dict = {
 }
 }
 MANUSCRIPT: list[dict] = [
+    
     # ==============================================================================
-    # SESSION 0: PROSJEKT-INITIALISERING
-    # Advokaten får instrukser fra kjøperparet
+    # SESSION 0: INITIALISERING
+    # Februar 2024 - Advokaten mottar saken
     # ==============================================================================
     {
         "session": 0,
+        "date": "2024-02-01",
         "session_name": "Prosjekt-initialisering",
         "user_input": """
         Jeg er advokat og har fått instrukser fra Andreas Nilsen og Berit Johansen.
-        De kjøpte en enebolig på Granveien 15B i Oslo i august 2023 for kr 15,5 millioner.
         
-        Etter overtakelse 11. november 2023 har de oppdaget en rekke alvorlige 
-        mangler ved eiendommen - elektriske feil, pipe-problemer, og mer.
+        De kjøpte en enebolig på Granveien 15B i Oslo fra Camilla Marie Hansen og 
+        Daniel Erik Hansen i august 2023 for kr 15,5 millioner. 
+        Overtakelse var 11. november 2023.
         
-        Vi er nå i januar 2024. De har allerede sendt én reklamasjon i desember 2023,
-        og forsikringsselskapet har svart.
+        Eiendommen ble solgt med boligselgerforsikring gjennom Nordic Insurance Group SE.
         
-        Hva trenger jeg for å vurdere saken deres?
+        Etter overtakelse har de oppdaget en rekke alvorlige mangler: elektriske feil, 
+        pipeproblemer, varmekabler, gulvproblemer, og mer.
+        
+        Jeg vedlegger alle relevante dokumenter fra salgsprosessen, overtakelsen, 
+        første reklamasjoner og ekspertrapporter.
+        
+        Kan du hjelpe meg å strukturere denne saken og vurdere våre rettigheter?
         """,
-        "attachments": []
+        "attachments": ['./01_fabricated/2023-03-15_00a_salgsoppgave_2023-03-15.txt',
+                        './01_fabricated/2023-03-22_00c_budkonferanse_2023-03-22.txt',
+                        './01_fabricated/2023-12-28_09_rapport_Petter_Iversen_el_anlegg_2023-12-28.txt',
+                        './01_fabricated/2023-03-30_13_tilstandsrapport_ProTakst_2023-03-30.txt',
+                        './01_fabricated/2024-01-15_10_rapport_Tommy_Eriksen_1_2024-01-15.txt',
+                        './01_fabricated/2024-01-15_18_svar_forsikring_første_reklamasjon_2024-01-15.txt',
+                        './01_fabricated/2023-03-18_00b_visningsnotat_2023-03-18_21.txt',
+                        './01_fabricated/2024-01-20_07_pristilbud_Nordby_Bad_Vaatrom_2024-01-20.txt',
+                        './01_fabricated/2023-08-25_01_kjøpekontrakt_2023-08-25.txt',
+                        './01_fabricated/2023-08-20_02_egenerklæring_selger_2023-08-20.txt',
+                        './01_fabricated/2024-01-14_04_reklamasjon_2_2024-01-14.txt',
+                        './01_fabricated/2023-03-20_00e_oppdragsbrev_takstmann_2023-03-20.txt',
+                        './01_fabricated/2023-11-15_15_SMS_utveksling_2023-11-15.txt',
+                        './01_fabricated/2023-12-11_03_reklamasjon_1_2023-12-11.txt',
+                        './01_fabricated/2023-03-22_00d_meglers_oppfoelging_2023-03-22_08-25.txt'],
+        "solution": ""
     },
-    
     {
         "session": 0,
-        "session_name": "Prosjekt-initialisering - Juridisk ramme",
+        "date": "2024-02-01",
+        "session_name": "Initialisering",
         "user_input": """
-        Dette er en eiendomskjøpssak der eiendommen ble solgt med boligselgerforsikring.
-        Hvilke lovregler gjelder her? Hva er forskjellen på reklamasjon til selger
-        vs. krav mot boligselgerforsikringen?
+        Gi meg en kort og konsis oppsummering av sakens faktiske bakgrunn og utvikling 
+        så langt, basert på dokumentene jeg har lastet opp. 
+        
+        Fokuser på de viktigste hendelsene og problemstillingene. Hva er kjernen i saken?
         """,
-        "attachments": []
+        "attachments": [],
+        "solution": ""
     },
-    
     {
         "session": 0,
-        "session_name": "Prosjekt-initialisering - Dokumentasjonsoversikt",
+        "date": "2024-02-01",
+        "session_name": "Initialisering",
         "user_input": """
-        Hvilke dokumenter bør jeg samle inn for å vurdere om vi har grunnlag for
-        å kreve erstatning? Tenk på både dokumenter fra salget og dokumenter
-        fra reklamasjonsprosessen.
+        Dette er en eiendomskjøpssak med boligselgerforsikring. 
+        
+        Hvilke lovbestemmelser er mest relevante? Hva er forskjellen på å reklamere 
+        til selger versus å fremme krav mot boligselgerforsikringen?
         """,
-        "attachments": []
+        "attachments": [],
+        "solution": ""
+    },
+    {
+        "session": 0,
+        "date": "2024-02-01",
+        "session_name": "Initialisering",
+        "user_input": """
+        Har selger gitt uriktige eller ufullstendige opplysninger? 
+        Hva burde selger ha opplyst om som ikke er opplyst om?
+        
+        Er det noen forhold som burde vært undersøkt nærmere før kjøpet?
+        """,
+        "attachments": [],
+        "solution": ""
+    },
+    {
+        "session": 0,
+        "date": "2024-02-01",
+        "session_name": "Initialisering",
+        "user_input": """
+        Er manglene reklamert innenfor frister? 
+        
+        Hva er konsekvensen hvis noen av forholdene er reklamert for sent?
+        """,
+        "attachments": [],
+        "solution": ""
     },
 
     # ==============================================================================
-    # SESSION 1: SALGSOPPGAVE OG VISNING
-    # Mars 2023 - Pre-avtale fase
+    # SESSION 1: REKLAMASJONER OG EKSPERTRAPPORTER
+    # Februar-mars 2024
     # ==============================================================================
     {
         "session": 1,
-        "session_name": "Salgsoppgave - Første analyse",
+        "date": "2024-02-20",
+        "session_name": "Reklamasjoner og ekspertrapporter",
         "user_input": """
-        Her er salgsoppgaven fra 15. mars 2023. Eiendommen er en enebolig fra 1931
-        som har vært oppgradert i perioden 2017-2022.
+        Saken har utviklet seg. Se vedlagte nye rapporter, pristilbud, og svar 
+        fra forsikringsselskapet.
         
-        Hva burde klientene mine ha vært obs på i denne fasen? Hvilke spørsmål
-        burde de stilt megler?
+        Vi har nå dokumentasjon på utbedringskostnadene og flere ekspertuttalelser.
+        
+        Hva er hovedfunnene i de nye rapportene? Hvor sterkt står vi nå?
         """,
         "attachments": [
-            "01_fabricated/2023-03-15_00a_salgsoppgave_2023-03-15.txt"
-        ]
+            './01_fabricated/2024-01-15_06_pristilbud_Nordby_Elektro_2024-01-15.txt',
+            './01_fabricated/2024-01-20_07_pristilbud_Nordby_Bad_Vaatrom_2024-01-20.txt',
+            './01_fabricated/2024-01-25_08_pristilbud_Skogen_Bygg_2024-01-25.txt',
+            './01_fabricated/2024-02-15_02_brev_oslo_brann_2024-02-15.txt',
+            './01_fabricated/2024-02-15_19_svar_forsikring_reklamasjon_2_og_3_2024-02-15.txt',
+            './01_fabricated/2024-02-19_10_pristilbud_nordby_varmekabler_2024-02-19.txt',
+            './01_fabricated/2024-02-23_09_rapport_uleberg_2024-02-23.txt'
+        ],
+        "solution": ""
     },
-    
     {
         "session": 1,
-        "session_name": "Visningsnotat",
+        "date": "2024-02-20",
+        "session_name": "Reklamasjoner og ekspertrapporter",
         "user_input": """
-        Her er notatet fra visningen 18. mars 2023. Klientene mine var på visning
-        og fikk omvisning av megler og selger.
+        Oppsummer de totale utbedringskostnadene basert på pristilbudene vi har fått.
         
-        Er det noe i visningsnotatet som burde vært undersøkt nærmere?
+        Hva er hovedpostene? Hva er totalsummen?
         """,
-        "attachments": [
-            "01_fabricated/2023-03-18_00b_visningsnotat_2023-03-18_21.txt"
-        ]
+        "attachments": [],
+        "solution": ""
     },
-    
     {
         "session": 1,
-        "session_name": "Tilstandsrapport - Gjennomgang",
+        "date": "2024-03-08",
+        "session_name": "Reklamasjoner og ekspertrapporter",
         "user_input": """
-        Tilstandsrapporten ble utarbeidet av ProTakst AS ved David Storvik 30. mars 2023.
+        Det har dukket opp et nytt problem med gulvet. Se vedlagt epost fra 
+        Vindum & Pedersen AS.
         
-        Les rapporten og gi meg en vurdering av:
-        1. Hva er hovedfunnene?
-        2. Hvilke advarsler gis?
-        3. Er det noe rapporten IKKE dekker som kunne vært problematisk?
+        Hva er problemet? Er dette en ny mangel vi må reklamere på?
         """,
         "attachments": [
-            "01_fabricated/2023-03-30_13_tilstandsrapport_ProTakst_2023-03-30.txt"
-        ]
+            './01_fabricated/2024-03-08_03_epost_2024-03-08_vindum_pedersen_gulv.eml'
+        ],
+        "solution": ""
     },
-    
     {
         "session": 1,
-        "session_name": "Tilstandsrapport - Oppfølging",
+        "date": "2024-03-15",
+        "session_name": "Reklamasjoner og ekspertrapporter",
         "user_input": """
-        Tilstandsrapporten nevner flere oppgraderinger i 2017-2021:
-        - Nordlandgulv og el-arbeider (2017)
-        - Bad 2. etasje rehabilitert (2020/2021)
-        - Ny taktekking (2021)
+        Hva er forsikringsselskapets standpunkt basert på svarene de har gitt så langt?
         
-        Burde klientene mine krevd dokumentasjon på disse arbeidene før de kjøpte?
-        Hva er risikoen ved å ikke gjøre det?
+        Godtar de våre krav? Hva avviser de? Hva er begrunnelsen?
         """,
-        "attachments": []
+        "attachments": [],
+        "solution": ""
     },
 
     # ==============================================================================
-    # SESSION 2: BUDKONFERANSE OG KJØPSAVTALE
-    # August 2023
-    # ==============================================================================
-    {
-        "session": 2,
-        "session_name": "Budkonferanse",
-        "user_input": """
-        Her er notatet fra budkonferansen 22. mars 2023. Klientene mine la inn bud.
-        
-        Hva skjedde i budkonferansen? Var det andre interessenter?
-        """,
-        "attachments": [
-            "01_fabricated/2023-03-22_00c_budkonferanse_2023-03-22.txt"
-        ]
-    },
-    
-    {
-        "session": 2,
-        "session_name": "Meglers oppfølging",
-        "user_input": """
-        Etter budkonferansen sendte megler denne oppfølgingseposten.
-        
-        Hva er meglers ansvar i denne fasen? Burde de ha gitt mer informasjon?
-        """,
-        "attachments": [
-            "01_fabricated/2023-03-22_00d_meglers_oppfoelging_2023-03-22_08-25.txt"
-        ]
-    },
-    
-    {
-        "session": 2,
-        "session_name": "Egenerklæring fra selger",
-        "user_input": """
-        Før kontraktsinngåelse fikk klientene mine selgers egenerklæring datert 20. august 2023.
-        
-        Analyser denne - hva opplyser selger om? Er det noe som mangler?
-        Spesielt interessant: Hva sier selger om elektriske installasjoner?
-        """,
-        "attachments": [
-            "01_fabricated/2023-08-20_02_egenerklæring_selger_2023-08-20.txt"
-        ]
-    },
-    
-    {
-        "session": 2,
-        "session_name": "Dialog med selger",
-        "user_input": """
-        Det var noe epostutveksling mellom kjøper og selger 20-21. august.
-        
-        Les disse epostene - hva spurte klientene mine om, og hva svarte selger?
-        """,
-        "attachments": [
-            "01_fabricated/2023-08-20_11_epost_kjoeper_til_selger_2023-08-20.txt",
-            "01_fabricated/2023-08-21_12_epost_selger_til_kjoeper_2023-08-21.txt"
-        ]
-    },
-    
-    {
-        "session": 2,
-        "session_name": "Kjøpskontrakt - Analyse",
-        "user_input": """
-        Kjøpskontrakten ble signert 25. august 2023 med overtakelse 11. november 2023.
-        
-        Analyser kontrakten:
-        1. Hva er kjøpesummen?
-        2. Er det boligselgerforsikring?
-        3. Hvilke dokumenter er vedlagt?
-        4. Hva betyr det at eiendommen selges med boligselgerforsikring?
-        """,
-        "attachments": [
-            "01_fabricated/2023-08-25_01_kjøpekontrakt_2023-08-25.txt"
-        ]
-    },
-
-    # ==============================================================================
-    # SESSION 3: OVERTAKELSE OG FØRSTE PROBLEMER
-    # November-desember 2023
-    # ==============================================================================
-    {
-        "session": 3,
-        "session_name": "Overtakelse - SMS-utveksling",
-        "user_input": """
-        Rundt overtakelsen 11-15. november 2023 var det SMS-utveksling mellom
-        partene. Hva snakket de om?
-        """,
-        "attachments": [
-            "01_fabricated/2023-11-15_15_SMS_utveksling_2023-11-15.txt"
-        ]
-    },
-    
-    {
-        "session": 3,
-        "session_name": "Første reklamasjon - Elektrisk anlegg",
-        "user_input": """
-        11. desember 2023 sendte jeg første reklamasjon på vegne av klientene mine.
-        Hovedproblemet er elektriske avvik som ble oppdaget av elektroingeniør.
-        
-        Les reklamasjonen - hva er hovedkravene? Hvilke mangler reklameres det på?
-        """,
-        "attachments": [
-            "01_fabricated/2023-12-11_03_reklamasjon_1_2023-12-11.txt"
-        ]
-    },
-    
-    {
-        "session": 3,
-        "session_name": "Elektro-rapport",
-        "user_input": """
-        Sammen med reklamasjonen vedla vi rapport fra elektroingeniør Petter Iversen
-        datert 28. desember 2023.
-        
-        Hva er de viktigste funnene i denne rapporten? Hvor alvorlige er avvikene?
-        """,
-        "attachments": [
-            "01_fabricated/2023-12-28_09_rapport_Petter_Iversen_el_anlegg_2023-12-28.txt"
-        ]
-    },
-
-    # ==============================================================================
-    # SESSION 4: EKSPERTUTSENDELSE OG VIDERE REKLAMASJONER
-    # Januar-februar 2024
-    # ==============================================================================
-    {
-        "session": 4,
-        "session_name": "Reklamasjonsrapport Tommy Eriksen",
-        "user_input": """
-        I januar 2024 engasjerte vi byggingeniør Tommy Eriksen fra Vest Takst AS
-        til å vurdere manglene. Hans rapport kom 15. januar 2024.
-        
-        Hva er hovedfunnene i denne rapporten? Hva sier han om:
-        - Pipen i 2. etasje?
-        - Varmekabler?
-        - Andre forhold?
-        """,
-        "attachments": [
-            "01_fabricated/2024-01-15_10_rapport_Tommy_Eriksen_1_2024-01-15.txt"
-        ]
-    },
-    
-    {
-        "session": 4,
-        "session_name": "Pristilbud - Kostnadsestimering",
-        "user_input": """
-        Vi fikk inn pristilbud fra flere firma for å dokumentere utbedringskostnadene.
-        
-        Kan du oppsummere kostnadene basert på disse pristilbudene:
-        - Nordby Elektro
-        - Nordby Bad & Våtrom
-        - Skogen Bygg
-        """,
-        "attachments": [
-            "01_fabricated/2024-01-15_06_pristilbud_Nordby_Elektro_2024-01-15.txt",
-            "01_fabricated/2024-01-20_07_pristilbud_Nordby_Bad_Vaatrom_2024-01-20.txt",
-            "01_fabricated/2024-01-25_08_pristilbud_Skogen_Bygg_2024-01-25.txt"
-        ]
-    },
-    
-    {
-        "session": 4,
-        "session_name": "Forsikringsselskapets svar",
-        "user_input": """
-        15. januar 2024 kom forsikringsselskapets svar på vår første reklamasjon.
-        
-        Hva er deres standpunkt? Godtar de våre krav? Avviser de noe?
-        """,
-        "attachments": [
-            "01_fabricated/2024-01-15_18_svar_forsikring_første_reklamasjon_2024-01-15.txt"
-        ]
-    },
-    
-    {
-        "session": 4,
-        "session_name": "Andre reklamasjon",
-        "user_input": """
-        Vi sendte en andre reklamasjon 14. januar 2024 med ytterligere krav.
-        
-        Hva er nytt i denne reklamasjonen sammenlignet med den første?
-        """,
-        "attachments": [
-            "01_fabricated/2024-01-14_04_reklamasjon_2_2024-01-14.txt"
-        ]
-    },
-    
-    {
-        "session": 4,
-        "session_name": "Brann og redningsetaten",
-        "user_input": """
-        Oslo Brann- og redningsetat kom med et brev 15. februar 2024 om pipen.
-        
-        Hva sier de? Hvordan styrker dette vår sak?
-        """,
-        "attachments": [
-            "01_fabricated/2024-02-15_02_brev_oslo_brann_2024-02-15.txt"
-        ]
-    },
-    
-    {
-        "session": 4,
-        "session_name": "Forsikringssvar - Reklamasjon 2 og 3",
-        "user_input": """
-        15. februar 2024 kom forsikringsselskapets svar på reklamasjon 2 og 3.
-        
-        Hva er deres standpunkt nå? Ser du en utvikling i deres svar?
-        """,
-        "attachments": [
-            "01_fabricated/2024-02-15_19_svar_forsikring_reklamasjon_2_og_3_2024-02-15.txt"
-        ]
-    },
-    
-    {
-        "session": 4,
-        "session_name": "Ytterligere pristilbud",
-        "user_input": """
-        Vi fikk også pristilbud for varmekabler fra Nordby.
-        
-        Hva er kostnaden her? Hvordan bygger dette opp totalkravet?
-        """,
-        "attachments": [
-            "01_fabricated/2024-02-19_10_pristilbud_nordby_varmekabler_2024-02-19.txt"
-        ]
-    },
-    
-    {
-        "session": 4,
-        "session_name": "Uleberg-rapport",
-        "user_input": """
-        23. februar 2024 fikk vi en rapport fra Uleberg.
-        
-        Hva omhandler denne rapporten? Hva er konklusjonene?
-        """,
-        "attachments": [
-            "01_fabricated/2024-02-23_09_rapport_uleberg_2024-02-23.txt"
-        ]
-    },
-    
-    {
-        "session": 4,
-        "session_name": "Gulvproblematikk",
-        "user_input": """
-        I mars 2024 dukket det opp et nytt problem med gulvet (Nordlandgulv).
-        Her er en epost fra Vindum & Pedersen AS.
-        
-        Hva er problemet? Er dette et nytt mangel vi må reklamere på?
-        """,
-        "attachments": [
-            "01_fabricated/2024-03-08_03_epost_2024-03-08_vindum_pedersen_gulv.txt"
-        ]
-    },
-
-    # ==============================================================================
-    # SESSION 5: FORLIKSFORHANDLINGER OG STEVNING
+    # SESSION 2: FORLIKSFORHANDLINGER OG STEVNING
     # April-juni 2024
     # ==============================================================================
     {
-        "session": 5,
-        "session_name": "Oppfølging - Manglende svar",
+        "session": 2,
+        "date": "2024-05-01",
+        "session_name": "Forliksforhandlinger og stevning",
         "user_input": """
-        15. april 2024 sendte jeg en oppfølgingsepost da vi ikke hadde fått tilfredsstillende
-        svar fra motparten.
+        Vi har forsøkt å få til en minnelig løsning, men uten hell. 
+        Se vedlagt korrespondanse.
         
-        Hva krever jeg i denne eposten? Hva er fristen?
+        Hva er situasjonen nå? Bør vi stevne?
         """,
         "attachments": [
-            "01_fabricated/2024-04-15_20_epost_kjoeper_oppfoelging_manglende_svar_2024-04-15.txt"
-        ]
+            './01_fabricated/2024-04-15_20_epost_kjoeper_oppfoelging_manglende_svar_2024-04-15.eml',
+            './01_fabricated/2024-05-20_22_forliksforslag_minnelig_loesning_2024-05-20.txt',
+            './01_fabricated/2024-05-27_21_epost_dialog_advokater_foer_stevning_2024-05-27.eml'
+        ],
+        "solution": ""
     },
-    
     {
-        "session": 5,
-        "session_name": "Forliksforslag",
+        "session": 2,
+        "date": "2024-05-20",
+        "session_name": "Forliksforhandlinger og stevning",
         "user_input": """
-        20. mai 2024 la jeg frem et forliksforslag med en minnelig løsning.
+        Hva er et realistisk forlikskrav i denne saken? 
         
-        Hva tilbyr vi? Hva er våre krav? Er dette et rimelig forslag?
+        Hva bør vi tilby i forlik, og hva er vår minsteakseptable løsning?
         """,
-        "attachments": [
-            "01_fabricated/2024-05-20_22_forliksforslag_minnelig_loesning_2024-05-20.txt"
-        ]
+        "attachments": [],
+        "solution": ""
     },
-    
     {
-        "session": 5,
-        "session_name": "Dialog mellom advokater",
+        "session": 2,
+        "date": "2024-06-20",
+        "session_name": "Forliksforhandlinger og stevning",
         "user_input": """
-        27. mai 2024 var det dialog mellom meg og motpartens advokat før stevning.
+        Forhandlingene har strandet. Vi må stevne.
         
-        Hva er tonen i dialogen? Hva er de uenige om?
+        Lag meg et utkast til stevning basert på sakens dokumenter og utvikling. 
+        
+        Hvem skal stevnes? Hva skal påstanden være? Hva er kravet?
         """,
-        "attachments": [
-            "01_fabricated/2024-05-27_21_epost_dialog_advokater_foer_stevning_2024-05-27.txt"
-        ]
+        "attachments": [],
+        "solution": ""
     },
-    
     {
-        "session": 5,
-        "session_name": "Stevning - Utarbeidelse",
+        "session": 2,
+        "date": "2024-06-29",
+        "session_name": "Forliksforhandlinger og stevning",
         "user_input": """
-        29. juni 2024 tok ut stevning til Oslo Tingrett.
+        Se vedlagt stevningen som ble tatt ut 29. juni 2024.
         
-        Les stevningen:
-        1. Hvem er saksøkt?
-        2. Hva er påstanden?
-        3. Hva er de viktigste rettsgrunnlagene?
-        4. Hva er kravet i kroner?
+        Er det noe som bør justeres eller legges til?
         """,
         "attachments": [
-            "01_fabricated/2024-06-29_01_stevning_kjøper_2024-06-29.txt"
-        ]
+            './01_fabricated/2024-06-29_01_stevning_kjøper_2024-06-29.txt'
+        ],
+        "solution": ""
     },
 
     # ==============================================================================
-    # SESSION 6: PROSESSSKRIV OG RETTSSAK
-    # September 2024 - mai 2025
+    # SESSION 3: PROSESSFØRING
+    # August-november 2024
     # ==============================================================================
     {
-        "session": 6,
-        "session_name": "Tilsvar fra saksøkte",
+        "session": 3,
+        "date": "2024-08-20",
+        "session_name": "Prosessføring",
         "user_input": """
-        15. august 2024 kom tilsvaret fra selger og forsikringsselskapet.
+        Se vedlagt tilsvar fra selger og forsikringsselskapet.
         
         Hva er deres forsvar? Hva bestrides? Hva innrømmes?
+        
+        Hva er de viktigste svakhetene i deres argumentasjon?
         """,
         "attachments": [
-            "01_fabricated/2024-08-15_02_tilsvar_selger_forsikring_2024-08-15.txt"
-        ]
+            './01_fabricated/2024-08-15_02_tilsvar_selger_forsikring_2024-08-15.txt'
+        ],
+        "solution": ""
     },
-    
     {
-        "session": 6,
-        "session_name": "Prosesskriv - Forlikstilbud",
+        "session": 3,
+        "date": "2024-09-10",
+        "session_name": "Prosessføring",
         "user_input": """
-        12. september 2024 sendte vi et prosesskriv med forlikstilbud.
+        Vi skal sende et prosesskriv med forlikstilbud før saken går videre.
         
-        Hva tilbyr vi nå? Har kravet endret seg siden stevningen?
+        Lag meg et utkast til dette basert på motpartens tilsvar og vår stevning.
+        """,
+        "attachments": [],
+        "solution": ""
+    },
+    {
+        "session": 3,
+        "date": "2024-09-12",
+        "session_name": "Prosessføring",
+        "user_input": """
+        Se vedlagt prosesskrivet som ble sendt.
+        
+        Er argumentasjonen god nok? Er det noe som bør styrkes?
         """,
         "attachments": [
-            "01_fabricated/2024-09-12_06_prosesskriv_forlikstilbud_2024-09-12.txt"
-        ]
+            './01_fabricated/2024-09-12_06_prosesskriv_forlikstilbud_2024-09-12.txt'
+        ],
+        "solution": ""
     },
-    
     {
-        "session": 6,
-        "session_name": "Stevning om kumulasjon",
+        "session": 3,
+        "date": "2024-11-01",
+        "session_name": "Prosessføring",
         "user_input": """
-        10. oktober 2024 tok ut en stevning om kumulasjon (sammenslåing av saker).
+        Saken har utviklet seg videre. Se vedlagte nye dokumenter om kumulasjon, 
+        takrapport, tilsvar fra takstmann, og tredje reklamasjon.
         
-        Hva betyr dette? Hvorfor vil vi ha kumulasjon?
+        Hva er status nå? Hvordan påvirker dette vår sak?
         """,
         "attachments": [
-            "01_fabricated/2024-10-10_03_stevning_kumulasjon_2024-10-10.txt"
-        ]
+            './01_fabricated/2024-10-10_03_stevning_kumulasjon_2024-10-10.txt',
+            './01_fabricated/2024-11-11_16_rapport_Marius_Holm_tak_2024-11-11.txt',
+            './01_fabricated/2024-11-14_04_tilsvar_takstmann_tryg_2024-11-14.txt',
+            './01_fabricated/2024-11-15_17_notat_samtale_AllFix_2024-11-15.txt',
+            './01_fabricated/2024-11-22_05_reklamasjon_3_2024-11-22.txt',
+            './01_fabricated/2024-11-22_07_tilleggsrapport_eriksen_2024-11-22.txt'
+        ],
+        "solution": ""
     },
-    
     {
-        "session": 6,
-        "session_name": "Tredje reklamasjon",
+        "session": 3,
+        "date": "2024-11-25",
+        "session_name": "Prosessføring",
         "user_input": """
-        22. november 2024 sendte vi en tredje reklamasjon.
+        Hva er de viktigste nye funnene i Marius Holm sin takrapport og 
+        Tommy Eriksen sin tilleggsrapport?
         
-        Hva er nytt i denne reklamasjonen? Hvorfor kommer den så sent?
+        Styrker dette vår sak?
+        """,
+        "attachments": [],
+        "solution": ""
+    },
+    {
+        "session": 3,
+        "date": "2024-11-30",
+        "session_name": "Prosessføring",
+        "user_input": """
+        Basert på tilsvaret fra takstmannen - hvordan bør vi imøtegå deres argumenter?
+        
+        Hva er de svakeste punktene i deres forsvar?
+        """,
+        "attachments": [],
+        "solution": ""
+    },
+
+    # ==============================================================================
+    # SESSION 4: HOVEDFORHANDLING OG DOM
+    # April-mai 2025
+    # ==============================================================================
+    {
+        "session": 4,
+        "date": "2025-04-01",
+        "session_name": "Hovedforhandling og dom",
+        "user_input": """
+        Hovedforhandlingen nærmer seg. Se vedlagt tilleggsrapport fra Arnesen.
+        
+        Hva er konklusjonen i denne rapporten? Hvordan påvirker den sakens styrke?
         """,
         "attachments": [
-            "01_fabricated/2024-11-22_05_reklamasjon_3_2024-11-22.txt"
-        ]
+            './01_fabricated/2025-04-03_08_tilleggsrapport_arnesen_2025-04-03.txt'
+        ],
+        "solution": ""
     },
-    
     {
-        "session": 6,
-        "session_name": "Takrapport",
+        "session": 4,
+        "date": "2025-04-05",
+        "session_name": "Hovedforhandling og dom",
         "user_input": """
-        11. november 2024 fikk vi en rapport fra Marius Holm om taket.
+        Basert på alle dokumentene fra salgsprosessen til nå - hva er de 3-5 viktigste 
+        punktene jeg må få frem i hovedforhandlingen?
         
-        Hva er funnene? Er dette et nytt mangel?
+        Hva er våre sterkeste argumenter? Hva er våre svakeste punkter?
+        """,
+        "attachments": [],
+        "solution": ""
+    },
+    {
+        "session": 4,
+        "date": "2025-04-07",
+        "session_name": "Hovedforhandling og dom",
+        "user_input": """
+        Lag meg utkast til sluttinnlegg for hovedforhandlingen.
+        
+        Strukturer det slik at det dekker alle våre påstander og bevis på en 
+        overbevisende måte.
+        """,
+        "attachments": [],
+        "solution": ""
+    },
+    {
+        "session": 4,
+        "date": "2025-04-25",
+        "session_name": "Hovedforhandling og dom",
+        "user_input": """
+        Hovedforhandlingen er gjennomført. Se vedlagte dokumenter fra rettssaken.
+        
+        Hva skjedde under hovedforhandlingen?
         """,
         "attachments": [
-            "01_fabricated/2024-11-11_16_rapport_Marius_Holm_tak_2024-11-11.txt"
-        ]
+            './01_fabricated/2025-04-09_05_sluttinnlegg_kjoper_2025-04-09.txt',
+            './01_fabricated/2025-04-23_05_rettsbok_utdrag_2025-04-23_25.txt',
+            './01_fabricated/2025-04-24_01_befaringsprotokoll_2025-04-24.txt'
+        ],
+        "solution": ""
     },
-    
     {
-        "session": 6,
-        "session_name": "Tilsvar fra takstmann",
+        "session": 4,
+        "date": "2025-05-14",
+        "session_name": "Hovedforhandling og dom",
         "user_input": """
-        14. november 2024 kom tilsvar fra den opprinnelige takstmannen (ProTakst).
+        Se vedlagt dom fra Oslo Tingrett datert 14. mai 2025.
         
-        Hvordan forsvarer takstmannen seg? Hva mener de om påstandene våre?
+        Hva ble utfallet? Vant vi frem? Hva var begrunnelsen?
         """,
         "attachments": [
-            "01_fabricated/2024-11-14_04_tilsvar_takstmann_tryg_2024-11-14.txt"
-        ]
-    },
-    
-    {
-        "session": 6,
-        "session_name": "Notat - AllFix samtale",
-        "user_input": """
-        15. november 2024 hadde vi en samtale med AllFix (som gjorde takarbeidet i 2021).
-        
-        Hva sa de? Hvordan kan dette brukes i saken?
-        """,
-        "attachments": [
-            "01_fabricated/2024-11-15_17_notat_samtale_AllFix_2024-11-15.txt"
-        ]
-    },
-    
-    {
-        "session": 6,
-        "session_name": "Tilleggsrapport Eriksen",
-        "user_input": """
-        22. november 2024 kom en tilleggsrapport fra Tommy Eriksen.
-        
-        Hva er nytt i denne rapporten? Styrker den vår sak?
-        """,
-        "attachments": [
-            "01_fabricated/2024-11-22_07_tilleggsrapport_eriksen_2024-11-22.txt"
-        ]
-    },
-    
-    {
-        "session": 6,
-        "session_name": "Helhetlig saksvurdering",
-        "user_input": """
-        Basert på alle dokumentene vi nå har samlet - fra salgsoppgaven i mars 2023
-        til de siste rapportene i november 2024 - gi meg en helhetlig vurdering:
-        
-        1. Hva er de viktigste manglene ved eiendommen?
-        2. Hvor sterke er våre rettskrav?
-        3. Hva er svakhetene i vår sak?
-        4. Hva er den totale erstatningen vi krever?
-        5. Hva er prognosen for å vinne frem i retten?
-        """,
-        "attachments": [
-            "01_fabricated/2023-03-30_13_tilstandsrapport_ProTakst_2023-03-30.txt",
-            "01_fabricated/2024-01-15_10_rapport_Tommy_Eriksen_1_2024-01-15.txt",
-            "01_fabricated/2023-12-28_09_rapport_Petter_Iversen_el_anlegg_2023-12-28.txt",
-            "01_fabricated/2024-06-29_01_stevning_kjøper_2024-06-29.txt"
-        ]
-    },
-    
-    {
-        "session": 6,
-        "session_name": "Tilleggsrapport Arnesen",
-        "user_input": """
-        3. april 2025 kom en tilleggsrapport fra Arnesen.
-        
-        Hva omhandler denne? Hvordan påvirker den sakens styrke?
-        """,
-        "attachments": [
-            "01_fabricated/2025-04-03_08_tilleggsrapport_arnesen_2025-04-03.txt"
-        ]
-    },
-    
-    {
-        "session": 6,
-        "session_name": "Prosesskriv - Oppsummering",
-        "user_input": """
-        Nå nærmer vi oss hovedforhandlingen. Basert på alle dokumentene,
-        rapportene og prosessskriftene - hva er de 3-5 viktigste punktene
-        jeg må få frem i retten?
-        
-        Hva er våre sterkeste argumenter?
-        """,
-        "attachments": []
+            './01_fabricated/2025-05-14_04_dom_2025-05-14.txt'
+        ],
+        "solution": ""
     },
 ]
-
-# ==============================================================================
-# METADATA OG BRUK
-# ==============================================================================
-
-"""
-BRUK AV MANUSKRIPTET:
-
-For hver query i listen:
-1. Les user_input
-2. Last inn alle filer spesifisert i attachments
-3. Send user_input + vedlegg til modellen
-4. Registrer:
-   - Input tokens
-   - Output tokens  
-   - Responstid
-   - Faktorskettens nøyaktighet (hvis aktuelt)
-   - Konsistens med tidligere svar
-
-SESSIONS FORKLART:
-
-Session 0: Baseline - Advokaten får instrukser (3 queries)
-  → Tester modellens evne til å organisere kompleks informasjon
-  → Tester forståelse av boligselgerforsikring vs vanlig kjøp
-
-Session 1: Salgsoppgave og visning (mars 2023) (4 queries)
-  → Tester prediktiv analyse av salgsdokumentasjon
-  → Tester kritisk lesning av tilstandsrapport
-  → Tester identifikasjon av red flags
-
-Session 2: Budkonferanse og kjøpsavtale (august 2023) (5 queries)
-  → Tester forståelse av meglers ansvar
-  → Tester analyse av egenerklæring
-  → Tester vurdering av boligselgerforsikring
-
-Session 3: Overtakelse og første problemer (november-desember 2023) (3 queries)
-  → Tester reklamasjonsteknikk
-  → Tester tolking av tekniske rapporter (elektrisk anlegg)
-  → Tester prioritering av mangler
-
-Session 4: Ekspertutsendelse og videre reklamasjoner (januar-mars 2024) (10 queries)
-  → Tester håndtering av multiple rapporter
-  → Tester kostnadsberegning fra pristilbud
-  → Tester akkumulering av bevis
-  → Tester vurdering av forsikringsselskapets svar
-  → Tester identifikasjon av nye mangler (gulv)
-
-Session 5: Forliksforhandlinger og stevning (april-juni 2024) (4 queries)
-  → Tester forliksstrategi
-  → Tester stevningsutarbeidelse
-  → Tester juridisk argumentasjon
-
-Session 6: Prosessskriv og rettssak (september 2024-mai 2025) (10 queries)
-  → Tester prosessføring
-  → Tester håndtering av motpartens tilsvar
-  → Tester akkumulering av bevis over lang tid
-  → Tester helhetlig saksvurdering
-  → Tester strategisk prioritering før hovedforhandling
-
-
-METRIKER TIL MÅLING:
-
-1. Konsistens: Samme saksforhold konsistent beskrevet gjennom sessions?
-2. Nøyaktighet: Juridisk korrekt tolking av avhendingsloven og forsikringsrett?
-3. Hukommelse: Husk tidligere funn og innblikk fra tidligere queries?
-4. Progresjon: Utvikler analysen seg når ny informasjon kommer?
-5. Prioritering: Fokuserer på vesentlige juridiske spørsmål?
-6. Naturlig dialog: Håndterer oppfølgingsspørsmål uten å miste kontekst?
-7. Økonomisk forståelse: Kan estimere kostnader og sammenstille pristilbud?
-8. Multiple mangler: Håndterer akkumulering av flere mangler over tid?
-9. Forsikringsforståelse: Forstår forskjellen på krav mot selger vs forsikring?
-"""
-
-if __name__ == "__main__":
-    print(f"Testmanuskript: TOSL-2024-103311")
-    print(f"Totalt antall queries: {len(MANUSCRIPT)}")
-    print(f"Sessions: {len(set(q['session'] for q in MANUSCRIPT))}")
-    print()
-    
-    # Print session oversikt
-    sessions = {}
-    for query in MANUSCRIPT:
-        session = query['session']
-        if session not in sessions:
-            sessions[session] = []
-        sessions[session].append(query)
-    
-    for session_num in sorted(sessions.keys()):
-        queries_in_session = sessions[session_num]
-        print(f"Session {session_num}: {queries_in_session[0]['session_name'].split(' - ')[0]}")
-        print(f"  Totalt {len(queries_in_session)} queries")
-        
-        total_attachments = sum(len(q['attachments']) for q in queries_in_session)
-        unique_attachments = len(set(att for q in queries_in_session for att in q['attachments']))
-        print(f"  Totalt {total_attachments} vedlegg ({unique_attachments} unike)")
-        
-        for i, query in enumerate(queries_in_session, 1):
-            print(f"    {i}. {query['session_name']}")
-            if query['attachments']:
-                for att in query['attachments']:
-                    print(f"       - {att}")
-        print()
