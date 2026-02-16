@@ -18,7 +18,7 @@ from tests.fixtures.email_data import (
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from database import EmailHandler
+from documents import EmailHandler
 from models.api_request_models import AttachmentModel, EmailModel
 
 
@@ -232,7 +232,7 @@ def test_extract_email_data_multipart_body(parser):
 def test_parse_eml_valid_plain(parser):
     """Full parse of base64-encoded plain text EML."""
     b64_content = get_mock_eml_plain_text_b64()
-    result = parser.parse_eml(
+    result = parser.parse_eml_to_obj(
         content=b64_content,
         user_id="u-001",
         query_id="q-007",
@@ -249,7 +249,7 @@ def test_parse_eml_valid_plain(parser):
 def test_parse_eml_valid_with_attachment(parser):
     """Full parse of base64-encoded EML with attachment."""
     b64_content = get_mock_eml_with_text_attachment_b64()
-    result = parser.parse_eml(
+    result = parser.parse_eml_to_obj(
         content=b64_content,
         user_id="u-001",
         query_id="q-008",
@@ -265,7 +265,7 @@ def test_parse_eml_valid_with_attachment(parser):
 def test_parse_eml_invalid_base64(parser):
     """Invalid base64 should raise ValueError."""
     with pytest.raises(ValueError, match="Invalid base64 content"):
-        parser.parse_eml(
+        parser.parse_eml_to_obj(
             content="!!!invalid-base64!!!",
             user_id="u-001",
             query_id="q-009",
@@ -279,7 +279,7 @@ def test_parse_eml_invalid_email_content(parser):
     not_an_email = base64.b64encode(b"This is not a valid EML file").decode("utf-8")
     # email.message_from_bytes is lenient - it won't raise for most content.
     # But we should still get a result (email module is very forgiving)
-    result = parser.parse_eml(
+    result = parser.parse_eml_to_obj(
         content=not_an_email,
         user_id="u-001",
         query_id="q-010",
@@ -292,7 +292,7 @@ def test_parse_eml_invalid_email_content(parser):
 def test_parse_eml_multipart(parser):
     """Full parse of multipart EML."""
     b64_content = get_mock_eml_multipart_b64()
-    result = parser.parse_eml(
+    result = parser.parse_eml_to_obj(
         content=b64_content,
         user_id="u-001",
         query_id="q-011",
@@ -312,7 +312,7 @@ def test_parse_eml_multipart(parser):
 def test_parse_eml_preserves_cc_bcc(parser):
     """CC and BCC fields should be preserved when present."""
     b64_content = get_mock_eml_plain_text_b64()
-    result = parser.parse_eml(
+    result = parser.parse_eml_to_obj(
         content=b64_content,
         user_id="u-001",
         query_id="q-012",
@@ -328,7 +328,7 @@ def test_parse_eml_preserves_cc_bcc(parser):
 def test_attachment_path_format(parser):
     """Attachment paths should follow user_id/session_id/file_id.ext format."""
     b64_content = get_mock_eml_with_text_attachment_b64()
-    result = parser.parse_eml(
+    result = parser.parse_eml_to_obj(
         content=b64_content,
         user_id="user-123",
         query_id="q-013",
