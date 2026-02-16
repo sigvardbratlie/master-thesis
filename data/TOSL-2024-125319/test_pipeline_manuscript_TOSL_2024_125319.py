@@ -1203,13 +1203,13 @@ MANUSCRIPT: list[dict] = [
     },
 
     # ==============================================================================
-    # SESSION 9: Plan videre
+    # SESSION 9: Plan videre arbeid
     # ==============================================================================
 
     {
-        "session": 8,
-        "date": "2025-10-31",
-        "session_name": "Rettsak (høst 2025)",
+        "session": 9,
+        "date": "2025-02-01",
+        "session_name": "Plan for videre arbeid",
         "user_input": """
         Se vedlagt ny korrespondanse og det vi har snakket om.
         Oppdater saken.
