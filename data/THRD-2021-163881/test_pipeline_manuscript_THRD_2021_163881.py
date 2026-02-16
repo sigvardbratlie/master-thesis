@@ -124,17 +124,18 @@ MANUSCRIPT: list[dict] = [
     {
         "session": 1,
         "session_name": "Heving",
-        "date" : "2020-05-01",
+        "date" : "2020-05-18",
         "user_input": """
         Saken har utviklet seg og vi har nå kommet til et punkt hvor vi skal heve kjøpet. Se vedlagt dokumenter frem til nå. 
-        Lag meg utkast til hevingserklæring basert på de juridiske problemstillingene som er identifisert så langt.
+        Lag meg utkast til forbehold om heving basert på de juridiske problemstillingene som er identifisert så langt.
         """,
-        "attachments": ['./01_fabricated/2020-05-08_08_epost_2020-05-08_eiendomsgrense_problem.txt',
+        "attachments": [
+                        './01_fabricated/2020-04-15_52_epost_2020-04-15_kommune_spoersmaal.txt',
+                        './01_fabricated/2020-04-28_53_epost_2020-04-28_kommune_svar.txt',
+                        './01_fabricated/2020-05-08_08_epost_2020-05-08_eiendomsgrense_problem.txt',
                         './01_fabricated/2020-05-18_55_sms_2020-05-18_kristiansen_hansen.txt',
                         './01_fabricated/2020-03-12_07_rapport_2020-03-12_byggesoek_betongdekke.txt',
-                        './01_fabricated/2020-05-19_09_brev_2020-05-19_forbehold_heving.txt',
                         './01_fabricated/2020-04-28_53_epost_2020-04-28_kommune_svar.txt',
-                        './01_fabricated/2020-05-19_56_moetereferat_2020-05-19_klienter.txt',
                         './01_fabricated/2020-04-15_52_epost_2020-04-15_kommune_spoersmaal.txt',
                         './01_fabricated/2020-05-10_54_notat_2020-05-10_intern_strategi.txt'],
         "solution" : ""
