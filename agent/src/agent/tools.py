@@ -67,7 +67,7 @@ def read_attachment(path : str,
         return []
 
 @tool
-def read_project_attachments(query:  str, 
+def query_project_attachments(query:  str, 
                              project_id: str,
                              k: int = 5
                              ) -> str:
@@ -130,7 +130,7 @@ def clean_element(element_type : Literal["events", "parties", "title", "backgrou
 TOOLS = [
         tavily_search,
         read_attachment,
-        read_project_attachments,
+        query_project_attachments,
         read_laws,
         update_project,
         clean_element,
