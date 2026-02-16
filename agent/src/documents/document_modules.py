@@ -46,7 +46,7 @@ class BaseHandler:
 
 class EmailHandler(BaseHandler):
     def __init__(self):
-        pass
+        super().__init__()
 
     def _dedoce_base64(self, content: str) -> bytes:
         try:
@@ -233,7 +233,7 @@ class EmailHandler(BaseHandler):
 
 class PDFHandler(BaseHandler):
     def __init__(self):
-        pass
+        super().__init__()
 
     
     def _needs_ocr(self, content: bytes) -> bool:
@@ -341,7 +341,7 @@ class PDFHandler(BaseHandler):
     
 class TextHandler(BaseHandler):
     def __init__(self):
-        pass
+        super().__init__()
 
     def parse_text_to_docs(self, content : bytes, metadata: dict) -> List[Document]:
         text = content.decode('utf-8', errors='ignore')
@@ -394,7 +394,7 @@ class TextHandler(BaseHandler):
         
 class DocxHandler(BaseHandler):
     def __init__(self):
-        pass
+        super().__init__()
 
     def parse_docx_to_docs(self, content: bytes, metadata: dict) -> list[Document]:
         docs = []
@@ -446,7 +446,7 @@ class DocxHandler(BaseHandler):
         
 class XlsxHandler(BaseHandler):
     def __init__(self):
-        pass
+        super().__init__()
     
     def parse_xlsx_to_docs(self, content: bytes, metadata: dict) -> list[Document]:
         logger.warning("XLSX parsing not implemented yet.")
@@ -454,7 +454,7 @@ class XlsxHandler(BaseHandler):
     
 class PptxHandler(BaseHandler):
     def __init__(self):
-        pass
+        super().__init__()
 
     def parse_pptx_to_docs(self, content: bytes, metadata: dict) -> list[Document]:
         docs = []
@@ -517,19 +517,19 @@ class DocumentProcessor(BaseHandler):
             return []
         
         if file_type == "application/pdf":
-            return PDFHandler.parse_pdf_to_docs(content_decoded, metadata=metadata)
+            return PDFHandler().parse_pdf_to_docs(content_decoded, metadata=metadata)
         elif file_type in ["text/plain", "text/markdown"]:
-            return TextHandler.parse_text_to_docs(content_decoded, metadata=metadata)
+            return TextHandler().parse_text_to_docs(content_decoded, metadata=metadata)
         elif file_type == "text/csv":
-            return TextHandler.parse_csv_to_docs(content_decoded, metadata=metadata)
+            return TextHandler().parse_csv_to_docs(content_decoded, metadata=metadata)
         elif file_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-            return XlsxHandler.parse_xlsx_to_docs(content_decoded, metadata=metadata)
+            return XlsxHandler().parse_xlsx_to_docs(content_decoded, metadata=metadata)
         elif file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            return DocxHandler.parse_docx_to_docs(content_decoded, metadata=metadata)
+            return DocxHandler().parse_docx_to_docs(content_decoded, metadata=metadata)
         elif file_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation":
-            return PptxHandler.parse_pptx_to_docs(content_decoded, metadata=metadata)
+            return PptxHandler().parse_pptx_to_docs(content_decoded, metadata=metadata)
         elif file_type == "message/rfc822":
-            return EmailHandler.parse_eml_to_docs(content_decoded, metadata=metadata)
+            return EmailHandler().parse_eml_to_docs(content_decoded, metadata=metadata)
         else:
             logger.warning(f"Unsupported file type {file_type} for attachment {metadata.get('file_id')}")
             return []
