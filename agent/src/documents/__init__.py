@@ -1,9 +1,9 @@
-from .document_modules import DocumentProcessor, EmailHandler, DocxDocument, PDFHandler, PptxHandler, TextHandler, XlsxHandler
+from .document_modules import DocumentProcessor, EmailHandler, DocxHandler, PDFHandler, PptxHandler, TextHandler, XlsxHandler
 
 __all__ = [
     "DocumentProcessor",
     "EmailHandler",
-    "DocxDocument",
+    "DocxHandler",
     "PDFHandler",
     "PptxHandler",
     "TextHandler",
