@@ -314,7 +314,7 @@ class SidebarComponent:
         self.auth_service = get_supabase_auth_service()
 
 
-    def llm_model_options(self):
+    def llm_model_options(self, default_choice = None,expanded = False):
         llm_options = {
         "openai": {"fast" : "gpt-4o-mini", "expert": "gpt-4o"},
         "google": {"fast": "gemini-2.5-flash", "expert": "gemini-2.5-pro"},}
@@ -326,7 +326,7 @@ class SidebarComponent:
             horizontal=True,
             index=0
         )
-        with st.expander("Velg spesifikk modell (valgfritt)"):
+        with st.expander("Velg spesifikk modell (valgfritt)", expanded=expanded):
             llm_provider = st.radio(
                 "Velg LLM leverandør:",
                 ("openai", "google", 
@@ -341,7 +341,8 @@ class SidebarComponent:
                 for _, model in types.items():
                     all_models.append(f"{provider} - {model}")
             custom_llm = st.selectbox("Velg spesifikk modell (valgfritt):",
-                                      options = all_models)
+                                      options = all_models,
+                                      index = default_choice)
             if custom_llm:
                 st.session_state.llm_model = custom_llm.replace(" - ","_")
             else:
