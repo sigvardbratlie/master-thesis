@@ -10,7 +10,8 @@ from langchain_tavily import TavilySearch
 from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool
 
-from database import SupabaseStorageManager, DocumentProcessor, BQVectorStore
+from database import SupabaseStorageManager, BQVectorStore
+from documents import DocumentProcessor
 
 
 load_dotenv()
@@ -127,6 +128,12 @@ def clean_element(element_type : Literal["events", "parties", "title", "backgrou
     For example, if you want to clean the vectorstore of the project, use element_type 'vectorstore'.'''
     return f"Element {element_type} in project {project_id} has been sent for cleaning"
 
+@tool
+def create_project():
+    '''Use this function to trigger the creation of a new project in the database.'''
+    return "A new project has been sent for creation"
+
+
 TOOLS = [
         tavily_search,
         read_attachment,
@@ -134,4 +141,5 @@ TOOLS = [
         read_laws,
         update_project,
         clean_element,
+        create_project,
       ]
