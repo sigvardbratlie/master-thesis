@@ -348,6 +348,16 @@ class SidebarComponent:
                 st.session_state.llm_model = llm_provider+ "_" + llm_options[llm_provider][agent_type]
         st.info(f'Model: **{st.session_state.llm_model.replace("_"," - ")}**')
 
+    def _delete_sidebar_session(self, session_id: str):
+        if self.backend_service.delete_session(session_id):
+            if st.session_state.get('session_id') == session_id:
+                st.session_state.session_id = None
+                st.session_state.messages = []
+                st.session_state.session_title = None
+            st.toast("Session deleted")
+        else:
+            st.toast("Could not delete session", icon="⚠️")
+
     def load_session(self, session):
         is_selected = st.session_state.get('session_id') == session.session_id
         if st.button(
@@ -408,6 +418,11 @@ class SidebarComponent:
                     self.load_session(session)
             else:
                 st.info("Du har ingen tidligere samtaler.")
+
+        if st.session_state.get('session_id'):
+            st.button("Delete current session", icon=":material/delete:", type="tertiary",
+                      key="del_current_session",
+                      on_click=lambda: self._delete_sidebar_session(st.session_state.session_id))
 
         st.divider()
 
@@ -620,6 +635,17 @@ class ProjectComponent:
 
         #st.rerun()
 
+    def _delete_project(self, project_id: str):
+        if self.backend_service.delete_project(project_id):
+            if st.session_state.get('project_id') == project_id:
+                st.session_state.project_id = None
+                st.session_state.factsheet = None
+                st.session_state.attachments = []
+                st.session_state.emails = []
+            st.toast("Project deleted")
+        else:
+            st.toast("Could not delete project", icon="⚠️")
+
     def render_projects(self, ):
         st.header("Select Project")
         projects = self.backend_service.load_projects(user_id=st.session_state.user_id)
@@ -632,7 +658,10 @@ class ProjectComponent:
                             key=project.get('project_id', 'no-id'),
                             use_container_width=True,
                             type="primary" if is_selected else "secondary")
-                    
+                if st.session_state.get('project_id'):
+                    st.button("Delete current project", icon=":material/delete:", type="tertiary",
+                              key="del_current_project",
+                              on_click=lambda: self._delete_project(st.session_state.project_id))
         else:
             st.info("No projects found. Please initialize a new project.")
 
@@ -674,16 +703,27 @@ class ProjectComponent:
 
         with st.expander("Attachments Overview", expanded=False, icon="📎"):
             for file in st.session_state.get('attachments', []):
-                self.attachment_component.view_attachment(file, key = str(uuid4()))
-
+                sig = file.get("significance", "medium")
+                sig_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(sig, "⚪")
+                self.attachment_component.view_attachment(file, key=str(uuid4()), sig_icon=sig_icon)
 
         with st.expander("Correspondence Overview", expanded=False, icon="✉️"):
-            #st.info(st.session_state.get("emails", []))
             for file in st.session_state.get("emails", []):
-                st.write(f'- **{file.get("subject", "No Subject")}** \n(From: {file.get("from", "Unknown")}, To: {file.get("to", "Unknown")}, Date: {file.get("date", "Unknown")})')
+                sig = file.get("significance", "medium")
+                sig_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(sig, "⚪")
+                st.write(f'- {sig_icon} **{file.get("subject", "No Subject")}** \n(From: {file.get("from", "Unknown")}, To: {file.get("to", "Unknown")}, Date: {file.get("date", "Unknown")})')
+
+    def _delete_session(self, session_id: str):
+        if self.backend_service.delete_session(session_id):
+            if st.session_state.get('session_id') == session_id:
+                st.session_state.session_id = None
+                st.session_state.messages = []
+                st.session_state.session_title = None
+            st.toast("Session deleted")
+        else:
+            st.toast("Could not delete session", icon="⚠️")
 
     def render_project_sessions(self):
-        #st.header("Project Sessions")
         sessions = self.backend_service.load_project_sessions(project_id=st.session_state.project_id)
         if sessions:
             for session in sessions:
@@ -696,13 +736,16 @@ class ProjectComponent:
                 )
                 if session_selected:
                     history = self.backend_service.load_session_history(session.session_id)
-                    #st.info(history)
                     st.session_state.messages = history.events
                     st.session_state.session_id = session.session_id
                     st.session_state.session_title = session.title
                     st.session_state.first_question = None
                     logger.info(f"Selected session: {st.session_state.session_id}")
                     st.rerun()
+            if st.session_state.get('session_id'):
+                st.button("Delete current session", icon=":material/delete:", type="tertiary",
+                          key="del_current_psession",
+                          on_click=lambda: self._delete_session(st.session_state.session_id))
         else:
             st.info("No sessions found for this project.")
 

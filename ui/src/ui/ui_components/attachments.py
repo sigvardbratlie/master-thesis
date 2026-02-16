@@ -141,19 +141,20 @@ class AttachmentComponent:
         
         show_attachment()
 
-    def view_attachment(self, attachment: dict, content_bytes: Optional[bytes] = None, key: str = None):
+    def view_attachment(self, attachment: dict, content_bytes: Optional[bytes] = None, key: str = None, sig_icon: str = None):
         """Display attachments from session history"""
         if not attachment:
             logger.warning("view_attachment called with None attachment")
             return
-        
+
         file_id = attachment.get('file_id', str(uuid.uuid4()))
         filename = attachment.get('filename', 'Ukjent fil')
-        
+
         # Use stable key based on file_id, not random uuid
         button_key = key if key else f"att_{file_id}"
-        
-        st.button(f"📎 {filename}", key=button_key, on_click = lambda a = attachment : self.on_click_view(a)  )
+
+        label = f"{sig_icon} 📎 {filename}" if sig_icon else f"📎 {filename}"
+        st.button(label, key=button_key, on_click=lambda a=attachment: self.on_click_view(a))
 
 
 class RenderDocBytes:
