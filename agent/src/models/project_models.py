@@ -131,10 +131,8 @@ class Party(BaseModel):
         description="Role of the party in the case, e.g., plaintiff, defendant, witness, legal representative, etc.")
     entity_type: entity_types
     key_contact: Optional[Contact] = Field(None, description="Primary contact person for this party")
-    #corporation : bool = Field(..., description="Is this party a company/organization (True) or an individual (False)")
-    # legal_representation: Optional[str] = Field(
-    #     None, description="Law firm representing this party"
-    # )
+    role_description: Optional[str] = Field(None, description="Additional details about the party's role or involvement in the case")
+
 
 class Parties(BaseModel):
     parties: list[Party] = Field(description="List of parties involved in the case, i.e., plaintiff, defendant, witnesses, plaintiffs legal representatives, etc.")
