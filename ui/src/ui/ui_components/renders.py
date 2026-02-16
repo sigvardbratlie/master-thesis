@@ -672,16 +672,18 @@ class ProjectComponent:
         
         with st.expander("Events", expanded=False, icon="🕒"):
             events = factsheet.get('events', [])
-            sorted_events = sorted(events, key=lambda x: x.get('event_date', ''))
+            sorted_events = sorted(events, key=lambda x: x.get('event_start_date', '') or '')
             for event in sorted_events:
+                sig = event.get("significance", "medium")
+                sig_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(sig, "⚪")
                 start_date = event.get('event_start_date', 'No Date')
                 end_date = event.get('event_end_date', 'No Date')
                 if end_date and start_date and end_date != start_date:
-                    st.markdown(f"**{start_date} - {end_date}**: {event.get('description', 'No Description')}")
+                    st.markdown(f"- {sig_icon} **{start_date} - {end_date}**: {event.get('description', 'No Description')}")
                 elif start_date and start_date != 'No Date':
-                    st.markdown(f"**{start_date}**: {event.get('description', 'No Description')}")
+                    st.markdown(f"- {sig_icon} **{start_date}**: {event.get('description', 'No Description')}")
                 else:
-                    st.markdown(f"**No Date**: {event.get('description', 'No Description')}")
+                    st.markdown(f"- {sig_icon} **No Date**: {event.get('description', 'No Description')}")
         
         elements = {"parties" : "👥", "governing_law" : "⚖️", "claims" : "📄", "damages" : "💰", "deadlines" : "⏰",
         }
@@ -703,13 +705,23 @@ class ProjectComponent:
             
 
         with st.expander("Attachments Overview", expanded=False, icon="📎"):
-            for file in st.session_state.get('attachments', []):
+            sorted_attachments = sorted(
+                st.session_state.get('attachments', []),
+                key=lambda x: x.get('file_date', '') or '',
+                reverse=True
+            )
+            for file in sorted_attachments:
                 sig = file.get("significance", "medium")
                 sig_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(sig, "⚪")
                 self.attachment_component.view_attachment(file, key=str(uuid4()), sig_icon=sig_icon)
 
         with st.expander("Correspondence Overview", expanded=False, icon="✉️"):
-            for file in st.session_state.get("emails", []):
+            sorted_emails = sorted(
+                st.session_state.get("emails", []),
+                key=lambda x: x.get('date', '') or '',
+                reverse=True
+            )
+            for file in sorted_emails:
                 sig = file.get("significance", "medium")
                 sig_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(sig, "⚪")
                 st.write(f'- {sig_icon} **{file.get("subject", "No Subject")}** \n(From: {file.get("from", "Unknown")}, To: {file.get("to", "Unknown")}, Date: {file.get("date", "Unknown")})')
@@ -762,6 +774,7 @@ class ProjectComponent:
             "parse_doc": ("📄", "Document parsed"),
             "analyze_docs": ("📄", "Starting document analysis"),
             "analyze_doc": ("📝", "Document analyzed"),
+            "analyze_email": ("✉️", "Email analyzed"),
             "final_analysis": ("🔬", "Running final analysis"),
             "factual_facts": ("⚖️", "Factual analysis"),
             "governing_law": ("📜", "Legal framework analysis"),
@@ -793,6 +806,9 @@ class ProjectComponent:
                         if phase == "parse_doc":
                             fname = data.get("filename", "")
                             status.update(label=f"{emoji} Parsing {fname}..." if fname else f"{emoji} {label}...")
+                        elif phase == "storage":
+                            fname = data.get("filename", "")
+                            status.update(label=f"💾 Saving {fname} to vector store..." if fname else f"💾 {label}...")
                         else:
                             status.update(label=f"{emoji} {label}...")
 
@@ -800,6 +816,10 @@ class ProjectComponent:
                             n_att = data.get("attachments", 0)
                             if n_att:
                                 st.caption(f"📎 {n_att} attachment(s) to process")
+                        elif phase in ("analyze_docs", "analyze_doc"):
+                            n_docs = data.get("total", 0)
+                            if n_docs:
+                                st.caption(f"📄 Analyzing {n_docs} document batch(es)...")
 
                     elif event_status == "complete":
                         # analyze_docs/complete is a summary event, skip counting
@@ -818,9 +838,25 @@ class ProjectComponent:
                             progress = data.get("progress", 0)
                             total_files = data.get("total", 0)
                             detail = f": **{fname}** ({progress}/{total_files})" if fname else ""
+                        elif phase == "storage":
+                            fname = data.get("filename", "")
+                            storage_types = data.get("storage_type", [])
+                            if fname:
+                                detail = f": **{fname}**"
+                            elif "file_storage" in storage_types:
+                                detail = " — file storage"
+                            else:
+                                detail = ""
                         elif phase == "analyze_doc":
                             fname = data.get("filename", "")
-                            detail = f": **{fname}**" if fname else ""
+                            progress = data.get("progress", 0)
+                            total_docs = data.get("total", 0)
+                            detail = f": **{fname}** ({progress}/{total_docs})" if fname else f" ({progress}/{total_docs})"
+                        elif phase == "analyze_email":
+                            subject = data.get("subject", "")
+                            progress = data.get("progress", 0)
+                            total_docs = data.get("total", 0)
+                            detail = f": **{subject}** ({progress}/{total_docs})" if subject else f" ({progress}/{total_docs})"
                         elif phase == "factual_facts":
                             d = data.get("disputed_count", 0)
                             u = data.get("undisputed_count", 0)
@@ -830,6 +866,17 @@ class ProjectComponent:
                             detail = f" — {j}" if j else ""
 
                         st.markdown(f"✅ {label}{detail}")
+
+                        # Update status label to show current activity
+                        if phase == "storage":
+                            fname = data.get("filename", "")
+                            status.update(label=f"💾 Saving {fname}..." if fname else f"💾 Saving documents...")
+                        elif phase == "analyze_doc":
+                            fname = data.get("filename", "")
+                            status.update(label=f"{emoji} Analyzing {fname}..." if fname else f"{emoji} Analyzing documents...")
+                        elif phase == "analyze_email":
+                            subject = data.get("subject", "")
+                            status.update(label=f"{emoji} Analyzing {subject}..." if subject else f"{emoji} Analyzing emails...")
 
                         # Update progress bar
                         if total > 0:
@@ -857,6 +904,7 @@ class ProjectComponent:
             "parse_doc": ("📄", "Document parsed"),
             "analyze_docs": ("📄", "Document analysis"),
             "analyze_doc": ("📝", "Document analyzed"),
+            "analyze_email": ("✉️", "Email analyzed"),
         }
 
         with st.status("🔄 Updating project...", expanded=True) as status:
@@ -885,6 +933,9 @@ class ProjectComponent:
                         if phase == "parse_doc":
                             fname = data.get("filename", "")
                             status.update(label=f"{emoji} Parsing {fname}..." if fname else f"{emoji} {label}...")
+                        elif phase == "storage":
+                            fname = data.get("filename", "")
+                            status.update(label=f"💾 Saving {fname} to vector store..." if fname else f"💾 {label}...")
                         else:
                             status.update(label=f"{emoji} {label}...")
 
@@ -906,13 +957,38 @@ class ProjectComponent:
                             detail = f": **{fname}** ({progress}/{total_files})" if fname else ""
                         elif phase == "analyze_doc":
                             fname = data.get("filename", "")
-                            detail = f": **{fname}**" if fname else ""
+                            progress = data.get("progress", 0)
+                            total_docs = data.get("total", 0)
+                            detail = f": **{fname}** ({progress}/{total_docs})" if fname else f" ({progress}/{total_docs})"
+                        elif phase == "analyze_email":
+                            subject = data.get("subject", "")
+                            progress = data.get("progress", 0)
+                            total_docs = data.get("total", 0)
+                            detail = f": **{subject}** ({progress}/{total_docs})" if subject else f" ({progress}/{total_docs})"
                         elif phase == "storage":
+                            fname = data.get("filename", "")
                             storage_types = data.get("storage_type", [])
-                            if "database" in storage_types:
+                            if fname:
+                                detail = f": **{fname}**"
+                            elif "database" in storage_types:
                                 detail = " — database"
+                            elif "file_storage" in storage_types:
+                                detail = " — file storage"
+                            else:
+                                detail = ""
 
                         st.markdown(f"✅ {label}{detail}")
+
+                        # Update status label to show current activity
+                        if phase == "storage":
+                            fname = data.get("filename", "")
+                            status.update(label=f"💾 Saving {fname}..." if fname else f"💾 Saving documents...")
+                        elif phase == "analyze_doc":
+                            fname = data.get("filename", "")
+                            status.update(label=f"{emoji} Analyzing {fname}..." if fname else f"{emoji} Analyzing documents...")
+                        elif phase == "analyze_email":
+                            subject = data.get("subject", "")
+                            status.update(label=f"{emoji} Analyzing {subject}..." if subject else f"{emoji} Analyzing emails...")
 
                         if total > 0:
                             pct = min(completed / total, 1.0)

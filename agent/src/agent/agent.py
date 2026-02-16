@@ -770,22 +770,29 @@ class Agent:
         storage_tasks = []
         if query.attachments:
             # Parse documents with streaming progress
-            for event in self._parse_docs_with_progress(attachments=query.attachments, 
-                                                        query_id = query.query_id, 
+            for event in self._parse_docs_with_progress(attachments=query.attachments,
+                                                        query_id = query.query_id,
                                                         session_id=query.session_id,
                                                         project_id=query.project_id,
                                                         user_id=user_id):
                 yield event
             # Retrieve parsed results from instance variable
             docs = self._last_parse_results
-            
-            # Run both storage operations in parallel
-            storage_tasks = [
-                asyncio.to_thread(self.vs.add_documents, docs, collection_id="attachments"),
-                self.storage.save_raw_documents(attachments=query.attachments)
-            ]
 
-        total_phase1 = len(storage_tasks) + 1 
+            # Group docs by file_id for per-file vector store saving
+            docs_by_file = {}
+            for doc in docs:
+                fid = doc.metadata.get("file_id", "unknown")
+                docs_by_file.setdefault(fid, []).append(doc)
+
+            file_id_to_name = {att.file_id: att.filename for att in query.attachments}
+
+        else:
+            docs_by_file = {}
+            file_id_to_name = {}
+
+        # Total = per-file vs saves + file storage + init_input
+        total_phase1 = len(docs_by_file) + (1 if query.attachments else 0) + 1
         yield {
             "type": "status",
             "phase": ["initialization"],
@@ -798,15 +805,21 @@ class Agent:
             "query_id": query.query_id
         }
 
+        # Run file storage + init_input analysis in parallel
         initial_input = "No initial input extracted"
-        initial_input_task = asyncio.create_task(
-            self.context_manager.analyze_init_input(query.question)
-        )
+        parallel_tasks = [
+            asyncio.create_task(self.context_manager.analyze_init_input(query.question))
+        ]
+        if query.attachments:
+            parallel_tasks.append(asyncio.create_task(
+                self.storage.save_raw_documents(attachments=query.attachments)
+            ))
+
         completed_phase1 = 0
-        for coro in asyncio.as_completed(storage_tasks + [initial_input_task]):
+        for coro in asyncio.as_completed(parallel_tasks):
             result = await coro
             completed_phase1 += 1
-            if result and isinstance(result, InitialInput):
+            if isinstance(result, InitialInput):
                 initial_input = result
                 for party in initial_input.parties or []:
                     party.party_id = str(uuid4())
@@ -831,12 +844,43 @@ class Agent:
                         "data": {
                             "progress": completed_phase1,
                             "total": total_phase1,
-                            "storage_type": ["vector_store", "file_storage"]
+                            "storage_type": ["file_storage"]
                         },
                         "timestamp": datetime.now().isoformat(),
                         "query_id": query.query_id
                     }
-                logger.debug(f'Storage operation completed')
+                logger.debug(f'File storage operation completed')
+
+        # Save to vector store sequentially per file (avoids BQ rate limits)
+        for fid, file_docs in docs_by_file.items():
+            fname = file_id_to_name.get(fid, fid)
+            yield {
+                    "type": "status",
+                    "phase": ["storage"],
+                    "status": "starting",
+                    "data": {
+                        "filename": fname,
+                        "storage_type": ["vector_store"]
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id
+                }
+            await asyncio.to_thread(self.vs.add_documents, file_docs, collection_id="attachments")
+            completed_phase1 += 1
+            yield {
+                    "type": "status",
+                    "phase": ["storage"],
+                    "status": "complete",
+                    "data": {
+                        "filename": fname,
+                        "progress": completed_phase1,
+                        "total": total_phase1,
+                        "storage_type": ["vector_store"]
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id
+                }
+            logger.debug(f'Vector store save completed for {fname}')
             
         
         # ============= PHASE 2 =================
@@ -873,12 +917,14 @@ class Agent:
                     events.extend(result.get("events", [])) if result.get("events") else None
 
                     if result.get("attachments"):
+                        filenames = [a.filename for a in result.get("attachments", []) if hasattr(a, 'filename') and a.filename]
                         yield {
                             "type": "status",
                             "phase": ["analyze_doc"],
                             "status": "complete",
                             "data": {
                                 "attachment_count": len(result.get("attachments", [])),
+                                "filename": ", ".join(filenames) if filenames else "",
                                 "progress": completed,
                                 "total": len(doc_tasks)
                             },
@@ -916,6 +962,7 @@ class Agent:
                         "status": "complete",
                         "data": {
                             "attachment_count": 1 if att else 0,
+                            "filename": att.filename if att and hasattr(att, 'filename') else "",
                             "progress": completed,
                             "total": len(doc_tasks)
                         },
@@ -932,12 +979,14 @@ class Agent:
                     damages.extend(result.get("damages", [])) if result.get("damages") else None
                     events.extend(result.get("events", [])) if result.get("events") else None
                     
+                    email_subjects = [e.subject for e in result.get("emails", []) if hasattr(e, 'subject') and e.subject]
                     yield {
                         "type": "status",
                         "phase": ["analyze_email"],
                         "status": "complete",
                         "data": {
                             "email_count": len(result.get("emails", [])),
+                            "subject": ", ".join(email_subjects) if email_subjects else "",
                             "progress": completed,
                             "total": len(doc_tasks)
                         },
@@ -1075,24 +1124,27 @@ class Agent:
             logger.error(f"Error in update_project: {error_msg}", exc_info=True)
             raise TypeError(error_msg)
 
-        # Save attachments to vector store and storage in parallel
-        storage_tasks = []
+        # Save attachments to vector store and storage
         docs = []
+        docs_by_file = {}
+        file_id_to_name = {}
         if query.attachments:
             # Parse documents with streaming progress
-            for event in self._parse_docs_with_progress(attachments=query.attachments, 
-                                                        query_id =  query.query_id, 
+            for event in self._parse_docs_with_progress(attachments=query.attachments,
+                                                        query_id =  query.query_id,
                                                         session_id = query.session_id,
                                                         project_id=query.project_id,
                                                         user_id=user_id):
                 yield event
             # Retrieve parsed results from instance variable
             docs = self._last_parse_results
-            
-            storage_tasks = [
-                asyncio.to_thread(self.vs.add_documents, docs, collection_id="attachments"),
-                self.storage.save_raw_documents(attachments=query.attachments)
-            ]
+
+            # Group docs by file_id for sequential vector store saving
+            for doc in docs:
+                fid = doc.metadata.get("file_id", "unknown")
+                docs_by_file.setdefault(fid, []).append(doc)
+
+            file_id_to_name = {att.file_id: att.filename for att in query.attachments}
 
         # Extract existing data from project (use direct lists, not wrapper models)
         factsheet : FactSheet = factsheet
@@ -1110,23 +1162,75 @@ class Agent:
         )
 
         # ============= PHASE 1 =================
-        # save content to vector store and storage and analyze docs in parallel
+        # Save to vector store sequentially, then file storage + doc analysis in parallel
         # ========================================
+        total_storage = len(docs_by_file) + (1 if query.attachments else 0)
+        total_tasks = total_storage + len(doc_tasks)
         yield {
             "type": "status",
             "phase": ["analyze_docs", "storage"],
             "status": "starting",
-            "data": {"total": len(query.attachments),
-                     },
+            "data": {"total": total_tasks},
             "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id
         }
-        completed_analyze_doc = 0
+
+        # Sequential vector store saves (avoids BQ rate limits)
         completed_saving_storage = 0
-        for coro in asyncio.as_completed(storage_tasks + doc_tasks):
+        for fid, file_docs in docs_by_file.items():
+            fname = file_id_to_name.get(fid, fid)
+            yield {
+                "type": "status",
+                "phase": ["storage"],
+                "status": "starting",
+                "data": {"filename": fname, "storage_type": ["vector_store"]},
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id
+            }
+            await asyncio.to_thread(self.vs.add_documents, file_docs, collection_id="attachments")
+            completed_saving_storage += 1
+            yield {
+                "type": "status",
+                "phase": ["storage"],
+                "status": "complete",
+                "data": {
+                    "filename": fname,
+                    "progress": completed_saving_storage,
+                    "total": total_storage,
+                    "storage_type": ["vector_store"]
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id
+            }
+            logger.debug(f'Vector store save completed for {fname}')
+
+        # File storage + doc analysis in parallel
+        file_storage_tasks = []
+        if query.attachments:
+            file_storage_tasks.append(self.storage.save_raw_documents(attachments=query.attachments))
+
+        completed_analyze_doc = 0
+        for coro in asyncio.as_completed(file_storage_tasks + doc_tasks):
             result = await coro
-            logger.debug(f'Completed a storage or analysis task')
-            if result and isinstance(result, dict) and "attachments" in result and "events" in result:
+
+            # File storage result (returns None or non-dict)
+            if result is None or (not isinstance(result, dict)):
+                completed_saving_storage += 1
+                yield {
+                    "type": "status",
+                    "phase": ["storage"],
+                    "status": "complete",
+                    "data": {
+                        "progress": completed_saving_storage,
+                        "total": total_storage,
+                        "storage_type": ["file_storage"]
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id
+                }
+                continue
+
+            if isinstance(result, dict) and "attachments" in result and "events" in result:
                 logger.debug("\n\n" + "="*5 + f"Analyzed document: {len(result.get("attachments"))}\n\n")
                 # Collect results from analyzed documents
                 attachments.extend(result.get("attachments", [])) if result.get("attachments") else None
@@ -1135,6 +1239,7 @@ class Agent:
                 deadlines.extend(result.get("deadlines", [])) if result.get("deadlines") else None
                 events.extend(result.get("events", [])) if result.get("events") else None
 
+                filenames = [a.filename for a in result.get("attachments", []) if hasattr(a, 'filename') and a.filename]
                 completed_analyze_doc += 1
                 yield {
                     "type": "status",
@@ -1142,6 +1247,7 @@ class Agent:
                     "status": "complete",
                     "data": {
                         "attachment_count": len(result.get("attachments", [])),
+                        "filename": ", ".join(filenames) if filenames else "",
                         "progress": completed_analyze_doc,
                         "total": len(doc_tasks)
                     },
@@ -1166,6 +1272,7 @@ class Agent:
                     "status": "complete",
                     "data": {
                         "attachment_count": 1 if att else 0,
+                        "filename": att.filename if att and hasattr(att, 'filename') else "",
                         "progress": completed_analyze_doc,
                         "total": len(doc_tasks)
                     },
@@ -1181,32 +1288,20 @@ class Agent:
                 deadlines.extend(result.get("deadlines", [])) if result.get("deadlines") else None
                 damages.extend(result.get("damages", [])) if result.get("damages") else None
                 events.extend(result.get("events", [])) if result.get("events") else None
+                email_subjects = [e.subject for e in result.get("emails", []) if hasattr(e, 'subject') and e.subject]
                 yield {
                     "type": "status",
                     "phase": ["analyze_email"],
                     "status": "complete",
                     "data": {
                         "email_count": len(result.get("emails", [])),
+                        "subject": ", ".join(email_subjects) if email_subjects else "",
                         "progress": completed_analyze_doc,
                         "total": len(doc_tasks)
                     },
                     "timestamp": datetime.now().isoformat(),
                     "query_id": query.query_id
                 }
-            else:
-                completed_saving_storage += 1
-                yield {
-                        "type": "status",
-                        "phase": ["storage"],
-                        "status": "complete",
-                        "data": {
-                            "progress": completed_saving_storage,
-                            "total": len(storage_tasks),
-                            "storage_type" : ["vector_store", "file_storage"]
-                        },
-                        "timestamp": datetime.now().isoformat(),
-                        "query_id": query.query_id
-                    }
         yield {
             "type": "status",
             "phase": ["analyze_docs"],
