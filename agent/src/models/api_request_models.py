@@ -109,7 +109,6 @@ class StreamData(BaseModel):
     events : list[StreamEvent]
     attachments : Optional[list[AttachmentModel]] = None
 
-
 class VectorStoreMetadata(BaseModel):
     #doc_id : str #auto generated
     #content : str #txt content of chunk
@@ -117,7 +116,7 @@ class VectorStoreMetadata(BaseModel):
     file_id: str
     filename: str
     file_type: FileType
-    file_size : Optional[int] = None
+    size : Optional[int] = None
     user_id: str
     session_id: str
     query_id: str
