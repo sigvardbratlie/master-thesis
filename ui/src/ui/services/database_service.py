@@ -244,6 +244,26 @@ class SupabaseManager:
             logger.error(f"Could not load companies: {e}")
             return []
 
+    def delete_project(self, project_id: str) -> bool:
+        """Delete a project and all its related data from Supabase."""
+        try:
+            self.supabase.table("projects").delete().eq("project_id", project_id).execute()
+            logger.info(f"Deleted project {project_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Could not delete project {project_id}: {e}")
+            return False
+
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a session and all its related data from Supabase."""
+        try:
+            self.supabase.table("sessions").delete().eq("session_id", session_id).execute()
+            logger.info(f"Deleted session {session_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Could not delete session {session_id}: {e}")
+            return False
+
     def read_attachment(self, path : str, bucket_name : str = "attachments") -> Optional[bytes]:
         """
         Fetch attachment content from Supabase storage.
