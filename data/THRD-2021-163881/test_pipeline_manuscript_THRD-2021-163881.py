@@ -11,6 +11,33 @@ Manuscript struktur:
 - Session 5: Advokat engasjeres & teknisk utredning (mars 2020)
 """
 
+original_data = {
+    "parter": {
+        "Nils Oscar Arnesen": "Anders Kristiansen",
+        "Christine Helen Fosse": "Berit Kristiansen",
+        "Sven Kåre Sture": "Carl Danielsen",
+        "AmTrust International": "NordicGuard Insurance AS",
+    },
+    "advokater": {
+        "Adele Munch Ditlefsen": "Emma Hansen",
+        "Chriss Bjorøy": "Fredrik Larsen",
+        "Amalie Skeide": "Fredrik Larsen",
+        "Trond Baardseth": "Thor Berntsen",
+    },
+    "sakkyndige": {
+        "Terje Haugan": "Tommy Hansen",
+        "Trond Baardseth": "Thor Berntsen",
+        "Trygve Berg": "Tore Bakke",
+        "Magnus Sandvåg": "Martin Solberg",
+        "Torstein Skutle": "Thomas Strand",
+    },
+    "eiendom": {
+        "Langarinden 399A": "Fjellveien 42A",
+        "Bergen": "Stavanger",
+    },
+}
+
+
 MANUSCRIPT: list[dict] = [
     # ==============================================================================
     # SESSION 0: PROSJEKT-INITIALISERING
@@ -18,6 +45,7 @@ MANUSCRIPT: list[dict] = [
     # ==============================================================================
     {
         "session": 0,
+        "date" : "2020-03-01",
         "session_name": "Prosjekt-initialisering",
         "user_input": """
         Jeg er advokat og representerer kjøperparet Anders og Berit Kristiansen i en 
@@ -30,17 +58,21 @@ MANUSCRIPT: list[dict] = [
         
         Kan du hjelpe meg med å strukturere denne saken?
         """,
-        "attachments": []
-    },
-    
-    {
-        "session": 0,
-        "session_name": "Prosjekt-initialisering - Oppfølging",
-        "user_input": """
-        Hvilken informasjon trenger du fra klientene mine for å kunne gi dem god 
-        rådgivning? Kan du lage en liste over dokumenter jeg bør samle inn?
-        """,
-        "attachments": []
+        "attachments": ["./2019-07-28_04_epost_2019-07-28_utbedring_bekreftelse.txt", 
+                        "./2019-05-13_02_epost_2019-05-13_selgers_svar.txt", 
+                        "./2019-08-18_05_epost_2019-08-18_ny_lekkasje.txt",
+                        "./2019-09-10_06a_skaderapport_2019-09-10_K2.txt",
+                        "./2019-06-01_00_kjøpskontrakt_2019-06-01.txt",
+                        "./2019-06-30_85_kvitteringer_flyttekostnader_2019-06-30.txt",
+                        "./2019-05-15_00b_salgsoppgave_2019-05-15.txt",
+                        "./2019-05-12_01_epost_2019-05-12_spoersmaal_om_eiendom.txt",
+                        "./2019-08-15_33_kvitteringer_paakostninger_2019-08-15.txt",
+                        "./2019-08-10_35_leieavtaler_dokumentasjon_2019-08-10.txt",
+                        "./2019-07-25_03a_epost_2019-07-25_før_overtakelse.txt",
+                        "./2019-07-15_03_epost_2019-07-15_varsling_lekkasje.txt",
+                        "./2019-09-10_06_rapport_2019-09-10_skaderapport_takst.txt",
+                        "./2020_01-28_leieavtale_2020_tilbygg.txt"],
+        "solution" : ""
     },
     
     {
@@ -51,7 +83,8 @@ MANUSCRIPT: list[dict] = [
         for denne typen tvister? Gi meg en oversikt over avhendingsloven sine 
         sentrale paragrafer for kjøpersaken.
         """,
-        "attachments": []
+        "attachments": [],
+        "solution" : ""
     },
 
     # ==============================================================================

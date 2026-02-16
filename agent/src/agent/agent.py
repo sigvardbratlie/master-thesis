@@ -24,7 +24,8 @@ from langchain.chat_models import init_chat_model
 
 from .agent_modules import Summarizer, ToolManager
 from .context_manager import ContextManager
-from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore, DocumentProcessor, EmailParser
+from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore
+from documents import DocumentProcessor, EmailHandler
 from models import *  
 from uuid import uuid4
 
@@ -616,7 +617,7 @@ class Agent:
         threshold = 5 * 1024 * 1024  # 5MB threshold for emails
         max_attachments = 7
 
-        eml = EmailParser()
+        eml = EmailHandler()
         email_attachments = []
         email_size_counter = 0
         
@@ -634,7 +635,7 @@ class Agent:
                     doc_size_counter = 0
             elif att.file_type == "message/rfc822":
                 email_size_counter += att.size
-                data = eml.parse_eml(content=att.content,
+                data = eml.parse_eml_to_obj(content=att.content,
                                      user_id=user_id,
                                      query_id=query.query_id,
                                      session_id=query.session_id,

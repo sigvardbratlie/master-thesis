@@ -1,5 +1,6 @@
 from .api_request_models import *
 from .project_models import * 
+from .document_models import *
 from .agent_models import AgentState
 
 __all__ = [
@@ -38,6 +39,10 @@ __all__ = [
     "EventData",
     "AttachmentModel",
     "EmailModel",
+
+    # DOCUMENT MODELS
+    "WriteEmail",
+    "WriteDocx",
     
     # AGENT MODELS
     "AgentState",

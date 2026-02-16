@@ -12,6 +12,64 @@ Manuscript struktur:
 - Session 6: Prosessskriv og forberedelser til rettssak (september 2024-januar 2025)
 """
 
+anomymization_dict = {
+    "parter": {
+        "Stian Kristensen": "Andreas Nilsen",
+        "Ellen Gunderson": "Berit Johansen",
+        "Rebekka Nacera Bournane Nordgård": "Camilla Marie Hansen",
+        "Rune Andre Nordgård": "Daniel Erik Hansen",
+    },
+    "selskaper": {
+        "HDI Global Specialty SE": "Nordic Insurance Group SE",
+        "SCOR Europe SE": "Euro Risk Solutions SE",
+        "Newline Europe Versicherung AG": "Continental Cover AG",
+        "Claims Link AS": "Insurance Partners AS",
+        "Boinspect AS": "ProTakst AS",
+        "Snare Boligvurdering AS": "ProTakst AS",
+        "Tryg Forsikring": "Norsk Forsikring",
+        "Advokatfirmaet SGB AS": "Advokatfirmaet Hansen & Co",
+    },
+    "advokater": {
+        "Ketil Krohn Venås": "Erik Martinsen",
+        "Linn Strand Bruvik": "Lisa Andreassen",
+        "Bjørnar Solberg Brandtzæg": "Bjørn Svendsen",
+        "Håvard Skallerud": "Henrik Sørensen",
+    },
+    "sakkyndige": {
+        "Daniel Snare": "David Storvik",
+        "Per Iver Strand": "Petter Iversen",
+        "Truls Erik Stokker": "Tommy Eriksen",
+        "Anders Ugland": "Anders Uleberg",
+        "Magnus Hem": "Marius Holm",
+        "Vidar Aarnes": "Viktor Arnesen",
+        "Terje Karlsen": "Tor Kristoffersen",
+        "Fredrik Evensen": "Frank Eliassen",
+        "Halvor Pettersen": "Harald Pedersen",
+    },
+    "firmaer": {
+        "Eiendomstakst 1": "Eiendomskontroll Nord",
+        "Asker Takstforum AS": "Vest Takst AS",
+        "Stand": "Takst & Vurdering",
+        "Follo Boligtakst AS": "Sør Boligkontroll AS",
+        "Aarnes Eiendom AS": "Arnesen Takst AS",
+        "Vinderen Elektro": "Nordby Elektro",
+        "Vinderen Bad og Våtrom": "Nordby Bad og VVS",
+        "Fjellhamar Bygg": "Skogen Bygg",
+        "Renova Design AS": "Moderne Bygg AS",
+        "Multi-Fix": "AllFix",
+        "Eriksen og Jensen AS": "Hansen og Olsen AS",
+        "Elektro 365": "Elektro Komplett",
+        "Viftrup og Pettersen": "Vindum og Pedersen",
+    },
+    "eiendom": {
+        "Skjoldveien 2B": "Granveien 15B",
+        "0881 OSLO": "0654 OSLO",
+        "Ãs, Akershus": "Bærum, Akershus",
+    },
+    "andre_personer": {
+        "Rui": "Roger"
+}
+}
 MANUSCRIPT: list[dict] = [
     # ==============================================================================
     # SESSION 0: PROSJEKT-INITIALISERING

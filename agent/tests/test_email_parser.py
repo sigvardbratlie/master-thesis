@@ -18,7 +18,7 @@ from tests.fixtures.email_data import (
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from database import EmailParser
+from database import EmailHandler
 from models.api_request_models import AttachmentModel, EmailModel
 
 
@@ -28,7 +28,7 @@ from models.api_request_models import AttachmentModel, EmailModel
 
 @pytest.fixture
 def parser():
-    return EmailParser()
+    return EmailHandler()
 
 
 # ============================================
