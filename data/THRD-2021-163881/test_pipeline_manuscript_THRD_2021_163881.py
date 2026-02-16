@@ -57,14 +57,15 @@ MANUSCRIPT: list[dict] = [
                         './01_fabricated/2019-08-10_35_leieavtaler_dokumentasjon_2019-08-10.txt',
                         './01_fabricated/2019-07-25_03a_epost_2019-07-25_før_overtakelse.txt',
                         './01_fabricated/2019-07-15_03_epost_2019-07-15_varsling_lekkasje.txt',
-                        './01_fabricated/2019-09-10_06_rapport_2019-09-10_skaderapport_takst.txt'],
-
+                        './01_fabricated/2019-09-10_06_rapport_2019-09-10_skaderapport_takst.txt',
+                        ".01/fabricated/2020_01-28_leieavtale_2020_tilbygg.txt",
+                        ".01/fabricated/2020-03-12_07_rapport_2020-03-12_byggesoek_betongdekke.txt"],
             "solution" : ""
         },
     {
         "session": 0,
         "session_name": "Initialisering",
-        "date" : "2020-03-01",
+        "date" : "2020-03-13",
         "user_input": """
         Gi meg en kort og konsis oppsummering av sakens faktiske bakgrunn og utvikling så langt, basert på dokumentene jeg har lastet opp. 
         Fokuser på de viktigste hendelsene og problemstillingene. Hva er kjernen i saken?
