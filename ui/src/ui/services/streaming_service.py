@@ -284,6 +284,19 @@ class StreamingService:
         except Exception as e:
             logger.error(f"Error deleting project from vector store: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
+    
+    def delete_file_vectorstore(self, file_id: str) -> dict:
+        """Delete file from BigQuery vector store."""
+        try:
+            response = requests.delete(
+                f'{self.backend_url}/delete-vectorstore-file/{file_id}',
+                headers=self.headers
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error deleting file from vector store: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
 
 
 @st.cache_resource

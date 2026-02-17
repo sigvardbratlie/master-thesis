@@ -210,6 +210,16 @@ async def delete_vectorstore_project_endpoint(project_id: str):
         logger.error(f"Error in /delete-vectorstore-project: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error deleting from vector store: {str(e)}")
 
+@app.delete("/delete-vectorstore-file/{file_id}")
+async def delete_vectorstore_file_endpoint(file_id: str):
+    """Delete file from BigQuery vector store."""
+    try:
+        agent.vs.delete_file(file_id)
+        return {"success": True, "file_id": file_id}
+    except Exception as e:
+        logger.error(f"Error in /delete-vectorstore-file: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error deleting file from vector store: {str(e)}")
+
 
 # READING FROM DB
 @app.get("/load-session-history/{session_id}")

@@ -223,6 +223,26 @@ class ChatComponent:
                 if attachment:
                     attachment_payload.append(attachment)
 
+            # Check for duplicate filenames within project and chat uploads
+            if st.session_state.get("project_id") and attachment_payload:
+                existing_filenames = {att.get("filename"): att for att in st.session_state.get("attachments", [])}
+                
+                # Check for duplicates within uploaded files themselves
+                uploaded_filenames = {}
+                duplicates_found = []
+                
+                for att in attachment_payload:
+                    if att.filename in existing_filenames:
+                        duplicates_found.append(att.filename)
+                    elif att.filename in uploaded_filenames:
+                        duplicates_found.append(att.filename)
+                    else:
+                        uploaded_filenames[att.filename] = att
+                
+                if duplicates_found:
+                    st.warning(f"⚠️ Duplicate file(s) detected: **{', '.join(set(duplicates_found))}**")
+                    st.info("💡 These files already exist in the project. They will be uploaded again, potentially creating duplicate embeddings.")
+
             # Add user message to session
             user_msg = {
                 "type": "human",
@@ -462,6 +482,117 @@ class ProjectComponent:
         #         )
         self.backend_service = get_supabase_manager()
         self.attachment_component = get_attachment_component()
+
+    def _handle_duplicate_files(self, new_attachments: list) -> list:
+        """
+        Handle duplicate filenames in project uploads.
+        Returns filtered list of attachments based on user choices.
+        """
+        if not st.session_state.get("project_id") or not new_attachments:
+            return new_attachments
+        
+        streaming_service = get_streaming_service(
+            backend_url=st.session_state.backend_url,
+            access_token=st.session_state.access_token
+        )
+        
+        # Get existing filenames
+        existing_files = {att.get("filename"): att for att in st.session_state.get("attachments", [])}
+        
+        # Find duplicates
+        duplicates = []
+        seen_uploads = {}
+        
+        for att in new_attachments:
+            if att.filename in existing_files:
+                duplicates.append({
+                    "filename": att.filename,
+                    "type": "existing",
+                    "existing": existing_files[att.filename],
+                    "new": att
+                })
+            elif att.filename in seen_uploads:
+                duplicates.append({
+                    "filename": att.filename,
+                    "type": "multiple_upload",
+                    "first": seen_uploads[att.filename],
+                    "new": att
+                })
+            else:
+                seen_uploads[att.filename] = att
+        
+        if not duplicates:
+            return new_attachments
+        
+        # Show duplicate handler UI
+        st.warning(f"⚠️ Found {len(duplicates)} duplicate filename(s)")
+        
+        with st.expander("⚠️ Handle duplicate files", expanded=True):
+            st.markdown("**Choose how to handle each duplicate:**")
+            
+            # Initialize choices
+            if "duplicate_choices" not in st.session_state:
+                st.session_state.duplicate_choices = {}
+            
+            for i, dup in enumerate(duplicates):
+                col1, col2 = st.columns([2, 1])
+                
+                with col1:
+                    if dup["type"] == "existing":
+                        st.markdown(f"**📄 {dup['filename']}**  \n🔄 Already exists in project")
+                    else:
+                        st.markdown(f"**📄 {dup['filename']}**  \n🔄 Uploaded multiple times")
+                
+                with col2:
+                    choice = st.selectbox(
+                        "Action:",
+                        options=["Keep both", "Replace existing", "Skip new"],
+                        key=f"dup_choice_{i}_{dup['filename']}",
+                        label_visibility="collapsed"
+                    )
+                    st.session_state.duplicate_choices[dup['filename']] = choice
+        
+        # Process attachments based on choices
+        filtered = []
+        duplicate_names = {d["filename"] for d in duplicates}
+        
+        for att in new_attachments:
+            if att.filename not in duplicate_names:
+                # No duplicate - keep it
+                filtered.append(att)
+                continue
+            
+            choice = st.session_state.duplicate_choices.get(att.filename, "Keep both")
+            
+            if choice == "Keep both":
+                # Rename new file
+                name, ext = (att.filename.rsplit('.', 1) if '.' in att.filename 
+                           else (att.filename, ''))
+                att.filename = f"{name}_copy.{ext}" if ext else f"{name}_copy"
+                filtered.append(att)
+                
+            elif choice == "Replace existing":
+                # Delete old file from storage, database, and vector store
+                existing = existing_files.get(att.filename)
+                if existing:
+                    file_id = existing.get("file_id")
+                    path = existing.get("path")
+                    
+                    # Delete from Supabase (storage + database)
+                    if path:
+                        self.backend_service.delete_project_file(path)
+                    
+                    # Delete from vector store
+                    if file_id:
+                        streaming_service.delete_file_vectorstore(file_id)
+                    
+                    logger.info(f"Replaced file {att.filename} (deleted old: {file_id})")
+                
+                filtered.append(att)
+            
+            # "Skip new" - don't add to filtered list
+        
+        return filtered
 
     def clean_element(self,):
         streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
@@ -1050,13 +1181,14 @@ class ProjectComponent:
                                     type=FileExt,
                                     help="You can upload multiple files.",
                                     key = f"file_uploader_{st.session_state.clear_input_counter}")
-        attachment_list = [self.attachment_component.mk_attachment_payload(f,query_id=query_id) for f in user_files] if user_files else []
         
-        # Flatten attachments and emails from all files
-        all_attachments = []
-        for attachment in attachment_list:
-            if attachment:
-                all_attachments.append(attachment)
+        # Process uploaded files
+        attachment_list = [self.attachment_component.mk_attachment_payload(f, query_id=query_id) 
+                          for f in user_files] if user_files else []
+        all_attachments = [att for att in attachment_list if att]
+        
+        # Handle duplicate filenames (with UI for user choice)
+        all_attachments = self._handle_duplicate_files(all_attachments)
 
         payload = AskAgentRequest(
             question=user_input,

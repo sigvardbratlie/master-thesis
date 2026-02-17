@@ -244,6 +244,7 @@ class SupabaseManager:
             logger.error(f"Could not load companies: {e}")
             return []
 
+    
     def delete_project(self, project_id: str) -> bool:
         """Delete a project and all its related data from Supabase."""
         try:
@@ -271,11 +272,39 @@ class SupabaseManager:
     def delete_session(self, session_id: str) -> bool:
         """Delete a session and all its related data from Supabase."""
         try:
+            # First, get all attachment paths for this project
+            attachments = self.supabase.table("session_attachments")\
+                .select("path")\
+                .eq("session_id", session_id)\
+                .execute()
+            
+            # Delete all files from storage if any exist
+            if attachments.data:
+                paths = [att["path"] for att in attachments.data if att.get("path")]
+                if paths:
+                    self.delete_attachments(paths)
+                    logger.info(f"Deleted {len(paths)} files from storage for session {session_id}")
+        except Exception as e:
+            logger.error(f"Could not delete attachments for session {session_id}: {e}")
+            return False
+        
+        try:
             self.supabase.table("sessions").delete().eq("session_id", session_id).execute()
             logger.info(f"Deleted session {session_id}")
             return True
         except Exception as e:
             logger.error(f"Could not delete session {session_id}: {e}")
+            return False
+
+    def delete_project_file(self, path : str) -> bool:
+        """Delete a project file from Supabase storage."""
+        try:
+            self.supabase.storage.from_("attachments").remove(paths=[path])
+            self.supabase.table("project_attachments").delete().eq("path", path).execute()
+            logger.info(f"Deleted project file {path}")
+            return True
+        except Exception as e:
+            logger.error(f"Could not delete project file {path}: {e}")
             return False
 
     def read_attachment(self, path : str, bucket_name : str = "attachments") -> Optional[bytes]:
