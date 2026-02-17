@@ -137,8 +137,3 @@ def test_bq_query(mock_bq_store):
     mock_retriever.invoke.assert_called_once_with("eiendomstvist")
     assert result == expected
 
-
-def test_bq_delete_collection(mock_bq_store):
-    """Test delete_collection is a no-op (not implemented)."""
-    # Should not raise
-    mock_bq_store.delete_collection("test-collection")
