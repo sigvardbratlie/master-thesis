@@ -84,6 +84,157 @@ def mock_agent():
 
 
 # ============================================
+#           SANITIZE PAYLOAD TESTS
+# ============================================
+
+def test_sanitize_payload_valid_sequence_unchanged(mock_agent):
+    """A valid payload should pass through unchanged."""
+    payload = [
+        SystemMessage(content="system"),
+        HumanMessage(content="Q1"),
+        AIMessage(content="A1"),
+    ]
+    result = mock_agent._sanitize_payload(payload)
+    assert len(result) == 3
+    assert isinstance(result[0], SystemMessage)
+    assert isinstance(result[1], HumanMessage)
+    assert isinstance(result[2], AIMessage)
+
+
+def test_sanitize_payload_merges_consecutive_human_messages(mock_agent):
+    """Consecutive HumanMessages (e.g. factsheet + user query) should be merged."""
+    payload = [
+        SystemMessage(content="system"),
+        HumanMessage(content="Factsheet context"),
+        HumanMessage(content="User question"),
+    ]
+    result = mock_agent._sanitize_payload(payload)
+    assert len(result) == 2  # System + merged Human
+    assert isinstance(result[1], HumanMessage)
+    assert "Factsheet context" in result[1].content
+    assert "User question" in result[1].content
+
+
+def test_sanitize_payload_merges_consecutive_ai_messages(mock_agent):
+    """Consecutive AIMessages (e.g. summary + truncated AI) should be merged."""
+    payload = [
+        SystemMessage(content="system"),
+        HumanMessage(content="Q1"),
+        AIMessage(content="Summary of conversation"),
+        AIMessage(content="Actual response"),
+    ]
+    result = mock_agent._sanitize_payload(payload)
+    assert len(result) == 3  # System + Human + merged AI
+    assert isinstance(result[2], AIMessage)
+    assert "Summary" in result[2].content
+    assert "Actual response" in result[2].content
+
+
+def test_sanitize_payload_normalizes_ai_list_content(mock_agent):
+    """AIMessage with list content should be normalized to string."""
+    payload = [
+        SystemMessage(content="system"),
+        HumanMessage(content="Q1"),
+        AIMessage(content=[{"type": "text", "text": "Hello "}, {"type": "text", "text": "World"}]),
+    ]
+    result = mock_agent._sanitize_payload(payload)
+    assert isinstance(result[2], AIMessage)
+    assert isinstance(result[2].content, str)
+    assert result[2].content == "Hello World"
+
+
+def test_sanitize_payload_strips_orphan_tool_calls(mock_agent):
+    """AIMessage with tool_calls but no following ToolMessage should have tool_calls stripped."""
+    payload = [
+        SystemMessage(content="system"),
+        HumanMessage(content="Q1"),
+        AIMessage(content="Let me check", tool_calls=[{"name": "search", "args": {}, "id": "tc1"}]),
+        HumanMessage(content="Q2"),  # No ToolMessage between AI and next Human
+        AIMessage(content="A2"),
+    ]
+    result = mock_agent._sanitize_payload(payload)
+    # The orphan AI with tool_calls should have tool_calls stripped
+    ai_msgs = [m for m in result if isinstance(m, AIMessage)]
+    for ai in ai_msgs:
+        if "check" in (ai.content or ""):
+            assert not ai.tool_calls
+
+
+def test_sanitize_payload_keeps_valid_tool_call_sequence(mock_agent):
+    """AIMessage with tool_calls followed by ToolMessage should be preserved."""
+    payload = [
+        SystemMessage(content="system"),
+        HumanMessage(content="Q1"),
+        AIMessage(content="Let me search", tool_calls=[{"name": "search", "args": {}, "id": "tc1"}]),
+        ToolMessage(content="search result", tool_call_id="tc1", name="search"),
+        AIMessage(content="Based on the search..."),
+    ]
+    result = mock_agent._sanitize_payload(payload)
+    assert len(result) == 5
+    assert result[2].tool_calls  # tool_calls preserved
+
+
+def test_sanitize_payload_empty(mock_agent):
+    """Empty payload should return empty."""
+    result = mock_agent._sanitize_payload([])
+    assert result == []
+
+
+def test_sanitize_payload_full_conversation_with_tools(mock_agent):
+    """Full multi-turn conversation with tool calls should remain valid."""
+    payload = [
+        SystemMessage(content="system"),
+        HumanMessage(content="Q1"),
+        AIMessage(content="A1", tool_calls=[{"name": "t1", "args": {}, "id": "tc1"}]),
+        ToolMessage(content="R1", tool_call_id="tc1", name="t1"),
+        AIMessage(content="Final A1"),
+        HumanMessage(content="Q2"),
+        AIMessage(content="A2"),
+    ]
+    result = mock_agent._sanitize_payload(payload)
+    assert len(result) == 7
+    # Verify alternation: system, human, ai(tool), tool, ai, human, ai
+    types = [type(m).__name__ for m in result]
+    assert types == ["SystemMessage", "HumanMessage", "AIMessage", "ToolMessage", "AIMessage", "HumanMessage", "AIMessage"]
+
+
+def test_sanitize_payload_ai_list_content_with_tool_calls(mock_agent):
+    """AIMessage with list content AND tool_calls should normalize content and keep tool_calls."""
+    payload = [
+        SystemMessage(content="system"),
+        HumanMessage(content="Q1"),
+        AIMessage(
+            content=[{"type": "text", "text": "Let me check"}],
+            tool_calls=[{"name": "search", "args": {}, "id": "tc1"}]
+        ),
+        ToolMessage(content="result", tool_call_id="tc1", name="search"),
+        AIMessage(content="Done"),
+    ]
+    result = mock_agent._sanitize_payload(payload)
+    ai_with_tools = result[2]
+    assert isinstance(ai_with_tools.content, str)
+    assert ai_with_tools.content == "Let me check"
+    assert ai_with_tools.tool_calls
+
+
+def test_sanitize_payload_three_consecutive_human_messages(mock_agent):
+    """Three consecutive HumanMessages should all be merged into one."""
+    payload = [
+        SystemMessage(content="system"),
+        HumanMessage(content="Part 1"),
+        HumanMessage(content="Part 2"),
+        HumanMessage(content="Part 3"),
+        AIMessage(content="Response"),
+    ]
+    result = mock_agent._sanitize_payload(payload)
+    assert len(result) == 3  # System + merged Human + AI
+    human = result[1]
+    assert "Part 1" in human.content
+    assert "Part 2" in human.content
+    assert "Part 3" in human.content
+
+
+# ============================================
 #           HELPER FUNCTION TESTS
 # ============================================
 

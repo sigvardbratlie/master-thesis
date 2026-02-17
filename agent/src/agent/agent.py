@@ -109,7 +109,85 @@ class Agent:
         combined = "\n\n".join(attachment_texts)
 
         return f"User's documents:\n\n{combined}" + "\n\nUse this information to answer the user's question."
-        
+
+    def _sanitize_payload(self, payload: list[BaseMessage]) -> list[BaseMessage]:
+        """Sanitize message payload for Gemini compatibility.
+
+        Ensures:
+        1. No consecutive messages of same role (user/model)
+        2. Every AIMessage with tool_calls is followed by ToolMessage(s)
+        3. AI content is string, not list (avoids Gemini splitting turns)
+        """
+        if not payload:
+            return payload
+
+        sanitized = []
+        for i, msg in enumerate(payload):
+            # Always keep SystemMessage at the start
+            if isinstance(msg, SystemMessage):
+                sanitized.append(msg)
+                continue
+
+            # Normalize AI message content from list to string
+            if isinstance(msg, AIMessage) and isinstance(msg.content, list):
+                text = "".join(
+                    block.get("text", "") for block in msg.content
+                    if isinstance(block, dict) and block.get("type") == "text"
+                )
+                msg = AIMessage(
+                    content=text,
+                    tool_calls=msg.tool_calls if hasattr(msg, 'tool_calls') else [],
+                    id=msg.id,
+                    additional_kwargs=msg.additional_kwargs,
+                )
+
+            # Merge consecutive HumanMessages
+            if isinstance(msg, HumanMessage) and sanitized and isinstance(sanitized[-1], HumanMessage):
+                prev = sanitized[-1]
+                merged = HumanMessage(
+                    content=f"{prev.content}\n\n{msg.content}",
+                    id=msg.id,
+                    additional_kwargs=msg.additional_kwargs,
+                )
+                sanitized[-1] = merged
+                continue
+
+            # Remove orphan AIMessage with tool_calls (no ToolMessage follows)
+            if isinstance(msg, AIMessage) and hasattr(msg, 'tool_calls') and msg.tool_calls:
+                has_tool_response = False
+                for j in range(i + 1, len(payload)):
+                    if isinstance(payload[j], ToolMessage):
+                        has_tool_response = True
+                        break
+                    if isinstance(payload[j], (HumanMessage, AIMessage)):
+                        break
+                if not has_tool_response:
+                    # Strip tool_calls, keep as regular AI message
+                    msg = AIMessage(content=msg.content or "I attempted to use a tool but couldn't complete the action.", id=msg.id)
+
+            # Skip AI message if previous non-system message is also AI (avoid consecutive model turns)
+            if isinstance(msg, AIMessage) and sanitized:
+                last_non_system = next((m for m in reversed(sanitized) if not isinstance(m, SystemMessage)), None)
+                if isinstance(last_non_system, AIMessage):
+                    # Merge with previous AI message
+                    prev_content = last_non_system.content or ""
+                    new_content = msg.content or ""
+                    merged = AIMessage(
+                        content=f"{prev_content}\n\n{new_content}",
+                        tool_calls=msg.tool_calls if hasattr(msg, 'tool_calls') and msg.tool_calls else [],
+                        id=msg.id,
+                    )
+                    # Replace the previous AI message
+                    for k in range(len(sanitized) - 1, -1, -1):
+                        if isinstance(sanitized[k], AIMessage):
+                            sanitized[k] = merged
+                            break
+                    continue
+
+            sanitized.append(msg)
+
+        return sanitized
+
     async def _call_llm(self, state: AgentState, llm_with_tools: BaseChatModel,config: RunnableConfig) -> AgentState:
         """
         Calls the LLM with RAG from BigQuery Vector Store for attachments.
@@ -196,6 +274,9 @@ class Agent:
                 additional_kwargs=msg.additional_kwargs if msg else {}
             )
             payload[-1] = enhanced_msg  # For LLM
+
+        # ---- SANITIZE PAYLOAD for Gemini compatibility ----
+        payload = self._sanitize_payload(payload)
 
         # === DEBUG LOGGING ===
         logger.debug(f"--- Payload Messages for query id {config.get("configurable").get("query_id", "")} (session_id {session_id} and project-id {config.get("configurable").get("custom_project_id", "")}) ---")
@@ -394,11 +475,22 @@ class Agent:
         if data.get("chunk"):
             chunk = data.get("chunk")
             if isinstance(chunk,AIMessageChunk) and chunk.content:
-                if chunk.content and isinstance(chunk.content, str):
+                # Handle structured content (list of content blocks) from LangChain
+                if isinstance(chunk.content, list):
+                    # Extract text from content blocks
+                    text_content = "".join(
+                        block.get("text", "") 
+                        for block in chunk.content 
+                        if isinstance(block, dict) and block.get("type") == "text"
+                    )
+                    if text_content:
+                        token_stream += text_content
+                        return {"type": "token", "data": text_content, "query_id": query_id}
+                elif isinstance(chunk.content, str):
                     token_stream += chunk.content
                     return {"type": "token", "data": chunk.content, "query_id": query_id}
                 else:
-                    logger.warning(f"Received non-string content in AIMessageChunk: {chunk.content}. - Type: {type(chunk.content)}")
+                    logger.warning(f"Received unexpected content type in AIMessageChunk: {type(chunk.content)}")
 
     def on_call_llm(self, data : dict, 
                     query_id : str,
@@ -411,6 +503,16 @@ class Agent:
         if output and output.get("messages"):
             ai_msg = output.get("messages")[-1]
             if isinstance(ai_msg, AIMessage):
+                # Handle structured content (list of content blocks) from LangChain
+                content_str = ai_msg.content
+                if isinstance(ai_msg.content, list):
+                    # Extract text from content blocks
+                    content_str = "".join(
+                        block.get("text", "") 
+                        for block in ai_msg.content 
+                        if isinstance(block, dict) and block.get("type") == "text"
+                    )
+                
                 event_model = StreamEvent(data = EventData(
                                                             tool_calls = ai_msg.tool_calls,
                                                             token_stream = token_stream),
@@ -420,7 +522,7 @@ class Agent:
                                           query_id = query_id,
                                             event_id = str(uuid4()),
                                             session_id = session_id,
-                                          content = ai_msg.content,
+                                          content = content_str,
                                           langchain_id= ai_msg.model_dump().get("id", None))
                 events.append(event_model)
                 event_counter += 1
@@ -445,6 +547,7 @@ class Agent:
             event_model = StreamEvent.model_validate(data = ToolResultData.model_validate(payload),
                                                        order = event_counter,
                                                        type = "tool_result",
+                                                       content = "",
                                                        created_at = datetime.now().isoformat(),
                                                        query_id = query_id,
                                                        event_id = str(uuid4()),
@@ -477,8 +580,19 @@ class Agent:
                                                             
         #HANDLE USER QUERY
         events = []
-        event_counter = 0
         token_stream = ""
+
+        # Get current max order from existing events to continue sequentially
+        try:
+            existing = self.conversation_manager.supabase.table("session_events")\
+                .select("order")\
+                .eq("session_id", query.session_id)\
+                .order("order", desc=True)\
+                .limit(1)\
+                .execute()
+            event_counter = (existing.data[0]["order"] + 1) if existing.data else 0
+        except Exception:
+            event_counter = 0
 
         # SAVE ATTACHMENTS to both vector store and file storage
         if query.attachments:
@@ -511,7 +625,7 @@ class Agent:
             attachments_events.append(att_dict)
 
          # FIRST USER MESSAGE EVENT
-        event_model = StreamEvent(data = EventData(attachments = [att.get("file_id") for att in attachments_events]), #writes back without content
+        event_model = StreamEvent(data = EventData(attachments = [att.get("path") for att in attachments_events]), #writes back without content
                                     order = event_counter,
                                     type = "human",
                                     created_at = datetime.now().isoformat(),

@@ -1,0 +1,3 @@
+Hei, Dette er en test fil for å teste om innholdet fra en .txt fil kan leses! 
+
+Mvh Sigvard

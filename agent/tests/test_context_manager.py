@@ -4,6 +4,7 @@ import sys
 import os
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from tests.fixtures.context_manager_data import get_mock_agent_state, get_mock_init_input, get_mock_attachment_model, get_mock_attachment_model_list
 from tests.fixtures.supabase_data import get_mock_load_project_data
 from tests.fixtures.email_data import get_mock_email_model_list, get_mock_email_extracted, load_real_test_email
@@ -52,10 +53,89 @@ def test_truncate_messages(mock_context_manager):
     state = get_mock_agent_state()
     max_messages = 3
     result = mock_context_manager.truncate_messages(messages=state, max_messages=max_messages)
-    
+
     assert len(result) <= max_messages
     assert len(result) < len(state)
     assert result[-1].content == state[-1].content
+
+
+def test_truncate_messages_removes_orphan_tool_messages_at_start(mock_context_manager):
+    """Truncation should remove orphan ToolMessages at the beginning."""
+    from langchain_core.messages import ToolMessage
+    messages = [
+        HumanMessage(content="Q1"),
+        AIMessage(content="A1", tool_calls=[{"name": "t", "args": {}, "id": "tc1"}]),
+        ToolMessage(content="result1", tool_call_id="tc1", name="t"),
+        AIMessage(content="A1 final"),
+        HumanMessage(content="Q2"),
+        AIMessage(content="A2"),
+    ]
+    # max_messages=3 takes last 3: [AIMessage(A1 final), HumanMessage(Q2), AIMessage(A2)]
+    result = mock_context_manager.truncate_messages(messages, max_messages=3)
+    assert len(result) == 3
+    assert not any(isinstance(m, ToolMessage) for m in result)
+    assert isinstance(result[0], AIMessage)
+    assert result[0].content == "A1 final"
+
+
+def test_truncate_messages_removes_trailing_ai_with_tool_calls(mock_context_manager):
+    """Truncation should drop a trailing AIMessage that has tool_calls but no ToolMessage after."""
+    messages = [
+        HumanMessage(content="Q0"),
+        AIMessage(content="A0"),
+        HumanMessage(content="Q1"),
+        AIMessage(content="A1"),
+        HumanMessage(content="Q2"),
+        AIMessage(content="A2", tool_calls=[{"name": "t", "args": {}, "id": "tc1"}]),
+    ]
+    # max_messages=3 takes last 3: [AIMessage(A1), HumanMessage(Q2), AIMessage(A2 with tool_calls)]
+    # Then drops trailing AI with tool_calls
+    result = mock_context_manager.truncate_messages(messages, max_messages=3)
+    assert not (isinstance(result[-1], AIMessage) and result[-1].tool_calls)
+    assert result[-1].content == "Q2"
+
+
+def test_truncate_messages_keeps_tool_calls_with_response(mock_context_manager):
+    """Truncation should keep AIMessage with tool_calls when ToolMessage follows (not at end)."""
+    from langchain_core.messages import ToolMessage
+    messages = [
+        HumanMessage(content="Q1"),
+        AIMessage(content="A1", tool_calls=[{"name": "t", "args": {}, "id": "tc1"}]),
+        ToolMessage(content="result1", tool_call_id="tc1", name="t"),
+        AIMessage(content="A1 final"),
+    ]
+    result = mock_context_manager.truncate_messages(messages, max_messages=4)
+    assert len(result) == 4
+    assert result[1].tool_calls  # AI with tool_calls preserved
+    assert isinstance(result[2], ToolMessage)
+
+
+def test_truncate_messages_no_truncation_needed(mock_context_manager):
+    """When messages fit within max, return unchanged."""
+    messages = [
+        HumanMessage(content="Q1"),
+        AIMessage(content="A1"),
+    ]
+    result = mock_context_manager.truncate_messages(messages, max_messages=5)
+    assert len(result) == 2
+    assert result == messages
+
+
+def test_truncate_messages_orphan_tools_then_ai_at_start(mock_context_manager):
+    """After removing orphan ToolMessages, first message should not be ToolMessage."""
+    from langchain_core.messages import ToolMessage
+    messages = [
+        ToolMessage(content="orphan1", tool_call_id="tc0", name="t"),
+        ToolMessage(content="orphan2", tool_call_id="tc1", name="t"),
+        HumanMessage(content="Q1"),
+        AIMessage(content="A1"),
+        HumanMessage(content="Q2"),
+        AIMessage(content="A2"),
+    ]
+    result = mock_context_manager.truncate_messages(messages, max_messages=4)
+    # Last 4: [AIMessage(A1), HumanMessage(Q2), AIMessage(A2)] - wait that's only 3 after truncation
+    # Actually last 4: [HumanMessage(Q1), AIMessage(A1), HumanMessage(Q2), AIMessage(A2)]
+    assert not isinstance(result[0], ToolMessage)
 
 
 async def test_analyze_init_input(mock_context_manager):

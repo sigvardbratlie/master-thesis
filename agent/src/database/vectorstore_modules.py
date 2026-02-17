@@ -31,10 +31,10 @@ class VectorStoreInterface(ABC):
         """Query documents."""
         pass
     
-    @abstractmethod
-    def delete_collection(self, collection_id: str) -> None:
-        """Delete collection."""
-        pass
+    # @abstractmethod
+    # def delete_project(self, collection_id: str) -> None:
+    #     """Delete collection."""
+    #     pass
 
 
 # ============================================
