@@ -110,7 +110,6 @@ class Agent:
 
         return f"User's documents:\n\n{combined}" + "\n\nUse this information to answer the user's question."
         
-
     async def _call_llm(self, state: AgentState, llm_with_tools: BaseChatModel,config: RunnableConfig) -> AgentState:
         """
         Calls the LLM with RAG from BigQuery Vector Store for attachments.
@@ -334,6 +333,16 @@ class Agent:
         agent = graph.compile(checkpointer=self.checkpointer)
         return agent
 
+    def delete_project_vectorstore(self, project_id: str):
+        """Delete project documents from BigQuery vector store."""
+        try:
+            self.vs.delete_project(project_id)
+            logger.info(f"Deleted project {project_id} from vector store")
+            return {"success": True, "project_id": project_id}
+        except Exception as e:
+            logger.error(f"Error deleting project {project_id} from vector store: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+    
     # =================================
     #         HELPERS
     # ================================

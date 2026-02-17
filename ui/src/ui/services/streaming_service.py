@@ -271,6 +271,19 @@ class StreamingService:
         except requests.exceptions.RequestException as e:
             logger.error(f"Error in cleanup_project_attr stream: {e}", exc_info=True)
             raise
+    
+    def delete_project_vectorstore(self, project_id: str) -> dict:
+        """Delete project from BigQuery vector store."""
+        try:
+            response = requests.delete(
+                f'{self.backend_url}/delete-vectorstore-project/{project_id}',
+                headers=self.headers
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Error deleting project from vector store: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
 
 
 @st.cache_resource

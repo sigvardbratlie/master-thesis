@@ -200,6 +200,16 @@ async def cleanup_project_attr_endpoint(query: AskAgentRequest, element_type : s
             yield f'data: {json.dumps({"error": str(e)})}\n\n'
     return StreamingResponse(cleanup_attr_stream_generator(), media_type="text/event-stream")
 
+@app.delete("/delete-vectorstore-project/{project_id}")
+async def delete_vectorstore_project_endpoint(project_id: str):
+    """Delete project from BigQuery vector store."""
+    try:
+        result = agent.delete_project_vectorstore(project_id)
+        return result
+    except Exception as e:
+        logger.error(f"Error in /delete-vectorstore-project: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error deleting from vector store: {str(e)}")
+
 
 # READING FROM DB
 @app.get("/load-session-history/{session_id}")

@@ -57,6 +57,7 @@ class GCSManager:
         # Kjør alle uploads parallelt
         await asyncio.gather(*tasks)
 
+
 class SupabaseStorageManager:
     def __init__(self, max_concurrent_uploads: int = 1):
         self.url = os.getenv("SUPABASE_URL")
@@ -166,3 +167,6 @@ class SupabaseStorageManager:
         response = self.supabase.storage.from_(bucket_name)\
             .download(path)
         return response
+    
+    def delete_attachment(self, path : str, bucket_name: str = "attachments") -> None:
+        self.supabase.storage.from_(bucket_name).remove([path])

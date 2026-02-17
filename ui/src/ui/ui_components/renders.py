@@ -637,12 +637,28 @@ class ProjectComponent:
         #st.rerun()
 
     def _delete_project(self, project_id: str):
+        """Delete project from Supabase and vector store."""
+        # Delete from Supabase first
         if self.backend_service.delete_project(project_id):
+            # Then delete from vector store via agent API
+            streaming_service = get_streaming_service(
+                backend_url=st.session_state.backend_url,
+                access_token=st.session_state.access_token
+            )
+            result = streaming_service.delete_project_vectorstore(project_id)
+            
+            if result.get("success"):
+                logger.info(f"Successfully deleted project {project_id} from both Supabase and vector store")
+            else:
+                logger.warning(f"Project {project_id} deleted from Supabase but vector store cleanup failed: {result.get('error')}")
+            
+            # Clear session state
             if st.session_state.get('project_id') == project_id:
                 st.session_state.project_id = None
                 st.session_state.factsheet = None
                 st.session_state.attachments = []
                 st.session_state.emails = []
+            
             st.toast("Project deleted")
         else:
             st.toast("Could not delete project", icon="⚠️")

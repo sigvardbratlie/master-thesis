@@ -8,6 +8,7 @@ from langchain_chroma import Chroma
 
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_google_community import BigQueryVectorStore
+from google.cloud import bigquery
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -121,6 +122,7 @@ class BQVectorStore(VectorStoreInterface):
         self.project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
         self.dataset = dataset
         self.region = region
+        self.client = bigquery.Client(project=self.project_id)
 
         self.embedding_model = embedding_model
         if embedding_model.split("_")[0] == "google":
@@ -166,9 +168,11 @@ class BQVectorStore(VectorStoreInterface):
                                        filter = filter)
         return retriever.invoke(query)
     
-    def delete_collection(self, collection_id: str) -> None:
-        # Implement BQ table deletion if needed
-        pass
+    def delete_project(self, project_id: str,collection_id: str= "attachments") -> None:
+        self.client.query(f"DELETE FROM vector_store.{collection_id} WHERE project_id = '{project_id}'").result()
+    
+    def delete_file(self, file_id: str, collection_id: str = "attachments") -> None:
+        self.client.query(f"DELETE FROM vector_store.{collection_id} WHERE file_id = '{file_id}'").result()
 
 
 

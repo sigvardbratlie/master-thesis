@@ -247,8 +247,22 @@ class SupabaseManager:
     def delete_project(self, project_id: str) -> bool:
         """Delete a project and all its related data from Supabase."""
         try:
+            # First, get all attachment paths for this project
+            attachments = self.supabase.table("project_attachments")\
+                .select("path")\
+                .eq("project_id", project_id)\
+                .execute()
+            
+            # Delete all files from storage if any exist
+            if attachments.data:
+                paths = [att["path"] for att in attachments.data if att.get("path")]
+                if paths:
+                    self.delete_attachments(paths)
+                    logger.info(f"Deleted {len(paths)} files from storage for project {project_id}")
+            
+            # Then delete from database (CASCADE will handle related tables)
             self.supabase.table("projects").delete().eq("project_id", project_id).execute()
-            logger.info(f"Deleted project {project_id}")
+            logger.info(f"Deleted project {project_id} from Supabase")
             return True
         except Exception as e:
             logger.error(f"Could not delete project {project_id}: {e}")
@@ -281,6 +295,16 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f'Error reading attachment from Supabase: {e}', exc_info=True)
             return None
+        
+    def delete_attachments(self, paths : list[str], bucket_name: str = "attachments") -> bool:
+        """Delete attachment from Supabase storage."""
+        try:
+            self.supabase.storage.from_(bucket_name).remove(paths=paths)
+            logger.info(f"Deleted attachment {", ".join([p for p in paths])} from bucket {bucket_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Could not delete attachments {', '.join([p for p in paths])} from bucket {bucket_name}: {e}")
+            return False
         
 @st.cache_resource
 def get_supabase_manager() -> SupabaseManager:

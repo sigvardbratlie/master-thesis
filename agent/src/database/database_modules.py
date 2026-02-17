@@ -788,6 +788,7 @@ class SupabaseManager:
             logger.error(f'Error inserting attachments for session {session_id} in Supabase: {e}', exc_info=True)
 
     def delete_project(self, project_id: str):
+        """Delete project from Supabase (vector store cleanup handled separately by FE calling agent API)"""
         try:
             self.supabase.table("projects").delete().eq("project_id", project_id).execute()
             logger.debug(f'Project {project_id} deleted from Supabase.')
