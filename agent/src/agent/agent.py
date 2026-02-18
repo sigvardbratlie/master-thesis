@@ -213,19 +213,6 @@ class Agent:
             for att in attachments:
                 file_id = att.get("file_id", "")
                 attachment_contents[file_id] = att.get("body", "")  if att.get("body", "") else "NO BODY CONTENT"
-            # if user_input:
-            #     docs = self.in_memory_store.query(user_input, collection_id=session_id, k=5)
-            # else:
-            #     docs = self.in_memory_store.get_all(collection_id=session_id)
-
-            # for doc in docs:
-            #     file_id = doc.metadata.get("file_id", "")
-            #     if file_id:
-            #         if file_id in attachment_contents:
-            #             attachment_contents[file_id] += "\n" + doc.page_content
-            #         else:
-            #             attachment_contents[file_id] = doc.page_content
-
 
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
         factsheet = self.conversation_manager.load_factsheet(project_id=project_id) if project_id else None
