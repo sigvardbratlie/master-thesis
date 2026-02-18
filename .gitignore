@@ -28,6 +28,6 @@ secrets.toml
 .idea/
 
 
-data/lovdata/nl/
+eval/lovdata/nl/
 *bz2
 *tar.gz
