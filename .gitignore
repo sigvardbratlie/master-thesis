@@ -29,5 +29,6 @@ secrets.toml
 
 
 eval/lovdata/nl/
+evals/lovdata/nl/
 *bz2
 *tar.gz
