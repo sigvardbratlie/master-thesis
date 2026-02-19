@@ -4,7 +4,8 @@ import tempfile
 from PyPDF2 import PdfReader
 import logging
 import base64
-from typing import List
+from typing import List, Optional
+from datetime import datetime
 import uuid
 
 from langchain_core.documents import Document
@@ -216,7 +217,7 @@ class EmailHandler(BaseHandler):
         
         for i, chunk in enumerate(chunks):
             #logger.debug(f"Chunk {i + 1}/{len(chunks)}: {chunk[:100]}...")  # Log first 100 chars of each chunk
-            docs.append(Document(page_content=chunk, metadata={**metadata_model.model_dump(mode="json"), "chunk": i+1, "total_chunks": len(chunks)}))
+            docs.append(Document(page_content=chunk, metadata={**metadata_model.model_dump(), "chunk": i+1, "total_chunks": len(chunks)}))
         return docs
     
     def mk_eml(self, email_data : WriteEmail) -> bytes:
@@ -236,6 +237,13 @@ class PDFHandler(BaseHandler):
         super().__init__()
 
     
+    def _safe_pdf_date(self, metadata, field: str) -> Optional[datetime]:
+        """Access a PyPDF2 metadata date property safely, returning None on parse errors."""
+        try:
+            return getattr(metadata, field)
+        except Exception:
+            return None
+
     def _needs_ocr(self, content: bytes) -> bool:
         """Detect if PDF needs OCR based on text density."""
         try:
@@ -250,11 +258,12 @@ class PDFHandler(BaseHandler):
                     pages_with_text += 1
                     total_text_length += len(text)
             
-            # Heuristikk: Hvis < 50% av sidene har tekst ELLER veldig lite tekst per side
+            # Heuristikk: Hvis < 50% av sidene har tekst ELLER lite meningsfullt innhold per side
+            # 500 chars/page threshold skiller ekte innhold fra bare metadata/sidenumre/overskrifter
             text_coverage = pages_with_text / total_pages if total_pages > 0 else 0
             avg_text_per_page = total_text_length / total_pages if total_pages > 0 else 0
-            
-            return text_coverage < 0.5 or avg_text_per_page < 100
+
+            return text_coverage < 0.5 or avg_text_per_page < 500
         except Exception as e:
             logger.warning(f"Could not analyze PDF for OCR need: {e}")
             return False  # Default to no OCR if detection fails
@@ -311,8 +320,8 @@ class PDFHandler(BaseHandler):
         base_meta = metadata | {
             "creator": reader.metadata.creator if reader.metadata else None,
             "producer": reader.metadata.producer if reader.metadata else None,
-            "created_at": reader.metadata.creation_date.isoformat() if reader.metadata and reader.metadata.creation_date else None,
-            "updated_at": reader.metadata.modification_date.isoformat() if reader.metadata and reader.metadata.modification_date else None,
+            "created_at": self._safe_pdf_date(reader.metadata, "creation_date") if reader.metadata else None,
+            "updated_at": self._safe_pdf_date(reader.metadata, "modification_date") if reader.metadata else None,
             "title": reader.metadata.subject or reader.metadata.title if reader.metadata else None,
             "keywords": reader.metadata.get("/Keywords") if reader.metadata else None,
             "file_size": len(content),
@@ -330,7 +339,7 @@ class PDFHandler(BaseHandler):
             else:
                 docs.append(Document(
                     page_content=txt,
-                    metadata={**meta_model.model_dump(mode = "json"), "chunk": i + 1, "total_chunks": len(reader.pages)}
+                    metadata={**meta_model.model_dump(), "chunk": i + 1, "total_chunks": len(reader.pages)}
                 ))
             
         if not docs or count_without_text == len(reader.pages):
@@ -364,7 +373,7 @@ class TextHandler(BaseHandler):
             return [
                 Document(
                     page_content=chunk,
-                    metadata={**meta_model.model_dump(mode="json"), "chunk": i+1, "total_chunks": len(chunks)}
+                    metadata={**meta_model.model_dump(), "chunk": i+1, "total_chunks": len(chunks)}
                 )
                 for i, chunk in enumerate(chunks)
             ]
@@ -389,7 +398,7 @@ class TextHandler(BaseHandler):
 
         for i, chunk in enumerate(chunks):
             #logger.debug(f"Chunk {i + 1}/{len(chunks)}: {chunk[:100]}...")  # Log first 100 chars of each chunk
-            docs.append(Document(page_content=chunk, metadata={**metadata_model.model_dump(mode="json"), "chunk": i+1, "total_chunks": len(chunks)}))
+            docs.append(Document(page_content=chunk, metadata={**metadata_model.model_dump(), "chunk": i+1, "total_chunks": len(chunks)}))
         return docs
         
 class DocxHandler(BaseHandler):
@@ -430,7 +439,7 @@ class DocxHandler(BaseHandler):
                 if text:
                     docs.append(Document(
                         page_content=text,
-                        metadata={**metadata_model.model_dump(mode="json"), "chunk": i+1, "total_chunks": len(word_doc.paragraphs)}))
+                        metadata={**metadata_model.model_dump(), "chunk": i+1, "total_chunks": len(word_doc.paragraphs)}))
                     
         return docs
 
@@ -484,7 +493,7 @@ class PptxHandler(BaseHandler):
             if slide_text_combined:
                 docs.append(Document(
                     page_content=slide_text_combined,
-                    metadata={**metadata_model.model_dump(mode = "json"), "chunk": i+1, "total_chunks": len(ppt_doc.slides)}))
+                    metadata={**metadata_model.model_dump(), "chunk": i+1, "total_chunks": len(ppt_doc.slides)}))
         return docs
 
 
