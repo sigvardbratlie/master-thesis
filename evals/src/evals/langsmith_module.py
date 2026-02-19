@@ -59,12 +59,19 @@ class LangSmithDatasetManager:
     
     def read_examples(self, dataset_name: str):
         try:
-            examples = list(self.client.list_examples(dataset_name=dataset_name))
+            examples = list(self.client.list_examples(dataset_name=dataset_name, as_of="latest"))
             logger.info(f"Loaded {len(examples)} examples from dataset '{dataset_name}'.")
             return [example.model_dump() for example in examples]
         except Exception as e:
             logger.error(f"Error loading examples from dataset '{dataset_name}': {e}")
             return []
+        
+    def delete_dataset(self, dataset_name: str):
+        try:
+            self.client.delete_dataset(dataset_name=dataset_name)
+            logger.info(f"Dataset '{dataset_name}' deleted.")
+        except Exception as e:
+            logger.error(f"Error deleting dataset '{dataset_name}': {e}")
         
     def upload_examples(self, dataset_name: str, data: list):
         if not "input" in data[0] and not "answer" in data[0] and not "metadata" in data[0]:
@@ -77,7 +84,8 @@ class LangSmithDatasetManager:
             self.client.create_examples(dataset_name=dataset_name, 
                                         inputs = inputs,
                                         outputs = outputs,
-                                        metadata = metadata)
+                                        metadata = metadata,
+                                        )
             logger.info(f"Uploaded {len(inputs)} examples to dataset '{dataset_name}'.")
         except Exception as e:
             logger.error(f"Error uploading examples to dataset '{dataset_name}': {e}", exc_info=True)
