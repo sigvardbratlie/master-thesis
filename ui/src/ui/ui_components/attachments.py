@@ -102,20 +102,31 @@ class AttachmentComponent:
         attachment = st.session_state.get('view_attachment_data')
         if not attachment:
             return
-        
+
+        # Clear immediately so ESC/outside-click doesn't reopen the dialog on next rerun
+        st.session_state.view_attachment_data = None
+
         # Get content - either from cache (uploaded file) or from storage (saved attachment)
         cache_key = attachment.get("cache_key")
         if cache_key:
             content_bytes = st.session_state.attachment_cache.get(cache_key)
         else:
-            content_bytes = self.read_attachment(attachment.get("path"))
-        
+            content_bytes = self.read_attachment(attachment.get("path")) if attachment.get("path") else None
+
         @st.dialog(f"📎 {attachment.get('filename', 'Vedlegg')}")
         def show_attachment():
-            if content_bytes:
-                file_type = attachment.get("file_type", "")
-                filename = attachment.get("filename", "")
-                
+            file_type = attachment.get("file_type", "")
+            filename = attachment.get("filename", "")
+
+            if file_type == "message/rfc822" and not content_bytes:
+                # Render email from DB data directly
+                st.markdown(f"**From:** {attachment.get('from_addr', '')}")
+                st.markdown(f"**To:** {', '.join(attachment.get('to', [])) if isinstance(attachment.get('to'), list) else attachment.get('to', '')}")
+                st.markdown(f"**Subject:** {attachment.get('subject', '')}")
+                st.markdown(f"**Date:** {attachment.get('date', '')}")
+                st.divider()
+                st.text(attachment.get("body", ""))
+            elif content_bytes:
                 if file_type == "application/pdf":
                     RenderDocBytes.parse_pdf(content_bytes, metadata={"filename": filename})
                 elif file_type in ["text/plain", "text/markdown"]:
@@ -133,12 +144,11 @@ class AttachmentComponent:
                 else:
                     RenderDocBytes.parse_generic(content_bytes, metadata={"filename": filename})
             else:
-                st.error(f'Kunne ikke hente vedlegg: {attachment.get("filename")}')
-            
+                st.error(f'Kunne ikke hente vedlegg: {filename}')
+
             if st.button("Lukk"):
-                st.session_state.view_attachment_data = None
                 st.rerun()
-        
+
         show_attachment()
 
     def view_attachment(self, attachment: dict, content_bytes: Optional[bytes] = None, key: str = None, sig_icon: str = None):

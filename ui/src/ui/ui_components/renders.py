@@ -752,8 +752,6 @@ class ProjectComponent:
 
         # Load the factsheet for the selected project
         project_data =  self.backend_service.load_project(project_id=st.session_state.project_id)
-        #st.json(project_data)
-        #st.json(project_data)
         if project_data and "factsheet" in project_data and "attachments" in project_data and "emails" in project_data:
             st.session_state.factsheet = project_data.get('factsheet')
             st.session_state.attachments = project_data.get('attachments', [])
@@ -813,7 +811,7 @@ class ProjectComponent:
         else:
             st.info("No projects found. Please initialize a new project.")
 
-    def render_selected_project(self, factsheet):
+    def render_selected_project(self, factsheet, key_prefix: str = ""):
         st.header("Selected Project:")
         st.markdown(f"### {factsheet.get('title')}")
         
@@ -860,7 +858,7 @@ class ProjectComponent:
             for file in sorted_attachments:
                 sig = file.get("significance", "medium")
                 sig_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(sig, "⚪")
-                self.attachment_component.view_attachment(file, key=str(uuid4()), sig_icon=sig_icon)
+                self.attachment_component.view_attachment(file, key=f"{key_prefix}proj_att_{file.get('file_id', '')}", sig_icon=sig_icon)
 
         with st.expander("Correspondence Overview", expanded=False, icon="✉️"):
             sorted_emails = sorted(
@@ -871,7 +869,17 @@ class ProjectComponent:
             for file in sorted_emails:
                 sig = file.get("significance", "medium")
                 sig_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(sig, "⚪")
-                st.write(f'- {sig_icon} **{file.get("subject", "No Subject")}** \n(From: {file.get("from", "Unknown")}, To: {file.get("to", "Unknown")}, Date: {file.get("date", "Unknown")})')
+                email_att = {
+                    "file_id": file.get("email_id"),
+                    "filename": file.get("subject", "No Subject"),
+                    "file_type": "message/rfc822",
+                    "body": file.get("body"),
+                    "from_addr": file.get("from_addr", file.get("from", "")),
+                    "to": file.get("to", []),
+                    "subject": file.get("subject", ""),
+                    "date": str(file.get("date", "")),
+                }
+                self.attachment_component.view_attachment(email_att, key=f"{key_prefix}proj_email_{file.get('email_id', '')}", sig_icon=sig_icon)
 
     def _delete_session(self, session_id: str):
         if self.backend_service.delete_session(session_id):
@@ -1282,7 +1290,7 @@ class ProjectComponent:
                     with cols[1]:
                         self.clean_element()
 
-                    self.render_selected_project(factsheet=st.session_state.factsheet)
+                    self.render_selected_project(factsheet=st.session_state.factsheet, key_prefix="sidebar_")
 
 
 

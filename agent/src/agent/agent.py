@@ -700,19 +700,14 @@ class Agent:
         """Route attachments to doc/email analysis tasks, batching emails by size/count."""
         sem = asyncio.Semaphore(20)
 
-        async def analyze_doc_with_limit(attatchment: AttachmentModel, input_,):
-            async with sem:
-                return await self.context_manager.analyze_doc(
-                    input_=input_,
-                    attachment = attatchment
-                )
-
         async def analyze_docs_with_limit(attatchments: list[AttachmentModel], input_,):
             async with sem:
-                return await self.context_manager.analyze_docs(
+                result = await self.context_manager.analyze_docs(
                     input_=input_,
                     attachments = attatchments
                 )
+                result["_source_filenames"] = [a.filename for a in attatchments]
+                return result
 
         
         async def analyze_emails_with_limit(emails: list[EmailModel], input_):
@@ -736,15 +731,16 @@ class Agent:
 
         for att in attachments or []:
             if att.file_type != "message/rfc822":
-                doc_size_counter += att.size or len(att.content or "")
-                if doc_size_counter <= threshold and len(doc_attachments) < max_attachments:
+                att_size = att.size or len(att.content or "")
+                if doc_size_counter + att_size <= threshold and len(doc_attachments) < max_attachments:
                     doc_attachments.append(att)
+                    doc_size_counter += att_size
                 else:
-                    doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_=input_,))
-                    doc_attachments = []
-                    doc_size_counter = 0
+                    if doc_attachments:
+                        doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_=input_,))
+                    doc_attachments = [att]
+                    doc_size_counter = att_size
             elif att.file_type == "message/rfc822":
-                email_size_counter += att.size
                 data = eml.parse_eml_to_obj(content=att.content,
                                      user_id=user_id,
                                      query_id=query.query_id,
@@ -752,18 +748,20 @@ class Agent:
                                      file_id=att.file_id)
                 email = data.get("email", [])
                 current_email_attachments = data.get("attachments", [])
-                doc_tasks.extend([analyze_doc_with_limit(attatchment = att, input_=input_, 
-                                                         ) for att in current_email_attachments])
+                if current_email_attachments:
+                    doc_tasks.append(analyze_docs_with_limit(current_email_attachments, input_=input_,))
                 logger.debug(f' === EXTRACTED {len(current_email_attachments)} attachments from email {att.filename} === \n') if current_email_attachments else logger.debug(f' === NO ATTACHMENTS EXTRACTED from email {att.filename} === \n')
 
-                if email_size_counter <= threshold and len(email_attachments) < max_attachments:
+                if email_size_counter + att.size <= threshold and len(email_attachments) < max_attachments:
                     email_attachments.append(email)
+                    email_size_counter += att.size
                     logger.debug(f' === ACCUMULATED {len(email_attachments)} emails so far (size: {email_size_counter} bytes) === ')
                 else:
                     logger.debug(f' === BATCH LIMIT REACHED: Processing batch of {len(email_attachments)} emails (size: {email_size_counter} bytes) === ')
-                    doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
-                    email_attachments = []
-                    email_size_counter = 0
+                    if email_attachments:
+                        doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
+                    email_attachments = [email]
+                    email_size_counter = att.size
 
         if email_attachments:
             logger.debug(f' === FINAL BATCH: Sending {len(email_attachments)} emails to analyze_emails_with_limit === ')
@@ -877,7 +875,6 @@ class Agent:
 
         
         docs = []
-        storage_tasks = []
         if query.attachments:
             # Parse documents with streaming progress
             for event in self._parse_docs_with_progress(attachments=query.attachments,
@@ -1042,12 +1039,13 @@ class Agent:
                             "query_id": query.query_id
                         }
                     else:
+                        source_filenames = result.get("_source_filenames", [])
                         yield {
                             "type": "status",
                             "phase": ["analyze_doc"],
                             "status": "complete",
                             "data": {
-                                "filename": "no content",
+                                "filename": ", ".join(source_filenames) if source_filenames else "unknown",
                                 "file_id": "no content",
                                 "progress": completed,
                                 "total": len(doc_tasks)
@@ -1443,7 +1441,15 @@ class Agent:
         else:
             logger.warning("No valid files to save or missing model_dump method.")
 
-        if emails and hasattr(emails[0], "model_dump"):
+        if emails:
+            if not hasattr(emails[0], "model_dump"):
+                logger.critical("Email objects are missing model_dump method. Emails will not be saved to database.")
+            # emails_data = []
+            # for email in emails:
+            #     d = email.model_dump(mode="json", exclude={"events", "claims", "damages", "deadlines"})
+            #     if "from_addr" in d:
+            #         d["from"] = d.pop("from_addr")
+            #     emails_data.append(d)
             await asyncio.to_thread(
                 self.conversation_manager.insert_project_element,
                 data=[email.model_dump(mode="json", exclude={"events", "claims", "damages", "deadlines"}) for email in emails],

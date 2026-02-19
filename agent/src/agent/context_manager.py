@@ -473,11 +473,7 @@ class ContextManager:
         if not content:
             logger.warning('No content provided for cleaning. Filling in empty list.')
             content = []
-        
-        # model_map = {
-        #     "Event": Events, "Damage": Damages, "Claim": Claims,
-        #     "Deadline": Deadlines, "Party": Parties
-        # }
+
         model_map  = {"events" : Events, "damages" : Damages, "claims" : Claims,
                       "deadlines" : Deadlines, "parties" : Parties}
         id_map = {"events" : "event_id", "damages" : "damage_id", "claims" : "claim_id",
@@ -501,11 +497,12 @@ class ContextManager:
             f"Context factsheet: {factsheet.model_dump(mode = "json")}\n\n"
             f'Context from attachments:\n{[att.model_dump(mode="json", include = {"file_id", "filename", "description", "file_date"}) for att in attachments] if attachments else "No attachments"}\n\n'
             f'Context from emails:\n{[eml.model_dump(mode="json", include = {"from","from_addr", "to", "subject", "body","date"}) for eml in emails] if emails else "No emails"}\n\n'
-            f'Use the context of the existing factsheet to clean, fill in missing information,'
-            f'and merge similar entries for the following {name} items.'
-            "I.e for party, fill in all relevant roles such as plaintiff, defendant, witness, legal representative, etc. For events, fill in event dates and categorize the type of event. For damages, fill in type of damage and amount if mentioned. For claims, fill in legal basis and relief sought. For deadlines, fill in deadline date and associated party role.\n\n'"
+            f'Use the context of the existing factsheet to clean, fill in missing information, if content is empty -> fill the content!'
+            f'If content is filled, merge similar entries for the following {name} items if they are refering to the same entity.'
+            "I.e for party, fill in all relevant roles such as plaintiff, defendant, witness, legal representative, etc. For events, fill in event dates and categorize the type of event.n\n'"
             f":\n\n{data}"
         )
+        logger.info(f" ====== PROMPT FOR CLEANING {name.upper()} ====== \n{prompt}\n\n")
         
         response = await structured_llm.ainvoke(prompt)
         if not response:

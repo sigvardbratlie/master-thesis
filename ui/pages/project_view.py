@@ -81,7 +81,7 @@ if auth_service.is_logged_in():
                     st.markdown(f'New input')
                     project_component.render_new_project_input(mode = "update")
                 with cols[1]:
-                    project_component.render_selected_project(factsheet=st.session_state.factsheet,)
+                    project_component.render_selected_project(factsheet=st.session_state.factsheet, key_prefix="main_")
             else:
                 if st.session_state.first_question:
                     chat_component.render_first_question()
@@ -94,4 +94,6 @@ else:
     # Login screen
     auth_service.render_login_form()
 
-st.json(st.session_state.factsheet, expanded=False)
+st.json(st.session_state.factsheet, expanded=False) 
+st.json(st.session_state.attachments, expanded=False) 
+st.json(st.session_state.emails, expanded=False) 

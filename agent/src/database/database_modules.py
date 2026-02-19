@@ -462,9 +462,9 @@ class SupabaseManager:
             for email in emails:
                 email_dict = email.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
                 email_dict["project_id"] = project_id
-                # Map from_addr to from for database compatibility
-                if "from_addr" in email_dict:
-                    email_dict["from"] = email_dict.pop("from_addr")
+                # # Map from_addr to from for database compatibility
+                # if "from_addr" in email_dict:
+                #     email_dict["from"] = email_dict.pop("from_addr")
                 email_dicts.append(email_dict)
         
         factsheet_dict = factsheet.model_dump(mode='json')

@@ -57,7 +57,7 @@ def init_state():
     st.session_state.setdefault("tool_results", {})
     st.session_state.setdefault("factsheet", None)
     st.session_state.setdefault("attachments", [])
-    st.session_state.setdefault("project_data", [])
+    st.session_state.setdefault("emails", [])
 
     st.session_state.setdefault("supabase_client", None)
 
