@@ -16,6 +16,5 @@ dependencies = [
 members = [
     "ui",
     "agent",
-    "eval",
     "evals",
 ]

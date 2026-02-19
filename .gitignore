@@ -1,5 +1,6 @@
 # Python-generated files
 __pycache__/
+.pytest_cache/
 *.py[oc]
 build/
 dist/
@@ -12,6 +13,7 @@ wheels/
 *.DS_Store
 00_ia/
 01_fabricated/
+01_data/
 02_org_pdf/
 02_org/
 

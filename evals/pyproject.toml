@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "agent",
     "annotated-types==0.7.0",
     "asttokens==3.0.1",
     "beautifulsoup4==4.14.3",
@@ -17,6 +18,7 @@ dependencies = [
     "comm==0.2.3",
     "cryptography==46.0.5",
     "decorator==5.2.1",
+    "deepeval>=3.8.4",
     "defusedxml==0.7.1",
     "deprecated==1.3.1",
     "deprecation==2.1.0",
@@ -75,3 +77,6 @@ evals = "evals:main"
 [build-system]
 requires = ["uv_build>=0.8.22,<0.9.0"]
 build-backend = "uv_build"
+
+[tool.uv.sources]
+agent = { workspace = true, editable = true }
