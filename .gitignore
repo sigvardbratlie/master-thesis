@@ -11,11 +11,12 @@ wheels/
 .venv
 
 *.DS_Store
-00_ia/
-01_fabricated/
-01_data/
-02_org_pdf/
-02_org/
+*00_ia/
+*01_fabricated/
+*01_data/
+*02_org_pdf/
+*02_org/
+*03_org_txt/
 
 
 *.log
