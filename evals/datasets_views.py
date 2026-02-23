@@ -284,18 +284,33 @@ with tab_dataset:
 
     sessions = st.session_state["_raw"]["sessions"]
     n_sessions = len(sessions)
-    st.markdown(
+
+    hdr_left, hdr_right = st.columns([0.7, 0.3])
+    hdr_left.markdown(
         f"#### 💬 Sessions &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({n_sessions} total)</span>",
         unsafe_allow_html=True,
     )
-    st.caption("Click a section to expand or collapse it. You can edit all text directly in the fields.")
+    collapsed = st.session_state.get("_all_collapsed", False)
+    if hdr_right.button(
+        "⬆️ Collapse all" if not collapsed else "⬇️ Expand all",
+        key="toggle_collapse",
+        type="tertiary",
+        use_container_width=True,
+    ):
+        st.session_state["_all_collapsed"] = not collapsed
+        st.rerun()
+
+    st.caption("Click a session to expand or collapse it. You can edit all text directly in the fields.")
     st.write("")
 
     for s_idx, session in enumerate(sessions):
         n_queries = len(session["conversation"])
-        with st.container(border=True):
-            col_icon, col_name, col_date, col_up, col_down, col_del = st.columns([0.05, 0.62, 0.16, 0.05, 0.05, 0.07])
-            col_icon.markdown("### 📁")
+        sname = st.session_state.get(f"sname_{s_idx}", session.get("session_name", ""))
+        sdate = st.session_state.get(f"sdate_{s_idx}", session.get("date", ""))
+        label = f"📁 {sname or 'Unnamed session'}" + (f" — {sdate}" if sdate else "")
+
+        with st.expander(label, expanded=not st.session_state.get("_all_collapsed", False)):
+            col_name, col_date, col_up, col_down, col_del = st.columns([0.62, 0.16, 0.07, 0.07, 0.08])
             col_name.text_input(
                 "Session name",
                 key=f"sname_{s_idx}",
@@ -343,7 +358,7 @@ with tab_dataset:
                     st.text_area(
                         "Initial instruction",
                         key=f"sinit_{s_idx}",
-                        height=text_height(st.session_state[f"sinit_{s_idx}"]),
+                        height=text_height(st.session_state.get(f"sinit_{s_idx}", session.get("init_query", ""))),
                         label_visibility="collapsed",
                         help="The opening instruction given to the agent for this session",
                     )
@@ -353,8 +368,8 @@ with tab_dataset:
 
             for q_idx, query in enumerate(session["conversation"]):
                 order = query.get("order", q_idx + 1)
-                inp_val = st.session_state[f"inp_{s_idx}_{q_idx}"]
-                ans_val = st.session_state[f"ans_{s_idx}_{q_idx}"]
+                inp_val = st.session_state.get(f"inp_{s_idx}_{q_idx}", query.get("input", "").strip())
+                ans_val = st.session_state.get(f"ans_{s_idx}_{q_idx}", query.get("answer", "").strip())
                 has_answer = bool(ans_val.strip())
                 n_queries = len(session["conversation"])
 
