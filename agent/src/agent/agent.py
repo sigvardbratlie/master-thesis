@@ -654,7 +654,6 @@ class Agent:
                         token_stream += result.get("data","")
                         yield result
                         
-
                 #ai messages
                 if name == "call_llm":
                     result = self.on_call_llm(data, 
@@ -665,8 +664,7 @@ class Agent:
                                               token_stream=token_stream)
                     if result:
                         yield result
-                        token_stream = ""  # reset between LLM calls
-
+                        token_stream  = "" 
                 #direct tool results
                 if name == "call_tool" and ev == "on_chain_end":
                     result = self.on_call_tool(data, 
