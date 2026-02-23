@@ -33,7 +33,7 @@ def read_attachment(path : str,
     Use only when the attachment content is not provided in the conversation history.
 
     Args:
-        path (str): The path to the attachment in Supabase storage.
+        path (str): The path to the attachment in Supabase storage. Always in the form of "<user_id>/<session_id>/<file_id>.<ext>".
     
     Returns:
         str: Processed content of the attachment.
