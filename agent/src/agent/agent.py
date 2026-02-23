@@ -490,15 +490,19 @@ class Agent:
         if output and output.get("messages"):
             ai_msg = output.get("messages")[-1]
             if isinstance(ai_msg, AIMessage):
-                # Handle structured content (list of content blocks) from LangChain
-                content_str = ai_msg.content
-                if isinstance(ai_msg.content, list):
-                    # Extract text from content blocks
+                # Prefer manually accumulated token_stream over ai_msg.content,
+                # as some LLM providers (e.g. Gemini) may return incomplete content
+                # in the on_chain_end event when streaming.
+                if token_stream:
+                    content_str = token_stream
+                elif isinstance(ai_msg.content, list):
                     content_str = "".join(
-                        block.get("text", "") 
-                        for block in ai_msg.content 
+                        block.get("text", "")
+                        for block in ai_msg.content
                         if isinstance(block, dict) and block.get("type") == "text"
                     )
+                else:
+                    content_str = ai_msg.content
                 
                 event_model = StreamEvent(data = EventData(
                                                             tool_calls = ai_msg.tool_calls,
@@ -661,7 +665,7 @@ class Agent:
                                               token_stream=token_stream)
                     if result:
                         yield result
-                        #token_stream  = "" #reset after yielding
+                        token_stream = ""  # reset between LLM calls
 
                 #direct tool results
                 if name == "call_tool" and ev == "on_chain_end":
