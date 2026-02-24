@@ -619,7 +619,7 @@ dependencies = [
     { name = "google-cloud-storage" },
     { name = "pandas" },
     { name = "python-docx" },
-    { name = "streamlit" },
+    { name = "streamlit", extra = ["pdf"] },
 ]
 
 [package.metadata]
@@ -629,7 +629,7 @@ requires-dist = [
     { name = "google-cloud-storage", specifier = ">=3.7.0" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "python-docx", specifier = ">=1.2.0" },
-    { name = "streamlit", specifier = ">=1.52.2" },
+    { name = "streamlit", extras = ["pdf"], specifier = ">=1.52.2" },
 ]
 
 [[package]]
@@ -4371,6 +4371,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/43/20/434aaceccc6e1912671d869926103051330437adba72d538d787a07727ef/streamlit-1.52.2.tar.gz", hash = "sha256:64a4dda8bc5cdd37bfd490e93bb53da35aaef946fcfc283a7980dacdf165108b", size = 8584178, upload-time = "2025-12-17T17:07:59.642Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c0/95/6b7873f0267973ebd55ba9cd33a690b35a116f2779901ef6185a0e21864d/streamlit-1.52.2-py3-none-any.whl", hash = "sha256:a16bb4fbc9781e173ce9dfbd8ffb189c174f148f9ca4fb8fa56423e84e193fc8", size = 9025937, upload-time = "2025-12-17T17:07:57.67Z" },
+]
+
+[package.optional-dependencies]
+pdf = [
+    { name = "streamlit-pdf" },
 ]
 
 [[package]]
