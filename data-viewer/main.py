@@ -134,7 +134,7 @@ def parse_result_filename(name: str) -> tuple[str, str]:
 # ── Header ────────────────────────────────────────────────────────────────────
 
 st.title("📂 Dataset Viewer")
-st.caption("Select a dataset, edit the content, and download the revised version.")
+st.caption("Select a dataset, edit the content, and publish the revised version.")
 
 st.divider()
 
