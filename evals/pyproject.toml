@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "sigvardbratlie", email = "sigvard.bratlie@gmail.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.13,<4.0"
 dependencies = [
     "agent",
     "annotated-types==0.7.0",

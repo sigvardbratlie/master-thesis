@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -100,6 +101,34 @@ def list_data_blobs(dataset: str) -> list[storage.Blob]:
         b for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
         if not b.name.endswith("/") and Path(b.name).suffix.lower() in SUPPORTED_EXTENSIONS
     ]
+
+
+def list_result_blobs(dataset: str) -> list[storage.Blob]:
+    """Return blobs under datasets/<dataset>/04_results/ (JSON files), newest first."""
+    client = get_gcs_client()
+    prefix = f"datasets/{dataset}/04_results/"
+    blobs = [
+        b for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
+        if not b.name.endswith("/") and b.name.endswith(".json")
+    ]
+    return sorted(blobs, key=lambda b: b.name, reverse=True)
+
+
+_RESULT_RE = re.compile(r"^(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json$")
+
+
+def parse_result_filename(name: str) -> tuple[str, str]:
+    """Return (model, display_timestamp) from a result filename, or (name, '') on failure."""
+    m = _RESULT_RE.match(name)
+    if not m:
+        return name, ""
+    model = m.group(1)
+    ts = m.group(2)  # YYYY-MM-DD_HH-MM-SS
+    display = ts.replace("_", " ").replace("-", ":", 2)  # YYYY-MM-DD HH:MM:SS
+    # Fix: only replace hyphens in the time part
+    date_part, time_part = ts.split("_")
+    display = f"{date_part} {time_part.replace('-', ':')}"
+    return model, display
 
 
 # ── Header ────────────────────────────────────────────────────────────────────
@@ -340,7 +369,7 @@ def reset_to_original() -> None:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_dataset, tab_files = st.tabs(["📋 Dataset", "📁 Files"])
+tab_dataset, tab_files, tab_results = st.tabs(["📋 Dataset", "📁 Files", "📊 Results"])
 
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 1 — Dataset editor
@@ -617,3 +646,123 @@ with tab_files:
         except Exception as e:
             st.error(f"❌ Could not render file: {e}")
             logger.error(f"Error rendering {selected_name}: {e}", exc_info=True)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 3 — Results viewer
+# ════════════════════════════════════════════════════════════════════════════
+
+with tab_results:
+
+    result_blobs = list_result_blobs(dataset)
+
+    if not result_blobs:
+        st.warning(f"⚠️ No result files found in `04_results` for dataset **{dataset}**.")
+        st.stop()
+
+    # Build display labels for the selectbox
+    result_labels = []
+    for blob in result_blobs:
+        fname = blob.name.split("/")[-1]
+        model, ts_display = parse_result_filename(fname)
+        result_labels.append(f"{model} — {ts_display}" if ts_display else fname)
+
+    st.markdown(
+        f"#### 📊 Results &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({len(result_blobs)} runs)</span>",
+        unsafe_allow_html=True,
+    )
+    st.caption("Select a result run to compare model responses against the ground-truth answers.")
+    st.write("")
+
+    selected_result_label = st.selectbox(
+        "Result run",
+        result_labels,
+        index=0,
+        label_visibility="collapsed",
+    )
+
+    selected_result_idx = result_labels.index(selected_result_label)
+    selected_result_blob = result_blobs[selected_result_idx]
+
+    try:
+        result_data: dict = json.loads(read_blob_bytes(selected_result_blob.name).decode("utf-8"))
+    except Exception as e:
+        st.error(f"❌ Could not load result file: {e}")
+        st.stop()
+
+    # ── Metadata strip ────────────────────────────────────────────────────────
+    with st.expander("ℹ️ Run metadata", expanded=False):
+        m1, m2, m3, m4 = st.columns(4)
+        m1.text_input("Model", value=result_data.get("llm_model", "—"), disabled=True)
+        m2.text_input("Dataset", value=result_data.get("dataset_name", "—"), disabled=True)
+        m3.text_input("Last updated", value=result_data.get("last_updated", "—"), disabled=True)
+        m4.text_input("Custom agent", value=str(result_data.get("custom_agent", "—")), disabled=True)
+
+    st.divider()
+
+    # ── Sessions & conversations ───────────────────────────────────────────────
+    result_sessions = result_data.get("sessions", [])
+    n_result_sessions = len(result_sessions)
+
+    # Summary counts
+    total_queries = sum(len(s.get("conversation", [])) for s in result_sessions)
+    answered = sum(
+        1
+        for s in result_sessions
+        for q in s.get("conversation", [])
+        if q.get("model_response", "").strip()
+    )
+    st.caption(f"**{n_result_sessions}** sessions · **{total_queries}** queries · **{answered}** with model response")
+    st.write("")
+
+    for s_idx, session in enumerate(result_sessions):
+        sname = session.get("session_name", f"Session {s_idx + 1}")
+        sdate = session.get("date", "")
+        label = f"📁 {sname}" + (f" — {sdate}" if sdate else "")
+
+        with st.expander(label, expanded=True):
+            conversation = session.get("conversation", [])
+            st.caption(f"🔢 {len(conversation)} {'query' if len(conversation) == 1 else 'queries'}")
+
+            if session.get("init_query"):
+                with st.expander("📝 Initial instruction", expanded=False):
+                    st.text(session["init_query"])
+
+            for q in conversation:
+                order = q.get("order", "?")
+                inp = q.get("input", "").strip()
+                answer = q.get("answer", "").strip()
+                model_response = q.get("model_response", "").strip()
+                has_response = bool(model_response)
+
+                with st.expander(
+                    f"{'✅' if has_response else '⬜'} Query {order}",
+                    expanded=True,
+                ):
+                    st.markdown(f"**🧑‍💼 Query**")
+                    st.markdown(inp or "_No input_")
+                    st.write("")
+
+                    col_gt, col_mr = st.columns(2)
+                    with col_gt:
+                        st.markdown("**✍️ Ground truth**")
+                        st.text_area(
+                            "Ground truth",
+                            value=answer or "No ground truth",
+                            height=text_height(answer) if answer else 100,
+                            disabled=True,
+                            label_visibility="collapsed",
+                            key=f"res_gt_{s_idx}_{order}",
+                        )
+                    with col_mr:
+                        st.markdown("**🤖 Model response**")
+                        st.text_area(
+                            "Model response",
+                            value=model_response or "No response",
+                            height=text_height(model_response) if model_response else 100,
+                            disabled=True,
+                            label_visibility="collapsed",
+                            key=f"res_mr_{s_idx}_{order}",
+                        )
+
+        st.write("")
