@@ -44,6 +44,9 @@ class Agent:
                  tools : List[tool],
                  prompt : str,
                  checkpointer = None,
+                 use_factsheet : bool = True,
+                 embed_to_vectorstore : bool = True,
+                 save_to_storage : bool = True
                  ):
         """
         Initializes the Agent with tools, prompt, LLMs, and checkpointer.
@@ -68,6 +71,11 @@ class Agent:
         self.conversation_manager =  SupabaseManager() #ConversationManager()
         self.context_manager = ContextManager()
         self.tool_manager = ToolManager()
+
+        #TOGGLES
+        self.use_factsheet = use_factsheet
+        self.embed_to_vectorstore = embed_to_vectorstore
+        self.save_to_storage = save_to_storage
     
     # =================================
     #         GRAPH ELEMENTS
@@ -215,7 +223,7 @@ class Agent:
                 attachment_contents[file_id] = att.get("body", "")  if att.get("body", "") else "NO BODY CONTENT"
 
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
-        factsheet = self.conversation_manager.load_factsheet(project_id=project_id) if project_id else None
+        factsheet = self.conversation_manager.load_factsheet(project_id=project_id) if project_id and self.use_factsheet else None
                                                            
 
 
@@ -894,11 +902,8 @@ class Agent:
                 fid = doc.metadata.get("file_id", "unknown")
                 docs_by_file.setdefault(fid, []).append(doc)
 
-            file_id_to_name = {att.file_id: att.filename for att in query.attachments}
-
         else:
             docs_by_file = {}
-            file_id_to_name = {}
 
         # Total = per-file vs saves + file storage + init_input
         total_phase1 = len(docs_by_file) + (1 if query.attachments else 0) + 1
@@ -919,7 +924,7 @@ class Agent:
         parallel_tasks = [
             asyncio.create_task(self.context_manager.analyze_init_input(query.question))
         ]
-        if query.attachments:
+        if query.attachments and self.save_to_storage:
             parallel_tasks.append(asyncio.create_task(
                 self.storage.save_raw_documents(attachments=query.attachments)
             ))
@@ -960,36 +965,38 @@ class Agent:
                     }
                 logger.debug(f'File storage operation completed')
 
-        # Save to vector store sequentially per file (avoids BQ rate limits)
-        for fid, file_docs in docs_by_file.items():
-            fname = file_id_to_name.get(fid, fid)
+        # Save all docs to vector store in a single batched call
+        if docs_by_file and self.embed_to_vectorstore:
+            all_docs = [doc for file_docs in docs_by_file.values() for doc in file_docs]
             yield {
-                    "type": "status",
-                    "phase": ["storage"],
-                    "status": "starting",
-                    "data": {
-                        "filename": fname,
-                        "storage_type": ["vector_store"]
-                    },
-                    "timestamp": datetime.now().isoformat(),
-                    "query_id": query.query_id
-                }
-            await asyncio.to_thread(self.vs.add_documents, file_docs, collection_id="attachments")
-            completed_phase1 += 1
+                "type": "status",
+                "phase": ["storage"],
+                "status": "starting",
+                "data": {
+                    "file_count": len(docs_by_file),
+                    "doc_count": len(all_docs),
+                    "storage_type": ["vector_store"]
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id
+            }
+            await asyncio.to_thread(self.vs.add_documents, all_docs, collection_id="attachments")
+            completed_phase1 += len(docs_by_file)
             yield {
-                    "type": "status",
-                    "phase": ["storage"],
-                    "status": "complete",
-                    "data": {
-                        "filename": fname,
-                        "progress": completed_phase1,
-                        "total": total_phase1,
-                        "storage_type": ["vector_store"]
-                    },
-                    "timestamp": datetime.now().isoformat(),
-                    "query_id": query.query_id
-                }
-            logger.debug(f'Vector store save completed for {fname}')
+                "type": "status",
+                "phase": ["storage"],
+                "status": "complete",
+                "data": {
+                    "file_count": len(docs_by_file),
+                    "doc_count": len(all_docs),
+                    "progress": completed_phase1,
+                    "total": total_phase1,
+                    "storage_type": ["vector_store"]
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id
+            }
+            logger.debug(f'Vector store batch save completed: {len(all_docs)} docs across {len(docs_by_file)} files')
             
         
         # ============= PHASE 2 =================
@@ -1237,7 +1244,6 @@ class Agent:
         # Save attachments to vector store and storage
         docs = []
         docs_by_file = {}
-        file_id_to_name = {}
         if query.attachments:
             # Parse documents with streaming progress
             for event in self._parse_docs_with_progress(attachments=query.attachments,
@@ -1249,12 +1255,10 @@ class Agent:
             # Retrieve parsed results from instance variable
             docs = self._last_parse_results
 
-            # Group docs by file_id for sequential vector store saving
+            # Group docs by file_id
             for doc in docs:
                 fid = doc.metadata.get("file_id", "unknown")
                 docs_by_file.setdefault(fid, []).append(doc)
-
-            file_id_to_name = {att.file_id: att.filename for att in query.attachments}
 
         # Extract existing data from project (use direct lists, not wrapper models)
         factsheet : FactSheet = factsheet
@@ -1285,26 +1289,27 @@ class Agent:
             "query_id": query.query_id
         }
 
-        # Sequential vector store saves (avoids BQ rate limits)
+        # Save all docs to vector store in a single batched call
         completed_saving_storage = 0
-        for fid, file_docs in docs_by_file.items():
-            fname = file_id_to_name.get(fid, fid)
+        if docs_by_file and self.embed_to_vectorstore:
+            all_docs = [doc for file_docs in docs_by_file.values() for doc in file_docs]
             yield {
                 "type": "status",
                 "phase": ["storage"],
                 "status": "starting",
-                "data": {"filename": fname, "storage_type": ["vector_store"]},
+                "data": {"file_count": len(docs_by_file), "doc_count": len(all_docs), "storage_type": ["vector_store"]},
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id
             }
-            await asyncio.to_thread(self.vs.add_documents, file_docs, collection_id="attachments")
-            completed_saving_storage += 1
+            await asyncio.to_thread(self.vs.add_documents, all_docs, collection_id="attachments")
+            completed_saving_storage += len(docs_by_file)
             yield {
                 "type": "status",
                 "phase": ["storage"],
                 "status": "complete",
                 "data": {
-                    "filename": fname,
+                    "file_count": len(docs_by_file),
+                    "doc_count": len(all_docs),
                     "progress": completed_saving_storage,
                     "total": total_storage,
                     "storage_type": ["vector_store"]
@@ -1312,11 +1317,11 @@ class Agent:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id
             }
-            logger.debug(f'Vector store save completed for {fname}')
+            logger.debug(f'Vector store batch save completed: {len(all_docs)} docs across {len(docs_by_file)} files')
 
         # File storage + doc analysis in parallel
         file_storage_tasks = []
-        if query.attachments:
+        if query.attachments and self.save_to_storage:
             file_storage_tasks.append(self.storage.save_raw_documents(attachments=query.attachments))
 
         completed_analyze_doc = 0
