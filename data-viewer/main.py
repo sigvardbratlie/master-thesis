@@ -470,27 +470,36 @@ with tab_dataset:
                 type="tertiary",
             )
 
-            if session.get("init_query"):
-                with st.expander("📝 Initial instruction", expanded=False):
-                    st.text_area(
-                        "Initial instruction",
-                        key=f"sinit_{s_idx}",
-                        height=text_height(st.session_state.get(f"sinit_{s_idx}", session.get("init_query", ""))),
-                        label_visibility="collapsed",
-                        help="The opening instruction given to the agent for this session",
-                    )
+            with st.expander("📝 Initial instruction", expanded=bool(session.get("init_query"))):
+                st.text_area(
+                    "Initial instruction",
+                    key=f"sinit_{s_idx}",
+                    height=text_height(st.session_state.get(f"sinit_{s_idx}", session.get("init_query", ""))),
+                    label_visibility="collapsed",
+                    placeholder="Add an opening instruction for this session...",
+                    help="The opening instruction given to the agent for this session",
+                )
 
-            st.caption(f"🔢 {n_queries} {'query' if n_queries == 1 else 'queries'} in this session")
+            cap_col, btn_col = st.columns([0.65, 0.35])
+            cap_col.caption(f"🔢 {n_queries} {'query' if n_queries == 1 else 'queries'} in this session")
+            q_collapsed = st.session_state.get(f"_q_collapsed_{s_idx}", False)
+            if btn_col.button(
+                "⬆️ Collapse queries" if not q_collapsed else "⬇️ Expand queries",
+                key=f"toggle_q_{s_idx}",
+                type="tertiary",
+                use_container_width=True,
+            ):
+                st.session_state[f"_q_collapsed_{s_idx}"] = not q_collapsed
+                st.rerun()
             st.write("")
 
             for q_idx, query in enumerate(session["conversation"]):
-                order = query.get("order", q_idx + 1)
                 inp_val = st.session_state.get(f"inp_{s_idx}_{q_idx}", query.get("input", "").strip())
                 ans_val = st.session_state.get(f"ans_{s_idx}_{q_idx}", query.get("answer", "").strip())
                 has_answer = bool(ans_val.strip())
                 n_queries = len(session["conversation"])
 
-                with st.expander(f"{'✅' if has_answer else '⬜'} Query {order}", expanded=True):
+                with st.expander(f"{'✅' if has_answer else '⬜'} Query {q_idx + 1}", expanded=not st.session_state.get(f"_q_collapsed_{s_idx}", False)):
                     qc_up, qc_down, qc_del, qc_spacer = st.columns([0.07, 0.07, 0.09, 0.77])
                     qc_up.button(
                         "↑", key=f"up_q_{s_idx}_{q_idx}",
@@ -722,22 +731,40 @@ with tab_results:
 
         with st.expander(label, expanded=True):
             conversation = session.get("conversation", [])
-            st.caption(f"🔢 {len(conversation)} {'query' if len(conversation) == 1 else 'queries'}")
+            res_cap_col, res_btn_col = st.columns([0.65, 0.35])
+            res_cap_col.caption(f"🔢 {len(conversation)} {'query' if len(conversation) == 1 else 'queries'}")
+            res_q_collapsed = st.session_state.get(f"_res_q_collapsed_{s_idx}", False)
+            if res_btn_col.button(
+                "⬆️ Collapse queries" if not res_q_collapsed else "⬇️ Expand queries",
+                key=f"toggle_res_q_{s_idx}",
+                type="tertiary",
+                use_container_width=True,
+            ):
+                st.session_state[f"_res_q_collapsed_{s_idx}"] = not res_q_collapsed
+                st.rerun()
+
+            attachments = session.get("attachments", [])
+            if attachments:
+                with st.expander(f"📎 Attachments ({len(attachments)})", expanded=False):
+                    for path in attachments:
+                        fname = path.split("/")[-1]
+                        ext = Path(fname).suffix.lower()
+                        icon = FILE_ICONS.get(ext, "📎")
+                        st.markdown(f"{icon} `{fname}`")
 
             if session.get("init_query"):
                 with st.expander("📝 Initial instruction", expanded=False):
                     st.text(session["init_query"])
 
-            for q in conversation:
-                order = q.get("order", "?")
+            for q_idx, q in enumerate(conversation):
                 inp = q.get("input", "").strip()
                 answer = q.get("answer", "").strip()
                 model_response = q.get("model_response", "").strip()
                 has_response = bool(model_response)
 
                 with st.expander(
-                    f"{'✅' if has_response else '⬜'} Query {order}",
-                    expanded=True,
+                    f"{'✅' if has_response else '⬜'} Query {q_idx + 1}",
+                    expanded=not st.session_state.get(f"_res_q_collapsed_{s_idx}", False),
                 ):
                     st.markdown(f"**🧑‍💼 Query**")
                     st.markdown(inp or "_No input_")
@@ -752,7 +779,7 @@ with tab_results:
                             height=text_height(answer) if answer else 100,
                             disabled=True,
                             label_visibility="collapsed",
-                            key=f"res_gt_{s_idx}_{order}",
+                            key=f"res_gt_{s_idx}_{q_idx}",
                         )
                     with col_mr:
                         st.markdown("**🤖 Model response**")
@@ -762,7 +789,7 @@ with tab_results:
                             height=text_height(model_response) if model_response else 100,
                             disabled=True,
                             label_visibility="collapsed",
-                            key=f"res_mr_{s_idx}_{order}",
+                            key=f"res_mr_{s_idx}_{q_idx}",
                         )
 
         st.write("")
