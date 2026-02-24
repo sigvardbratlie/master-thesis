@@ -1,6 +1,7 @@
 from .utils import DocumentHandler, ParsedAttachment, ParsedEmail
 from .langsmith_module import LangSmithDatasetManager
 from .lovdata_module import LovdataAPI, ExtractLovData
+from .dataset import Dataset
 
 
 __all__ = ["LangSmithDatasetManager",
@@ -8,4 +9,5 @@ __all__ = ["LangSmithDatasetManager",
            "ExtractLovData",
            "DocumentHandler",
            "ParsedAttachment",
-           "ParsedEmail"]
+           "ParsedEmail",
+           "Dataset"]
