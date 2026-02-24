@@ -216,21 +216,23 @@ def render_file(filename: str, content: bytes) -> None:
         st.pdf(BytesIO(content))
 
     elif ext == ".txt":
-        st.text(content.decode("utf-8", errors="ignore"))
+        with st.container(height=600, border=True):
+            st.text(content.decode("utf-8", errors="ignore"))
 
     elif ext == ".eml":
         msg = email.message_from_bytes(content)
-        st.markdown(f"**From:** {msg.get('From', '')}")
-        st.markdown(f"**To:** {msg.get('To', '')}")
-        st.markdown(f"**Subject:** {msg.get('Subject', '')}")
-        st.markdown(f"**Date:** {msg.get('Date', '')}")
-        st.divider()
-        if msg.is_multipart():
-            for part in msg.walk():
-                if part.get_content_type() == "text/plain":
-                    st.text(part.get_payload(decode=True).decode("utf-8", errors="ignore"))
-        else:
-            st.text(msg.get_payload(decode=True).decode("utf-8", errors="ignore"))
+        with st.container(height=600, border=True):
+            st.markdown(f"**From:** {msg.get('From', '')}")
+            st.markdown(f"**To:** {msg.get('To', '')}")
+            st.markdown(f"**Subject:** {msg.get('Subject', '')}")
+            st.markdown(f"**Date:** {msg.get('Date', '')}")
+            st.divider()
+            if msg.is_multipart():
+                for part in msg.walk():
+                    if part.get_content_type() == "text/plain":
+                        st.text(part.get_payload(decode=True).decode("utf-8", errors="ignore"))
+            else:
+                st.text(msg.get_payload(decode=True).decode("utf-8", errors="ignore"))
 
     elif ext == ".docx":
         document = Document(BytesIO(content))
