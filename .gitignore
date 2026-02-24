@@ -11,29 +11,21 @@ wheels/
 .venv
 
 *.DS_Store
-*00_ia/
-*01_fabricated/
-*01_data/
-*02_org_pdf/
-*02_org/
-*03_org_txt/
 *playground/
 
+evals/datasets/
+evals/datasets_backup/
+evals/lovdata/
+evals/lovdata_backup/
 
 *.log
 *.env
 *gcloud-keys.json
-#*.json
-#*.ipynb
-
 
 secrets.toml
 
 .vscode/
 .idea/
 
-
-eval/lovdata/nl/
-evals/lovdata/nl/
 *bz2
 *tar.gz
