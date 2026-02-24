@@ -52,6 +52,17 @@ class Dataset:
         except Exception:
             logger.warning(f"Dataset file {path} not found or is invalid JSON.")
             return None
+        
+    def load_results(self) -> dict | None:
+        data = {}
+        path = f"datasets/{self.name}/04_results"
+        for file in self.bucket.list_blobs(prefix=path):
+            if file.name.endswith(".json"):
+                try:
+                    data[file.name] = json.loads(file.download_as_string().decode("utf-8"))
+                except Exception as e:
+                    logger.warning(f"Failed to load {file.name}: {e}")
+        return data
 
     def save_results(self, data: dict) -> None:
         dataset_name = data.get("dataset_name")
