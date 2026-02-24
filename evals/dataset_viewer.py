@@ -14,6 +14,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from docx import Document
+from google.cloud import storage
+from google.oauth2 import service_account
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,6 +24,82 @@ if not Path(".").resolve().name == "evals":
     os.chdir("./evals")
 
 st.set_page_config(page_title="📂 Dataset Viewer", layout="wide")
+
+# ── GCS Setup ─────────────────────────────────────────────────────────────────
+
+BUCKET_NAME = "master-thesis-prod"
+
+
+@st.cache_resource
+def get_gcs_client() -> storage.Client:
+    creds = service_account.Credentials.from_service_account_info(
+        dict(st.secrets["gcp_service_account"])
+    )
+    return storage.Client(credentials=creds)
+
+
+def _bucket() -> storage.Bucket:
+    return get_gcs_client().bucket(BUCKET_NAME)
+
+
+def blob_exists(blob_path: str) -> bool:
+    return _bucket().blob(blob_path).exists()
+
+
+def read_blob_bytes(blob_path: str) -> bytes:
+    return _bucket().blob(blob_path).download_as_bytes()
+
+
+def write_blob(blob_path: str, data: bytes) -> None:
+    _bucket().blob(blob_path).upload_from_string(data)
+
+
+def delete_blob(blob_path: str) -> None:
+    blob = _bucket().blob(blob_path)
+    if blob.exists():
+        blob.delete()
+
+
+def list_dataset_names() -> list[str]:
+    client = get_gcs_client()
+    blobs = client.list_blobs(BUCKET_NAME, prefix="datasets/", delimiter="/")
+    _ = list(blobs)  # consume iterator to populate prefixes
+    return sorted(
+        p.replace("datasets/", "").rstrip("/")
+        for p in blobs.prefixes
+        if p != "datasets/"
+    )
+
+
+def dataset_blob_path(ds: str) -> str:
+    return f"datasets/{ds}/dataset_{ds}.json"
+
+
+def draft_blob_path(ds: str) -> str:
+    return f"datasets/{ds}/dataset_{ds}_draft.json"
+
+
+def version_blob_path(ds: str, ts: str) -> str:
+    return f"datasets/{ds}/versions/dataset_{ds}_{ts}.json"
+
+
+def list_versions(ds: str) -> list[storage.Blob]:
+    """Return published version blobs, newest first."""
+    client = get_gcs_client()
+    prefix = f"datasets/{ds}/versions/"
+    blobs = [b for b in client.list_blobs(BUCKET_NAME, prefix=prefix) if not b.name.endswith("/")]
+    return sorted(blobs, key=lambda b: b.name, reverse=True)
+
+
+def list_data_blobs(dataset: str) -> list[storage.Blob]:
+    """Return blobs under datasets/<dataset>/01_data/ with supported extensions."""
+    client = get_gcs_client()
+    prefix = f"datasets/{dataset}/01_data/"
+    return [
+        b for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
+        if not b.name.endswith("/") and Path(b.name).suffix.lower() in SUPPORTED_EXTENSIONS
+    ]
+
 
 # ── Header ────────────────────────────────────────────────────────────────────
 
@@ -32,11 +110,7 @@ st.divider()
 
 # ── Dataset selection ─────────────────────────────────────────────────────────
 
-dataset_names = sorted(
-    folder.name
-    for folder in Path("./datasets").iterdir()
-    if folder.is_dir()
-)
+dataset_names = list_dataset_names()
 
 st.markdown("#### 🗂️ Select dataset")
 dataset = st.selectbox(
@@ -48,37 +122,23 @@ dataset = st.selectbox(
 if not dataset:
     st.stop()
 
-dataset_file = Path("./datasets") / dataset / f"dataset_{dataset}.json"
-data_dir = Path("./datasets") / dataset / "01_data"
-
-if not dataset_file.exists():
-    st.warning(f"⚠️ No data file found for **{dataset}**.")
-    st.stop()
-
-# ── Autosave path ─────────────────────────────────────────────────────────────
-
-def autosave_path(ds: str) -> Path:
-    return Path("./datasets") / ds / f"dataset_{ds}_autosave.json"
-
-
 # ── Load into session_state (reset on dataset change) ────────────────────────
 
 if st.session_state.get("_loaded_dataset") != dataset:
-    _autosave = autosave_path(dataset)
+    _draft = draft_blob_path(dataset)
     _force_original = st.session_state.pop("_reset_to_original", False)
 
-    if not _force_original and _autosave.exists():
-        with open(_autosave, "r", encoding="utf-8") as f:
-            raw: dict = json.load(f)
-        st.session_state["_from_autosave"] = True
+    if not _force_original and blob_exists(_draft):
+        raw: dict = json.loads(read_blob_bytes(_draft).decode("utf-8"))
+        st.session_state["_from_draft"] = True
     else:
-        with open(dataset_file, "r", encoding="utf-8") as f:
-            raw: dict = json.load(f)
-        st.session_state["_from_autosave"] = False
+        raw: dict = json.loads(read_blob_bytes(dataset_blob_path(dataset)).decode("utf-8"))
+        st.session_state["_from_draft"] = False
 
     st.session_state["_raw"] = raw
     st.session_state["_loaded_dataset"] = dataset
     st.session_state["_last_saved"] = None
+    st.session_state["_last_published"] = None
 
     for s_idx, session in enumerate(raw["sessions"]):
         st.session_state[f"sname_{s_idx}"] = session.get("session_name", "")
@@ -110,10 +170,9 @@ FILE_ICONS = {
 }
 
 
-def render_file(path: Path) -> None:
+def render_file(filename: str, content: bytes) -> None:
     """Render a supported file inline."""
-    ext = path.suffix.lower()
-    content = path.read_bytes()
+    ext = Path(filename).suffix.lower()
 
     if ext == ".pdf":
         st.pdf(BytesIO(content))
@@ -234,23 +293,37 @@ def build_export() -> str:
     return json.dumps(data, ensure_ascii=False, indent=4)
 
 
-def save_autosave() -> None:
-    """Sync widgets → _raw, write autosave file, update last-saved timestamp."""
+def save_draft() -> None:
+    """Sync widgets → _raw, write draft blob to GCS, update last-saved timestamp."""
     _sync_widgets_to_raw()
     data = copy.deepcopy(st.session_state["_raw"])
     data["last_updated"] = datetime.now(_OSLO).isoformat()
-    path = autosave_path(st.session_state["_loaded_dataset"])
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    write_blob(draft_blob_path(st.session_state["_loaded_dataset"]), json.dumps(data, ensure_ascii=False, indent=4).encode("utf-8"))
     st.session_state["_last_saved"] = datetime.now(_OSLO).strftime("%H:%M:%S")
-    st.session_state["_from_autosave"] = True
+    st.session_state["_from_draft"] = True
+
+
+def publish() -> None:
+    """Publish current state: save timestamped version snapshot + update canonical dataset."""
+    _sync_widgets_to_raw()
+    data = copy.deepcopy(st.session_state["_raw"])
+    data["last_updated"] = datetime.now(_OSLO).isoformat()
+    payload = json.dumps(data, ensure_ascii=False, indent=4).encode("utf-8")
+    ds = st.session_state["_loaded_dataset"]
+
+    ts = datetime.now(_OSLO).strftime("%Y-%m-%dT%H-%M-%S")
+    write_blob(version_blob_path(ds, ts), payload)
+    write_blob(dataset_blob_path(ds), payload)
+    delete_blob(draft_blob_path(ds))
+
+    st.session_state["_from_draft"] = False
+    st.session_state["_last_published"] = datetime.now(_OSLO).strftime("%H:%M:%S")
+    st.session_state["_last_saved"] = None
 
 
 def reset_to_original() -> None:
-    """Delete autosave and force reload from original JSON on next rerun."""
-    path = autosave_path(st.session_state["_loaded_dataset"])
-    if path.exists():
-        path.unlink()
+    """Delete draft blob from GCS and force reload from last published canonical on next rerun."""
+    delete_blob(draft_blob_path(st.session_state["_loaded_dataset"]))
     st.session_state["_reset_to_original"] = True
     del st.session_state["_loaded_dataset"]
 
@@ -265,14 +338,16 @@ tab_dataset, tab_files = st.tabs(["📋 Dataset", "📁 Files"])
 
 with tab_dataset:
 
-    # ── Autosave on every rerun ───────────────────────────────────────────────
-    save_autosave()
+    # ── Autosave draft on every rerun ────────────────────────────────────────
+    save_draft()
 
     # ── Status bar ───────────────────────────────────────────────────────────
-    if st.session_state.get("_from_autosave"):
+    if st.session_state.get("_last_published"):
+        st.success(f"✅ Published at {st.session_state['_last_published']}", icon=None)
+    elif st.session_state.get("_from_draft"):
         last = st.session_state.get("_last_saved")
-        msg = f"💾 Autosaved at {last}" if last else "💾 Loaded from autosave"
-        st.success(msg, icon=None)
+        msg = f"📝 Draft — autosaved at {last}" if last else "📝 Loaded from draft"
+        st.info(msg, icon=None)
 
     with st.expander("ℹ️ Dataset metadata", expanded=False):
         c1, c2, c3 = st.columns(3)
@@ -429,25 +504,51 @@ with tab_dataset:
     )
 
     st.divider()
-    st.markdown("#### 💾 Download revised dataset")
-    st.caption("All edits made in the fields above will be included in the downloaded file.")
 
-    col_dl, col_reset = st.columns([0.75, 0.25])
-    col_dl.download_button(
-        label="⬇️ Download revised JSON",
-        data=build_export(),
-        file_name=f"dataset_{dataset}_revised.json",
-        mime="application/json",
+    col_pub, col_reset = st.columns([0.75, 0.25])
+    col_pub.button(
+        "🚀 Publish",
+        on_click=publish,
         type="primary",
         use_container_width=True,
+        help="Save a versioned snapshot and update the canonical dataset file",
     )
     col_reset.button(
-        "↩️ Reset to original",
+        "↩️ Reset to last published",
         on_click=reset_to_original,
         type="secondary",
         use_container_width=True,
-        help="Discard all changes and reload the original dataset file",
+        help="Discard draft and reload the last published version",
     )
+
+    st.download_button(
+        label="⬇️ Download current draft",
+        data=build_export(),
+        file_name=f"dataset_{dataset}_draft.json",
+        mime="application/json",
+        type="secondary",
+        use_container_width=True,
+    )
+
+    with st.expander("🕘 Version history", expanded=False):
+        versions = list_versions(dataset)
+        if not versions:
+            st.info("No published versions yet. Hit **Publish** to create the first snapshot.")
+        else:
+            for blob in versions:
+                vname = blob.name.split("/")[-1]
+                ts_display = vname.replace(f"dataset_{dataset}_", "").replace(".json", "").replace("T", " ").replace("-", ":", 2)
+                vcol_name, vcol_size, vcol_dl = st.columns([0.55, 0.2, 0.25])
+                vcol_name.markdown(f"📄 `{ts_display}`")
+                vcol_size.caption(f"{(blob.size or 0) / 1024:.1f} KB")
+                vcol_dl.download_button(
+                    "⬇️ Download",
+                    data=read_blob_bytes(blob.name),
+                    file_name=vname,
+                    mime="application/json",
+                    key=f"dl_version_{blob.name}",
+                    use_container_width=True,
+                )
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -456,21 +557,16 @@ with tab_dataset:
 
 with tab_files:
 
-    if not data_dir.exists():
-        st.warning(f"⚠️ No `01_data` folder found for dataset **{dataset}**.")
+    all_blobs = list_data_blobs(dataset)
+
+    if not all_blobs:
+        st.warning(f"⚠️ No supported files found in `01_data` for dataset **{dataset}**.")
         st.stop()
 
-    all_files = sorted(
-        f for f in data_dir.iterdir()
-        if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS
-    )
-
-    if not all_files:
-        st.info("📭 No supported files found in this dataset's data folder.")
-        st.stop()
+    all_blobs = sorted(all_blobs, key=lambda b: b.name)
 
     st.markdown(
-        f"#### 📁 Files &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({len(all_files)} supported files)</span>",
+        f"#### 📁 Files &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({len(all_blobs)} supported files)</span>",
         unsafe_allow_html=True,
     )
     st.caption("Select a file on the left to preview its contents.")
@@ -478,11 +574,13 @@ with tab_files:
 
     col_list, col_preview = st.columns([0.28, 0.72])
 
+    filenames = [b.name.split("/")[-1] for b in all_blobs]
+    file_labels = [
+        f"{FILE_ICONS.get(Path(name).suffix.lower(), '📎')} {name}"
+        for name in filenames
+    ]
+
     with col_list:
-        file_labels = [
-            f"{FILE_ICONS.get(f.suffix.lower(), '📎')} {f.name}"
-            for f in all_files
-        ]
         with st.container(height=600, border=True):
             selected_label = st.radio(
                 "Files",
@@ -490,15 +588,19 @@ with tab_files:
                 label_visibility="collapsed",
             )
 
-    selected_file = all_files[file_labels.index(selected_label)]
+    selected_idx = file_labels.index(selected_label)
+    selected_blob = all_blobs[selected_idx]
+    selected_name = filenames[selected_idx]
+    selected_ext = Path(selected_name).suffix.lower()
 
     with col_preview:
-        st.markdown(f"**{FILE_ICONS.get(selected_file.suffix.lower(), '📎')} {selected_file.name}**")
-        size_kb = selected_file.stat().st_size / 1024
-        st.caption(f"{selected_file.suffix.upper().lstrip('.')} · {size_kb:.1f} KB")
+        st.markdown(f"**{FILE_ICONS.get(selected_ext, '📎')} {selected_name}**")
+        size_kb = (selected_blob.size or 0) / 1024
+        st.caption(f"{selected_ext.upper().lstrip('.')} · {size_kb:.1f} KB")
         st.divider()
         try:
-            render_file(selected_file)
+            content = read_blob_bytes(selected_blob.name)
+            render_file(selected_name, content)
         except Exception as e:
             st.error(f"❌ Could not render file: {e}")
-            logger.error(f"Error rendering {selected_file}: {e}", exc_info=True)
+            logger.error(f"Error rendering {selected_name}: {e}", exc_info=True)
