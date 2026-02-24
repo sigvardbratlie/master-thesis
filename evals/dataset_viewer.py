@@ -14,6 +14,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from docx import Document
+from google.api_core.exceptions import NotFound
 from google.cloud import storage
 from google.oauth2 import service_account
 
@@ -128,12 +129,20 @@ if st.session_state.get("_loaded_dataset") != dataset:
     _draft = draft_blob_path(dataset)
     _force_original = st.session_state.pop("_reset_to_original", False)
 
-    if not _force_original and blob_exists(_draft):
-        raw: dict = json.loads(read_blob_bytes(_draft).decode("utf-8"))
-        st.session_state["_from_draft"] = True
-    else:
-        raw: dict = json.loads(read_blob_bytes(dataset_blob_path(dataset)).decode("utf-8"))
-        st.session_state["_from_draft"] = False
+    try:
+        if not _force_original and blob_exists(_draft):
+            raw: dict = json.loads(read_blob_bytes(_draft).decode("utf-8"))
+            st.session_state["_from_draft"] = True
+        else:
+            raw: dict = json.loads(read_blob_bytes(dataset_blob_path(dataset)).decode("utf-8"))
+            st.session_state["_from_draft"] = False
+    except NotFound:
+        st.error(
+            f"⚠️ No dataset file found for **{dataset}**.\n\n"
+            f"`datasets/{dataset}/dataset_{dataset}.json` does not exist in the bucket.",
+            icon=None,
+        )
+        st.stop()
 
     st.session_state["_raw"] = raw
     st.session_state["_loaded_dataset"] = dataset
@@ -319,6 +328,7 @@ def publish() -> None:
     st.session_state["_from_draft"] = False
     st.session_state["_last_published"] = datetime.now(_OSLO).strftime("%H:%M:%S")
     st.session_state["_last_saved"] = None
+    st.session_state["_show_publish_toast"] = True
 
 
 def reset_to_original() -> None:
@@ -342,6 +352,9 @@ with tab_dataset:
     save_draft()
 
     # ── Status bar ───────────────────────────────────────────────────────────
+    if st.session_state.pop("_show_publish_toast", False):
+        st.toast(f"🚀 Published successfully at {st.session_state.get('_last_published')}", icon="✅")
+
     if st.session_state.get("_last_published"):
         st.success(f"✅ Published at {st.session_state['_last_published']}", icon=None)
     elif st.session_state.get("_from_draft"):
