@@ -17,12 +17,14 @@ wheels/
 *02_org_pdf/
 *02_org/
 *03_org_txt/
+*playground/
 
 
 *.log
 *.env
-*.json
-*.ipynb
+*gcloud-keys.json
+#*.json
+#*.ipynb
 
 
 secrets.toml

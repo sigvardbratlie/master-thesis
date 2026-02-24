@@ -1,0 +1,366 @@
+{
+    "project_id": "ee9ee007-92f7-4fdc-ba5a-d7cb55694241",
+    "dataset_name": "THRD-2021-163881",
+    "user_id": "53d63d18-cfa1-416e-96e8-770c8f66507b",
+    "last_updated": "2026-02-23T15:45:52.839562",
+    "sessions": [
+        {
+            "session": 0,
+            "date": "2020-03-15",
+            "session_id": "3eb54a6b-ca3d-4d21-9ea1-b48f4e0228e1",
+            "session_name": "Prosjekt-initialisering",
+            "init_query": "Jeg er advokat og representerer kjøperparet Anders og Berit Kristiansen i en \neiendomskjøpssak. De kjøpte en eiendom på Fjellveien 42A i Stavanger kommune \n            den 1. juni 2019, med overtakelse 1. august 2019. \n            \n            Vi er nå i mars 2020 og det har dukket opp flere problemer med eiendommen. \n            Jeg trenger din hjelp til å organisere saksinnholdet, identifisere de juridiske \n            problemstillingene, og vurdere mulige tiltak.\n",
+            "conversation": [
+                {
+                    "input": "\n        Gi meg en kort og konsis oppsummering av sakens faktiske bakgrunn og utvikling så langt, basert på dokumentene jeg har lastet opp. \n        Fokuser på de viktigste hendelsene og problemstillingene. Hva er kjernen i saken?\n        ",
+                    "answer": "",
+                    "query_id": "f3f226bb-eb5c-4b87-8d96-dfa425614f42",
+                    "order": 1,
+                    "model_response": "Ok, her er en kortfattet oppsummering av sakens bakgrunn og kjerne, basert på den informasjonen som er tilgjengelig.\n\n### Oppsummering av Saken\n\n**Faktisk bakgrunn:**\nAnders og Berit Kristiansen kjøpte eiendommen Fjellveien 42A i juni 2019, med overtakelse i august samme år. Før kjøpet, den 13. mai 2019, mottok de en e-post fra selger Carl Danielsen som spesifikt bekreftet at utleieenheten var godkjent og at det ikke var fuktproblemer.\n\n**Utvikling og Problemstillinger:**\nKort tid etter overtakelse ble det oppdaget en vannlekkasje i utleieenheten. En befaring og påfølgende skaderapport fra K2 Taksering (datert 10. september 2019) konkluderte med at lekkasjen skyldtes en punktert membran på terrassen over. Dette har ført til skader på tak og isolasjon i utleieenheten. I mellomtiden har kjøperne inngått en leieavtale for enheten som startet i februar 2020.\n\n**Kjernen i Saken:**\nKjernen i saken er at eiendommen lider av en vesentlig mangel (vannlekkasje) som står i direkte motstrid med selgerens skriftlige forsikringer før salget. Saken vil derfor sentrere seg rundt følgende:\n\n1.  **Uriktige opplysninger:** Selger har gitt konkrete, feilaktige opplysninger om fravær av fuktproblemer. Dette er et brudd på selgerens opplysningsplikt etter avhendingslova.\n2.  **Mangel:** Vannlekkasjen og dens årsak utgjør en klar fysisk mangel ved eiendommen.\n3.  **Økonomisk tap:** Kjøperne påføres kostnader til utbedring av både årsak (membran) og følgeskader (tak/isolasjon), samt potensielt tap av leieinntekter.\n\nSaken handler i bunn og grunn om selgers ansvar for en skjult mangel som han eksplisitt har garantert at ikke fantes."
+                },
+                {
+                    "input": "Dette er en eiendomskjøpssak. Hvilke lovbestemmelser er mest relevante \n        for denne typen tvister? Gi meg en oversikt over avhendingsloven sine \n        sentrale paragrafer for kjøpersaken.\n        ",
+                    "answer": "",
+                    "query_id": "070f570b-f9d0-454f-90ca-84f66ede1a31",
+                    "order": 2,
+                    "model_response": "Absolutt. I en eiendomstvist som denne er **Avhendingslova (Lov om avhending av fast eigedom)** den sentrale loven. Den regulerer kjøp og salg av fast eiendom og definerer partenes rettigheter og plikter.\n\nHer er en oversikt over de mest sentrale paragrafene for kjøpersaken, med en kort forklaring på hvorfor de er relevante for dere:\n\n### 1. Når har eiendommen en mangel?\n\nDette er kjernespørsmålet. Loven har flere bestemmelser som definerer hva som utgjør en rettslig mangel.\n\n*   **§ 3-7: Manglende opplysninger om eigedomen**\n    *   **Hva den sier:** Eiendommen har en mangel dersom selger har unnlatt å gi opplysninger om vesentlige forhold ved eiendommen som selgeren kjenner eller måtte kjenne til, og som kjøperen hadde grunn til å regne med å få.\n    *   **Relevans for saken:** Hvis selgeren visste om eller burde visst om problemene med membranen på terrassen, og unnlot å informere om dette, kan det utgjøre en mangel etter denne paragrafen.\n\n*   **§ 3-8: Uriktige opplysninger om eigedomen**\n    *   **Hva den sier:** Eiendommen har en mangel dersom selger har gitt uriktige opplysninger, og man kan gå ut fra at dette har virket inn på avtalen. Dette gjelder selv om selger ikke visste at opplysningene var feil, så lenge selger ikke har tatt et uttrykkelig forbehold.\n    *   **Relevans for saken:** Dette er en svært sentral paragraf. E-posten fra selger Carl Danielsen (13. mai 2019) som bekreftet fravær av fuktproblemer, er et direkte eksempel på en opplysning som ser ut til å være uriktig. Det at denne opplysningen ble gitt, har høyst sannsynlig virket inn på Kristiansens beslutning om å kjøpe.\n\n*   **§ 3-9: Eigedomen \"som han er\" (\"as is\")**\n    *   **Hva den sier:** Selv om en eiendom er solgt \"som den er\", har den likevel en mangel i tre tilfeller:\n        1.  Selger har gitt uriktige opplysninger (§ 3-8).\n        2.  Selger har holdt tilbake opplysninger (§ 3-7).\n        3.  Eiendommen er i **vesentleg ringare stand** enn kjøperen hadde grunn til å regne med ut fra kjøpesummen og forholdene ellers.\n    *   **Relevans for saken:** De fleste eiendommer selges med et \"som den er\"-forbehold. Denne paragrafen er derfor nøkkelen til å trenge gjennom et slikt forbehold. Saken deres ser ut til å falle direkte inn under de to første punktene på grunn av e-posten og mulig tilbakeholdt informasjon.\n\n### 2. Hva kan kjøperen kreve ved en mangel?\n\nNår det er konstatert en mangel, gir loven kjøperen flere rettigheter:\n\n*   **§ 4-10: Retting av mangel**\n    *   Kjøper kan kreve at selger retter mangelen for egen regning, så lenge det ikke medfører urimelig kostnad eller ulempe for selger.\n\n*   **§ 4-12: Prisavslag**\n    *   **Hva den sier:** Kjøper kan kreve et forholdsmessig prisavslag. Prisavslaget skal normalt tilsvare kostnadene med å få mangelen utbedret.\n    *   **Relevans for saken:** Dette er ofte den mest praktiske løsningen. Dere kan kreve et prisavslag som dekker kostnadene for å reparere membranen og følgeskadene (tak og isolasjon i utleiedelen).\n\n*   **§ 4-13: Heving**\n    *   **Hva den sier:** Kjøper kan heve kjøpet dersom mangelen innebærer et **vesentlig avtalebrudd** (\"vesentleg kontraktsbrot\"). Terskelen for heving er høy.\n    *   **Relevans for saken:** Heving er kun aktuelt hvis manglene er så alvorlige at formålet med kjøpet blir vesentlig forfeilet. Basert på informasjonen så langt, er prisavslag en mer sannsynlig utgang.\n\n*   **§ 4-14: Erstatning**\n    *   Kjøper kan kreve erstatning for økonomisk tap som mangelen har påført dem, for eksempel tapte leieinntekter. Dette kan kreves i tillegg til retting eller prisavslag.\n\n### 3. Hva må kjøperen huske på? (Prosessuelle regler)\n\n*   **§ 4-19: Reklamasjon**\n    *   **Hva den sier:** Kjøper må melde fra til selger (\"reklamere\") **innen rimelig tid** etter at de oppdaget eller burde ha oppdaget mangelen. Hva som er \"rimelig tid\" er en konkret vurdering, men det er sjelden lenger enn 2-3 måneder. I tillegg er det en absolutt reklamasjonsfrist på **fem år** etter overtakelse.\n    *   **Relevans for saken:** Det er kritisk at dere har reklamert til selger skriftlig og i tide etter at lekkasjen ble oppdaget.\n\nDisse bestemmelsene utgjør ryggraden i en mangelsak etter avhendingslova fra kjøpers perspektiv. I deres tilfelle står **§ 3-8 (uriktige opplysninger)** og **§ 3-7 (manglende opplysninger)** helt sentralt, koblet med retten til **prisavslag etter § 4-12**."
+                },
+                {
+                    "input": "\n        Er forholdene reklamert innenfor frister? Er det noen av punktene som er utenfor reklamasjonsfristen? Hva er konsekvensen av det i så fall?\n        ",
+                    "answer": "",
+                    "query_id": "335b247f-0a2b-4eef-85f8-5cc0e2c6a2e2",
+                    "order": 3,
+                    "model_response": "Saken omhandler eiendomskjøpet av Fjellveien 42A, der kjøperne, Anders og Berit Kristiansen, har oppdaget en vannlekkasje i utleieenheten kort tid etter overtakelse. Før kjøpet bekreftet selger, Carl Danielsen, i en e-post at utleiedelen var godkjent og at det ikke var fuktproblemer. Etter overtakelsen ble det imidlertid avdekket en lekkasje forårsaket av en punktert membran, noe som har ført til skader på tak og isolasjon.\n\nKjernen i saken er at selger har gitt uriktige opplysninger, noe som bryter med opplysningsplikten i avhendingsloven. Kjøperne kan kreve retting av mangelen, prisavslag eller heving av kjøpet, avhengig av alvorlighetsgraden av mangelen. Det er også viktig at kjøperne har reklamert innen rimelig tid etter at de oppdaget mangelen, som vanligvis er 2-3 måneder, med en absolutt frist på fem år etter overtakelse.\n\nForholdene som er reklamert, ser ut til å være innenfor fristene, men det er avgjørende å dokumentere når lekkasjen ble oppdaget og når reklamasjonen ble sendt. Hvis noen punkter er utenfor reklamasjonsfristen, kan det føre til at kjøperne mister retten til å kreve erstatning for disse spesifikke forholdene.Godt spørsmål. Dette er et helt sentralt punkt i saken. Vurderingen av om reklamasjonsfristene er overholdt, avhenger av to frister i **avhendingsloven § 4-19**:\n\n1.  **Den absolutte fristen:** Kjøper må reklamere senest **fem år** etter overtakelse.\n2.  **Den relative fristen:** Kjøper må reklamere **\"innen rimelig tid\"** fra mangelen ble oppdaget eller burde ha blitt oppdaget.\n\nLa oss anvende dette på saken:\n\n### 1. Absolutt Reklamasjonsfrist (5 år)\n\n*   **Overtakelse:** 1. august 2019.\n*   **Frist:** 1. august 2024.\n\nAlle forhold som er oppdaget og reklamert så langt, er godt innenfor den absolutte femårsfristen. Dette er altså ikke et problem.\n\n### 2. Relativ Reklamasjonsfrist (\"innen rimelig tid\")\n\nDette er det kritiske punktet. Hva som er \"rimelig tid\" er en rettslig standard, men rettspraksis har etablert at den normalt ligger på **rundt 2-3 måneder** fra kjøper oppdaget eller burde ha oppdaget mangelen.\n\nBasert på sakens dokumenter er det en potensiell utfordring her:\n\n*   **Vannlekkasjen:**\n    *   K2 Taksering utførte en befaring **5. september 2019** og utstedte en rapport **10. september 2019**.\n    *   Dette betyr at kjøperne ble, eller i hvert fall *burde blitt*, kjent med vannlekkasjen og dens årsak i september 2019.\n    *   Fristen for å reklamere på dette spesifikke forholdet begynte derfor å løpe i **september 2019**.\n\n*   **Oppdagelse av \"flere problemer\":**\n    *   Faktaarket nevner at \"I mars 2020 ble det oppdaget flere problemer med eiendommen.\"\n\n**Analyse og mulige problemstillinger:**\n\n*   **Er det reklamert for sent på vannlekkasjen?** Hvis kjøperne ventet helt til mars 2020 med å reklamere over vannlekkasjen som ble avdekket i september 2019, har de reklamert ca. 6 måneder for sent. Dette er nesten helt sikkert **utenfor** fristen på \"rimelig tid\".\n*   **Hva med andre problemer oppdaget i mars 2020?** Hvis det i mars 2020 ble oppdaget *andre, nye* mangler som ikke henger sammen med lekkasjen fra terrassen, vil reklamasjonsfristen for disse løpe fra mars 2020. For disse vil en reklamasjon kort tid etter være tidsnok.\n\n**Konsekvensen av for sen reklamasjon:**\n\nKonsekvensen av å overskride den relative fristen er alvorlig og er beskrevet i avhendingsloven § 4-19 (1):\n> \"Gjer kjøparen ikkje dette, **taper kjøparen retten til å gjere mangelen gjeldande.**\"\n\nDet betyr at selv om det objektivt sett er en mangel ved eiendommen, mister kjøper retten til å kreve retting, prisavslag, erstatning eller heving for den spesifikke mangelen det er reklamert for sent over.\n\n**Oppsummering:**\n\n*   **Vannlekkasjen (oppdaget sept. 2019):** Det er en betydelig risiko for at det er reklamert for sent over dette forholdet, hvis reklamasjonen først ble sendt i mars 2020 eller senere.\n*   **Andre forhold (oppdaget mars 2020):** Forhold som først ble, og burde blitt, oppdaget i mars 2020, er sannsynligvis reklamert i tide (forutsatt at reklamasjon ble sendt kort tid etter).\n\nFor å kunne gi et sikkert svar, må vi vite nøyaktig **når reklamasjonen(e) ble sendt til selger** og hva de inneholdt. Det er avgjørende å skille mellom de ulike manglene og deres respectiva oppdagelsestidspunkter."
+                },
+                {
+                    "input": "\n        Har selger utelatt opplysninger eller gitt uriktig opplysninger? \n        Har han evt også unnlatt å utbedre mangel innen fristen? \n        Er det noe han bør ha opplyst om som ikke er opplyst om? \n        ",
+                    "answer": "",
+                    "query_id": "b309a1f0-2399-461a-9739-047bf840516b",
+                    "order": 4,
+                    "model_response": "Basert på informasjonen i faktaarket, kan vi vurdere selgerens opptreden opp mot avhendingsloven.\n\n### 1. Har selger gitt uriktige opplysninger?\n\n**Ja, det ser slik ut.**\n\n*   **Faktum:** Ifølge de ubestridte faktaene sendte selger Carl Danielsen en e-post 13. mai 2019 hvor han \"bekrefter ... fravær av fuktproblemer\".\n*   **Motsigende faktum:** Skaderapporten fra K2 Taksering (10. september 2019) konkluderte med at det var en vannlekkasje forårsaket av en \"punktert membran\".\n*   **Vurdering:** En punktert membran er en underliggende svakhet som eksisterte ved salgstidspunktet, selv om selve lekkasjen først ble synlig senere. Selgers uttalelse om \"fravær av fuktproblemer\" var derfor en uriktig opplysning om eiendommens tilstand. Dette er et klart brudd på selgers opplysningsplikt etter **avhendingsloven § 3-8**. For at dette skal utgjøre en mangel, må opplysningen ha virket inn på avtalen, noe den nesten helt sikkert har gjort.\n\n### 2. Har selger unnlatt å utbedre mangelen innen fristen?\n\n**Dette kan vi ikke svare på ut fra de foreliggende opplysningene.**\n\nFaktaarket inneholder ingen informasjon om at kjøperne har fremmet et krav om retting (utbedring) overfor selger, eller at det er satt en frist for slik utbedring. For å kunne si noe om dette, trenger vi dokumentasjon på reklamasjonen som ble sendt til selger og eventuell korrespondanse om retting.\n\n### 3. Er det noe han burde ha opplyst om som ikke er opplyst om?\n\n**Ja, dersom han kjente til den punkterte membranen.**\n\n*   Dette reguleres av **avhendingsloven § 3-7** (manglende opplysning). Loven krever at selger opplyser om \"vesentlege\" forhold ved eiendommen som han \"måtte kjenne til\".\n*   **Kjennskap:** Det sentrale spørsmålet er om selger Carl Danielsen kjente til eller måtte kjenne til den punkterte membranen. Faktaarket gir oss ikke direkte bevis for hans kjennskap.\n*   **Vurdering:** Bevisbyrden for at selger kjente til forholdet ligger i utgangspunktet på kjøper. Det kan likevel argumenteres for at en selger *burde* kjenne til tilstanden til en såpass kritisk bygningsdel som membranen på en terrasse over en utleiedel, spesielt hvis det har vært tidligere tegn til fukt eller reparasjoner i området.\n\n**Oppsummert:**\nSaken mot selger står sterkest på **§ 3-8 (uriktig opplysning)**, fordi han ga en aktiv og beviselig feil forsikring om fravær av fuktproblemer. Det er enklere å bevise enn å måtte bevise hva selger faktisk *visste* eller *burde visst* (§ 3-7)."
+                },
+                {
+                    "input": "\n Beskriver salgsoppgaven noen av de forhold som nå er problematiske?\n        ",
+                    "answer": "",
+                    "query_id": "82d6385b-3f42-4c89-8df6-82cea426f45a",
+                    "order": 5,
+                    "model_response": "For å kunne svare på det, trenger jeg tilgang til salgsoppgaven. Den er ikke en del av saksdokumentene jeg har foran meg nå.\n\nSalgsoppgaven er et helt sentralt dokument for å vurdere nettopp dette. Den vil kunne vise:\n1.  **Hvilke opplysninger som ble gitt:** Inneholdt den noen advarsler, forbehold eller beskrivelser relatert til terrassen, membranen eller utleiedelen som kunne ha satt kjøper på sporet av problemene?\n2.  **Om det er gitt uriktige opplysninger:** Står det noe i salgsoppgaven som direkte motsier funnene i skaderapporten fra K2 Taksering? For eksempel, hvis det står at terrassen ble renovert med ny membran i et bestemt år, og dette viser seg å være feil.\n3.  **Om det er holdt tilbake opplysninger:** Hvis selger visste om tidligere lekkasjer eller problemer med terrassen, skulle dette vært nevnt i salgsoppgaven eller egenerklæringsskjemaet.\n\n**Konklusjon:**\nJeg kan ikke si om salgsoppgaven beskriver forholdene uten å ha lest den. Kan du laste den opp eller gi meg tilgang til den? Da kan jeg analysere den opp mot de problemene som er avdekket."
+                }
+            ],
+            "attachments": [
+                "THRD-2021-163881/01_data/2019-05-13_02_epost_2019-05-13_selgers_svar.txt",
+                "THRD-2021-163881/01_data/2019-09-10_06a_skaderapport_2019-09-10_K2.txt",
+                "THRD-2021-163881/01_data/2020-01-28_leieavtale_2020_tilbygg.txt",
+                "THRD-2021-163881/01_data/2019-07-15_03_epost_2019-07-15_varsling_lekkasje.txt",
+                "THRD-2021-163881/01_data/2019-08-10_35_leieavtaler_dokumentasjon_2019-08-10.txt",
+                "THRD-2021-163881/01_data/2014-06-18_39_tillatelse_bruksendring_2014.txt",
+                "THRD-2021-163881/01_data/2019-08-18_05_epost_2019-08-18_ny_lekkasje.txt",
+                "THRD-2021-163881/01_data/2019-05-12_01_epost_2019-05-12_spoersmaal_om_eiendom.txt",
+                "THRD-2021-163881/01_data/2019-08-15_33_kvitteringer_paakostninger_2019-08-15.txt",
+                "THRD-2021-163881/01_data/2019-07-25_03a_epost_2019-07-25_før_overtakelse.txt",
+                "THRD-2021-163881/01_data/2020-03-12_07_rapport_2020-03-12_byggesoek_betongdekke.txt",
+                "THRD-2021-163881/01_data/2019-06-01_00_kjøpskontrakt_2019-06-01.txt",
+                "THRD-2021-163881/01_data/2019-05-15_00b_salgsoppgave_2019-05-15.txt",
+                "THRD-2021-163881/01_data/2019-07-28_04_epost_2019-07-28_utbedring_bekreftelse.txt",
+                "THRD-2021-163881/01_data/2007-03-22_38_byggetillatelse_garasje_carport_2007-03-22.txt",
+                "THRD-2021-163881/01_data/2019-06-30_85_kvitteringer_flyttekostnader_2019-06-30.txt",
+                "THRD-2021-163881/01_data/1994-08-15_37_byggetillatelse_1994_hovedbygg.txt",
+                "THRD-2021-163881/01_data/2019-09-10_06_rapport_2019-09-10_skaderapport_takst.txt"
+            ]
+        },
+        {
+            "session": 1,
+            "date": "2020-05-20",
+            "session_id": "19d74190-34ed-419e-bf1b-3400bca97c75",
+            "session_name": "Forbehold om heving",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\nSaken har utviklet seg og vi har nå kommet til et punkt hvor vi vurderer å heve kjøpet. Se vedlagt dokumenter frem til nå.",
+                    "answer": "",
+                    "query_id": "fdee30a4-2282-438c-a55f-4fe5b826145f",
+                    "order": 7
+                },
+                {
+                    "input": "\nLag meg utkast til brev med forbehold om heving basert på de juridiske problemstillingene som er identifisert så langt.\n  ",
+                    "answer": "",
+                    "query_id": "fdee30a4-2282-438c-a55f-4fe5b826145e",
+                    "order": 8
+                }
+            ],
+            "attachments": [
+                "THRD-2021-163881/01_data/2020-05-18_55_sms_2020-05-18_kristiansen_hansen.txt",
+                "THRD-2021-163881/01_data/2020-05-19_09_brev_2020-05-19_forbehold_heving.txt",
+                "THRD-2021-163881/01_data/2020-05-19_56_moetereferat_2020-05-19_klienter.txt",
+                "THRD-2021-163881/01_data/2020-04-15_52_epost_2020-04-15_kommune_spoersmaal.txt",
+                "THRD-2021-163881/01_data/2020-04-28_53_epost_2020-04-28_kommune_svar.txt",
+                "THRD-2021-163881/01_data/2020-05-08_08_epost_2020-05-08_eiendomsgrense_problem.txt",
+                "THRD-2021-163881/01_data/2020-05-10_54_notat_2020-05-10_intern_strategi.txt"
+            ]
+        },
+        {
+            "session": 2,
+            "date": "2021-06-25",
+            "session_id": "a1b2c3d4-1234-5678-abcd-ef0123456789",
+            "session_name": "Formell heving",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Se vedlagt nye rapporter, dokumenter og korrespondanse, samt vårt tidligere brev med forbehold om heving. \n  ",
+                    "answer": "",
+                    "query_id": "67d72ae1-367e-4e27-9d24-0d578db3a3eb",
+                    "order": 9
+                },
+                {
+                    "input": "\nLag et utkast til en formell hevingserklæring basert på dette.\n        ",
+                    "answer": "",
+                    "query_id": "67d72ae1-367e-4e27-9d24-0d578db3a3ec",
+                    "order": 10
+                }
+            ],
+            "attachments": [
+                "THRD-2021-163881/01_data/2021-01-29_10_rapport_2021-01-29_eiendomsgrenser_ERV.txt",
+                "THRD-2021-163881/01_data/2021-06-21_11_brev_2021-06-21_hevingserklaering.txt",
+                "THRD-2021-163881/01_data/2021-01-25_91_leieavtale_2021_tilbygg_ny.txt",
+                "THRD-2021-163881/01_data/2021-06-16_73_epost_2021-06-16_forsikring_advokat.txt",
+                "THRD-2021-163881/01_data/2021-01-15_40_rapport_berg_takstsenter_2021-01-15.txt",
+                "THRD-2021-163881/01_data/2021-06-15_72_intern_mail_2021-06-15_forsikring.txt",
+                "THRD-2021-163881/01_data/2021-06-11_12_pristilbud_2021-06-11_skandia_bygg.txt"
+            ]
+        },
+        {
+            "session": 3,
+            "date": "2022-01-15",
+            "session_id": "6b9d99a0-a096-4789-89a2-d88a869d9e38",
+            "session_name": "Stevning og tilsvar",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Se vedlagt nye rapporter, dokumenter og korrespondanse, samt vårt tidligere hevingserklæring.\n        ",
+                    "answer": "",
+                    "query_id": "e8c66be9-0886-466d-a94b-32f32b454da9",
+                    "order": 11
+                },
+                {
+                    "input": "\n        Oppsummer sakens utvikling og status og gjør en kort summary av våre sterke og svake sider i saken. \n        \n        ",
+                    "answer": "",
+                    "query_id": "c5f05353-6c85-4b04-aaba-0c3cf1d97a17",
+                    "order": 12
+                },
+                {
+                    "input": "\n        Se vedlagt vår stevning og motpartens tilsvar. \n        Hva er de viktigste juridiske argumentene i hver av disse? Hvilke svakheter og styrker har de?\n        \n        ",
+                    "answer": "",
+                    "query_id": "a8deb27f-02dc-4782-9a3f-404485085805",
+                    "order": 13
+                }
+            ],
+            "attachments": [
+                "THRD-2021-163881/01_data/2021-12-20_15_tilsvar_2021-12-20.txt",
+                "THRD-2021-163881/01_data/2021-10-21_13_rapport_2021-10-21_konsulentgruppen_dekke.txt",
+                "THRD-2021-163881/01_data/2021-11-17_14_stevning_2021-11-17.txt",
+                "THRD-2021-163881/01_data/2022-01-01_kvitteringer_paakostninger_detaljert.txt",
+                "THRD-2021-163881/01_data/2021-10-21_41_rapport_target_consulting_skutle_2021-10-21.txt"
+            ]
+        },
+        {
+            "session": 4,
+            "date": "2022-03-10",
+            "session_id": "045cb9cc-ff89-49f8-8978-f563cb303cde",
+            "session_name": "Forberedelse rettsmekling",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Vi skal nå i rettsmekling den 15. mars. Bistå meg i å forberede meg til dette. Se vedlagt nye dokumenter. \n        Hva er de viktigste punktene vi bør fokusere på i meklingen? Hva er våre forhandlingsmål, og hva er våre minimumsakseptable resultater?\n        ",
+                    "answer": "",
+                    "query_id": "bb00c790-b50c-4fce-afe7-d0acba09f3ad",
+                    "order": 14
+                }
+            ],
+            "attachments": [
+                "THRD-2021-163881/01_data/2022-03-08_74_møtereferat_2022-03-08_før_mekling.txt",
+                "THRD-2021-163881/01_data/2022-03-08_16a_moetereferat_2022-03-08_forberedelse.txt"
+            ]
+        },
+        {
+            "session": 5,
+            "date": "2022-04-05",
+            "session_id": "b2c3d4e5-2345-6789-bcde-f01234567890",
+            "session_name": "Forliksavtale",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Se vedlagt forliksavtale. Er det noen punkter som bør endres eller legges til for å sikre våre interesser?\n        \n        ",
+                    "answer": "",
+                    "query_id": "92701754-52f7-4399-bec5-50275c3ada15",
+                    "order": 15
+                }
+            ],
+            "attachments": [
+                "THRD-2021-163881/01_data/2022-03-15_75_SMS_2022-03-15_under_mekling.txt",
+                "THRD-2021-163881/01_data/2022-03-30_17_forliksavtale_2022-03-30.txt",
+                "THRD-2021-163881/01_data/2022-03-15_16_moetereferat_2022-03-15_rettsmekling.txt",
+                "THRD-2021-163881/01_data/2022-04-05_20a_epost_2022-04-05_grendelag_makeskifte.txt"
+            ]
+        },
+        {
+            "session": 6,
+            "date": "2023-04-20",
+            "session_id": "c3d4e5f6-3456-7890-cdef-012345678901",
+            "session_name": "Forliksbrudd",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Motparten har nå brutt forliksavtalen. Se vedlagt dokumenter. Hva er våre juridiske muligheter nå? Kan vi gå til sak igjen? Hva er risikoen ved det?\n        Vi ønsker å heve avtalen, lag meg et utkast til en formell heving av forliksavtalen basert på dette.\n        \n        ",
+                    "answer": "",
+                    "query_id": "3a3f26d1-2c01-448f-8702-b6fbcdd8ab77",
+                    "order": 16
+                },
+                {
+                    "input": "\n        Motpartens svar på heving ligger vedlagt. \n        Hva er vårt neste steg? \n        ",
+                    "answer": "",
+                    "query_id": "461eb8f6-163a-4410-a509-201ab2358697",
+                    "order": 17
+                }
+            ],
+            "attachments": [
+                "THRD-2021-163881/01_data/2022-06-20_avtale_utkast_2022-06_grendelag.txt",
+                "THRD-2021-163881/01_data/2023-02-17_80_epost_2023-02-17_carl_problemer.txt",
+                "THRD-2021-163881/01_data/2022-07-05_59_epost_2022-07-05_kristiansen_nabo.txt",
+                "THRD-2021-163881/01_data/2023-03-20_64_epost_2023-03-20_svar_heving.txt",
+                "THRD-2021-163881/01_data/2023-02-15_79_epost_2023-02-15_forsikring_alvorlig.txt",
+                "THRD-2021-163881/01_data/2022-06-28_58_epost_2022-06-28_nabo_svar.txt",
+                "THRD-2021-163881/01_data/2023-02-24_23_rapport_2023-02-24_betongteknikk.txt",
+                "THRD-2021-163881/01_data/2022-04-12_76_notat_2022-04-12_forsikring_oppfølging.txt",
+                "THRD-2021-163881/01_data/2023-03-15_63_epost_2023-03-15_varsel_heving_forlik.txt",
+                "THRD-2021-163881/01_data/2022-12-12_92_oppsigelse_leietaker_2022.txt",
+                "THRD-2021-163881/01_data/2023-04-18_24_brev_2023-04-18_heving_forlik.txt",
+                "THRD-2021-163881/01_data/2022-11-20_77_epost_2022-11-20_forsikring_bekymring.txt",
+                "THRD-2021-163881/01_data/2023-01-15_36_epost_avslag_leietakere_2023-01-15.txt",
+                "THRD-2021-163881/01_data/2023-03-01_81_SMS_2023-03-01_kristiansen_interne.txt",
+                "THRD-2021-163881/01_data/2022-09-05_60_epost_2022-09-05_manglende_fremdrift.txt",
+                "THRD-2021-163881/01_data/2023-02-28_62_notat_2023-02-28_hansen_intern.txt",
+                "THRD-2021-163881/01_data/2022-06-15_57_brev_2022-06-15_nabo_henvendelse.txt",
+                "THRD-2021-163881/01_data/2022-05-27_19_epost_2022-05-27_svar_oppfoelging.txt",
+                "THRD-2021-163881/01_data/2022-09-12_21_epost_2022-09-12_ny_oppfoelging.txt",
+                "THRD-2021-163881/01_data/2022-05-25_18_epost_2022-05-25_oppfoelging_forlik.txt",
+                "THRD-2021-163881/01_data/2022-10-12_61_epost_2022-10-12_fortsatt_ingen_søknad.txt",
+                "THRD-2021-163881/01_data/2022-11-22_78_epost_2022-11-22_advokat_svar_status.txt",
+                "THRD-2021-163881/01_data/2022-09-19_22_epost_2022-09-19_svar_status.txt",
+                "THRD-2021-163881/01_data/2022-12-14_93_epost_2022-12-14_svar_oppsigelse.txt"
+            ]
+        },
+        {
+            "session": 7,
+            "date": "2023-07-10",
+            "session_id": "d4e5f6a7-4567-8901-defa-123456789012",
+            "session_name": "Gjenopptakelse",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Vi ønsker å gjennomta saken. Lag meg utkast til begjæring om gjenopptakelse \n        ",
+                    "answer": "",
+                    "query_id": "7d5b2184-d193-4659-8b31-c2fb4dbe6535",
+                    "order": 18
+                },
+                {
+                    "input": "\n        Se vedlagt svar fra tingretten.\n        ",
+                    "answer": "",
+                    "query_id": "6a3b532c-0f35-48fe-938d-41889b4b4098",
+                    "order": 19
+                }
+            ],
+            "attachments": [
+                "THRD-2021-163881/01_data/2023-05-15_84_dagbok_2023-05-15_berit.txt",
+                "THRD-2021-163881/01_data/2023-04-25_82_epost_2023-04-25_kristiansen_frustrasjon.txt",
+                "THRD-2021-163881/01_data/2023-06-16_65_begjæring_2023-06-16_gjenopptagelse_utvidet.txt",
+                "THRD-2021-163881/01_data/2023-07-05_66_kjennelse_2023-07-05_gjenopptagelse.txt",
+                "THRD-2021-163881/01_data/2023-04-26_83_epost_2023-04-26_hansen_svar_empati.txt",
+                "THRD-2021-163881/01_data/2023-06-16_25_begjæring_2023-06-16_gjenopptagelse.txt",
+                "THRD-2021-163881/01_data/2023-05-02_24a_epost_2023-05-02_svar_heving.txt"
+            ]
+        },
+        {
+            "session": 8,
+            "date": "2025-06-05",
+            "session_id": "6c8771ab-d3bc-4a0f-af62-f7ca2a21426d",
+            "session_name": "Prosesskriv og sluttinnlegg",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Bistå meg i å utarbeide et prosesskriv for saken mot Selger. Se vedlagte nye dokumenter.\n        Lag meg utkast og struktur for dette prosesskrivet basert på sakens dokumenter og utvikling så langt. \n        ",
+                    "answer": "",
+                    "query_id": "d4e3c92d-00a2-43e0-b9d4-a4bbff96d820",
+                    "order": 20
+                },
+                {
+                    "input": "\n        Sluttinnlegg for hovedforhandling. Lag meg et utkast til dette basert på sakens dokumenter og utvikling så langt.\n        ",
+                    "answer": "",
+                    "query_id": "737156df-1781-4d60-8f0d-5068b68b4dee",
+                    "order": 21
+                }
+            ],
+            "attachments": [
+                "THRD-2021-163881/01_data/2024-11-07_71_epost_2024-11-07_saksøker_svar_passivitet.txt",
+                "THRD-2021-163881/01_data/2025-02-17_29a_pristilbud_2025-02-17_tertnes.txt",
+                "THRD-2021-163881/01_data/2023-09-21_27a_epost_2023-09-21_murer_oppsummering.txt",
+                "THRD-2021-163881/01_data/2024-09-09_28a_rapport_2024-09-09_BERAS_murer_komplett.txt",
+                "THRD-2021-163881/01_data/2023-09-25_27_sms_2023-09-25_murer.txt",
+                "THRD-2021-163881/01_data/2025-03-12_31_rapport_2025-03-12_verditap_parkering.txt",
+                "THRD-2021-163881/01_data/2024-11-06_70_epost_2024-11-06_saksøkte_passivitet.txt",
+                "THRD-2021-163881/01_data/2025-02-17_29_pristilbud_2025-02-17_vestkyst_mur.txt",
+                "THRD-2021-163881/01_data/2023-09-25_27b_sms_2023-09-25_murer_utvidet.txt",
+                "THRD-2021-163881/01_data/2023-09-25_68_epost_2023-09-25_hansen_svar_mur.txt",
+                "THRD-2021-163881/01_data/2024-03-15_30_prisanslag_2024-03-15_takstsenter.txt",
+                "THRD-2021-163881/01_data/2023-09-27_27c_korrespondanse_nabo_2023-09.txt",
+                "THRD-2021-163881/01_data/2025-06-02_43_oppsummerende_prosesskriv_2025-06-02.txt",
+                "THRD-2021-163881/01_data/2023-09-22_67_epost_2023-09-22_mur_oppdagelse.txt",
+                "THRD-2021-163881/01_data/2025-02-19_29b_pristilbud_2025-02-19_oygarden.txt",
+                "THRD-2021-163881/01_data/2025-05-25_88_beregning_tapte_husleieinntekter_detaljert_2025-05-25.txt",
+                "THRD-2021-163881/01_data/2023-09-20_26_referat_2023-09-20_forhaandskonferanse.txt",
+                "THRD-2021-163881/01_data/2025-05-10_34_beregning_tapte_husleieinntekter_2025-05-10.txt",
+                "THRD-2021-163881/01_data/2023-09-28_69_brev_2023-09-28_reklamasjon_murer.txt",
+                "THRD-2021-163881/01_data/2024-05-20_94_moetereferat_2024-05-20_forberedelse_hovedforhandling.txt",
+                "THRD-2021-163881/01_data/2024-09-09_28_rapport_2024-09-09_ERV_murer.txt",
+                "THRD-2021-163881/01_data/2024-08-15_89_dokumentasjon_avviste_leietakere_2024-08-15.txt",
+                "THRD-2021-163881/01_data/2024-11-04_42_prosesskriv_saksøkte_2024-11-04.txt"
+            ]
+        },
+        {
+            "session": 9,
+            "date": "2025-07-20",
+            "session_id": "e5f6a7b8-5678-9012-efab-234567890123",
+            "session_name": "Dom",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Se vedlagt dom. \n        ",
+                    "answer": "",
+                    "query_id": "e299a2de-e382-4857-991f-cc7897ecda65",
+                    "order": 22
+                }
+            ],
+            "attachments": [
+                "THRD-2021-163881/01_data/2025-07-17_100_presseklipp_2025-07-17_bergens_tidende.txt",
+                "THRD-2021-163881/01_data/2025-07-20_102_SMS_2025-07-20_slutt.txt",
+                "THRD-2021-163881/01_data/2025-06-06_126_Sluttinnlegg_97834155.txt",
+                "THRD-2021-163881/01_data/2025-06-22_98_epost_2025-06-22_avslag_forlik.txt",
+                "THRD-2021-163881/01_data/2025-06-21_97_epost_2025-06-21_siste_forliksforsoek.txt",
+                "THRD-2021-163881/01_data/2025-06-25_51_vitneforklaring_skutle_notater-2025-06-25.txt",
+                "THRD-2021-163881/01_data/2025-07-18_101_intern_mail_2025-07-18_forsikring_vurdering.txt",
+                "THRD-2021-163881/01_data/2025-06-15_32_internt_notat_2025-06-15_saksstrategi.txt",
+                "THRD-2021-163881/01_data/2025-06-24_48_vitneforklaring_berg_notater-2025-06-24.txt",
+                "THRD-2021-163881/01_data/2025-06-25_44_sakskostnadsoppgave_saksoker_2025-06-25.txt",
+                "THRD-2021-163881/01_data/2025-06-24_47_vitneforklaring_haugan_notater-2025-06-24.txt",
+                "THRD-2021-163881/01_data/2025-06-20_96_notat_2025-06-20_advokat_motpart_vurdering.txt",
+                "THRD-2021-163881/01_data/2025-06-06_127_Sluttinnlegg_28426707.txt",
+                "THRD-2021-163881/01_data/2025-06-24_45_moetereferat_befaring_2025-06-24.txt",
+                "THRD-2021-163881/01_data/2025-06-10_95_SMS_2025-06-10_nervoes_foer_rettssak.txt",
+                "THRD-2021-163881/01_data/2025-06-25_50_vitneforklaring_sandvag_notater-2025-06-25.txt",
+                "THRD-2021-163881/01_data/2025-06-20_87_beregning_bofordel_detaljert_2025-06-20.txt",
+                "THRD-2021-163881/01_data/2025-06-24_49_vitneforklaring_baardseth_notater-2025-06-24.txt",
+                "THRD-2021-163881/01_data/2025-07-16_132_Domisivilsak-fagdommer(e)_242348.txt",
+                "THRD-2021-163881/01_data/2025-06-24_99_befaring_notater_2025-06-24.txt"
+            ]
+        }
+    ]
+}

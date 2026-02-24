@@ -1,0 +1,215 @@
+{
+    "project_id": "f07a2bc1-e203-477f-a5e3-07eb2682c799",
+    "dataset_name": "TOSL-2024-103311",
+    "user_id": "53d63d18-cfa1-416e-96e8-770c8f66507b",
+    "last_updated": "2026-02-23T15:47:56.554841",
+    "sessions": [
+        {
+            "session": 0,
+            "date": "2024-02-01",
+            "session_id": "85ebb351-c300-421b-8be7-7ef29bd0f1b6",
+            "session_name": "Prosjekt-initialisering",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Jeg er advokat og har fått instrukser fra Andreas Nilsen og Berit Johansen.\n        \n        De kjøpte en enebolig på Granveien 15B i Oslo fra Camilla Marie Hansen og \n        Daniel Erik Hansen i august 2023 for kr 15,5 millioner. \n        Overtakelse var 11. november 2023.\n        \n        Eiendommen ble solgt med boligselgerforsikring gjennom Nordic Insurance Group SE.\n        \n        Etter overtakelse har de oppdaget en rekke alvorlige mangler: elektriske feil, \n        pipeproblemer, varmekabler, gulvproblemer, og mer.\n        \n        Jeg vedlegger alle relevante dokumenter fra salgsprosessen, overtakelsen, \n        første reklamasjoner og ekspertrapporter.\n        \n        Kan du hjelpe meg å strukturere denne saken og vurdere våre rettigheter?\n        ",
+                    "answer": "",
+                    "query_id": "91430ac5-2106-4885-87b5-f7912e3ac9c0",
+                    "order": 1
+                },
+                {
+                    "input": "\n        Gi meg en kort og konsis oppsummering av sakens faktiske bakgrunn og utvikling \n        så langt, basert på dokumentene jeg har lastet opp. \n        \n        Fokuser på de viktigste hendelsene og problemstillingene. Hva er kjernen i saken?\n        ",
+                    "answer": "",
+                    "query_id": "ea7cd4d7-a8e0-4d21-814c-983fe2558fc3",
+                    "order": 2
+                },
+                {
+                    "input": "\n        Dette er en eiendomskjøpssak med boligselgerforsikring. \n        \n        Hvilke lovbestemmelser er mest relevante? Hva er forskjellen på å reklamere \n        til selger versus å fremme krav mot boligselgerforsikringen?\n        ",
+                    "answer": "",
+                    "query_id": "50bab9bd-2b2f-4c41-809a-a4502320da54",
+                    "order": 3
+                },
+                {
+                    "input": "\n        Har selger gitt uriktige eller ufullstendige opplysninger? \n        Hva burde selger ha opplyst om som ikke er opplyst om?\n        \n        Er det noen forhold som burde vært undersøkt nærmere før kjøpet?\n        ",
+                    "answer": "",
+                    "query_id": "b8126b80-9de7-47b3-92ec-53e320efeee8",
+                    "order": 4
+                },
+                {
+                    "input": "\n        Er manglene reklamert innenfor frister? \n        \n        Hva er konsekvensen hvis noen av forholdene er reklamert for sent?\n        ",
+                    "answer": "",
+                    "query_id": "af623497-41f7-4d77-8e28-5d6e3da7fc82",
+                    "order": 5
+                }
+            ]
+        },
+        {
+            "session": 1,
+            "date": "2024-03-15",
+            "session_id": "1b5ac8cc-8a93-4b41-8875-3a736c7cdd5e",
+            "session_name": "Reklamasjoner og ekspertrapporter",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Saken har utviklet seg. Se vedlagte nye rapporter, pristilbud, og svar \n        fra forsikringsselskapet.\n        \n        Vi har nå dokumentasjon på utbedringskostnadene og flere ekspertuttalelser.\n        \n        Hva er hovedfunnene i de nye rapportene? Hvor sterkt står vi nå?\n        ",
+                    "answer": "",
+                    "query_id": "e055e95e-0f29-4526-877d-1155fae2ce5c",
+                    "order": 6
+                },
+                {
+                    "input": "\n        Oppsummer de totale utbedringskostnadene basert på pristilbudene vi har fått.\n        \n        Hva er hovedpostene? Hva er totalsummen?\n        ",
+                    "answer": "",
+                    "query_id": "21aec4ab-7a72-4220-a7d1-7b59cac69ad0",
+                    "order": 7
+                },
+                {
+                    "input": "\n        Det har dukket opp et nytt problem med gulvet. Se vedlagt epost fra \n        Vindum & Pedersen AS.\n        \n        Hva er problemet? Er dette en ny mangel vi må reklamere på?\n        ",
+                    "answer": "",
+                    "query_id": "16234d20-4164-4f5f-8339-4640e800133c",
+                    "order": 8
+                },
+                {
+                    "input": "\n        Hva er forsikringsselskapets standpunkt basert på svarene de har gitt så langt?\n        \n        Godtar de våre krav? Hva avviser de? Hva er begrunnelsen?\n        ",
+                    "answer": "",
+                    "query_id": "ea9ecd46-93aa-4c80-915b-6e6a7e324457",
+                    "order": 9
+                }
+            ]
+        },
+        {
+            "session": 2,
+            "date": "2024-07-05",
+            "session_id": "0104b3f1-0298-496b-81b2-dff4135e216e",
+            "session_name": "Forliksforhandlinger og stevning",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Vi har forsøkt å få til en minnelig løsning, men uten hell. \n        Se vedlagt korrespondanse.\n        \n        Hva er situasjonen nå? Bør vi stevne?\n        ",
+                    "answer": "",
+                    "query_id": "4da3181d-1d4c-4e65-9f4b-386c7831172b",
+                    "order": 10
+                },
+                {
+                    "input": "\n        Hva er et realistisk forlikskrav i denne saken? \n        \n        Hva bør vi tilby i forlik, og hva er vår minsteakseptable løsning?\n        ",
+                    "answer": "",
+                    "query_id": "e0766459-2e7e-4c24-a420-b3dc4ba95d58",
+                    "order": 11
+                },
+                {
+                    "input": "\n        Forhandlingene har strandet. Vi må stevne.\n        \n        Lag meg et utkast til stevning basert på sakens dokumenter og utvikling. \n        \n        Hvem skal stevnes? Hva skal påstanden være? Hva er kravet?\n        ",
+                    "answer": "",
+                    "query_id": "f1bd11bf-fa51-47a0-991d-ff455be8e25e",
+                    "order": 12
+                },
+                {
+                    "input": "\n        Se vedlagt stevningen som ble tatt ut 29. juni 2024.\n        \n        Er det noe som bør justeres eller legges til?\n        ",
+                    "answer": "",
+                    "query_id": "2ba4d696-06a9-4d32-bb19-6793104719e4",
+                    "order": 13
+                }
+            ]
+        },
+        {
+            "session": 3,
+            "date": "2024-08-20",
+            "session_id": "7e7168ac-9143-4806-9a0e-a798b6b01aaf",
+            "session_name": "Tilsvar og prosesskriv",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Se vedlagt tilsvar fra selger og forsikringsselskapet.\n        \n        Hva er deres forsvar? Hva bestrides? Hva innrømmes?\n        \n        Hva er de viktigste svakhetene i deres argumentasjon?\n        ",
+                    "answer": "",
+                    "query_id": "62bfce08-1933-4ada-b3dd-6ead9cde248d",
+                    "order": 14
+                },
+                {
+                    "input": "\n        Vi skal sende et prosesskriv med forlikstilbud før saken går videre.\n        \n        Lag meg et utkast til dette basert på motpartens tilsvar og vår stevning.\n        ",
+                    "answer": "",
+                    "query_id": "775a9a6d-8f54-4629-a83e-b6881cba95f9",
+                    "order": 15
+                }
+            ]
+        },
+        {
+            "session": 4,
+            "date": "2024-12-01",
+            "session_id": "a1b2c3d4-9143-4806-9a0e-a798b6b01aaf",
+            "session_name": "Kumulasjon og nye rapporter",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Se vedlagt prosesskrivet som ble sendt.\n        \n        Er argumentasjonen god nok? Er det noe som bør styrkes?\n        ",
+                    "answer": "",
+                    "query_id": "a547659d-44cd-45b7-9e65-52466c2ad0a4",
+                    "order": 16
+                },
+                {
+                    "input": "\n        Saken har utviklet seg videre. Se vedlagte nye dokumenter om kumulasjon, \n        takrapport, tilsvar fra takstmann, og tredje reklamasjon.\n        \n        Hva er status nå? Hvordan påvirker dette vår sak?\n        ",
+                    "answer": "",
+                    "query_id": "72d3b050-7ce0-41c2-ab2f-32bb2d2abfeb",
+                    "order": 17
+                },
+                {
+                    "input": "\n        Hva er de viktigste nye funnene i Marius Holm sin takrapport og \n        Tommy Eriksen sin tilleggsrapport?\n        \n        Styrker dette vår sak?\n        ",
+                    "answer": "",
+                    "query_id": "d67eed3a-a774-4fce-88a0-3d5432b148bc",
+                    "order": 18
+                },
+                {
+                    "input": "\n        Basert på tilsvaret fra takstmannen - hvordan bør vi imøtegå deres argumenter?\n        \n        Hva er de svakeste punktene i deres forsvar?\n        ",
+                    "answer": "",
+                    "query_id": "e85b3196-7f37-4da6-a269-708a02886a15",
+                    "order": 19
+                }
+            ]
+        },
+        {
+            "session": 5,
+            "date": "2025-04-05",
+            "session_id": "0697a3b1-6a21-4909-86b6-92dda1548a15",
+            "session_name": "Forberedelse hovedforhandling",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Hovedforhandlingen nærmer seg. Se vedlagt tilleggsrapport fra Arnesen.\n        \n        Hva er konklusjonen i denne rapporten? Hvordan påvirker den sakens styrke?\n        ",
+                    "answer": "",
+                    "query_id": "2cdf275e-47c0-405f-978c-f0b3cfac41f8",
+                    "order": 20
+                },
+                {
+                    "input": "\n        Basert på alle dokumentene fra salgsprosessen til nå - hva er de 3-5 viktigste \n        punktene jeg må få frem i hovedforhandlingen?\n        \n        Hva er våre sterkeste argumenter? Hva er våre svakeste punkter?\n        ",
+                    "answer": "",
+                    "query_id": "a77bded3-9fd0-438d-94bd-664652855558",
+                    "order": 21
+                },
+                {
+                    "input": "\n        Lag meg utkast til sluttinnlegg for hovedforhandlingen.\n        \n        Strukturer det slik at det dekker alle våre påstander og bevis på en \n        overbevisende måte.\n        ",
+                    "answer": "",
+                    "query_id": "ff9b250b-a463-4828-99aa-9e2eb7b17ccc",
+                    "order": 22
+                }
+            ]
+        },
+        {
+            "session": 6,
+            "date": "2025-05-20",
+            "session_id": "b2c3d4e5-6a21-4909-86b6-92dda1548a15",
+            "session_name": "Hovedforhandling og dom",
+            "init_query": "",
+            "conversation": [
+                {
+                    "input": "\n        Hovedforhandlingen er gjennomført. Se vedlagte dokumenter fra rettssaken.\n        \n        Hva skjedde under hovedforhandlingen?\n        ",
+                    "answer": "",
+                    "query_id": "379eff55-f632-4f39-8a29-74dca33dbe3a",
+                    "order": 23
+                },
+                {
+                    "input": "\n        Se vedlagt dom fra Oslo Tingrett datert 14. mai 2025.\n        \n        Hva ble utfallet? Vant vi frem? Hva var begrunnelsen?\n        ",
+                    "answer": "",
+                    "query_id": "35bf2751-d801-45a1-8dd2-36fe168c1f8c",
+                    "order": 24
+                }
+            ]
+        }
+    ]
+}
