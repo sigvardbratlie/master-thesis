@@ -1,6 +1,6 @@
 version = 1
 revision = 3
-requires-python = ">=3.13"
+requires-python = ">=3.13, <4.0"
 resolution-markers = [
     "python_full_version >= '3.14'",
     "python_full_version < '3.14'",
@@ -9,6 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "agent",
+    "data-viewer",
     "evals",
     "master-thesis",
     "ui",
@@ -609,6 +610,29 @@ wheels = [
 ]
 
 [[package]]
+name = "data-viewer"
+version = "0.1.0"
+source = { editable = "data-viewer" }
+dependencies = [
+    { name = "google-api-core" },
+    { name = "google-auth" },
+    { name = "google-cloud-storage" },
+    { name = "pandas" },
+    { name = "python-docx" },
+    { name = "streamlit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "google-api-core", specifier = ">=2.29.0" },
+    { name = "google-auth", specifier = ">=2.47.0" },
+    { name = "google-cloud-storage", specifier = ">=3.7.0" },
+    { name = "pandas", specifier = ">=2.3.3" },
+    { name = "python-docx", specifier = ">=1.2.0" },
+    { name = "streamlit", specifier = ">=1.52.2" },
+]
+
+[[package]]
 name = "dataclasses-json"
 version = "0.6.7"
 source = { registry = "https://pypi.org/simple" }
@@ -777,6 +801,7 @@ dependencies = [
     { name = "executing" },
     { name = "fonttools" },
     { name = "fpdf2" },
+    { name = "google-cloud-storage" },
     { name = "img2pdf" },
     { name = "ipython" },
     { name = "ipython-pygments-lexers" },
@@ -808,6 +833,8 @@ dependencies = [
     { name = "pygments" },
     { name = "pypdf2" },
     { name = "pypdfium2" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
     { name = "python-docx" },
     { name = "rich" },
     { name = "soupsieve" },
@@ -842,6 +869,7 @@ requires-dist = [
     { name = "executing", specifier = "==2.2.1" },
     { name = "fonttools", specifier = "==4.61.1" },
     { name = "fpdf2", specifier = "==2.8.5" },
+    { name = "google-cloud-storage" },
     { name = "img2pdf", specifier = "==0.6.3" },
     { name = "ipython", specifier = "==9.10.0" },
     { name = "ipython-pygments-lexers", specifier = "==1.1.1" },
@@ -873,6 +901,8 @@ requires-dist = [
     { name = "pygments", specifier = "==2.19.2" },
     { name = "pypdf2", specifier = "==3.0.1" },
     { name = "pypdfium2", specifier = "==5.4.0" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
     { name = "python-docx", specifier = "==1.2.0" },
     { name = "rich", specifier = "==14.3.2" },
     { name = "soupsieve", specifier = "==2.8.3" },

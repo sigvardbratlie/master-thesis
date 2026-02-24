@@ -22,8 +22,8 @@ from google.oauth2 import service_account
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-if not Path(".").resolve().name == "evals":
-    os.chdir("./evals")
+if not Path(".").resolve().name == "data-viewer":
+    os.chdir("./data-viewer")
 
 st.set_page_config(page_title="📂 Dataset Viewer", layout="wide")
 
