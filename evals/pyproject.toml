@@ -26,6 +26,9 @@ dependencies = [
     "executing==2.2.1",
     "fonttools==4.61.1",
     "fpdf2==2.8.5",
+    "google-cloud-storage",
+    "pytest",
+    "pytest-asyncio",
     "img2pdf==0.6.3",
     "ipython==9.10.0",
     "ipython-pygments-lexers==1.1.1",
@@ -80,3 +83,9 @@ build-backend = "uv_build"
 
 [tool.uv.sources]
 agent = { workspace = true, editable = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "integration: requires live GCS / Supabase — run with -m integration",
+]
