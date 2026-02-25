@@ -115,7 +115,19 @@ def list_result_blobs(dataset: str) -> list[storage.Blob]:
     return sorted(blobs, key=lambda b: b.name, reverse=True)
 
 
+def list_eval_blobs(dataset: str) -> list[storage.Blob]:
+    """Return blobs under datasets/<dataset>/05_evals/ (JSON files), newest first."""
+    client = get_gcs_client()
+    prefix = f"datasets/{dataset}/05_evals/"
+    blobs = [
+        b for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
+        if not b.name.endswith("/") and b.name.endswith(".json")
+    ]
+    return sorted(blobs, key=lambda b: b.name, reverse=True)
+
+
 _RESULT_RE = re.compile(r"^(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json$")
+_EVAL_RE = re.compile(r"^llm-as-judge_(.+)_(custom|baseline)_(.+)\.json$")
 
 
 def parse_result_filename(name: str) -> tuple[str, str]:
@@ -130,6 +142,14 @@ def parse_result_filename(name: str) -> tuple[str, str]:
     date_part, time_part = ts.split("_")
     display = f"{date_part} {time_part.replace('-', ':')}"
     return model, display
+
+
+def parse_eval_filename(name: str) -> tuple[str, str, str]:
+    """Return (model, agent_type, eval_run_id) from eval filename, or (name, '', '') on failure."""
+    m = _EVAL_RE.match(name)
+    if not m:
+        return name, "", ""
+    return m.group(1), m.group(2), m.group(3)
 
 
 # ── Header ────────────────────────────────────────────────────────────────────
@@ -376,7 +396,7 @@ def reset_to_original() -> None:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_dataset, tab_files, tab_results = st.tabs(["📋 Dataset", "📁 Files", "📊 Results"])
+tab_dataset, tab_files, tab_results, tab_evals = st.tabs(["📋 Dataset", "📁 Files", "📊 Results", "📈 Evals"])
 
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 1 — Dataset editor
@@ -715,6 +735,13 @@ with tab_results:
         m3.text_input("Last updated", value=result_data.get("last_updated", "—"), disabled=True)
         m4.text_input("Custom agent", value=str(result_data.get("custom_agent", "—")), disabled=True)
 
+        token_counts = result_data.get("token_counts")
+        if token_counts and isinstance(token_counts, dict):
+            st.write("")
+            tc_cols = st.columns(len(token_counts))
+            for col, (k, v) in zip(tc_cols, token_counts.items()):
+                col.metric(k.replace("_", " ").title(), f"{v:,}" if isinstance(v, int) else v)
+
     st.divider()
 
     # ── Sessions & conversations ───────────────────────────────────────────────
@@ -799,5 +826,190 @@ with tab_results:
                             label_visibility="collapsed",
                             key=f"res_mr_{s_idx}_{q_idx}",
                         )
+
+        st.write("")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TAB 4 — LLM-as-judge eval viewer
+# ════════════════════════════════════════════════════════════════════════════
+
+with tab_evals:
+
+    eval_blobs = list_eval_blobs(dataset)
+
+    if not eval_blobs:
+        st.warning(f"⚠️ No eval files found in `05_evals` for dataset **{dataset}**.")
+        st.stop()
+
+    # Build display labels
+    eval_labels = []
+    for blob in eval_blobs:
+        fname = blob.name.split("/")[-1]
+        model, agent_type, run_id = parse_eval_filename(fname)
+        if agent_type:
+            eval_labels.append(f"{model} · {agent_type} · {run_id}")
+        else:
+            eval_labels.append(fname)
+
+    n_eval_runs = len(eval_blobs)
+    st.markdown(
+        f"#### 📈 Evals &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({n_eval_runs} run{'s' if n_eval_runs != 1 else ''})</span>",
+        unsafe_allow_html=True,
+    )
+    st.caption("LLM-as-judge evaluation results. Select a run to inspect scores per test case.")
+    st.write("")
+
+    selected_eval_label = st.selectbox(
+        "Eval run",
+        eval_labels,
+        index=0,
+        label_visibility="collapsed",
+    )
+
+    selected_eval_idx = eval_labels.index(selected_eval_label)
+    selected_eval_blob = eval_blobs[selected_eval_idx]
+
+    try:
+        eval_data: dict = json.loads(read_blob_bytes(selected_eval_blob.name).decode("utf-8"))
+    except Exception as e:
+        st.error(f"❌ Could not load eval file: {e}")
+        st.stop()
+
+    # ── Metadata strip ─────────────────────────────────────────────────────────
+    with st.expander("ℹ️ Run metadata", expanded=False):
+        e1, e2, e3, e4 = st.columns(4)
+        e1.text_input("LLM model", value=eval_data.get("llm_model", "—"), disabled=True, key="eval_meta_model")
+        e2.text_input("Agent type", value="custom" if eval_data.get("custom_agent") else "baseline", disabled=True, key="eval_meta_agent")
+        e3.text_input("Eval run ID", value=eval_data.get("eval_run_id", "—"), disabled=True, key="eval_meta_run")
+        e4.text_input("Created at", value=eval_data.get("created_at", "—"), disabled=True, key="eval_meta_created")
+
+        token_counts = eval_data.get("token_counts")
+        if token_counts and isinstance(token_counts, dict):
+            st.write("")
+            tc_cols = st.columns(len(token_counts))
+            for col, (k, v) in zip(tc_cols, token_counts.items()):
+                col.metric(k.replace("_", " ").title(), v)
+
+    st.divider()
+
+    # ── Flatten all test results from all session results ──────────────────────
+    raw_results: list[dict] = eval_data.get("results") or []
+
+    all_test_results: list[dict] = []
+    for session_result in raw_results:
+        if isinstance(session_result, dict):
+            all_test_results.extend(session_result.get("test_results") or [])
+
+    if not all_test_results:
+        st.info("No test results found in this eval run.")
+        st.stop()
+
+    # ── Summary metrics ────────────────────────────────────────────────────────
+    total_cases = len(all_test_results)
+    passed_cases = sum(1 for t in all_test_results if t.get("success"))
+
+    # Aggregate per metric
+    metric_scores: dict[str, list[float]] = {}
+    metric_passes: dict[str, list[bool]] = {}
+    for t in all_test_results:
+        for m in t.get("metrics_data") or []:
+            name = m.get("name", "unknown")
+            score = m.get("score")
+            success = m.get("success")
+            if score is not None:
+                metric_scores.setdefault(name, []).append(score)
+            if success is not None:
+                metric_passes.setdefault(name, []).append(success)
+
+    sum_cols = st.columns(2 + len(metric_scores))
+    sum_cols[0].metric("Test cases", total_cases)
+    sum_cols[1].metric("Overall pass rate", f"{passed_cases / total_cases:.0%}" if total_cases else "—")
+    for i, metric_name in enumerate(metric_scores):
+        scores = metric_scores[metric_name]
+        passes = metric_passes.get(metric_name, [])
+        avg_score = sum(scores) / len(scores) if scores else None
+        pass_rate = sum(passes) / len(passes) if passes else None
+        label = f"{metric_name.title()} (avg)"
+        value = f"{avg_score:.2f}" if avg_score is not None else "—"
+        delta = f"{pass_rate:.0%} pass" if pass_rate is not None else None
+        sum_cols[2 + i].metric(label, value, delta=delta)
+
+    st.divider()
+
+    # ── Test case details ──────────────────────────────────────────────────────
+    st.markdown(f"#### Test cases &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({total_cases} total)</span>", unsafe_allow_html=True)
+    st.write("")
+
+    for t_idx, test in enumerate(all_test_results):
+        success = test.get("success", False)
+        name = test.get("name") or f"Test case {t_idx + 1}"
+        metrics_data = test.get("metrics_data") or []
+
+        score_summary = ""
+        if metrics_data:
+            parts = []
+            for m in metrics_data:
+                s = m.get("score")
+                parts.append(f"{m.get('name', '?')}: {s:.2f}" if s is not None else m.get("name", "?"))
+            score_summary = " · ".join(parts)
+
+        label = f"{'✅' if success else '❌'} {name}" + (f" — {score_summary}" if score_summary else "")
+
+        with st.expander(label, expanded=False):
+            inp = test.get("input", "").strip()
+            actual = test.get("actual_output", "").strip()
+            expected = test.get("expected_output", "").strip()
+
+            st.markdown("**🧑‍💼 Input**")
+            st.markdown(inp or "_No input_")
+            st.write("")
+
+            col_exp, col_act = st.columns(2)
+            with col_exp:
+                st.markdown("**✍️ Expected output**")
+                st.text_area(
+                    "Expected",
+                    value=expected or "—",
+                    height=text_height(expected) if expected else 80,
+                    disabled=True,
+                    label_visibility="collapsed",
+                    key=f"eval_exp_{t_idx}",
+                )
+            with col_act:
+                st.markdown("**🤖 Actual output**")
+                st.text_area(
+                    "Actual",
+                    value=actual or "—",
+                    height=text_height(actual) if actual else 80,
+                    disabled=True,
+                    label_visibility="collapsed",
+                    key=f"eval_act_{t_idx}",
+                )
+
+            if metrics_data:
+                st.write("")
+                st.markdown("**📊 Metrics**")
+                for m in metrics_data:
+                    m_name = m.get("name", "unknown")
+                    m_score = m.get("score")
+                    m_pass = m.get("success")
+                    m_reason = m.get("reason", "")
+                    m_threshold = m.get("threshold")
+                    m_eval_model = m.get("evaluation_model", "")
+
+                    badge = "✅" if m_pass else "❌"
+                    score_str = f"{m_score:.3f}" if m_score is not None else "—"
+                    threshold_str = f"(threshold: {m_threshold})" if m_threshold is not None else ""
+                    model_str = f" · evaluated by `{m_eval_model}`" if m_eval_model else ""
+
+                    st.markdown(f"{badge} **{m_name}** — score: `{score_str}` {threshold_str}{model_str}")
+                    if m_reason:
+                        st.caption(m_reason)
+
+            meta = test.get("additional_metadata")
+            if meta:
+                st.write("")
+                st.caption(f"query_id: `{meta.get('query_id', '—')}` · turn: `{meta.get('turn_order', '—')}`")
 
         st.write("")
