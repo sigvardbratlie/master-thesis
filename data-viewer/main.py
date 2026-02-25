@@ -5,6 +5,7 @@ import logging
 import math
 import os
 import re
+import uuid
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -173,6 +174,12 @@ if st.session_state.get("_loaded_dataset") != dataset:
         )
         st.stop()
 
+    # Backfill missing query_id for existing conversation entries
+    for session in raw.get("sessions", []):
+        for query in session.get("conversation", []):
+            if not query.get("query_id"):
+                query["query_id"] = str(uuid.uuid4())
+
     st.session_state["_raw"] = raw
     st.session_state["_loaded_dataset"] = dataset
     st.session_state["_last_saved"] = None
@@ -300,7 +307,6 @@ def move_query(s_idx: int, q_idx: int, direction: int) -> None:
 
 
 def add_query(s_idx: int) -> None:
-    import uuid
     _sync_widgets_to_raw()
     conv = st.session_state["_raw"]["sessions"][s_idx]["conversation"]
     next_order = max((q.get("order", 0) for s in st.session_state["_raw"]["sessions"] for q in s["conversation"]), default=0) + 1
@@ -309,7 +315,6 @@ def add_query(s_idx: int) -> None:
 
 
 def add_session() -> None:
-    import uuid
     _sync_widgets_to_raw()
     sessions = st.session_state["_raw"]["sessions"]
     next_order = max((q.get("order", 0) for s in sessions for q in s["conversation"]), default=0) + 1
@@ -518,6 +523,7 @@ with tab_dataset:
                         on_click=delete_query, args=(s_idx, q_idx),
                         help="Remove this query", type="tertiary",
                     )
+                    qc_spacer.caption(f"🔑 `{query.get('query_id', '—')}`")
 
                     st.markdown("**🧑‍💼 Query from lawyer**")
                     st.text_area(
