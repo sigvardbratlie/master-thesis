@@ -10,7 +10,6 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_google_community import BigQueryVectorStore
 from google.cloud import bigquery
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from abc import ABC, abstractmethod
@@ -49,9 +48,9 @@ class ChromaVectorStore(VectorStoreInterface):
             model_name = embedding_model.split("_")[1]
             embedding = GoogleGenerativeAIEmbeddings(model=model_name)
         else:
-            logger.warning(f"Unknown embedding model {embedding_model}, defaulting to gemini-embedding-001")
+            logger.warning(f"⚠️  Unknown embedding model '{embedding_model}' — defaulting to gemini-embedding-001")
             embedding = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
-        
+
         self.embedding = embedding
         self._collections: Dict[str, Chroma] = {}  # Cache per session
     
@@ -69,7 +68,7 @@ class ChromaVectorStore(VectorStoreInterface):
         try:
             collection.add_documents(documents)
         except Exception as e:
-            logger.error(f"Error adding documents to collection {collection_id}: {e}")
+            logger.error(f"❌ Error adding documents to collection '{collection_id}': {e}")
 
     def add_embeddings_meta(self, document : Document, ) -> None:
         """Add metadata to document before embedding."""
@@ -129,10 +128,10 @@ class BQVectorStore(VectorStoreInterface):
             model_name = embedding_model.split("_")[1]
             embedding = GoogleGenerativeAIEmbeddings(model=model_name)
         else:
-            logger.warning(f"Unknown embedding model {embedding_model}, defaulting to gemini-embedding-001")
+            logger.warning(f"⚠️  Unknown embedding model '{embedding_model}' — defaulting to gemini-embedding-001")
             embedding = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
-        
-        self.embedding = embedding        
+
+        self.embedding = embedding
         self._stores: Dict[str, BigQueryVectorStore] = {}
     
     def _get_store(self, collection_id: str) -> BigQueryVectorStore:

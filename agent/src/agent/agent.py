@@ -32,7 +32,6 @@ from uuid import uuid4
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -273,11 +272,11 @@ class Agent:
         # ---- SANITIZE PAYLOAD for Gemini compatibility ----
         payload = self._sanitize_payload(payload)
 
-        # === DEBUG LOGGING ===
-        logger.info(f"--- Payload Messages for query id {config.get('configurable', {}).get('query_id', '')} (session_id {session_id} and project-id {config.get('configurable', {}).get('custom_project_id', '')}) ---")
+        # === PAYLOAD TRACE ===
+        logger.debug(f"─── LLM payload | query={config.get('configurable', {}).get('query_id', '')} session={session_id} project={config.get('configurable', {}).get('custom_project_id', '')} ───")
         for m in payload:
             content_preview = str(m.content)[:100] if m.content else ""
-            logger.info(f"{m.type}: {content_preview}")
+            logger.debug(f"  {m.type}: {content_preview}")
 
         try:
             message = await llm_with_tools.ainvoke(payload)
@@ -287,7 +286,7 @@ class Agent:
                 "messages": messages_to_return,
             }
         except Exception as e:
-            logger.error(f"Error invoking LLM: {e}", exc_info=True)
+            logger.error(f"❌ LLM invocation failed: {e}", exc_info=True)
             raise e
     
     async def _call_tool(self,state: AgentState,query_id : str) -> AgentState:
@@ -307,14 +306,14 @@ class Agent:
         
 
         if not tool_calls:
-            logger.debug(f'No tool calls found')
+            logger.debug("No tool calls in message")
             return {"messages": []}
 
         for tool in tool_calls:
             name = tool.get("name", "")
             args = tool.get("args", "")
             tool_id = tool.get("id","")
-            logger.debug(f'Calling Tool: {name} with query: {args}')
+            logger.debug(f'🔧 Calling tool: {name} | args={args}')
 
             if name in tools_dict:
                 # ---- CALL TOOL ----
@@ -324,10 +323,10 @@ class Agent:
                     result = await tool_to_call.ainvoke(args)
                 except Exception as e:
                     result = f'Something went wrong when calling tool {name} with args {args} : {e}.'
-                    logger.error(result, exc_info=True)
+                    logger.error(f"❌ {result}", exc_info=True)
                 
                 n_tokens = len(enc.encode(str(result)))
-                logger.debug(f'Result length: {n_tokens}')
+                logger.debug(f'Result: {n_tokens} tokens')
 
                 # ---- PROCESS DATA PRODUCTION TOOLS ----
                 if name in DATA_PROD_TOOLS:
@@ -350,11 +349,11 @@ class Agent:
                 results.append(ToolMessage(tool_call_id=tool_id, name=name, content=str(formatted_result)))
 
             else:
-                logger.warning(f'{tool["name"]} does not exists in tools. \nTools available: {tools_dict.keys()}')
+                logger.warning(f'⚠️  Unknown tool: {tool["name"]} — available: {list(tools_dict.keys())}')
                 result = "Incorrect Tool Name, Please Retry and Select tool from list of avaible tools"
                 results.append(ToolMessage(tool_call_id=tool["id"], name=tool["name"], content=str(result)))
 
-        logger.debug(f'Tools execution complete')
+        logger.debug('✅ Tools execution complete')
         return {"messages": results,
                 "tool_results": tool_data_results}
     
@@ -374,9 +373,9 @@ class Agent:
         provider_key, model_name = llm_model.split("_", 1)
         model_provider = self.PROVIDER_MAP.get(provider_key)
         if not model_provider:
-            logger.warning(f"Unknown provider '{provider_key}', defaulting to google_genai.")
+            logger.warning(f"⚠️  Unknown provider '{provider_key}' — defaulting to google_genai")
             model_provider = "google_genai"
-        logger.debug(f'Picking LLM: Provider: {model_provider}, Model: {model_name}')
+        logger.debug(f'🤖 LLM: provider={model_provider} model={model_name}')
         return init_chat_model(model_name, model_provider=model_provider)
 
     def _compile_agent(self,llm_model : str ,query_id : str,):
@@ -384,7 +383,7 @@ class Agent:
         Compiles the agent graph with the selected LLM.
         """
 
-        logger.info(f"USER INPUT COMPILE AGENT: Model name : {llm_model}")
+        logger.debug(f"🤖 Compiling agent | model={llm_model}")
         selected_llm = self._pick_llm(llm_model)
 
         llm = selected_llm.bind_tools(self.tools)
@@ -413,10 +412,10 @@ class Agent:
         """Delete project documents from BigQuery vector store."""
         try:
             self.vs.delete_project(project_id)
-            logger.info(f"Deleted project {project_id} from vector store")
+            logger.info(f"🗑️  Deleted project {project_id} from vector store")
             return {"success": True, "project_id": project_id}
         except Exception as e:
-            logger.error(f"Error deleting project {project_id} from vector store: {e}", exc_info=True)
+            logger.error(f"❌ Error deleting project {project_id} from vector store: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
     
     # =================================
@@ -430,13 +429,13 @@ class Agent:
             is_new_conv = True
 
         if is_new_conv: #load system prompt
-            logger.info(f'Creating new conversation. Thread: {thread}. Choosing type of question...')
+            logger.info(f'💬 New conversation | thread={thread}')
             system_message = SystemMessage(content=self.prompt)
             await agent_instance.aupdate_state(thread, {"messages": [system_message], 
                                                         "factsheet": None, #FYLL INN HER!
                                                         "tool_results": []})
         else:
-            logger.info(f'Continuing conversation (thread: {session_id})')
+            logger.info(f'💬 Resuming conversation | thread={session_id}')
 
     def _load_msg_as_document(self, msg):
         msg = msg.copy()
@@ -485,7 +484,7 @@ class Agent:
                     token_stream += chunk.content
                     return {"type": "token", "data": chunk.content, "query_id": query_id}
                 else:
-                    logger.warning(f"Received unexpected content type in AIMessageChunk: {type(chunk.content)}")
+                    logger.warning(f"⚠️  Unexpected content type in AIMessageChunk: {type(chunk.content)}")
 
     def on_call_llm(self, data : dict, 
                     query_id : str,
@@ -687,7 +686,7 @@ class Agent:
                     if result:
                         yield result
         except Exception as e:
-            logger.error(f"Error streaming response: {e}", exc_info=True)
+            logger.error(f"❌ Stream error: {e}", exc_info=True)
 
         finally:
             # Save final state
@@ -1224,7 +1223,7 @@ class Agent:
             }
             logger.debug(f"Final result yielded successfully.")
         except Exception as e:
-            logger.error(f"Error serializing or yielding final result: {e}", exc_info=True)
+            logger.error(f"❌ Failed to serialize/yield final result: {e}", exc_info=True)
             raise
 
     async def update_project(self, 
@@ -1242,7 +1241,7 @@ class Agent:
 
         if factsheet and not isinstance(factsheet, FactSheet):
             error_msg = f"load_factsheet returned {type(factsheet).__name__} instead of FactSheet. Value: {factsheet}"
-            logger.error(f"Error in update_project: {error_msg}", exc_info=True)
+            logger.error(f"❌ update_project: {error_msg}", exc_info=True)
             raise TypeError(error_msg)
 
         # Save attachments to vector store and storage

@@ -18,7 +18,6 @@ import email
 from docx import Document as DocxDocument
 from pptx import Presentation
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -53,7 +52,7 @@ class EmailHandler(BaseHandler):
         try:
             return base64.b64decode(content)
         except Exception as e:
-            logger.error(f"Error decoding base64 content: {e}", exc_info=True)
+            logger.error(f"❌ Base64 decode failed: {e}", exc_info=True)
             raise ValueError("Invalid base64 content") from e
 
     def _extract_email_body(self, msg : Message) -> dict:
@@ -100,9 +99,9 @@ class EmailHandler(BaseHandler):
                             "content": content
                         })
                     else:
-                        logger.warning(f"Attachment '{filename}' has unsupported content type '{part.get_content_type()}', skipping. Allowed types are: {allowed_types}")
+                        logger.warning(f"⚠️  Skipping attachment '{filename}' — unsupported type '{part.get_content_type()}'")
                 else:
-                    logger.warning("Attachment part found without filename, skipping.")
+                    logger.warning("⚠️  Attachment part found without filename — skipping")
         return attachments
  
     def _extract_email_data(self, msg : Message, file_id : str, query_id : str, user_id: str , session_id : str) -> dict:
@@ -174,7 +173,7 @@ class EmailHandler(BaseHandler):
         try:
             msg = email.message_from_bytes(content)
         except Exception as e:
-            logger.error(f"Error parsing EML content: {e}", exc_info=True)
+            logger.error(f"❌ EML parse failed: {e}", exc_info=True)
             raise ValueError("Invalid EML content") from e
         email_data = self._extract_email_data(msg, 
                                               query_id=query_id, 
@@ -198,13 +197,13 @@ class EmailHandler(BaseHandler):
         try:
             msg = email.message_from_bytes(content)
         except Exception as e:
-            logger.error(f"Error parsing EML content: {e}", exc_info=True)
+            logger.error(f"❌ EML parse failed: {e}", exc_info=True)
             raise ValueError("Invalid EML content") from e
         body = self._extract_email_body(msg)
         chunks = self.splitter.split_text(body.get("text", ""))
         docs = []
         if not chunks:
-            logger.warning("No text chunks created from email body.")
+            logger.warning("⚠️  No text chunks from email body — using raw text")
             chunks = [body.get("text", "")]
         metadata_all = {**metadata,
                         "file_size": len(content),
@@ -265,7 +264,7 @@ class PDFHandler(BaseHandler):
 
             return text_coverage < 0.5 or avg_text_per_page < 500
         except Exception as e:
-            logger.warning(f"Could not analyze PDF for OCR need: {e}")
+            logger.warning(f"⚠️  Could not analyze PDF for OCR need: {e}")
             return False  # Default to no OCR if detection fails
 
     def _ocr_bytes(self, content: bytes) -> bytes:
@@ -292,10 +291,10 @@ class PDFHandler(BaseHandler):
                     return f.read()
                     
             except ocrmypdf.exceptions.PriorOcrFoundError:
-                logger.info("PDF already has OCR text, returning original")
+                logger.debug("PDF already has OCR text — skipping OCR")
                 return content
             except Exception as e:
-                logger.error(f"OCR failed: {e}, returning original PDF")
+                logger.error(f"❌ OCR failed: {e} — returning original PDF")
                 return content
             finally:
                 # Cleanup temp files
@@ -307,14 +306,14 @@ class PDFHandler(BaseHandler):
     
     def parse_pdf_to_docs(self, content: bytes, metadata: dict) -> List[Document]:
         if self._needs_ocr(content):
-            logger.info("PDF needs OCR, processing...")
+            logger.info("🔍 PDF needs OCR — processing...")
             content = self._ocr_bytes(content)
         
         count_without_text = 0
         try:
             reader = PdfReader(BytesIO(content))
         except Exception as e:
-            logger.error(f"Error reading PDF: {e}")
+            logger.error(f"❌ Error reading PDF: {e}")
             return []
         docs = []
         base_meta = metadata | {
@@ -343,7 +342,7 @@ class PDFHandler(BaseHandler):
                 ))
             
         if not docs or count_without_text == len(reader.pages):
-            logger.warning("No pages extracted from PDF.")
+            logger.warning("⚠️  No pages extracted from PDF")
             return []
         logger.debug(f"Extracted {len(docs)} pages with text out of {len(reader.pages)} total pages.")
         return docs
@@ -357,11 +356,11 @@ class TextHandler(BaseHandler):
         try:
             chunks = self.splitter.split_text(text)
         except Exception as e:
-            logger.error(f"Error splitting text: {e}")
+            logger.error(f"❌ Text split failed: {e}")
             chunks = [text]  # Fallback to whole text if splitting fails
 
         if not chunks:
-            logger.warning("No chunks created from text.")
+            logger.warning("⚠️  No chunks created from text")
             return []
         
         metadata_all = {**metadata,
@@ -378,7 +377,7 @@ class TextHandler(BaseHandler):
                 for i, chunk in enumerate(chunks)
             ]
         except Exception as e:
-            logger.error(f"Error creating Document objects: {e}")
+            logger.error(f"❌ Document object creation failed: {e}")
             return []
         
 
@@ -387,7 +386,7 @@ class TextHandler(BaseHandler):
         docs = []
         chunks = self.splitter.split_text(content_decoded)
         if not chunks:
-            logger.warning("No chunks created from CSV content.")
+            logger.warning("⚠️  No chunks created from CSV content")
             chunks = [content_decoded]
 
         metadata_all = {**metadata,
@@ -411,7 +410,7 @@ class DocxHandler(BaseHandler):
             file = BytesIO(content)
             word_doc = DocxDocument(file)
         except Exception as e:
-            logger.error(f"Error loading bytes content to python-docx Document: {e}")
+            logger.error(f"❌ Failed to load DOCX: {e}")
             return []
         
         props = word_doc.core_properties
@@ -458,7 +457,7 @@ class XlsxHandler(BaseHandler):
         super().__init__()
     
     def parse_xlsx_to_docs(self, content: bytes, metadata: dict) -> list[Document]:
-        logger.warning("XLSX parsing not implemented yet.")
+        logger.warning("⚠️  XLSX parsing not implemented yet")
         return []
     
 class PptxHandler(BaseHandler):
@@ -471,7 +470,7 @@ class PptxHandler(BaseHandler):
             file = BytesIO(content)
             ppt_doc = Presentation(file)
         except Exception as e:
-            logger.error(f"Error loading bytes content to python-pptx Presentation: {e}")
+            logger.error(f"❌ Failed to load PPTX: {e}")
             return []
         props = ppt_doc.core_properties
         metadata_full = {
@@ -516,13 +515,13 @@ class DocumentProcessor(BaseHandler):
         '''
 
         if "file_id" not in metadata or "session_id" not in metadata or "embedding_model" not in metadata:
-            logger.error("Metadata must include 'file_id', 'session_id', and 'embedding_model'")
+            logger.error("❌ Metadata missing required fields: 'file_id', 'session_id', 'embedding_model'")
             raise ValueError("Metadata must include 'file_id', 'session_id', and 'embedding_model'")
         
         try:
             content_decoded = base64.b64decode(content)
         except Exception as e:
-            logger.error(f"Failed to decode base64 content for attachment {metadata.get('file_id')}: {e}")
+            logger.error(f"❌ Base64 decode failed for {metadata.get('file_id')}: {e}")
             return []
         
         if file_type == "application/pdf":
@@ -540,7 +539,7 @@ class DocumentProcessor(BaseHandler):
         elif file_type == "message/rfc822":
             return EmailHandler().parse_eml_to_docs(content_decoded, metadata=metadata)
         else:
-            logger.warning(f"Unsupported file type {file_type} for attachment {metadata.get('file_id')}")
+            logger.warning(f"⚠️  Unsupported file type '{file_type}' for {metadata.get('file_id')}")
             return []
 
 

@@ -6,7 +6,6 @@ from supabase import create_client, Client
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -36,10 +35,10 @@ class SupabaseAuth:
         try:
             # token.credentials gives you the actual token string
             response = self.supabase.auth.get_user(token.credentials)
-            logger.info(f'User retrieved from Supabase with token.')
+            logger.debug('🔐 User auth OK')
             return response.user.id
         except Exception as e:
-            logger.error(f'Error retrieving user from Supabase with token: {e}')
+            logger.error(f'❌ Auth failed: {e}')
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication credentials",

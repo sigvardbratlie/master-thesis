@@ -16,7 +16,6 @@ from pydantic import BaseModel
 
 import uuid
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -79,7 +78,7 @@ class FirestoreManager:
             return all_projects
         
         except Exception as e:
-            logger.error(f'Could not load projects for user {user_id}: {e}', exc_info=True)
+            logger.error(f'❌ Could not load projects for user {user_id}: {e}', exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
     def load_user_sessions(self, user_id: str):
@@ -128,7 +127,7 @@ class FirestoreManager:
             return all_sessions
         
         except Exception as e:
-            logger.error(f'Could not load sessions for user {user_id}: {e}', exc_info=True)
+            logger.error(f'❌ Could not load sessions for user {user_id}: {e}', exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
     def load_session_history(self, session_id: str, user_id: str):
@@ -218,7 +217,7 @@ class FirestoreManager:
             return all_sessions
         
         except Exception as e:
-            logger.error(f'Could not load sessions for user {user_id}: {e}', exc_info=True)
+            logger.error(f'❌ Could not load sessions for user {user_id}: {e}', exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -276,7 +275,7 @@ class FirestoreManager:
             
             logger.debug(f"Session saved with {len(all_events)} total events")
         except Exception as e:
-            logger.error(f"Error saving final state: {e}", exc_info=True)
+            logger.error(f"❌ Error saving final state: {e}", exc_info=True)
     
     def save_project(self,
                        factsheet : FactSheet,
@@ -310,7 +309,7 @@ class FirestoreManager:
             })
             logger.debug(f"Project saved for project {project_id}")
         except Exception as e:
-            logger.error(f"Error saving project to firestore: {e}", exc_info=True)
+            logger.error(f"❌ Error saving project to Firestore: {e}", exc_info=True)
 
     def get_or_create_user(self, google_user_info: dict) -> str:
         """
@@ -488,7 +487,7 @@ class SupabaseManager:
                 self.supabase.table("projects").upsert(factsheet_dict).execute()
                 logger.debug(f'Project {project_id} upserted in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting factsheet project {project_id} in Supabase: {e}. Stopping process.', exc_info=True)
+                logger.error(f'❌ Upsert failed for project {project_id}: {e} — stopping', exc_info=True)
                 return
             if email_dicts:
                 try:
@@ -690,7 +689,7 @@ class SupabaseManager:
             return sorted_sessions
             
         except Exception as e:
-            logger.error(f'Could not load sessions for user {user_id} from Supabase: {e}', exc_info=True)
+            logger.error(f'❌ Could not load sessions for user {user_id}: {e}', exc_info=True)
             return []
 
     def load_session_history(self, session_id: str,
@@ -773,7 +772,7 @@ class SupabaseManager:
                 "llm_model" : data.llm_model,}).execute()
             logger.debug(f'Session {session_id} upserted in Supabase.')
         except Exception as e:
-            logger.error(f'Error upserting session {session_id} in Supabase: {e}. Stopping process.', exc_info=True)
+            logger.error(f'❌ Upsert failed for session {session_id}: {e} — stopping', exc_info=True)
             return 
 
         try:

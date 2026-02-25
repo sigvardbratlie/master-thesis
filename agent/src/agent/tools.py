@@ -15,7 +15,6 @@ from documents import DocumentProcessor
 
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 logger = logging.getLogger(__name__)
 

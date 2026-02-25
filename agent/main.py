@@ -22,16 +22,36 @@ from psycopg_pool import AsyncConnectionPool
 from auth import SupabaseAuth
 from models import AskAgentRequest
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
+    datefmt="%H:%M:%S",
+)
+
+# ── silence noisy third-party libraries ───────────────────────────────────────
+for _pkg in [
+    "httpx", "httpcore", "urllib3", "grpc",
+    "google.cloud.firestore", "google.cloud.bigquery", "google.cloud.storage",
+    "langchain", "langchain_core", "langchain_text_splitters",
+    "langgraph", "langchain_google_genai", "langchain_google_community",
+    "langchain_chroma", "psycopg", "psycopg_pool",
+    "uvicorn.access",
+]:
+    logging.getLogger(_pkg).setLevel(logging.WARNING)
+
+# ── verbose debug for our own modules ─────────────────────────────────────────
 logging.getLogger("agent.agent").setLevel(logging.DEBUG)
 logging.getLogger("agent.agent_modules").setLevel(logging.DEBUG)
+logging.getLogger("agent.context_manager").setLevel(logging.DEBUG)
 logging.getLogger("database.database_modules").setLevel(logging.DEBUG)
 logging.getLogger("database.storage_modules").setLevel(logging.DEBUG)
 logging.getLogger("database.vectorstore_modules").setLevel(logging.DEBUG)
+logging.getLogger("documents.document_modules").setLevel(logging.DEBUG)
+
 logger = logging.getLogger(__name__)
 
 connection_string = os.getenv("SUPABASE_DB_URL")
-logger.info(f"Using DB connection: {connection_string[:50]}...")
+logger.info(f"🔗 DB connection: {connection_string[:50]}...")
 
 # Global references (set during lifespan)
 agent: Agent = None
@@ -56,7 +76,7 @@ async def lifespan(app: FastAPI):
         await checkpointer.setup()
     except Exception as e:
         if "CONCURRENTLY" in str(e) or "already exists" in str(e):
-            logger.info("Checkpoint tables likely already exist, skipping setup")
+            logger.info("⚙️  Checkpoint tables already exist — skipping setup")
         else:
             raise e
 
@@ -65,13 +85,13 @@ async def lifespan(app: FastAPI):
         prompt=PROMPT,
         checkpointer=checkpointer,
     )
-    logger.info("Agent initialized with AsyncPostgresSaver checkpointer")
+    logger.info("🚀 Agent ready — AsyncPostgresSaver checkpointer attached")
 
     yield
 
     # Cleanup on shutdown
     await pool.close()
-    logger.info("Connection pool closed")
+    logger.info("🔌 Connection pool closed")
 
 # ===== SETUP FASTAPI & AGENT =======
 def setup_app():

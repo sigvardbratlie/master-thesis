@@ -16,7 +16,6 @@ from langchain.chat_models import init_chat_model
 from models import *
 
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class ContextManager:
@@ -168,28 +167,27 @@ class ContextManager:
                 break
             
             extracted = att_result.attachment
-            logger.info(f"==== ATTACHMENT ELEMENT DEBUG == \n{extracted.model_dump(mode = "json")}\n \n ==== END OF ELEMENT DEBUG ====")
+            logger.debug(f"─── Attachment element ───\n{extracted.model_dump(mode='json')}")
             
             # Validate that extracted file_id matches one of our original IDs
             if extracted.file_id not in [att.file_id for att in attachments]:
-                logger.warning(f'File ID mismatch for attachment #{idx}: extracted "{extracted.file_id}" not in original IDs {[att.file_id for att in attachments]}. Using index-based fallback.')
+                logger.warning(f'⚠️  File ID mismatch for attachment #{idx}: got "{extracted.file_id}" — using index fallback')
                 input_att = attachments[idx]
             else:
                 # Find the correct input attachment by matching file_id
                 input_att = next((att for att in attachments if att.file_id == extracted.file_id), None)
                 if not input_att:
-                    logger.error(f'Cannot find attachment with file_id={extracted.file_id} in attachments list. Using index-based fallback.')
+                    logger.error(f'❌ Cannot find attachment with file_id={extracted.file_id} — using index fallback')
                     input_att = attachments[idx]
                 else:
-                    logger.info(f'Attachment #{idx+1}: Successfully matched extracted file_id={extracted.file_id} to original')
+                    logger.debug(f'Attachment #{idx+1}: matched file_id={extracted.file_id}')
             
             # Critical safety check
             if not input_att:
-                logger.error(f'CRITICAL: input_att is None at index {idx}. Skipping this attachment.')
+                logger.error(f'❌ input_att is None at index {idx} — skipping')
                 continue
             
-            # Log the matching
-            logger.info(f'Processing attachment #{idx+1}: input_file_id={input_att.file_id}, extracted_file_id={extracted.file_id}')
+            logger.debug(f'📄 Attachment #{idx+1}: input={input_att.file_id} extracted={extracted.file_id}')
             
             # Assign file_id and unique IDs to all extracted elements from this attachment
             if extracted.damages:
@@ -232,7 +230,7 @@ class ContextManager:
                 "file_id": input_att.file_id,
             })
             result_attachments.append(Attachment(**attachment_data))
-            logger.info(f'  -> Attachment #{idx+1} processed successfully with file_id={input_att.file_id}')
+            logger.debug(f'✅ Attachment #{idx+1} done — file_id={input_att.file_id}')
         
         return {"attachments" : result_attachments,
                 "events" : events,
@@ -318,20 +316,20 @@ class ContextManager:
             
             # Validate that extracted email_id matches one of our original IDs
             if extracted.email_id not in org_ids:
-                logger.warning(f'Email ID mismatch for email #{idx}: extracted "{extracted.email_id}" not in original IDs {org_ids}. Using index-based fallback.')
+                logger.warning(f'⚠️  Email ID mismatch for email #{idx}: got "{extracted.email_id}" — using index fallback')
                 input_email = emails[idx]
             else:
                 # Find the correct input email by matching email_id
                 input_email = email_id_map.get(extracted.email_id)
                 if not input_email:
-                    logger.error(f'Cannot find email with file_id={extracted.email_id} in email_id_map. Using index-based fallback.')
+                    logger.error(f'❌ Cannot find email with email_id={extracted.email_id} — using index fallback')
                     input_email = emails[idx]
                 else:
-                    logger.info(f'Email #{idx+1}: Successfully matched extracted email_id={extracted.email_id} to original')
+                    logger.debug(f'Email #{idx+1}: matched email_id={extracted.email_id}')
             
             # Critical safety check
             if not input_email:
-                logger.error(f'CRITICAL: input_email is None at index {idx}. Skipping this email.')
+                logger.error(f'❌ input_email is None at index {idx} — skipping')
                 continue
             
             # Log the matching
@@ -393,7 +391,7 @@ class ContextManager:
                 "email_id": input_email.file_id,
             })
             result_emails.append(Email(**email_data))
-            logger.info(f'  -> Email #{idx+1} processed successfully with email_id={input_email.file_id}')
+            logger.debug(f'✅ Email #{idx+1} done — email_id={input_email.file_id}')
         
         return {"emails" : result_emails,
                 "events" : events,
@@ -482,7 +480,7 @@ class ContextManager:
         name = element_type[:-1].capitalize()  # e.g. "events" -> "Event"
         ContentList = model_map.get(element_type)
         if not ContentList:
-            logger.error(f'Unknown content type: {name}')
+            logger.error(f'❌ Unknown content type: {name}')
             return []
         
         id_field = id_map.get(element_type, f"{name.lower()}_id")
@@ -502,7 +500,7 @@ class ContextManager:
             "I.e for party, fill in all relevant roles such as plaintiff, defendant, witness, legal representative, etc. For events, fill in event dates and categorize the type of event.n\n'"
             f":\n\n{data}"
         )
-        logger.info(f" ====== PROMPT FOR CLEANING {name.upper()} ====== \n{prompt}\n\n")
+        logger.debug(f"─── Cleaning prompt for {name.upper()} ───\n{prompt}")
         
         response = await structured_llm.ainvoke(prompt)
         if not response:
@@ -519,8 +517,8 @@ class ContextManager:
                     original_uuids[value] = key
         
         def post_process(llm_cleaned, element_type, id_field, ):
-            logger.info(f"\n=== POST-PROCESSING {len(llm_cleaned)} {name} items ===")
-            logger.info(f"llm_cleaned: \n{llm_cleaned}\n\n")
+            logger.debug(f"─── Post-processing {len(llm_cleaned)} {name} items ───")
+            logger.debug(f"llm_cleaned: {llm_cleaned}")
             # Step 2: Python deduplicates based on identity fields
             identity_fields = {
                 "events": ["event_date", "category", "event_name"],
@@ -530,24 +528,24 @@ class ContextManager:
                 "parties": ["legal_name", "role"],
             }.get(element_type, [])
             
-            logger.info(f"Identity fields for {element_type}: {identity_fields}")
+            logger.debug(f"Identity fields for {element_type}: {identity_fields}")
             
             seen = {}
             result = []
             
             for idx, item in enumerate(llm_cleaned):
                 sig_values = tuple(item.get(field) for field in identity_fields)
-                logger.info(f"Item {idx}: signature = {sig_values}, id = {item.get(id_field)}")
+                logger.debug(f"Item {idx}: sig={sig_values} id={item.get(id_field)}")
                 
                 if sig_values in seen:
-                    logger.warning(f'DUPLICATE FOUND! Skipping {name} #{idx}: {sig_values}')
+                    logger.warning(f'⚠️  Duplicate {name} #{idx} — skipping: {sig_values}')
                     continue
                 
                 seen[sig_values] = item[id_field]
                 result.append(item)
-                logger.info(f"  -> Added to result (total: {len(result)})")
+                logger.debug(f"  → added (total: {len(result)})")
             
-            logger.info(f"=== POST-PROCESSING COMPLETE: {len(result)} unique items ===\n")
+            logger.debug(f"─── Post-processing done: {len(result)} unique items ───")
             return result
         
         for item in llm_cleaned:
@@ -560,7 +558,7 @@ class ContextManager:
         
         result = post_process(llm_cleaned, element_type=element_type, id_field=id_field)
         
-        logger.info(f'Cleaned {len(data) if data else 0} {name} items -> {len(llm_cleaned) if llm_cleaned else 0} (LLM) -> {len(result) if result else 0} (deduplicated)')
+        logger.info(f'✅ Cleaned {name}: {len(data) if data else 0} → {len(llm_cleaned) if llm_cleaned else 0} (LLM) → {len(result) if result else 0} (deduplicated)')
         return result
     
     async def clean_metadata(self, content : str, 
@@ -571,7 +569,7 @@ class ContextManager:
         """Clean metadata fields (title, background) using structured output to avoid LLM wrapper text."""
         
         if element_type not in ["title", "background"]:
-            logger.error(f'Unknown element type for metadata cleaning: {element_type}')
+            logger.error(f'❌ Unknown element type for metadata cleaning: {element_type}')
             return content
         
         # Create a generic single-field model dynamically

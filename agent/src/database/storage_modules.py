@@ -11,7 +11,6 @@ from google.cloud import storage
 from models.api_request_models import *
 from supabase import create_client
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -27,9 +26,9 @@ class GCSManager:
             blob = self.bucket.blob(path)
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, blob.upload_from_string, content)
-            logger.info(f"Attachment saved to GCS at {path}")
+            logger.info(f"✅ Saved to GCS: {path}")
         except Exception as e:
-            logger.error(f"Error saving attachment to GCS: {e}")
+            logger.error(f"❌ GCS upload failed: {e}")
 
     async def save_raw_documents(self, attachments: list[AttachmentModel], bucket_name: str = "attachments"):
         """Lagrer alle vedlegg parallelt"""
@@ -95,7 +94,7 @@ class SupabaseStorageManager:
                         file=f,
                         file_options={"content-type": "application/octet-stream"}
                     )
-                logger.info(f"Attachment saved to Supabase Storage at {path}")
+                logger.info(f"✅ Saved to Supabase Storage: {path}")
                 return path
             
             except Exception as e:
@@ -104,18 +103,18 @@ class SupabaseStorageManager:
                 
                 # Check if file already exists (409 Duplicate)
                 if "409" in error_msg or "Duplicate" in error_msg or "already exists" in error_msg:
-                    logger.info(f"File already exists at {path}, treating as success")
+                    logger.info(f"✅ File already exists at {path} — treating as success")
                     return path
                 
                 # Retry on transient errors
                 if "Resource temporarily unavailable" in error_msg or "[Errno 35]" in error_msg:
                     if attempt < max_retries - 1:
                         wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
-                        logger.warning(f"Retry {attempt + 1}/{max_retries} for {path} after {wait_time}s (error: {e})")
+                        logger.warning(f"⚠️  Retry {attempt + 1}/{max_retries} for {path} after {wait_time}s: {e}")
                         time.sleep(wait_time)
                         continue
                 
-                logger.error(f"Error saving attachment to Supabase Storage (attempt {attempt + 1}/{max_retries}): {e}")
+                logger.error(f"❌ Supabase Storage upload attempt {attempt + 1}/{max_retries} failed: {e}")
                 break
             
             finally:
@@ -127,7 +126,7 @@ class SupabaseStorageManager:
                         pass
         
         # If all retries failed
-        logger.error(f"Failed to upload {path} after {max_retries} attempts: {last_error}")
+        logger.error(f"❌ Upload failed after {max_retries} attempts for {path}: {last_error}")
         return None
             
 
@@ -159,7 +158,7 @@ class SupabaseStorageManager:
         # Log summary
         successful = sum(1 for v in results.values() if v is not None)
         failed = len(results) - successful
-        logger.info(f"Upload complete: {successful} succeeded, {failed} failed out of {len(attachments)} total")
+        logger.info(f"💾 Upload complete: {successful}/{len(attachments)} succeeded, {failed} failed")
         
         return results
     
