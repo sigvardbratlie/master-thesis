@@ -162,3 +162,44 @@ class Dataset:
                 f"{len(candidates)} candidates, {len(new_files)} new"
             )
             prev_dt = current_dt
+
+    def assign_session_attachments_baseline(self) -> None:
+        """Assign data files to sessions cumulatively for baseline (non-custom) models.
+
+        Unlike assign_session_attachments(), which uses a sliding window per session,
+        this assigns all files up to and including each session's date. This ensures
+        baseline models receive the full available context at each session, since they
+        have no factsheet or accumulated knowledge from prior sessions.
+
+        Mutates self.data in place. Raises ValueError if data is not loaded.
+        """
+        if not self.data or "sessions" not in self.data:
+            raise ValueError("No data loaded. Call load_dataset() first.")
+
+        date_to_files, _ = self.get_all_data_files()
+
+        def _parse(s: str | None):
+            return datetime.strptime(s, "%Y-%m-%d").date() if s else None
+
+        date_to_files_dt = {_parse(d): files for d, files in date_to_files.items()}
+        file_dates_sorted = sorted(date_to_files_dt.keys())
+
+        for session in self.data["sessions"]:
+            current_dt = _parse(session.get("date"))
+            if current_dt is None:
+                session["attachments"] = []
+                continue
+
+            attachments = [
+                f
+                for fd in file_dates_sorted
+                if fd <= current_dt
+                for f in date_to_files_dt[fd]
+            ]
+            session["attachments"] = attachments
+
+            logger.info(
+                f"Session {session.get('session_name', '?')} | "
+                f"– → {current_dt} | "
+                f"{len(attachments)} attachments (cumulative)"
+            )
