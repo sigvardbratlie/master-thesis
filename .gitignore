@@ -29,3 +29,6 @@ secrets.toml
 
 *bz2
 *tar.gz
+
+**/.deepeval/
+evals/.deepeval/.deepeval-cache.json
