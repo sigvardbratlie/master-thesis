@@ -229,7 +229,7 @@ class TestCollectAgentResultIntegration:
 
     def test_parse_attachments_live(self):
         """Download a real blob and verify the attachment model is populated."""
-        from evals.dataset import Dataset
+        from evals.dataset_module import Dataset
         ds = Dataset("THRD-2021-163881")
         ds.load_dataset()
         ds.assign_session_attachments()
@@ -271,7 +271,7 @@ def _mocked_instance(data: dict):
         # yield CollectAgentResult(data)
 
         # ── TEMPORARY: inline minimal stub until class is extracted ──────────
-        from evals.dataset import Dataset
+        from evals.dataset_module import Dataset
         from types import SimpleNamespace
 
         class _Stub:

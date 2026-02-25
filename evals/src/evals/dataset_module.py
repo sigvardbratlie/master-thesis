@@ -5,10 +5,11 @@ from collections import defaultdict
 from datetime import datetime
 import uuid
 from base64 import b64encode
+from typing import Literal
 from agent.agent import Agent
 from models import AskAgentRequest, AttachmentModel
-from agent.utils import PROMPT
-from agent.tools import TOOLS
+from agent.utils import PROMPT, PROMPT_BASELINE, PROMPT_BASELINE_RAG
+from agent.tools import TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS
 from langsmith.run_helpers import tracing_context
 import os
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -78,11 +79,12 @@ class Dataset:
     def save_results(self, data: dict) -> None:
         dataset_name = data.get("dataset_name")
         llm_model = data.get("llm_model")
+        eval_run_id = data.get("eval_run_id","unknown_eval_run")
         if not dataset_name or not llm_model:
             raise ValueError("data must contain 'dataset_name' and 'llm_model' keys.")
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        agent_type = "custom" if data.get("custom_agent") else "baseline"
-        path = f"datasets/{dataset_name}/04_results/{llm_model}_{agent_type}_{timestamp}.json"
+        #timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        agent_type = data.get("agent_type", "unknown")
+        path = f"datasets/{dataset_name}/04_results/{llm_model}_{agent_type}_{eval_run_id}.json"
         try:
             self.bucket.blob(path).upload_from_string(
                 json.dumps(data, indent=4), content_type="application/json"
@@ -218,14 +220,27 @@ class Dataset:
 
 
 
+_TOOLS_MAP = {
+    "custom": TOOLS,
+    "baseline": BASELINE_TOOLS,
+    "baseline_rag": BASELINE_RAG_TOOLS,
+}
+
+_PROMPT_MAP = {
+    "custom": PROMPT,
+    "baseline": PROMPT_BASELINE,
+    "baseline_rag": PROMPT_BASELINE_RAG,
+}
+
+
 class CollectAgentResult:
-    def __init__(self, data: dict, llm_model: str = "google_gemini-2.5-pro", custom_agent: bool = True):
+    def __init__(self, data: dict, llm_model: str = "google_gemini-2.5-pro", agent_type: Literal["custom", "baseline", "baseline_rag"] = "custom"):
         self.data = data
         self.llm_model = llm_model
-        self.custom_agent : bool = custom_agent
+        self.agent_type: Literal["custom", "baseline", "baseline_rag"] = agent_type
         self.dataclass = Dataset(name=data.get("dataset_name", "default_dataset"))
 
-    async def init_agent(self, use_factsheet : bool = True, save_to_storage: bool = True, embed_to_vectorstore: bool = True):
+    async def init_agent(self, use_factsheet: bool = True, save_to_storage: bool = True, embed_to_vectorstore: bool = True, tools=None, prompt: str = None):
         connection_string = os.getenv("SUPABASE_DB_URL")
         pool = AsyncConnectionPool(conninfo=connection_string, open=False)
         await pool.open()
@@ -234,8 +249,8 @@ class CollectAgentResult:
             use_factsheet=use_factsheet,
             save_to_storage=save_to_storage,
             embed_to_vectorstore=embed_to_vectorstore,
-            tools=TOOLS,
-            prompt=PROMPT,
+            tools=tools,
+            prompt=prompt,
             checkpointer=checkpointer,
         )
         logger.info("Agent initialized with AsyncPostgresSaver checkpointer")
@@ -282,32 +297,56 @@ class CollectAgentResult:
                 answer = response.get("data", {}).get("token_stream", "No content")
         conv["model_response"] = answer
 
-    async def run_agent(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True):
-        if self.custom_agent:
-            use_factsheet = True
-        else:
-            use_factsheet = False
-        
-        agent_class = await self.init_agent(use_factsheet=use_factsheet, save_to_storage=save_to_storage, embed_to_vectorstore=embed_to_vectorstore)
-        logger.info("=========== STARTING EVALUATION ===========")
+    async def run_agent(self):
+        use_factsheet = self.agent_type == "custom"
+
+        # Each agent type gets an isolated project to prevent checkpoint and
+        # vectorstore bleed-through across runs.
+        base_project_id = self.data.get("project_id")
+        runtime_project_id = (
+            base_project_id if self.agent_type == "custom"
+            else f"{base_project_id}_{self.agent_type}"
+        )
+
+        # Storage/embedding are determined by agent type — not the caller.
+        # custom:       uploads raw files + embeds (full pipeline)
+        # baseline_rag: embeds only (needs vectorstore, no read_attachment tool)
+        # baseline:     neither (attachments passed inline only)
+        save_to_storage = self.agent_type == "custom"
+        embed_to_vectorstore = self.agent_type in ("custom", "baseline_rag")
+
+        tools = _TOOLS_MAP[self.agent_type]
+        prompt = _PROMPT_MAP[self.agent_type]
+
+        agent_class = await self.init_agent(
+            use_factsheet=use_factsheet,
+            save_to_storage=save_to_storage,
+            embed_to_vectorstore=embed_to_vectorstore,
+            tools=tools,
+            prompt=prompt,
+        )
+        logger.info("=========== STARTING COLLECTING LLM RESPONSES ===========")
         logger.info(
             f'Dataset: {self.data.get("dataset_name")} | '
             f'LLM Model: {self.llm_model} | '
-            f'Custom Agent: {self.custom_agent} | '
+            f'Agent Type: {self.agent_type} | '
             f'Sessions: {len(self.data.get("sessions", []))} | '
-            f'Project: {self.data.get("project_id")} | '
+            f'Project (runtime): {runtime_project_id} | '
             f'User: {self.data.get("user_id")}\n\n'
         )
         eval_run_id = str(uuid.uuid4())
         self.data["eval_run_id"] = eval_run_id
         self.data["llm_model"] = self.llm_model
-        self.data["custom_agent"] = self.custom_agent
+        self.data["agent_type"] = self.agent_type
+        self.data["runtime_project_id"] = runtime_project_id
 
         with tracing_context(
             tags=[eval_run_id],
-            metadata={"eval_run_id": eval_run_id, "llm_model": self.llm_model, "custom_agent": str(self.custom_agent)},
+            metadata={"eval_run_id": eval_run_id, "llm_model": self.llm_model, "agent_type": self.agent_type, "runtime_project_id": runtime_project_id},
         ):
             for idx, session in enumerate(self.data.get("sessions", [])):
+                runtime_session_id = str(uuid.uuid4())
+                session["runtime_session_id"] = runtime_session_id
                 logger.info(
                     f"Session {idx} | {session.get('date')} | "
                     f"{session.get('session_name')} | "
@@ -318,7 +357,7 @@ class CollectAgentResult:
                     self.parse_attachments(
                         attachment_path=att,
                         query_id=query_id,
-                        session_id=session.get("session_id", "unknown_session"),
+                        session_id=runtime_session_id,
                         user_id=self.data.get("user_id", "unknown_user"),
                     )
                     for att in session.get("attachments", [])
@@ -326,10 +365,10 @@ class CollectAgentResult:
 
                 input_obj = AskAgentRequest(
                     question=session.get("init_query"),
-                    session_id=session.get("session_id"),
+                    session_id=runtime_session_id,
                     llm_model=self.llm_model,
                     query_id=query_id,
-                    project_id=self.data.get("project_id"),
+                    project_id=runtime_project_id,
                     attachments=attachments,
                 )
                 if use_factsheet:
@@ -346,23 +385,22 @@ class CollectAgentResult:
                 else:
                     conv_query_id = str(uuid.uuid4())
                     await self.run_conv(
-                        conv = {"input": session.get("init_query"),
-                                },
-                                agent_class=agent_class,
-                                project_id=self.data.get("project_id"),
-                                session_id=session.get("session_id"),
-                                query_id=conv_query_id,
-                                user_id=self.data.get("user_id"),
-                                attachments=attachments,)
+                        conv={"input": session.get("init_query")},
+                        agent_class=agent_class,
+                        project_id=runtime_project_id,
+                        session_id=runtime_session_id,
+                        query_id=conv_query_id,
+                        user_id=self.data.get("user_id"),
+                        attachments=attachments,
+                    )
 
                 for conv in session["conversation"]:
                     conv_query_id = conv.get("query_id") or str(uuid.uuid4())
                     await self.run_conv(
                         conv=conv,
                         agent_class=agent_class,
-                        project_id=self.data.get("project_id"),
-                        session_id=session.get("session_id"),
+                        project_id=runtime_project_id,
+                        session_id=runtime_session_id,
                         query_id=conv_query_id,
                         user_id=self.data.get("user_id"),
-                        #attachments=attachments if use_factsheet else [],
                     )

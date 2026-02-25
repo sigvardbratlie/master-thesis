@@ -5,7 +5,7 @@ from collections import defaultdict
 from datetime import date
 from unittest.mock import MagicMock, patch, call
 
-from evals.dataset import Dataset
+from evals.dataset_module import Dataset
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────

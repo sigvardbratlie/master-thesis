@@ -1,7 +1,8 @@
 from .utils import DocumentHandler, ParsedAttachment, ParsedEmail
 from .langsmith_module import LangSmithDatasetManager
 from .lovdata_module import LovdataAPI, ExtractLovData
-from .dataset import Dataset, CollectAgentResult
+from .dataset_module import Dataset, CollectAgentResult
+from .evaluate_module import Evaluater
 
 
 __all__ = ["LangSmithDatasetManager",
@@ -12,4 +13,5 @@ __all__ = ["LangSmithDatasetManager",
            "ParsedEmail",
            "Dataset",
            "CollectAgentResult",
+              "Evaluater"
            ]
