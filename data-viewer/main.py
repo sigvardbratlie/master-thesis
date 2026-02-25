@@ -67,11 +67,13 @@ def list_dataset_names() -> list[str]:
     client = get_gcs_client()
     blobs = client.list_blobs(BUCKET_NAME, prefix="datasets/", delimiter="/")
     _ = list(blobs)  # consume iterator to populate prefixes
-    return sorted(
+    dataset = sorted(
         p.replace("datasets/", "").rstrip("/")
         for p in blobs.prefixes
         if p != "datasets/"
     )
+
+    return [d for d in dataset if d and d != "None"]
 
 
 def dataset_blob_path(ds: str) -> str:
@@ -901,6 +903,8 @@ with tab_evals:
         if isinstance(session_result, dict):
             all_test_results.extend(session_result.get("test_results") or [])
 
+    all_test_results.sort(key=lambda t: (t.get("additional_metadata") or {}).get("turn_order", float("inf")))
+
     if not all_test_results:
         st.info("No test results found in this eval run.")
         st.stop()
@@ -974,7 +978,7 @@ with tab_evals:
                     height=text_height(expected) if expected else 80,
                     disabled=True,
                     label_visibility="collapsed",
-                    key=f"eval_exp_{t_idx}",
+                    key=f"eval_exp_{selected_eval_idx}_{t_idx}",
                 )
             with col_act:
                 st.markdown("**🤖 Actual output**")
@@ -984,7 +988,7 @@ with tab_evals:
                     height=text_height(actual) if actual else 80,
                     disabled=True,
                     label_visibility="collapsed",
-                    key=f"eval_act_{t_idx}",
+                    key=f"eval_act_{selected_eval_idx}_{t_idx}",
                 )
 
             if metrics_data:
