@@ -143,3 +143,11 @@ TOOLS = [
         clean_element,
         create_project,
       ]
+BASELINE_TOOLS = [tavily_search,
+                read_laws,
+                  ]
+
+BASELINE_RAG_TOOLS = [tavily_search,
+                    read_laws,
+                    query_project_attachments,
+                    ]

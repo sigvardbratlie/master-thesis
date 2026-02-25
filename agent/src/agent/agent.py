@@ -274,10 +274,10 @@ class Agent:
         payload = self._sanitize_payload(payload)
 
         # === DEBUG LOGGING ===
-        logger.debug(f"--- Payload Messages for query id {config.get("configurable").get("query_id", "")} (session_id {session_id} and project-id {config.get("configurable").get("custom_project_id", "")}) ---")
+        logger.info(f"--- Payload Messages for query id {config.get('configurable', {}).get('query_id', '')} (session_id {session_id} and project-id {config.get('configurable', {}).get('custom_project_id', '')}) ---")
         for m in payload:
             content_preview = str(m.content)[:100] if m.content else ""
-            logger.debug(f"{m.type}: {content_preview}")
+            logger.info(f"{m.type}: {content_preview}")
 
         try:
             message = await llm_with_tools.ainvoke(payload)
@@ -598,22 +598,26 @@ class Agent:
             docs = []
             for att in query.attachments:
                 extracted_docs = self.document_processor.parse(
-                    content = att.content, 
-                    metadata={"file_id": att.file_id, 
-                              "filename": att.filename, 
+                    content = att.content,
+                    metadata={"file_id": att.file_id,
+                              "filename": att.filename,
                               "user_id": user_id,
                               "query_id": query.query_id,
-                              "path": att.path, 
-                              "file_type": att.file_type, 
+                              "path": att.path,
+                              "file_type": att.file_type,
                               "size": att.size,
                               "session_id": query.session_id,
+                              "project_id": query.project_id,
                               "embedding_model" : self.in_memory_store.embedding_model,},
                     file_type=att.file_type)
                 docs.extend(extracted_docs)
                 att.body = self.document_processor.to_plain_text(extracted_docs)
+            if not self.use_factsheet and self.embed_to_vectorstore:
+                self.vs.add_documents(docs, collection_id="attachments",)
             # Store (same API regardless of implementation)
-            #self.in_memory_store.add_documents(docs, collection_id=query.session_id)
-            await self.storage.save_raw_documents(attachments=query.attachments)
+            #self.in_memory_store.add_documents(docs, collection_id="attachments") #for testing with in-memory store
+            if self.save_to_storage:
+                await self.storage.save_raw_documents(attachments=query.attachments)
 
         #add attachments without content to user message
         event_id = str(uuid4())
