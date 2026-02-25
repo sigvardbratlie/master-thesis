@@ -15,8 +15,9 @@ import os
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
-
 from google.cloud import storage
+
+from .models import ConversationTurn, DatasetPayload, GatheredResultPayload, Session
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ DATE_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})")
 class Dataset:
     def __init__(self, name: str = None, client: storage.Client = None, bucket_name: str = "master-thesis-prod"):
         self.name = name
-        self.data: dict | None = None
+        self.data: DatasetPayload | None = None
         self._client = client or storage.Client()
         self.bucket = self._client.bucket(bucket_name)
 
@@ -55,16 +56,16 @@ class Dataset:
 
     # ── Load / save ───────────────────────────────────────────────────────────
 
-    def load_dataset(self) -> dict | None:
+    def load_dataset(self) -> DatasetPayload | None:
         path = f"datasets/{self.name}/dataset_{self.name}.json"
         try:
             raw = self.bucket.blob(path).download_as_string()
-            self.data = json.loads(raw.decode("utf-8"))
+            self.data = DatasetPayload.model_validate_json(raw.decode("utf-8"))
             return self.data
         except Exception:
             logger.warning(f"Dataset file {path} not found or is invalid JSON.")
             return None
-        
+
     def load_results(self) -> dict | None:
         data = {}
         path = f"datasets/{self.name}/04_results"
@@ -76,18 +77,11 @@ class Dataset:
                     logger.warning(f"Failed to load {file.name}: {e}")
         return data
 
-    def save_results(self, data: dict) -> None:
-        dataset_name = data.get("dataset_name")
-        llm_model = data.get("llm_model")
-        eval_run_id = data.get("eval_run_id","unknown_eval_run")
-        if not dataset_name or not llm_model:
-            raise ValueError("data must contain 'dataset_name' and 'llm_model' keys.")
-        #timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        agent_type = data.get("agent_type", "unknown")
-        path = f"datasets/{dataset_name}/04_results/{llm_model}_{agent_type}_{eval_run_id}.json"
+    def save_results(self, data: GatheredResultPayload) -> None:
+        path = f"datasets/{data.dataset_name}/04_results/{data.llm_model}_{data.agent_type}_{data.eval_run_id}.json"
         try:
             self.bucket.blob(path).upload_from_string(
-                json.dumps(data, indent=4), content_type="application/json"
+                json.dumps(data.model_dump(), indent=4), content_type="application/json"
             )
             logger.info(f"Results saved to {path}")
         except Exception as e:
@@ -140,7 +134,7 @@ class Dataset:
 
         Mutates self.data in place. Raises ValueError if data is not loaded.
         """
-        if not self.data or "sessions" not in self.data:
+        if not self.data:
             raise ValueError("No data loaded. Call load_dataset() first.")
 
         date_to_files, _ = self.get_all_data_files()
@@ -154,10 +148,10 @@ class Dataset:
         seen: set[str] = set()
         prev_dt = None
 
-        for session in self.data["sessions"]:
-            current_dt = _parse(session.get("date"))
+        for session in self.data.sessions:
+            current_dt = _parse(session.date)
             if current_dt is None:
-                session["attachments"] = []
+                session.attachments = []
                 continue
 
             candidates = [
@@ -168,10 +162,10 @@ class Dataset:
             ]
             new_files = [f for f in candidates if f not in seen]
             seen.update(new_files)
-            session["attachments"] = new_files
+            session.attachments = new_files
 
             logger.info(
-                f"Session {session.get('session_name', '?')} | "
+                f"Session {session.session_name} | "
                 f"{prev_dt or '–'} → {current_dt} | "
                 f"{len(candidates)} candidates, {len(new_files)} new"
             )
@@ -187,7 +181,7 @@ class Dataset:
 
         Mutates self.data in place. Raises ValueError if data is not loaded.
         """
-        if not self.data or "sessions" not in self.data:
+        if not self.data:
             raise ValueError("No data loaded. Call load_dataset() first.")
 
         date_to_files, _ = self.get_all_data_files()
@@ -198,10 +192,10 @@ class Dataset:
         date_to_files_dt = {_parse(d): files for d, files in date_to_files.items()}
         file_dates_sorted = sorted(date_to_files_dt.keys())
 
-        for session in self.data["sessions"]:
-            current_dt = _parse(session.get("date"))
+        for session in self.data.sessions:
+            current_dt = _parse(session.date)
             if current_dt is None:
-                session["attachments"] = []
+                session.attachments = []
                 continue
 
             attachments = [
@@ -210,14 +204,13 @@ class Dataset:
                 if fd <= current_dt
                 for f in date_to_files_dt[fd]
             ]
-            session["attachments"] = attachments
+            session.attachments = attachments
 
             logger.info(
-                f"Session {session.get('session_name', '?')} | "
+                f"Session {session.session_name} | "
                 f"– → {current_dt} | "
                 f"{len(attachments)} attachments (cumulative)"
             )
-
 
 
 _TOOLS_MAP = {
@@ -234,11 +227,11 @@ _PROMPT_MAP = {
 
 
 class CollectAgentResult:
-    def __init__(self, data: dict, llm_model: str = "google_gemini-2.5-pro", agent_type: Literal["custom", "baseline", "baseline_rag"] = "custom"):
+    def __init__(self, data: DatasetPayload, llm_model: str = "google_gemini-2.5-pro", agent_type: Literal["custom", "baseline", "baseline_rag"] = "custom"):
         self.data = data
         self.llm_model = llm_model
         self.agent_type: Literal["custom", "baseline", "baseline_rag"] = agent_type
-        self.dataclass = Dataset(name=data.get("dataset_name", "default_dataset"))
+        self.dataclass = Dataset(name=data.dataset_name)
 
     async def init_agent(self, use_factsheet: bool = True, save_to_storage: bool = True, embed_to_vectorstore: bool = True, tools=None, prompt: str = None):
         connection_string = os.getenv("SUPABASE_DB_URL")
@@ -282,9 +275,9 @@ class CollectAgentResult:
             query_id=query_id,
         )
 
-    async def run_conv(self, conv, agent_class, project_id, session_id, query_id, user_id, attachments=[], ):
+    async def run_conv(self, conv: ConversationTurn, agent_class, project_id, session_id, query_id, user_id, attachments=[]):
         input_obj = AskAgentRequest(
-            question=conv.get("input"),
+            question=conv.input,
             session_id=session_id,
             llm_model=self.llm_model,
             query_id=query_id,
@@ -295,23 +288,17 @@ class CollectAgentResult:
         async for response in agent_class.stream_response(query=input_obj, user_id=user_id):
             if response.get("type") == "ai":
                 answer = response.get("data", {}).get("token_stream", "No content")
-        conv["model_response"] = answer
+        conv.model_response = answer
 
-    async def run_agent(self):
+    async def run_agent(self) -> GatheredResultPayload:
         use_factsheet = self.agent_type == "custom"
 
-        # Each agent type gets an isolated project to prevent checkpoint and
-        # vectorstore bleed-through across runs.
-        base_project_id = self.data.get("project_id")
+        base_project_id = self.data.project_id
         runtime_project_id = (
             base_project_id if self.agent_type == "custom"
             else f"{base_project_id}_{self.agent_type}"
         )
 
-        # Storage/embedding are determined by agent type — not the caller.
-        # custom:       uploads raw files + embeds (full pipeline)
-        # baseline_rag: embeds only (needs vectorstore, no read_attachment tool)
-        # baseline:     neither (attachments passed inline only)
         save_to_storage = self.agent_type == "custom"
         embed_to_vectorstore = self.agent_type in ("custom", "baseline_rag")
 
@@ -327,30 +314,26 @@ class CollectAgentResult:
         )
         logger.info("=========== STARTING COLLECTING LLM RESPONSES ===========")
         logger.info(
-            f'Dataset: {self.data.get("dataset_name")} | '
+            f'Dataset: {self.data.dataset_name} | '
             f'LLM Model: {self.llm_model} | '
             f'Agent Type: {self.agent_type} | '
-            f'Sessions: {len(self.data.get("sessions", []))} | '
+            f'Sessions: {len(self.data.sessions)} | '
             f'Project (runtime): {runtime_project_id} | '
-            f'User: {self.data.get("user_id")}\n\n'
+            f'User: {self.data.user_id}\n\n'
         )
         eval_run_id = str(uuid.uuid4())
-        self.data["eval_run_id"] = eval_run_id
-        self.data["llm_model"] = self.llm_model
-        self.data["agent_type"] = self.agent_type
-        self.data["runtime_project_id"] = runtime_project_id
 
         with tracing_context(
             tags=[eval_run_id],
             metadata={"eval_run_id": eval_run_id, "llm_model": self.llm_model, "agent_type": self.agent_type, "runtime_project_id": runtime_project_id},
         ):
-            for idx, session in enumerate(self.data.get("sessions", [])):
+            for idx, session in enumerate(self.data.sessions):
                 runtime_session_id = str(uuid.uuid4())
-                session["runtime_session_id"] = runtime_session_id
+                session.runtime_session_id = runtime_session_id
                 logger.info(
-                    f"Session {idx} | {session.get('date')} | "
-                    f"{session.get('session_name')} | "
-                    f"{len(session.get('attachments', []))} attachments"
+                    f"Session {idx} | {session.date} | "
+                    f"{session.session_name} | "
+                    f"{len(session.attachments)} attachments"
                 )
                 query_id = str(uuid.uuid4())
                 attachments = [
@@ -358,13 +341,13 @@ class CollectAgentResult:
                         attachment_path=att,
                         query_id=query_id,
                         session_id=runtime_session_id,
-                        user_id=self.data.get("user_id", "unknown_user"),
+                        user_id=self.data.user_id,
                     )
-                    for att in session.get("attachments", [])
+                    for att in session.attachments
                 ]
 
                 input_obj = AskAgentRequest(
-                    question=session.get("init_query"),
+                    question=session.init_query,
                     session_id=runtime_session_id,
                     llm_model=self.llm_model,
                     query_id=query_id,
@@ -374,33 +357,44 @@ class CollectAgentResult:
                 if use_factsheet:
                     if idx == 0:
                         async for response in agent_class.initialize_project(
-                            query=input_obj, user_id=self.data.get("user_id")
+                            query=input_obj, user_id=self.data.user_id
                         ):
                             logger.debug(f"Init response: {response}")
                     else:
                         async for response in agent_class.update_project(
-                            query=input_obj, user_id=self.data.get("user_id")
+                            query=input_obj, user_id=self.data.user_id
                         ):
                             logger.debug(f"Update response: {response}")
                 else:
                     conv_query_id = str(uuid.uuid4())
                     await self.run_conv(
-                        conv={"input": session.get("init_query")},
+                        conv=ConversationTurn(input=session.init_query, answer=""),
                         agent_class=agent_class,
                         project_id=runtime_project_id,
                         session_id=runtime_session_id,
                         query_id=conv_query_id,
-                        user_id=self.data.get("user_id"),
+                        user_id=self.data.user_id,
                         attachments=attachments,
                     )
 
-                for conv in session["conversation"]:
-                    conv_query_id = conv.get("query_id") or str(uuid.uuid4())
+                for conv in session.conversation:
+                    conv_query_id = conv.query_id or str(uuid.uuid4())
                     await self.run_conv(
                         conv=conv,
                         agent_class=agent_class,
                         project_id=runtime_project_id,
                         session_id=runtime_session_id,
                         query_id=conv_query_id,
-                        user_id=self.data.get("user_id"),
+                        user_id=self.data.user_id,
                     )
+
+        return GatheredResultPayload(
+            dataset_name=self.data.dataset_name,
+            project_id=self.data.project_id,
+            user_id=self.data.user_id,
+            sessions=self.data.sessions,
+            eval_run_id=eval_run_id,
+            llm_model=self.llm_model,
+            agent_type=self.agent_type,
+            runtime_project_id=runtime_project_id,
+        )
