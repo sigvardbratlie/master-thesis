@@ -66,15 +66,17 @@ class Dataset:
             logger.warning(f"Dataset file {path} not found or is invalid JSON.")
             return None
 
-    def load_results(self) -> dict | None:
+    def load_results(self) -> dict[str, GatheredResultPayload] | None:
         data = {}
         path = f"datasets/{self.name}/04_results"
         for file in self.bucket.list_blobs(prefix=path):
             if file.name.endswith(".json"):
                 try:
-                    data[file.name] = json.loads(file.download_as_string().decode("utf-8"))
+                    content = json.loads(file.download_as_string().decode("utf-8"))
+                    data[file.name] = GatheredResultPayload.model_validate(content)
                 except Exception as e:
                     logger.warning(f"Failed to load {file.name}: {e}")
+
         return data
 
     def save_results(self, data: GatheredResultPayload) -> None:
@@ -290,7 +292,7 @@ class CollectAgentResult:
                 answer = response.get("data", {}).get("token_stream", "No content")
         conv.model_response = answer
 
-    async def run_agent(self) -> GatheredResultPayload:
+    async def run_agent(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True) -> GatheredResultPayload:
         use_factsheet = self.agent_type == "custom"
 
         base_project_id = self.data.project_id
@@ -299,8 +301,8 @@ class CollectAgentResult:
             else f"{base_project_id}_{self.agent_type}"
         )
 
-        save_to_storage = self.agent_type == "custom"
-        embed_to_vectorstore = self.agent_type in ("custom", "baseline_rag")
+        # save_to_storage = self.agent_type == "custom"
+        # embed_to_vectorstore = self.agent_type in ("custom", "baseline_rag")
 
         tools = _TOOLS_MAP[self.agent_type]
         prompt = _PROMPT_MAP[self.agent_type]
@@ -312,7 +314,7 @@ class CollectAgentResult:
             tools=tools,
             prompt=prompt,
         )
-        logger.info("=========== STARTING COLLECTING LLM RESPONSES ===========")
+        logger.info("=========== Running agent ===========")
         logger.info(
             f'Dataset: {self.data.dataset_name} | '
             f'LLM Model: {self.llm_model} | '
