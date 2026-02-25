@@ -3,6 +3,17 @@ import logging
 import re
 from collections import defaultdict
 from datetime import datetime
+import uuid
+from base64 import b64encode
+from agent.agent import Agent
+from models import AskAgentRequest, AttachmentModel
+from agent.utils import PROMPT
+from agent.tools import TOOLS
+from langsmith.run_helpers import tracing_context
+import os
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg_pool import AsyncConnectionPool
+
 
 from google.cloud import storage
 
@@ -70,7 +81,8 @@ class Dataset:
         if not dataset_name or not llm_model:
             raise ValueError("data must contain 'dataset_name' and 'llm_model' keys.")
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        path = f"datasets/{dataset_name}/04_results/{llm_model}_{timestamp}.json"
+        agent_type = "custom" if data.get("custom_agent") else "baseline"
+        path = f"datasets/{dataset_name}/04_results/{llm_model}_{agent_type}_{timestamp}.json"
         try:
             self.bucket.blob(path).upload_from_string(
                 json.dumps(data, indent=4), content_type="application/json"
@@ -203,3 +215,154 @@ class Dataset:
                 f"– → {current_dt} | "
                 f"{len(attachments)} attachments (cumulative)"
             )
+
+
+
+class CollectAgentResult:
+    def __init__(self, data: dict, llm_model: str = "google_gemini-2.5-pro", custom_agent: bool = True):
+        self.data = data
+        self.llm_model = llm_model
+        self.custom_agent : bool = custom_agent
+        self.dataclass = Dataset(name=data.get("dataset_name", "default_dataset"))
+
+    async def init_agent(self, use_factsheet : bool = True, save_to_storage: bool = True, embed_to_vectorstore: bool = True):
+        connection_string = os.getenv("SUPABASE_DB_URL")
+        pool = AsyncConnectionPool(conninfo=connection_string, open=False)
+        await pool.open()
+        checkpointer = AsyncPostgresSaver(pool)
+        agent = Agent(
+            use_factsheet=use_factsheet,
+            save_to_storage=save_to_storage,
+            embed_to_vectorstore=embed_to_vectorstore,
+            tools=TOOLS,
+            prompt=PROMPT,
+            checkpointer=checkpointer,
+        )
+        logger.info("Agent initialized with AsyncPostgresSaver checkpointer")
+        return agent
+
+    def file_type_map(self, blob_path: str):
+        mapping = {
+            "txt": "text/plain",
+            "pdf": "application/pdf",
+            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "csv": "text/csv",
+            "md": "text/markdown",
+            "eml": "message/rfc822",
+        }
+        return mapping.get(blob_path.split(".")[-1], None)
+
+    def parse_attachments(self, attachment_path: str, query_id: str, session_id: str, user_id: str):
+        bytes_content = self.dataclass.bucket.blob(attachment_path).download_as_bytes()
+        content = b64encode(bytes_content).decode("utf-8")
+        file_id = str(uuid.uuid4())
+        return AttachmentModel(
+            filename=attachment_path,
+            file_type=self.file_type_map(attachment_path),
+            content=content,
+            file_id=file_id,
+            path=f"{user_id}/{session_id}/{file_id}.{attachment_path.split('.')[-1]}",
+            size=len(content),
+            query_id=query_id,
+        )
+
+    async def run_conv(self, conv, agent_class, project_id, session_id, query_id, user_id, attachments=[], ):
+        input_obj = AskAgentRequest(
+            question=conv.get("input"),
+            session_id=session_id,
+            llm_model=self.llm_model,
+            query_id=query_id,
+            project_id=project_id,
+            attachments=attachments,
+        )
+        answer = "No content"
+        async for response in agent_class.stream_response(query=input_obj, user_id=user_id):
+            if response.get("type") == "ai":
+                answer = response.get("data", {}).get("token_stream", "No content")
+        conv["model_response"] = answer
+
+    async def run_agent(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True):
+        if self.custom_agent:
+            use_factsheet = True
+        else:
+            use_factsheet = False
+        
+        agent_class = await self.init_agent(use_factsheet=use_factsheet, save_to_storage=save_to_storage, embed_to_vectorstore=embed_to_vectorstore)
+        logger.info("=========== STARTING EVALUATION ===========")
+        logger.info(
+            f'Dataset: {self.data.get("dataset_name")} | '
+            f'LLM Model: {self.llm_model} | '
+            f'Custom Agent: {self.custom_agent} | '
+            f'Sessions: {len(self.data.get("sessions", []))} | '
+            f'Project: {self.data.get("project_id")} | '
+            f'User: {self.data.get("user_id")}\n\n'
+        )
+        eval_run_id = str(uuid.uuid4())
+        self.data["eval_run_id"] = eval_run_id
+        self.data["llm_model"] = self.llm_model
+        self.data["custom_agent"] = self.custom_agent
+
+        with tracing_context(
+            tags=[eval_run_id],
+            metadata={"eval_run_id": eval_run_id, "llm_model": self.llm_model, "custom_agent": str(self.custom_agent)},
+        ):
+            for idx, session in enumerate(self.data.get("sessions", [])):
+                logger.info(
+                    f"Session {idx} | {session.get('date')} | "
+                    f"{session.get('session_name')} | "
+                    f"{len(session.get('attachments', []))} attachments"
+                )
+                query_id = str(uuid.uuid4())
+                attachments = [
+                    self.parse_attachments(
+                        attachment_path=att,
+                        query_id=query_id,
+                        session_id=session.get("session_id", "unknown_session"),
+                        user_id=self.data.get("user_id", "unknown_user"),
+                    )
+                    for att in session.get("attachments", [])
+                ]
+
+                input_obj = AskAgentRequest(
+                    question=session.get("init_query"),
+                    session_id=session.get("session_id"),
+                    llm_model=self.llm_model,
+                    query_id=query_id,
+                    project_id=self.data.get("project_id"),
+                    attachments=attachments,
+                )
+                if use_factsheet:
+                    if idx == 0:
+                        async for response in agent_class.initialize_project(
+                            query=input_obj, user_id=self.data.get("user_id")
+                        ):
+                            logger.debug(f"Init response: {response}")
+                    else:
+                        async for response in agent_class.update_project(
+                            query=input_obj, user_id=self.data.get("user_id")
+                        ):
+                            logger.debug(f"Update response: {response}")
+                else:
+                    conv_query_id = str(uuid.uuid4())
+                    await self.run_conv(
+                        conv = {"input": session.get("init_query"),
+                                },
+                                agent_class=agent_class,
+                                project_id=self.data.get("project_id"),
+                                session_id=session.get("session_id"),
+                                query_id=conv_query_id,
+                                user_id=self.data.get("user_id"),
+                                attachments=attachments,)
+
+                for conv in session["conversation"]:
+                    conv_query_id = conv.get("query_id") or str(uuid.uuid4())
+                    await self.run_conv(
+                        conv=conv,
+                        agent_class=agent_class,
+                        project_id=self.data.get("project_id"),
+                        session_id=session.get("session_id"),
+                        query_id=conv_query_id,
+                        user_id=self.data.get("user_id"),
+                        #attachments=attachments if use_factsheet else [],
+                    )
