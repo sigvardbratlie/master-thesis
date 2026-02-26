@@ -633,4 +633,6 @@ class ContextManager:
             return response.model_dump()
         else:  # List[str]
             return response
-            
+    
+    # async def update_project_from_session(self, ):
+    #     pass

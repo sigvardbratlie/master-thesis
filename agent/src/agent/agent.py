@@ -301,7 +301,7 @@ class Agent:
         results = []
         tool_data_results = []
         enc = tiktoken.encoding_for_model("gpt-4o-mini")
-        DATA_PROD_TOOLS = ["run_query", "company_info","get_org_num","display_data_on_ui"]
+        DATA_PROD_TOOLS = []
         TOKEN_LIMIT = 1000
         
 
@@ -1559,6 +1559,15 @@ class Agent:
             }
         }
 
+    async def update_project_from_session(self,
+                                        query : AskAgentRequest,
+                                        user_id : str,
+                                        ):
+        '''Update the project with new input and attachments, using session data as context'''
+        # This function can be used to update the project based on new user input in an ongoing session, without re-analyzing all documents. It can also be used to trigger cleanup of specific elements (e.g. events) if the user indicates that the extracted data is incorrect.
+        # The function will load the existing project data, pass it to the context manager along with the new input, and let the context manager determine what needs to be updated/cleaned. This allows for more targeted updates without having to re-run the entire analysis pipeline.
+        
+    
     async def cleanup_element(self,
                               query : AskAgentRequest,
                               element_type: str,
