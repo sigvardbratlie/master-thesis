@@ -273,7 +273,8 @@ class PDFHandler(BaseHandler):
                     #redo_ocr=True,  # Re-OCR entire document for better text extraction. Not compatibel with deskew
                     skip_text=False,  # Keep existing text
                     optimize=1,  # Light optimization
-                    force_ocr=False  # Don't re-OCR text pages
+                    force_ocr=False,  # Don't re-OCR text pages
+                    language="nor+eng" #["nor","eng"]
                 )
                 
                 with open(out.name, 'rb') as f:
