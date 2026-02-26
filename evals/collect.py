@@ -33,7 +33,7 @@ def get_token_counts(eval_run_id: str) -> dict:
 
 async def main():
     parser = argparse.ArgumentParser(description="Evaluate attachment assignment")
-    parser.add_argument("--dataset", type=str, help="Dataset name to evaluate")
+    parser.add_argument("--dataset", type=str, choices=["test", "THRD-2021-163881", "TOSL-2024-103311", "TOSL-2024-125319"], help="Dataset name to evaluate")
     parser.add_argument("--model", type=str, choices=["google_gemini-2.5-flash", "google_gemini-2.5-pro", "openai_gpt-5.2", "openai_gpt-4.0", "openai_gpt-5-mini"],
                         help="LLM model to use for evaluation")
     parser.add_argument("--skip-embedding", action="store_true", help="Skip embedding step for custom agent")
