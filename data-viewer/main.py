@@ -54,7 +54,7 @@ def read_blob_bytes(blob_path: str) -> bytes:
 
 
 def write_blob(blob_path: str, data: bytes) -> None:
-    _bucket().blob(blob_path).upload_from_string(data)
+    _bucket().blob(blob_path).upload_from_string(data, content_type="application/json; charset=utf-8")
 
 
 def delete_blob(blob_path: str) -> None:
@@ -196,11 +196,13 @@ if st.session_state.get("_loaded_dataset") != dataset:
         )
         st.stop()
 
-    # Backfill missing query_id for existing conversation entries
-    for session in raw.get("sessions", []):
-        for query in session.get("conversation", []):
+    # Backfill missing query_id and fix session/order numbering on load
+    for s_idx, session in enumerate(raw.get("sessions", [])):
+        session["session"] = s_idx
+        for q_idx, query in enumerate(session.get("conversation", [])):
             if not query.get("query_id"):
                 query["query_id"] = str(uuid.uuid4())
+            query["order"] = q_idx
 
     st.session_state["_raw"] = raw
     st.session_state["_loaded_dataset"] = dataset
@@ -299,57 +301,112 @@ def _rebuild_session_keys() -> None:
             st.session_state[f"ans_{s_idx}_{q_idx}"] = query.get("answer", "").strip()
 
 
+def _fix_mojibake(obj):
+    """Recursively fix UTF-8 text that was incorrectly decoded as latin-1."""
+    if isinstance(obj, str):
+        try:
+            return obj.encode("latin-1").decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            return obj
+    elif isinstance(obj, dict):
+        return {k: _fix_mojibake(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_fix_mojibake(item) for item in obj]
+    return obj
+
+
+def fix_encoding() -> None:
+    """Fix mojibake encoding in _raw, rebuild widgets, and save draft."""
+    _sync_widgets_to_raw()
+    st.session_state["_raw"] = _fix_mojibake(st.session_state["_raw"])
+    _rebuild_session_keys()
+
+
+def _renumber() -> None:
+    """Reassign sequential 'session' and per-session 'order' fields after structural changes."""
+    for s_idx, session in enumerate(st.session_state["_raw"]["sessions"]):
+        session["session"] = s_idx
+        for q_idx, query in enumerate(session["conversation"]):
+            query["order"] = q_idx
+
+
+def _push_undo() -> None:
+    """Push a deep copy of _raw onto the undo stack before a structural change."""
+    stack = st.session_state.setdefault("_undo_stack", [])
+    stack.append(copy.deepcopy(st.session_state["_raw"]))
+    if len(stack) > 20:
+        stack.pop(0)
+
+
+def undo_last() -> None:
+    """Restore the previous state from the undo stack."""
+    stack = st.session_state.get("_undo_stack", [])
+    if stack:
+        st.session_state["_raw"] = stack.pop()
+        _rebuild_session_keys()
+
+
 def delete_session(s_idx: int) -> None:
+    _push_undo()
     _sync_widgets_to_raw()
     del st.session_state["_raw"]["sessions"][s_idx]
+    _renumber()
     _rebuild_session_keys()
 
 
 def move_session(s_idx: int, direction: int) -> None:
     """Swap session at s_idx with neighbour. direction: -1 = up, +1 = down."""
+    _push_undo()
     _sync_widgets_to_raw()
     sessions = st.session_state["_raw"]["sessions"]
     target = s_idx + direction
     sessions[s_idx], sessions[target] = sessions[target], sessions[s_idx]
+    _renumber()
     _rebuild_session_keys()
 
 
 def delete_query(s_idx: int, q_idx: int) -> None:
+    _push_undo()
     _sync_widgets_to_raw()
     del st.session_state["_raw"]["sessions"][s_idx]["conversation"][q_idx]
+    _renumber()
     _rebuild_session_keys()
 
 
 def move_query(s_idx: int, q_idx: int, direction: int) -> None:
+    _push_undo()
     _sync_widgets_to_raw()
     conv = st.session_state["_raw"]["sessions"][s_idx]["conversation"]
     target = q_idx + direction
     conv[q_idx], conv[target] = conv[target], conv[q_idx]
+    _renumber()
     _rebuild_session_keys()
 
 
 def add_query(s_idx: int) -> None:
+    _push_undo()
     _sync_widgets_to_raw()
     conv = st.session_state["_raw"]["sessions"][s_idx]["conversation"]
-    next_order = max((q.get("order", 0) for s in st.session_state["_raw"]["sessions"] for q in s["conversation"]), default=0) + 1
-    conv.append({"input": "", "answer": "", "query_id": str(uuid.uuid4()), "order": next_order})
+    conv.append({"input": "", "answer": "", "query_id": str(uuid.uuid4()), "order": 0})
+    _renumber()
     _rebuild_session_keys()
 
 
 def add_session() -> None:
+    _push_undo()
     _sync_widgets_to_raw()
     sessions = st.session_state["_raw"]["sessions"]
-    next_order = max((q.get("order", 0) for s in sessions for q in s["conversation"]), default=0) + 1
     sessions.append({
-        "session": len(sessions),
+        "session": 0,
         "date": datetime.now(_OSLO).strftime("%Y-%m-%d"),
         "session_id": str(uuid.uuid4()),
         "session_name": f"New session {len(sessions) + 1}",
         "init_query": "",
         "conversation": [
-            {"input": "", "answer": "", "query_id": str(uuid.uuid4()), "order": next_order}
+            {"input": "", "answer": "", "query_id": str(uuid.uuid4()), "order": 0}
         ],
     })
+    _renumber()
     _rebuild_session_keys()
 
 
@@ -419,6 +476,16 @@ with tab_dataset:
         last = st.session_state.get("_last_saved")
         msg = f"📝 Draft — autosaved at {last}" if last else "📝 Loaded from draft"
         st.info(msg, icon=None)
+
+    # Detect and offer fix for mojibake encoding
+    _sample = json.dumps(st.session_state["_raw"], ensure_ascii=False)
+    if "Ã" in _sample or "â€" in _sample or "Â§" in _sample:
+        st.warning(
+            "⚠️ Encoding corruption detected (Norwegian characters appear as `Ã¥`, `Ã¦` etc.). "
+            "Click **Fix encoding** to repair.",
+            icon=None,
+        )
+        st.button("🔧 Fix encoding", on_click=fix_encoding, type="primary")
 
     with st.expander("ℹ️ Dataset metadata", expanded=False):
         c1, c2, c3 = st.columns(3)
@@ -577,11 +644,20 @@ with tab_dataset:
 
         st.write("")
 
-    st.button(
+    add_col, undo_col = st.columns([0.75, 0.25])
+    add_col.button(
         "➕ Add session",
         on_click=add_session,
         type="secondary",
         use_container_width=True,
+    )
+    undo_col.button(
+        "↩️ Undo",
+        on_click=undo_last,
+        type="secondary",
+        use_container_width=True,
+        disabled=not st.session_state.get("_undo_stack"),
+        help="Undo the last structural change (delete, move, add). Up to 20 steps.",
     )
 
     st.divider()
