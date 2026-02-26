@@ -643,7 +643,8 @@ class Agent:
         #=========================================
         #           STREAM RESPONSE
         #=========================================
-        user_msg = HumanMessage(content=query.question, 
+        llm_question = f"{query.focus_context}\n\n{query.question}" if query.focus_context else query.question
+        user_msg = HumanMessage(content=llm_question,
                                 additional_kwargs={"attachments": attachments_events,
                                                    "session_id": query.session_id,
                                                    "user_id": user_id,

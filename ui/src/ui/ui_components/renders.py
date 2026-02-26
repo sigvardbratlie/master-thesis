@@ -43,6 +43,38 @@ class ChatComponent:
         if selected:
             question = self.SUGGESTIONS[selected]
 
+        attachments = st.session_state.get("attachments") or []
+        emails = st.session_state.get("emails") or []
+
+        if st.session_state.pop("_focus_reset_pending", False):
+            for key in list(st.session_state.keys()):
+                if key.startswith("focus_att_") or key.startswith("focus_email_"):
+                    del st.session_state[key]
+
+        if attachments or emails:
+            with st.popover("Fokuser på dokument"):
+                if attachments:
+                    st.caption("Vedlegg")
+                    for att in attachments:
+                        if att:
+                            file_id = att.get("file_id", "")
+                            st.checkbox(
+                                att.get("filename", "ukjent fil"),
+                                key=f"focus_att_{file_id}",
+                            )
+                if emails:
+                    if attachments:
+                        st.divider()
+                    st.caption("E-poster")
+                    for email in emails:
+                        if email:
+                            email_id = email.get("email_id", "")
+                            label = email.get("subject") or f"E-post {email.get('date', email_id)}"
+                            st.checkbox(
+                                label,
+                                key=f"focus_email_{email_id}",
+                            )
+
         user_input = st.chat_input(
             "Still et spørsmål for å komme igang...",
             accept_file="multiple",
@@ -189,17 +221,48 @@ class ChatComponent:
 
     def render_chat_input(self,):
         """
-        Renders chat input box.
+        Renders chat input box with an optional document focus popover.
 
         Returns:
             Question object from st.chat_input, or None
         """
+        attachments = st.session_state.get("attachments") or []
+        emails = st.session_state.get("emails") or []
+
+        if st.session_state.pop("_focus_reset_pending", False):
+            for key in list(st.session_state.keys()):
+                if key.startswith("focus_att_") or key.startswith("focus_email_"):
+                    del st.session_state[key]
+
+        if attachments or emails:
+            with st.popover("Fokuser på dokument"):
+                if attachments:
+                    st.caption("Vedlegg")
+                    for att in attachments:
+                        if att:
+                            file_id = att.get("file_id", "")
+                            st.checkbox(
+                                att.get("filename", "ukjent fil"),
+                                key=f"focus_att_{file_id}",
+                            )
+                if emails:
+                    if attachments:
+                        st.divider()
+                    st.caption("E-poster")
+                    for email in emails:
+                        if email:
+                            email_id = email.get("email_id", "")
+                            label = email.get("subject") or f"E-post {email.get('date', email_id)}"
+                            st.checkbox(
+                                label,
+                                key=f"focus_email_{email_id}",
+                            )
+
         chat_question = st.chat_input(
             "Skriv ditt spørsmål her...",
             accept_file="multiple",
             file_type=FileExt,
         )
-
         return chat_question
 
     def handle_new_question(self,):
@@ -215,6 +278,25 @@ class ChatComponent:
         if question:
             query_id = str(uuid4())
 
+            # Collect focused documents from checkbox state and build prefix
+            focused_parts = []
+            for att in st.session_state.get("attachments") or []:
+                if att:
+                    file_id = att.get("file_id", "")
+                    if st.session_state.get(f"focus_att_{file_id}"):
+                        focused_parts.append(f"vedlegg:{att.get('filename', file_id)}, path: {att.get('path', 'ukjent')}")
+            for email in st.session_state.get("emails") or []:
+                if email:
+                    email_id = email.get("email_id", "")
+                    if st.session_state.get(f"focus_email_{email_id}"):
+                        subject = email.get("subject") or email_id
+                        focused_parts.append(f"e-post:{subject}, path: {email.get('path', 'ukjent')}")
+            if focused_parts:
+                st.session_state["_focus_reset_pending"] = True
+
+            raw_text = question.text if hasattr(question, "text") else question
+            focus_context = f"[Fokus på: {', '.join(focused_parts)}]" if focused_parts else None
+
             # Prepare attachment payload
             attachment_payload = []
             email_payload = []
@@ -226,11 +308,11 @@ class ChatComponent:
             # Check for duplicate filenames within project and chat uploads
             if st.session_state.get("project_id") and attachment_payload:
                 existing_filenames = {att.get("filename"): att for att in st.session_state.get("attachments", [])}
-                
+
                 # Check for duplicates within uploaded files themselves
                 uploaded_filenames = {}
                 duplicates_found = []
-                
+
                 for att in attachment_payload:
                     if att.filename in existing_filenames:
                         duplicates_found.append(att.filename)
@@ -238,7 +320,7 @@ class ChatComponent:
                         duplicates_found.append(att.filename)
                     else:
                         uploaded_filenames[att.filename] = att
-                
+
                 if duplicates_found:
                     st.warning(f"⚠️ Duplicate file(s) detected: **{', '.join(set(duplicates_found))}**")
                     st.info("💡 These files already exist in the project. They will be uploaded again, potentially creating duplicate embeddings.")
@@ -247,7 +329,7 @@ class ChatComponent:
             user_msg = {
                 "type": "human",
                 "data": {
-                    "content": question.text if hasattr(question, "text") else question,
+                    "content": raw_text,
                     "attachments": [att.model_dump(mode = "json") for att in attachment_payload]
                 }
             }
@@ -255,7 +337,7 @@ class ChatComponent:
 
             # Display user message
             with st.chat_message("user"):
-                st.markdown(question.text if hasattr(question, "text") else question)
+                st.markdown(raw_text)
 
                 if hasattr(question, "files") and question.files:
                     files = question.files
@@ -277,12 +359,13 @@ class ChatComponent:
 
                 # Prepare request
                 request = AskAgentRequest(
-                    question=question.text if hasattr(question, "text") else question,
+                    question=raw_text,
                     session_id=st.session_state.session_id,
                     attachments=[att.model_dump(mode = "json") for att in attachment_payload],
                     query_id=query_id,
                     project_id = st.session_state.project_id,
                     llm_model=st.session_state.llm_model,
+                    focus_context=focus_context,
                 )
 
                 # Define callbacks

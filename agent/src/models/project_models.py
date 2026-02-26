@@ -247,6 +247,7 @@ class Email(EmailExtracted):
     headers: dict = Field(default_factory=dict)
     #attachments: list[str] = Field(default_factory=list)
     size: Optional[int] = None
+    path : Optional[str] = None
     
     class Config:
         populate_by_name = True  # Accept both 'from_addr' and 'from'

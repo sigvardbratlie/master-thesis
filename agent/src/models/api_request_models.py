@@ -67,6 +67,7 @@ class AskAgentRequest(BaseModel):
     llm_model : str
     query_id: str
     project_id: Optional[str] = None
+    focus_context: Optional[str] = None
 
 
 class StreamlitUserInfo(BaseModel):
