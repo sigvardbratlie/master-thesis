@@ -48,13 +48,6 @@ class EmailHandler(BaseHandler):
     def __init__(self):
         super().__init__()
 
-    def _dedoce_base64(self, content: str) -> bytes:
-        try:
-            return base64.b64decode(content)
-        except Exception as e:
-            logger.error(f"❌ Base64 decode failed: {e}", exc_info=True)
-            raise ValueError("Invalid base64 content") from e
-
     def _extract_email_body(self, msg : Message) -> dict:
         if msg.is_multipart():
             body_text = ""
@@ -156,20 +149,19 @@ class EmailHandler(BaseHandler):
 
         return {"email" : email_data, "attachments" : attachments if attachments else []}
 
-    def parse_eml_to_obj(self, content: str, user_id, query_id, session_id, file_id) -> dict:
+    def parse_eml_to_obj(self, content: bytes, user_id, query_id, session_id, file_id) -> dict:
         '''Process EML content and extract email data and attachments
-        
+
         Args:
-            content (str): The EML content as a base64 encoded string.
+            content (bytes): The raw EML content.
             user_id (str): The ID of the user associated with the email.
             query_id (str): The ID of the query associated with the email.
             session_id (str): The ID of the session associated with the email.
             file_id (str): The ID of the file associated with the email.
         Returns:
             dict: A dictionary containing the extracted email data and attachments.
-        
+
         '''
-        content = self._dedoce_base64(content)
         try:
             msg = email.message_from_bytes(content)
         except Exception as e:
@@ -182,17 +174,16 @@ class EmailHandler(BaseHandler):
                                               file_id=file_id)
         return email_data
     
-    def parse_eml_to_docs(self, content: bytes, metadata : dict) -> list[Document]:
+    def parse_eml_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
         '''Process EML content and extract email data and attachments
-        
+
         Args:
-            content (str): The EML content as a base64 encoded string.
-            user_id (str): The ID of the user associated with the email.
-            query_id (str): The ID of the query associated with the email.
-            session_id (str): The ID of the session associated with the email.
+            content (bytes): The raw EML content.
+            metadata (dict): Additional metadata to attach to each Document.
+            force_metadata_model (bool): Validate and serialize metadata through VectorStoreMetadata. Defaults to True.
         Returns:
-            dict: A dictionary containing the extracted email data and attachments.
-        
+            list[Document]: A list of Document objects extracted from the email body.
+
         '''
         try:
             msg = email.message_from_bytes(content)
@@ -201,23 +192,21 @@ class EmailHandler(BaseHandler):
             raise ValueError("Invalid EML content") from e
         body = self._extract_email_body(msg)
         chunks = self.splitter.split_text(body.get("text", ""))
-        docs = []
         if not chunks:
             logger.warning("⚠️  No text chunks from email body — using raw text")
             chunks = [body.get("text", "")]
         metadata_all = {**metadata,
                         "file_size": len(content),
                         "file_type": "message/rfc822",
-                        "creator" : msg.get("From"),
-                        "title" : msg.get("Subject"),
-                        "created_at" : email.utils.parsedate_to_datetime(msg.get("Date")) if msg.get("Date") else None,
-                        } 
-        metadata_model = VectorStoreMetadata.model_validate(metadata_all)
-        
-        for i, chunk in enumerate(chunks):
-            #logger.debug(f"Chunk {i + 1}/{len(chunks)}: {chunk[:100]}...")  # Log first 100 chars of each chunk
-            docs.append(Document(page_content=chunk, metadata={**metadata_model.model_dump(), "chunk": i+1, "total_chunks": len(chunks)}))
-        return docs
+                        "creator": msg.get("From"),
+                        "title": msg.get("Subject"),
+                        "created_at": email.utils.parsedate_to_datetime(msg.get("Date")) if msg.get("Date") else None,
+                        }
+        final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump() if force_metadata_model else metadata_all
+        return [
+            Document(page_content=chunk, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(chunks)})
+            for i, chunk in enumerate(chunks)
+        ]
     
     def mk_eml(self, email_data : WriteEmail) -> bytes:
         msg = email.message.EmailMessage()
@@ -304,18 +293,17 @@ class PDFHandler(BaseHandler):
                     except:
                         pass
     
-    def parse_pdf_to_docs(self, content: bytes, metadata: dict) -> List[Document]:
+    def parse_pdf_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> List[Document]:
         if self._needs_ocr(content):
             logger.info("🔍 PDF needs OCR — processing...")
             content = self._ocr_bytes(content)
-        
+
         count_without_text = 0
         try:
             reader = PdfReader(BytesIO(content))
         except Exception as e:
-            logger.error(f"❌ Error reading PDF: {e}")
+            logger.error(f"❌ Error reading PDF: {e} ({metadata.get('filename', 'unknown')})")
             return []
-        docs = []
         base_meta = metadata | {
             "creator": reader.metadata.creator if reader.metadata else None,
             "producer": reader.metadata.producer if reader.metadata else None,
@@ -326,121 +314,93 @@ class PDFHandler(BaseHandler):
             "file_size": len(content),
             "file_type": "application/pdf",
         }
-        meta_model = VectorStoreMetadata.model_validate(base_meta)
+        final_metadata = VectorStoreMetadata.model_validate(base_meta).model_dump() if force_metadata_model else base_meta
 
+        docs = []
         for i, page in enumerate(reader.pages):
             txt = page.extract_text().strip() if page.extract_text() else ""
             if not txt:
                 count_without_text += 1
                 logger.debug(f"Page {i + 1} has no extractable text.")
                 continue
+            docs.append(Document(
+                page_content=txt,
+                metadata={**final_metadata, "chunk": i + 1, "total_chunks": len(reader.pages)}
+            ))
 
-            else:
-                docs.append(Document(
-                    page_content=txt,
-                    metadata={**meta_model.model_dump(), "chunk": i + 1, "total_chunks": len(reader.pages)}
-                ))
-            
         if not docs or count_without_text == len(reader.pages):
-            logger.warning("⚠️  No pages extracted from PDF")
+            logger.warning(f"⚠️  No pages extracted from PDF {metadata.get('filename', 'unknown')} — all {count_without_text} pages had no text")
             return []
-        logger.debug(f"Extracted {len(docs)} pages with text out of {len(reader.pages)} total pages.")
+        logger.debug(f"Extracted {len(docs)} pages with text out of {len(reader.pages)} total pages from {metadata.get('filename', 'unknown')}.")
         return docs
     
 class TextHandler(BaseHandler):
     def __init__(self):
         super().__init__()
 
-    def parse_text_to_docs(self, content : bytes, metadata: dict) -> List[Document]:
+    def parse_text_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> List[Document]:
         text = content.decode('utf-8', errors='ignore')
         try:
             chunks = self.splitter.split_text(text)
         except Exception as e:
-            logger.error(f"❌ Text split failed: {e}")
-            chunks = [text]  # Fallback to whole text if splitting fails
+            logger.error(f"❌ Text split failed: {e} ({metadata.get('filename', 'unknown')})")
+            chunks = [text]
 
         if not chunks:
-            logger.warning("⚠️  No chunks created from text")
+            logger.warning(f"⚠️  No chunks created from text ({metadata.get('filename', 'unknown')})")
             return []
-        
-        metadata_all = {**metadata,
-                        "file_size": len(content),
-                        "file_type": "text/plain",
-                        }
-        meta_model = VectorStoreMetadata.model_validate(metadata_all)
-        try:
-            return [
-                Document(
-                    page_content=chunk,
-                    metadata={**meta_model.model_dump(), "chunk": i+1, "total_chunks": len(chunks)}
-                )
-                for i, chunk in enumerate(chunks)
-            ]
-        except Exception as e:
-            logger.error(f"❌ Document object creation failed: {e}")
-            return []
+
+        metadata_all = {**metadata, "file_size": len(content), "file_type": "text/plain"}
+        final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump() if force_metadata_model else metadata_all
+        return [
+            Document(page_content=chunk, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(chunks)})
+            for i, chunk in enumerate(chunks)
+        ]
         
 
-    def parse_csv_to_docs(self, content: bytes, metadata: dict) -> list[Document]:
+    def parse_csv_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
         content_decoded = content.decode('utf-8', errors='ignore')
-        docs = []
         chunks = self.splitter.split_text(content_decoded)
         if not chunks:
-            logger.warning("⚠️  No chunks created from CSV content")
+            logger.warning(f"⚠️  No chunks created from CSV content ({metadata.get('filename', 'unknown')})")
             chunks = [content_decoded]
 
-        metadata_all = {**metadata,
-                        "file_size": len(content),
-                        "file_type": "text/csv",
-                        }
-        metadata_model = VectorStoreMetadata.model_validate(metadata_all)
-
-        for i, chunk in enumerate(chunks):
-            #logger.debug(f"Chunk {i + 1}/{len(chunks)}: {chunk[:100]}...")  # Log first 100 chars of each chunk
-            docs.append(Document(page_content=chunk, metadata={**metadata_model.model_dump(), "chunk": i+1, "total_chunks": len(chunks)}))
-        return docs
+        metadata_all = {**metadata, "file_size": len(content), "file_type": "text/csv"}
+        final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump() if force_metadata_model else metadata_all
+        return [
+            Document(page_content=chunk, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(chunks)})
+            for i, chunk in enumerate(chunks)
+        ]
         
 class DocxHandler(BaseHandler):
     def __init__(self):
         super().__init__()
 
-    def parse_docx_to_docs(self, content: bytes, metadata: dict) -> list[Document]:
-        docs = []
+    def parse_docx_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
         try:
-            file = BytesIO(content)
-            word_doc = DocxDocument(file)
+            word_doc = DocxDocument(BytesIO(content))
         except Exception as e:
-            logger.error(f"❌ Failed to load DOCX: {e}")
+            logger.error(f"❌ Failed to load DOCX: {e} ({metadata.get('filename', 'unknown')})")
             return []
-        
+
         props = word_doc.core_properties
         metadata_full = {
-                    **metadata,
-                    "title": props.title,
-                    "creator": props.author,
-                    "created_at": props.created.isoformat() if props.created else None,         
-                    "updated_at": props.modified.isoformat() if props.modified else None,
-                    "comments": props.comments,
-                    "language": props.language,
-                    "file_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            **metadata,
+            "title": props.title,
+            "creator": props.author,
+            "created_at": props.created.isoformat() if props.created else None,
+            "updated_at": props.modified.isoformat() if props.modified else None,
+            "comments": props.comments,
+            "language": props.language,
+            "file_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }
+        final_metadata = VectorStoreMetadata.model_validate(metadata_full).model_dump() if force_metadata_model else metadata_full
 
-                    #"subject": props.subject,
-                    #"keywords": props.keywords,
-                    #"revision": props.revision,
-                    #"last_modified_by": props.last_modified_by,
-                    #"category": props.category,
-                    #"content_status": props.content_status,
-                }
-        metadata_model = VectorStoreMetadata.model_validate(metadata_full)
-        
-        for i, para in enumerate(word_doc.paragraphs):
-                text = para.text.strip()
-                if text:
-                    docs.append(Document(
-                        page_content=text,
-                        metadata={**metadata_model.model_dump(), "chunk": i+1, "total_chunks": len(word_doc.paragraphs)}))
-                    
-        return docs
+        return [
+            Document(page_content=para.text.strip(), metadata={**final_metadata, "chunk": i+1, "total_chunks": len(word_doc.paragraphs)})
+            for i, para in enumerate(word_doc.paragraphs)
+            if para.text.strip()
+        ]
 
     def mk_docx(self, docx_data : WriteDocx) -> bytes:
         doc = DocxDocument()
@@ -457,87 +417,94 @@ class XlsxHandler(BaseHandler):
         super().__init__()
     
     def parse_xlsx_to_docs(self, content: bytes, metadata: dict) -> list[Document]:
-        logger.warning("⚠️  XLSX parsing not implemented yet")
+        logger.warning(f"⚠️  XLSX parsing not implemented yet {metadata.get('filename', 'unknown')}")
         return []
     
 class PptxHandler(BaseHandler):
     def __init__(self):
         super().__init__()
 
-    def parse_pptx_to_docs(self, content: bytes, metadata: dict) -> list[Document]:
-        docs = []
+    def parse_pptx_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
         try:
-            file = BytesIO(content)
-            ppt_doc = Presentation(file)
+            ppt_doc = Presentation(BytesIO(content))
         except Exception as e:
-            logger.error(f"❌ Failed to load PPTX: {e}")
+            logger.error(f"❌ Failed to load PPTX: {e} ({metadata.get('filename', 'unknown')})  ")
             return []
+
         props = ppt_doc.core_properties
         metadata_full = {
-                    **metadata,
-                    "title": props.title,
-                    "creator": props.author,
-                    "created_at": props.created.isoformat() if props.created else None,         
-                    "updated_at": props.modified.isoformat() if props.modified else None,
-                    "comments": props.comments,
-                    "language": props.language,
-                    "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",}
-        metadata_model = VectorStoreMetadata.model_validate(metadata_full)
+            **metadata,
+            "title": props.title,
+            "creator": props.author,
+            "created_at": props.created.isoformat() if props.created else None,
+            "updated_at": props.modified.isoformat() if props.modified else None,
+            "comments": props.comments,
+            "language": props.language,
+            "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        }
+        final_metadata = VectorStoreMetadata.model_validate(metadata_full).model_dump() if force_metadata_model else metadata_full
+
+        docs = []
         for i, slide in enumerate(ppt_doc.slides):
-            slide_text = []
-            for shape in slide.shapes:
-                if hasattr(shape, "text"):
-                    slide_text.append(shape.text.strip())
-            slide_text_combined = "\n".join(slide_text).strip()
-            if slide_text_combined:
-                docs.append(Document(
-                    page_content=slide_text_combined,
-                    metadata={**metadata_model.model_dump(), "chunk": i+1, "total_chunks": len(ppt_doc.slides)}))
+            slide_text = "\n".join(shape.text.strip() for shape in slide.shapes if hasattr(shape, "text")).strip()
+            if slide_text:
+                docs.append(Document(page_content=slide_text, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(ppt_doc.slides)}))
         return docs
 
 
 class DocumentProcessor(BaseHandler):
-    """Handles ONLY parsing - no storage logic."""
+    """Handles parsing of various document types into Document objects, ready for embedding and storage. Delegates to specific handlers based on file type."""
     
     def __init__(self,):
         pass
 
-    def parse(self, content : str, 
-                           file_type : FileType,
-                           metadata : dict = None) -> List[Document]:
+    def map_file_type(self, file_suffix: str) -> FileType:
+        """Maps file suffix to MIME type for parsing. Defaults to 'unknown/unknown' if not recognized."""
+        mapping = {
+            ".pdf":"application/pdf",
+            ".txt": "text/plain",
+            ".md": "text/markdown",
+            ".csv": "text/csv",
+            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            ".xlsx" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+            ".eml": "message/rfc822",
+        }
+        return mapping.get(file_suffix, "unknown/unknown")
+
+    def parse(self, content: bytes,
+              file_type: FileType,
+              metadata: dict = None,
+              force_metadata_model: bool = True) -> List[Document]:
         '''Main entry point for parsing attachments. Handles different file types and routes to appropriate parsers.
         Args:
-            content (str): The content of the attachment, expected to be a base64 encoded string.
+            content (bytes): The raw binary content of the attachment.
             file_type (str): The MIME type of the file, used to determine parsing method.
             metadata (dict): Additional metadata to attach to each Document, such as file_id and session_id.
+            force_metadata_model (bool): Validate and serialize metadata through VectorStoreMetadata. Defaults to True.
         Returns:
             List[Document]: A list of Document objects extracted from the attachment, ready for embedding and storage.
         '''
 
-        if "file_id" not in metadata or "session_id" not in metadata or "embedding_model" not in metadata:
-            logger.error("❌ Metadata missing required fields: 'file_id', 'session_id', 'embedding_model'")
-            raise ValueError("Metadata must include 'file_id', 'session_id', and 'embedding_model'")
-        
-        try:
-            content_decoded = base64.b64decode(content)
-        except Exception as e:
-            logger.error(f"❌ Base64 decode failed for {metadata.get('file_id')}: {e}")
-            return []
-        
+        # if "file_id" not in metadata or "session_id" not in metadata or "embedding_model" not in metadata:
+        #     logger.error("❌ Metadata missing required fields: 'file_id', 'session_id', 'embedding_model'")
+        #     raise ValueError("Metadata must include 'file_id', 'session_id', and 'embedding_model'")
+
+        kwargs = {"metadata": metadata, "force_metadata_model": force_metadata_model}
         if file_type == "application/pdf":
-            return PDFHandler().parse_pdf_to_docs(content_decoded, metadata=metadata)
+            return PDFHandler().parse_pdf_to_docs(content, **kwargs)
         elif file_type in ["text/plain", "text/markdown"]:
-            return TextHandler().parse_text_to_docs(content_decoded, metadata=metadata)
+            return TextHandler().parse_text_to_docs(content, **kwargs)
         elif file_type == "text/csv":
-            return TextHandler().parse_csv_to_docs(content_decoded, metadata=metadata)
+            return TextHandler().parse_csv_to_docs(content, **kwargs)
         elif file_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-            return XlsxHandler().parse_xlsx_to_docs(content_decoded, metadata=metadata)
+            return XlsxHandler().parse_xlsx_to_docs(content, **kwargs)
         elif file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            return DocxHandler().parse_docx_to_docs(content_decoded, metadata=metadata)
+            return DocxHandler().parse_docx_to_docs(content, **kwargs)
         elif file_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation":
-            return PptxHandler().parse_pptx_to_docs(content_decoded, metadata=metadata)
+            return PptxHandler().parse_pptx_to_docs(content, **kwargs)
         elif file_type == "message/rfc822":
-            return EmailHandler().parse_eml_to_docs(content_decoded, metadata=metadata)
+            return EmailHandler().parse_eml_to_docs(content, **kwargs)
         else:
             logger.warning(f"⚠️  Unsupported file type '{file_type}' for {metadata.get('file_id')}")
             return []

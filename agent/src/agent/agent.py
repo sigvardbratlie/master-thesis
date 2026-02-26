@@ -597,7 +597,7 @@ class Agent:
             docs = []
             for att in query.attachments:
                 extracted_docs = self.document_processor.parse(
-                    content = att.content,
+                    content=base64.b64decode(att.content),
                     metadata={"file_id": att.file_id,
                               "filename": att.filename,
                               "user_id": user_id,
@@ -732,29 +732,31 @@ class Agent:
 
         
         doc_tasks = []
-        threshold = 5 * 1024 * 1024  # 5MB threshold for emails
-        max_attachments = 7
+        threshold = 500 * 1024  # 500KB extracted text — sized for LLM context window
+        max_attachments = 10
 
         eml = EmailHandler()
         email_attachments = []
         email_size_counter = 0
-        
+
         doc_size_counter = 0
         doc_attachments = []
 
+        logger.info(f"📎 Preparing analysis tasks for {len(attachments or [])} attachment(s)")
+
         for att in attachments or []:
             if att.file_type != "message/rfc822":
-                att_size = att.size or len(att.content or "")
+                att_size = len(att.body.encode("utf-8")) if att.body else att.size or 0
                 if doc_size_counter + att_size <= threshold and len(doc_attachments) < max_attachments:
                     doc_attachments.append(att)
                     doc_size_counter += att_size
                 else:
-                    if doc_attachments:
-                        doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_=input_,))
+                    logger.info(f"📦 Dispatching doc batch: {len(doc_attachments)} file(s), {doc_size_counter / 1024:.1f}KB")
+                    doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_=input_))
                     doc_attachments = [att]
                     doc_size_counter = att_size
             elif att.file_type == "message/rfc822":
-                data = eml.parse_eml_to_obj(content=att.content,
+                data = eml.parse_eml_to_obj(content=base64.b64decode(att.content),
                                      user_id=user_id,
                                      query_id=query.query_id,
                                      session_id=query.session_id,
@@ -762,26 +764,28 @@ class Agent:
                 email = data.get("email", [])
                 current_email_attachments = data.get("attachments", [])
                 if current_email_attachments:
-                    doc_tasks.append(analyze_docs_with_limit(current_email_attachments, input_=input_,))
-                logger.debug(f' === EXTRACTED {len(current_email_attachments)} attachments from email {att.filename} === \n') if current_email_attachments else logger.debug(f' === NO ATTACHMENTS EXTRACTED from email {att.filename} === \n')
-
-                if email_size_counter + att.size <= threshold and len(email_attachments) < max_attachments:
-                    email_attachments.append(email)
-                    email_size_counter += att.size
-                    logger.debug(f' === ACCUMULATED {len(email_attachments)} emails so far (size: {email_size_counter} bytes) === ')
+                    logger.info(f"📎 Email '{att.filename}': {len(current_email_attachments)} nested attachment(s) → dispatching as doc batch")
+                    doc_tasks.append(analyze_docs_with_limit(current_email_attachments, input_=input_))
                 else:
-                    logger.debug(f' === BATCH LIMIT REACHED: Processing batch of {len(email_attachments)} emails (size: {email_size_counter} bytes) === ')
-                    if email_attachments:
-                        doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
+                    logger.debug(f"📭 Email '{att.filename}': no nested attachments")
+
+                email_size = len(att.body.encode("utf-8")) if att.body else att.size or 0
+                if email_size_counter + email_size <= threshold and len(email_attachments) < max_attachments:
+                    email_attachments.append(email)
+                    email_size_counter += email_size
+                    logger.debug(f"📧 Accumulated {len(email_attachments)} email(s) in batch ({email_size_counter / 1024:.1f}KB)")
+                else:
+                    logger.info(f"📦 Dispatching email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
+                    doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
                     email_attachments = [email]
-                    email_size_counter = att.size
+                    email_size_counter = email_size
 
         if email_attachments:
-            logger.debug(f' === FINAL BATCH: Sending {len(email_attachments)} emails to analyze_emails_with_limit === ')
+            logger.info(f"📦 Dispatching final email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
             doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
-        
+
         if doc_attachments:
-            logger.debug(f' === FINAL BATCH: Sending {len(doc_attachments)} documents to analyze_docs_with_limit === ')
+            logger.info(f"📦 Dispatching final doc batch: {len(doc_attachments)} file(s), {doc_size_counter / 1024:.1f}KB")
             doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_))
 
         return doc_tasks
@@ -821,8 +825,8 @@ class Agent:
             }
             
             extracted_docs = self.document_processor.parse(
-                content=att.content, 
-                file_type=att.file_type, 
+                content=base64.b64decode(att.content),
+                file_type=att.file_type,
                 metadata={
                     "file_id": att.file_id, 
                     "filename": att.filename, 
