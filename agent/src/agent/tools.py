@@ -42,24 +42,19 @@ def read_attachment(path : str,
     content = storage_manager.read_attachment(path=path)
     try:
         file_id = path.split("/")[-1].split(".")[0] if "." in path else path.split("/")[-1]
-        ext = path.split(".")[-1] if "." in path else ""
+        ext = "." + path.split(".")[-1] if "." in path else ""
     except Exception as e:
         logger.error(f"Error extracting file_id and extension from path: {e}")
         return None
-    if ext in ["pdf", "docx", "pptx", "eml", "txt", "md"]:
-        file_type = {
-            "pdf": "application/pdf",
-            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            "eml": "message/rfc822",
-            "txt": "text/plain",
-            "md": "text/markdown"
-        }.get(ext, "text/plain")
+    if ext in [".pdf", ".docx", ".pptx", ".eml", ".txt", ".md"]:
+        file_type = document_processor.map_file_type(ext)
         docs = document_processor.parse(content=content,
                                         metadata = {"file_id": file_id, 
+                                                    "filename": file_id + ext,
                                                     "session_id": None,
                                                     "embedding_model": None},  
-                                        file_type=file_type,)
+                                        file_type=file_type,
+                                        force_metadata_model=False)
         content_txt = document_processor.to_plain_text(docs)
         return f"Content for file path {path}: \n{content_txt}\n\n"
     else:
