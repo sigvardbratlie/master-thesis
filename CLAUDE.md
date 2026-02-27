@@ -22,30 +22,40 @@ Do not write code unless explicitly asked.
 
 This repository provides:
 - **Agent**: LangGraph-based conversational agent with tool-calling (`agent/`)
-- **Database**: Firestore for conversations and vector search (considering migration to Supabase)
+- **Database**: Supabase (PostgreSQL + Storage + Auth)
 - **UI**: Streamlit interface for chat and factsheet display (`ui/`)
-- **Auth**: Google authentication (`agent/src/auth/`)
+- **Evals**: Evaluation framework for benchmarking agent performance (`evals/`)
+- **Data Viewer**: Streamlit app for browsing GCS datasets (`data-viewer/`)
 
 ### Key Concepts
 - **FactSheet**: Structured legal case summary (parties, claims, damages, timeline, governing law)
-- **Attachments**: PDF/text documents parsed and stored in vector store for RAG
-- **Multi-LLM**: Supports Google, OpenAI, and Claude as LLM providers
+- **Attachments**: PDF/DOCX/PPTX/EML documents parsed and stored in vector store for RAG
+- **Multi-LLM**: Supports Google Gemini (primary) and OpenAI GPT (secondary)
 
 ```
 ├── agent/
-│   ├── main.py                    # Agent entry point
+│   ├── main.py                    # FastAPI app, endpoints, SSE streaming
 │   └── src/
 │       ├── agent/                 # Core agent logic (LangGraph)
-│       │   ├── agent.py           # Main Agent class
-│       │   ├── agent_modules.py   # Summarizer, ContextManager, ToolManager
-│       │   ├── basemodels.py      # Pydantic models (FactSheet, AgentState)
-│       │   └── tools.py           # Agent tools
-│       ├── auth/                  # Google authentication
-│       └── database/              # Firestore, vector search, conversation management
+│       │   ├── agent.py           # Main Agent class (LangGraph StateGraph)
+│       │   ├── agent_modules.py   # Summarizer, ToolManager
+│       │   ├── context_manager.py # ContextManager (extraction, cleanup)
+│       │   ├── tools.py           # Agent tools (TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS)
+│       │   └── utils.py           # PROMPT constants, LLM initialization
+│       ├── auth/                  # Supabase JWT auth (google_auth.py is legacy)
+│       ├── database/              # SupabaseManager, BQVectorStore, SupabaseStorageManager
+│       ├── documents/             # DocumentProcessor, EmailHandler (PDF/DOCX/PPTX/EML + OCR)
+│       └── models/                # Pydantic models (project_models, agent_models, api_request_models)
 ├── ui/
 │   ├── main.py                    # Streamlit app entry
-│   ├── pages/                     # Streamlit pages
-│   └── src/ui/                    # UI components and services
+│   ├── pages/                     # project_view.py, user_details.py
+│   └── src/ui/                    # Services, UI components, models
+├── evals/
+│   ├── collect.py                 # CLI: run agent against test datasets
+│   ├── evaluate.py                # CLI: run DeepEval metrics
+│   └── src/evals/                 # dataset_module, evaluate_module, models, utils
+├── data-viewer/
+│   └── main.py                    # Streamlit app for browsing GCS datasets
 ├── promptx/
 │   └── personas/                  # Agent persona definitions
 └── factsheet.md                   # FactSheet template
@@ -61,6 +71,9 @@ This repository provides:
 
 ## Technical Notes
 
-- **Python 3.13** with uv for dependency management
+- **Python 3.13** with uv for dependency management (workspace: agent, ui, evals, data-viewer)
 - **Secrets**: Environment variables in `.env` (never commit)
 - **LangChain/LangGraph**: For agent orchestration and streaming
+- **Auth**: Supabase JWT (Bearer token). `supabase_auth.py` is primary; `google_auth.py` is legacy
+- **Database**: Supabase PostgreSQL (primary). FirestoreManager is legacy
+- **Checkpointer**: `AsyncPostgresSaver` (LangGraph state via Supabase PostgreSQL)

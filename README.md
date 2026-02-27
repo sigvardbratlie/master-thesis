@@ -4,7 +4,7 @@ LLM-powered legal case management agent that helps lawyers analyze cases, manage
 
 ## Architecture Overview
 
-The project is a **uv workspace** with three packages: `agent`, `ui`, and `data`.
+The project is a **uv workspace** with four packages: `agent`, `ui`, `evals`, and `data-viewer`.
 
 ```
 master-thesis/
@@ -14,22 +14,25 @@ master-thesis/
 │       ├── agent/
 │       │   ├── agent.py           # Main Agent class (LangGraph StateGraph)
 │       │   ├── agent_modules.py   # Summarizer, ToolManager
-│       │   ├── context_manager.py # ContextManager (structured LLM extraction, cleanup)
-│       │   ├── tools.py           # Agent tools (TOOLS list)
-│       │   └── utils.py           # PROMPT constant, LLM config
+│       │   ├── context_manager.py # ContextManager (extraction, cleanup)
+│       │   ├── tools.py           # Agent tools (TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS)
+│       │   └── utils.py           # PROMPT constants, LLM initialization
 │       ├── auth/
-│       │   ├── google_auth.py     # Google OAuth
+│       │   ├── google_auth.py     # Google OAuth (legacy)
 │       │   └── supabase_auth.py   # Supabase JWT auth
 │       ├── database/
 │       │   ├── database_modules.py    # FirestoreManager, SupabaseManager (CRUD)
 │       │   ├── vectorstore_modules.py # BQVectorStore, ChromaVectorStore (RAG)
-│       │   ├── storage_modules.py     # GCSManager, SupabaseStorageManager (file storage)
-│       │   ├── document_modules.py    # DocumentProcessor (PDF/DOCX/PPTX/EML parsing + OCR)
+│       │   ├── storage_modules.py     # GCSManager (legacy), SupabaseStorageManager
 │       │   └── langchain_firestore.py # FirestoreSaver (LangGraph checkpointer)
+│       ├── documents/
+│       │   └── document_modules.py    # DocumentProcessor, EmailHandler (PDF/DOCX/PPTX/EML + OCR)
 │       └── models/
 │           ├── project_models.py      # FactSheet, Party, Event, Claim, Damage, etc.
 │           ├── agent_models.py        # AgentState (LangGraph TypedDict)
-│           └── api_request_models.py  # AskAgentRequest, StreamEvent, AttachmentModel, etc.
+│           ├── api_request_models.py  # AskAgentRequest, StreamEvent, AttachmentModel, etc.
+│           ├── response_models.py     # Response structures
+│           └── document_models.py     # Document metadata models
 ├── ui/                            # Streamlit frontend
 │   ├── main.py                    # App entry point
 │   ├── pages/
@@ -47,9 +50,20 @@ master-thesis/
 │       │   └── tool_results.py    # Tool result display
 │       ├── models.py              # UI-side Pydantic models
 │       └── utils.py               # Session state initialization
-├── data/                          # Data processing scripts
+├── evals/                         # Evaluation framework
+│   ├── collect.py                 # CLI: run agent against test datasets, collect results
+│   ├── evaluate.py                # CLI: run DeepEval metrics on collected results
+│   └── src/evals/
+│       ├── dataset_module.py      # Dataset, CollectAgentResult (GCS operations)
+│       ├── evaluate_module.py     # Evaluater (DeepEval metrics)
+│       ├── models.py              # ConversationTurn, Session, GatheredResultPayload, EvalOutput
+│       ├── langsmith_module.py    # LangSmith tracing integration
+│       ├── lovdata_module.py      # Norwegian legal document processing
+│       └── utils.py               # DocumentHandler, ParsedAttachment, ParsedEmail
+├── data-viewer/                   # Streamlit app for browsing GCS datasets
+│   └── main.py                    # Dataset viewer (list, inspect, download)
 ├── factsheet.md                   # FactSheet template (reference for legal structure)
-├── promptx/personas/              # Claude Code persona definitions
+├── promptx/personas/              # AI assistant persona definitions
 ├── CLAUDE.md                      # AI assistant instructions
 └── pyproject.toml                 # Root workspace config
 ```
@@ -62,18 +76,19 @@ master-thesis/
 | Package manager | uv (workspace) |
 | Agent framework | LangGraph (StateGraph) |
 | LLM orchestration | LangChain (init_chat_model) |
-| LLM providers | Google Gemini, OpenAI GPT |
+| LLM providers | Google Gemini (primary), OpenAI GPT (secondary) |
 | Backend API | FastAPI + Uvicorn |
 | Streaming | Server-Sent Events (SSE) |
 | Frontend | Streamlit |
 | Auth | Supabase Auth (JWT) |
 | Database | Supabase (PostgreSQL) |
 | Vector store | BigQuery Vector Store (persistent), ChromaDB (in-memory) |
-| File storage | Supabase Storage (previously GCS) |
-| Checkpointer | LangGraph AsyncPostgresSaver (Supabase Postgres) |
+| File storage | Supabase Storage |
+| Checkpointer | LangGraph AsyncPostgresSaver (Supabase PostgreSQL) |
 | Document parsing | PyPDF2, ocrmypdf, python-docx, python-pptx |
 | Embeddings | Google Generative AI Embeddings (gemini-embedding-001) |
 | Web search | Tavily |
+| Evaluation | DeepEval |
 
 ## Key Concepts
 
@@ -100,19 +115,34 @@ Long conversations are handled with rolling summarization (every 8 messages).
 ### Project Initialization Pipeline
 `POST /init-project` triggers a multi-phase async pipeline:
 1. **Phase 1**: Parse documents (PDF/DOCX/PPTX/EML with OCR), store in vector store + file storage, analyze initial input
-2. **Phase 2**: Analyze documents and emails in parallel (extract events, claims, damages, deadlines, attachments metadata)
+2. **Phase 2**: Analyze documents and emails in parallel (extract events, claims, damages, deadlines, attachment metadata)
 3. **Phase 3**: Analyze factual facts and governing law
 
 All phases stream status events back to the frontend via SSE.
 
 ### Tools
 The agent has access to these tools (`agent/src/agent/tools.py`):
+
+**Full agent (TOOLS):**
 - `tavily_search` - Web search via Tavily
 - `read_attachment` - Read file from Supabase storage
-- `read_project_attachments` - RAG query against project documents in BigQuery
+- `query_project_attachments` - RAG query against project documents in BigQuery
 - `read_laws` - RAG query against Norwegian law corpus
 - `update_project` - Trigger project state update
 - `clean_element` - Trigger cleanup of a specific factsheet element
+- `create_project` - Trigger creation of a new project
+
+**Baseline variants:**
+- `BASELINE_TOOLS` — `tavily_search`, `read_laws`
+- `BASELINE_RAG_TOOLS` — `tavily_search`, `read_laws`, `query_project_attachments`
+
+### Evaluation Framework
+Three agent configurations are compared in `evals/`:
+1. **Custom Agent** — Full tools + vector store + storage
+2. **Baseline Agent** — Web search + Norwegian laws only
+3. **Baseline RAG Agent** — Web search + laws + project attachment RAG (no storage/embedding)
+
+Results and metrics are stored in GCS and scored with DeepEval (hallucination detection, correctness, legal accuracy).
 
 ## API Endpoints
 
@@ -121,8 +151,11 @@ The agent has access to these tools (`agent/src/agent/tools.py`):
 | POST | `/ask-agent` | Chat with agent (SSE stream) |
 | POST | `/init-project` | Initialize project from attachments (SSE stream) |
 | POST | `/update-project` | Add new attachments to existing project (SSE stream) |
+| POST | `/update-project-from-session` | Update project based on session conversation (SSE stream) |
 | POST | `/cleanup-project-element/{type}` | Clean/deduplicate factsheet elements (SSE stream) |
 | POST | `/cleanup-project-attr/{type}` | Clean factsheet text attributes (SSE stream) |
+| DELETE | `/delete-vectorstore-project/{project_id}` | Delete project from BigQuery vector store |
+| DELETE | `/delete-vectorstore-file/{file_id}` | Delete single file from vector store |
 | GET | `/load-session-history/{id}` | Load chat history |
 | GET | `/load-user-sessions` | List user sessions |
 | GET | `/load-project/{id}` | Load project data |
@@ -157,6 +190,9 @@ uv run --package agent python agent/main.py
 
 # Run UI (separate terminal)
 uv run --package ui streamlit run ui/main.py
+
+# Run dataset viewer (separate terminal)
+uv run --package data-viewer streamlit run data-viewer/main.py
 ```
 
 The agent API runs on `http://localhost:8080` and the UI on `http://localhost:8501`.
