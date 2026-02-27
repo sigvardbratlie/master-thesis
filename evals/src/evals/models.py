@@ -52,13 +52,16 @@ class GatheredResultPayload(DatasetPayload):
 # ── Eval output payload ────────────────────────────────────────────────────────
 
 class EvalOutput(BaseModel):
-    """Output written to GCS by Evaluater.save_evaluation_results()."""
+    """Output written to GCS by Evaluater.save_evaluation_results().
+    token_counts and time_usage are not stored — they are joined from 04_results at load time."""
     dataset_name: Optional[str] = None
     project_id: Optional[str] = None
     user_id: Optional[str] = None
     eval_run_id: Optional[str] = None
     llm_model: Optional[str] = None
     agent_type: str = "unknown"
-    token_counts: Optional[Any] = None
     created_at: str
     results: Optional[list[dict]] = None
+    # Populated at load time by joining 04_results on eval_run_id
+    token_counts: Optional[Any] = None
+    time_usage: Optional[Any] = None

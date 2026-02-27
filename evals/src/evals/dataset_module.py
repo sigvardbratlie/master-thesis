@@ -82,13 +82,21 @@ class Dataset:
         return data
 
     def load_evaluation_results(self) -> dict[str, EvalOutput] | None:
+        collected = self.load_results()
+        collected_by_run_id = {v.eval_run_id: v for v in collected.values()} if collected else {}
+
         data = {}
         path = f"datasets/{self.name}/05_evals"
         for file in self.bucket.list_blobs(prefix=path):
             if file.name.endswith(".json"):
                 try:
                     content = json.loads(file.download_as_string().decode("utf-8"))
-                    data[file.name] = EvalOutput.model_validate(content)
+                    output = EvalOutput.model_validate(content)
+                    if output.eval_run_id and output.eval_run_id in collected_by_run_id:
+                        source = collected_by_run_id[output.eval_run_id]
+                        output.token_counts = source.token_counts
+                        output.time_usage = source.time_usage
+                    data[file.name] = output
                 except Exception as e:
                     logger.warning(f"Failed to load {file.name}: {e}")
 
@@ -113,7 +121,6 @@ class Dataset:
             eval_run_id=data.eval_run_id,
             llm_model=data.llm_model,
             agent_type=data.agent_type,
-            token_counts=data.token_counts,
             created_at=datetime.now().isoformat(),
             results=[r.model_dump() for r in results if isinstance(r, EvaluationResult)] if results else None,
         )
