@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
+from pydantic import ValidationError
 import sys
 import os
 import base64
@@ -94,7 +95,7 @@ def test_needs_ocr_with_text(pdf_handler):
     """PDF with sufficient text should not need OCR."""
     with patch('documents.document_modules.PdfReader') as mock_reader_cls:
         mock_page = MagicMock()
-        mock_page.extract_text.return_value = "A" * 200
+        mock_page.extract_text.return_value = "A" * 600
         mock_reader = MagicMock()
         mock_reader.pages = [mock_page, mock_page, mock_page]
         mock_reader_cls.return_value = mock_reader
@@ -577,7 +578,7 @@ def test_parse_pptx_to_docs_preserves_metadata(pptx_handler):
 
 def test_parse_routes_pdf(doc_processor):
     """Test parse() routes PDF to PDFHandler.parse_pdf_to_docs."""
-    content = get_mock_pdf_base64_with_text()
+    content = get_mock_pdf_bytes_with_text()
     metadata = get_mock_metadata()
 
     with patch.object(PDFHandler, 'parse_pdf_to_docs', return_value=[Document(page_content="parsed")]) as mock_parse:
@@ -642,12 +643,12 @@ def test_parse_routes_csv(doc_processor):
 
 def test_parse_routes_docx(doc_processor):
     """Test parse() routes docx to DocxHandler.parse_docx_to_docs."""
-    b64_content = get_mock_docx_base64()
+    content = get_mock_docx_bytes()
     metadata = get_mock_metadata()
 
     with patch.object(DocxHandler, 'parse_docx_to_docs', return_value=[Document(page_content="docx parsed")]) as mock_parse:
         result = doc_processor.parse(
-            content=b64_content,
+            content=content,
             file_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             metadata=metadata,
         )
@@ -659,12 +660,12 @@ def test_parse_routes_docx(doc_processor):
 
 def test_parse_routes_pptx(doc_processor):
     """Test parse() routes pptx to PptxHandler.parse_pptx_to_docs."""
-    b64_content = get_mock_pptx_base64()
+    content = get_mock_pptx_bytes()
     metadata = get_mock_metadata()
 
     with patch.object(PptxHandler, 'parse_pptx_to_docs', return_value=[Document(page_content="pptx parsed")]) as mock_parse:
         result = doc_processor.parse(
-            content=b64_content,
+            content=content,
             file_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
             metadata=metadata,
         )
@@ -686,17 +687,17 @@ def test_parse_invalid_base64(doc_processor):
 
 
 def test_parse_missing_metadata_raises(doc_processor):
-    """Test parse() raises ValueError when metadata is missing required fields."""
-    with pytest.raises(ValueError, match="Metadata must include"):
+    """Test parse() raises ValidationError when metadata is missing required fields."""
+    with pytest.raises(ValidationError):
         doc_processor.parse(
-            content="dGVzdA==",
+            content=b"test",
             file_type="text/plain",
             metadata={"file_id": "test"},
         )
 
-    with pytest.raises(ValueError, match="Metadata must include"):
+    with pytest.raises(ValidationError):
         doc_processor.parse(
-            content="dGVzdA==",
+            content=b"test",
             file_type="text/plain",
             metadata={"file_id": "test", "session_id": "sess"},
         )

@@ -48,15 +48,15 @@ def test_load_project(mock_supabase_manager):
     client.table.assert_called_once_with("projects")
     
     assert result is not None
-    assert "factsheet" in result
-    assert "attachments" in result
-    
-    factsheet = result["factsheet"]
+    assert result.factsheet is not None
+    assert result.attachments is not None
+
+    factsheet = result.factsheet
     assert factsheet.project_id == project_id
     assert factsheet.title == 'Eiendomskjøpssak - Problemer med eiendommen'
     assert len(factsheet.parties) == 12
 
-    attachments = result["attachments"]
+    attachments = result.attachments
     assert len(attachments) == 22
 
 
@@ -124,7 +124,7 @@ def test_load_projects(mock_supabase_manager):
 
     client.table.assert_called_once_with("projects")
     assert len(result) == 4
-    assert result[0].get("created_at") > result[-1].get("created_at")
+    assert result[0].created_at > result[-1].created_at
 
 def test_load_project_sessions(mock_supabase_manager):
     client = mock_supabase_manager.supabase
@@ -139,7 +139,7 @@ def test_load_project_sessions(mock_supabase_manager):
 
     client.table.assert_called_once_with("sessions")
     assert len(result) == 2
-    assert result[0].get("updated_at") > result[-1].get("updated_at")
+    assert result[0].updated_at > result[-1].updated_at
 
 
 def test_load_user_sessions(mock_supabase_manager):
@@ -154,7 +154,7 @@ def test_load_user_sessions(mock_supabase_manager):
     result = mock_supabase_manager.load_user_sessions(user_id)
     client.table.assert_called_once_with("sessions")
     assert len(result) == 8
-    assert result[0].get("updated_at") > result[-1].get("updated_at")
+    assert result[0].updated_at > result[-1].updated_at
 
 def test_load_session_history(mock_supabase_manager):
     # Her kan du implementere en test for load_session_history på samme måte
@@ -168,13 +168,13 @@ def test_load_session_history(mock_supabase_manager):
     result = mock_supabase_manager.load_session_history(session_id)
 
     client.table.assert_called_once_with("sessions")
-    assert "events" in result
-    assert "attachments" in result
-    assert "title" in result
-    assert "updated_at" in result
-    assert "llm_model" in result
-    assert len(result.get("events", [])) == 4
-    assert len(result.get("attachments", [])) == 1
+    assert result.events is not None
+    assert result.attachments is not None
+    assert result.title is not None
+    assert result.updated_at is not None
+    assert result.llm_model is not None
+    assert len(result.events) == 4
+    assert len(result.attachments) == 1
 
 
 def test_save_stream(mock_supabase_manager):

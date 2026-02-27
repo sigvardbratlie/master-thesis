@@ -204,6 +204,36 @@ class StreamingService:
             logger.error(f"Error in update_project stream: {e}", exc_info=True)
             raise
 
+    def update_project_from_session_stream(self, payload: AskAgentRequest) -> Generator[dict, None, None]:
+        """
+        Stream status updates from the /update-project-from-session endpoint.
+
+        Yields parsed status event dicts as they arrive from the backend SSE stream.
+        """
+        try:
+            with requests.post(
+                url=f"{self.backend_url}/update-project-from-session",
+                json=payload.model_dump(),
+                headers=self.headers,
+                stream=True,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    decoded_line = line.decode('utf-8')
+                    if not decoded_line.startswith('data:'):
+                        continue
+                    try:
+                        data = json.loads(decoded_line[5:])
+                        logger.debug(f"Update project from session stream data: {data}")
+                        yield data
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON decode error in update_project_from_session_stream: {e}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error in update_project_from_session stream: {e}", exc_info=True)
+            raise
+
     def cleanup_project_element_stream(self, payload : AskAgentRequest, element_type : str) -> Generator[dict, None, None]:
         """
         Stream status updates from the /cleanup-project-element endpoint.

@@ -630,11 +630,11 @@ async def test_cleanup_element_events(mock_agent):
     query = get_mock_ask_agent_request()
     from tests.fixtures.context_manager_data import get_mock_factsheet
 
-    mock_agent.conversation_manager.load_project.return_value = {
-        "factsheet": get_mock_factsheet(),
-        "attachments": [],
-        "emails": []
-    }
+    mock_agent.conversation_manager.load_project.return_value = ProjectData(
+        factsheet=get_mock_factsheet(),
+        attachments=[],
+        emails=[]
+    )
     mock_agent.context_manager.clean_element = AsyncMock(return_value=[
         {"event_id": "cleaned-event-001", "event_date": "2023-08-15"}
     ])

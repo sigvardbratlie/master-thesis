@@ -99,7 +99,7 @@ class StreamEvent(BaseModel):
     session_id : str
     langchain_id: Optional[str] = None
     content : Optional[str] = None
-    data : EventData | ToolResultData
+    data : ToolResultData | EventData
 
 class StreamData(BaseModel):
     llm_model : str

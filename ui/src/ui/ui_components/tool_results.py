@@ -116,9 +116,14 @@ class ToolResultComponent:
             self.display_element(tool_args, elements_container)
 
         elif tool_name == "read_vector_store":
-            pass
+            pass #st.markdown(f"Read from vector store, found {len(tool_data)} results.")
         elif tool_name == "read_attachment":
-            pass
+            st.markdown(f'Read attachment from storage')
+            for k,v in tool_args.items():
+                st.markdown(f"**{k}:** {v}")
+        elif tool_name == "update_project":
+            st.session_state["pending_project_update"] = True
+
         elif tool_name == "tavily_search":
             with elements_container:
                 st.markdown(f"Searched {tool_args.get('query', '')}, found {len(tool_data)} results.")

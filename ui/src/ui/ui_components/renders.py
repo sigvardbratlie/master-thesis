@@ -265,10 +265,53 @@ class ChatComponent:
         )
         return chat_question
 
+    def _stream_project_update(self, streaming_service):
+        """Stream the update-project-from-session endpoint and show progress."""
+        payload = AskAgentRequest(
+            question="Oppdater prosjektet basert på denne samtalen",
+            session_id=st.session_state.session_id,
+            project_id=st.session_state.project_id,
+            llm_model=st.session_state.llm_model,
+            query_id=str(uuid4()),
+        )
+        _render_project_stream_progress(
+            stream_iter=streaming_service.update_project_from_session_stream(payload),
+            initial_label="🔄 Oppdaterer prosjektet fra samtalen...",
+            complete_label="✅ Prosjektet er oppdatert!",
+        )
+
+    def render_session_actions(self, streaming_service):
+        """
+        Render session-level action buttons above the chat input.
+
+        Shows an agent-triggered confirmation when pending_project_update is set,
+        otherwise shows a manual 'add session as project material' button.
+        """
+        pending = st.session_state.get("pending_project_update", False)
+        messages = st.session_state.get("messages", [])
+
+        if pending:
+            st.info("Agenten foreslår å oppdatere prosjektet basert på samtalehistorikken.")
+            col1, col2 = st.columns([3, 1])
+            if col1.button("Vil du oppdatere prosjektet med hele denne samtalen?", type="primary", key="agent_update_confirm"):
+                st.session_state["pending_project_update"] = False
+                self._stream_project_update(streaming_service)
+            if col2.button("Avslå", key="agent_update_decline"):
+                st.session_state["pending_project_update"] = False
+                st.rerun()
+
+        elif messages:
+            if st.button("Legg til samtale som prosjektmateriale", type="primary", key="manual_session_update"):
+                self._stream_project_update(streaming_service)
+
     def handle_new_question(self,):
         """Handle new question input and streaming response"""
         streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
                                                   access_token=st.session_state.access_token)
+
+        # Session actions: agent-triggered confirmation or manual button (persists across reruns)
+        self.render_session_actions(streaming_service)
+
         question_to_process = st.session_state.question_to_process
         chat_question = self.render_chat_input()
 
@@ -393,6 +436,10 @@ class ChatComponent:
                     logger.error(f"Streaming error: {e}")
                 finally:
                     st.session_state.is_searching = False
+
+                # Trigger rerun to show project update confirmation if agent requested it
+                if st.session_state.get("pending_project_update"):
+                    st.rerun()
 
                 # Reload session title if needed
                 if not st.session_state.session_title or st.session_state.session_title == "Ny samtale":
@@ -555,6 +602,141 @@ class SidebarComponent:
         if st.button("Logg ut", icon=":material/logout:", type="tertiary"):
             self.auth_service.logout()
             st.rerun()
+
+
+def _render_project_stream_progress(
+    stream_iter,
+    initial_label: str = "🔄 Processing...",
+    complete_label: str = "✅ Done!",
+) -> bool:
+    """
+    Shared progress renderer for init-project, update-project, and
+    update-project-from-session streams. Accepts a pre-created iterator so
+    callers control which endpoint is used.
+
+    Returns True on success, False on error.
+    """
+    PHASE_CONFIG = {
+        "initialization": ("🚀", "Setting up"),
+        "init_input": ("📋", "Analyzing case details"),
+        "storage": ("💾", "Saving documents"),
+        "parse-documents": ("📑", "Parsing documents"),
+        "parse_doc": ("📄", "Document parsed"),
+        "analyze_docs": ("📄", "Document analysis"),
+        "analyze_doc": ("📝", "Document analyzed"),
+        "analyze_email": ("✉️", "Email analyzed"),
+        "final_analysis": ("🔬", "Running final analysis"),
+        "factual_facts": ("⚖️", "Factual analysis"),
+        "governing_law": ("📜", "Legal framework analysis"),
+    }
+
+    with st.status(initial_label, expanded=True) as status:
+        progress_bar = st.progress(0, text="Starting...")
+        total = 0
+        completed = 0
+
+        try:
+            for event in stream_iter:
+                if event.get("error"):
+                    status.update(label="❌ Error occurred", state="error")
+                    st.error(event["error"])
+                    return False
+
+                phase_raw = event.get("phase", "")
+                phase = phase_raw[0] if isinstance(phase_raw, list) else phase_raw
+                event_status = event.get("status", "")
+                data = event.get("data") or {}
+                emoji, label = PHASE_CONFIG.get(phase, ("⏳", phase or "Processing"))
+
+                if event_status == "starting":
+                    n = data.get("total_operations", data.get("total", 0))
+                    total += n
+
+                    if phase == "parse_doc":
+                        fname = data.get("filename", "")
+                        status.update(label=f"{emoji} Parsing {fname}..." if fname else f"{emoji} {label}...")
+                    elif phase == "storage":
+                        fname = data.get("filename", "")
+                        status.update(label=f"💾 Saving {fname} to vector store..." if fname else f"💾 {label}...")
+                    else:
+                        status.update(label=f"{emoji} {label}...")
+
+                    if phase == "initialization":
+                        n_att = data.get("attachments", 0)
+                        if n_att:
+                            st.caption(f"📎 {n_att} attachment(s) to process")
+                    elif phase in ("analyze_docs", "analyze_doc"):
+                        n_docs = data.get("total", 0)
+                        if n_docs:
+                            st.caption(f"📄 Analyzing {n_docs} document(s)...")
+
+                elif event_status == "complete":
+                    if phase == "analyze_docs":
+                        continue
+
+                    completed += 1
+                    detail = ""
+
+                    if phase == "init_input":
+                        n = data.get("parties_found", 0)
+                        detail = f" — {n} parties found" if n else ""
+                    elif phase == "parse_doc":
+                        fname = data.get("filename", "")
+                        progress = data.get("progress", 0)
+                        total_files = data.get("total", 0)
+                        detail = f": **{fname}** ({progress}/{total_files})" if fname else ""
+                    elif phase == "storage":
+                        fname = data.get("filename", "")
+                        storage_types = data.get("storage_type", [])
+                        if fname:
+                            detail = f": **{fname}**"
+                        elif "file_storage" in storage_types:
+                            detail = " — file storage"
+                        elif "database" in storage_types:
+                            detail = " — database"
+                    elif phase == "analyze_doc":
+                        fname = data.get("filename", "")
+                        progress = data.get("progress", 0)
+                        total_docs = data.get("total", 0)
+                        detail = f": **{fname}** ({progress}/{total_docs})" if fname else f" ({progress}/{total_docs})"
+                    elif phase == "analyze_email":
+                        subject = data.get("subject", "")
+                        progress = data.get("progress", 0)
+                        total_docs = data.get("total", 0)
+                        detail = f": **{subject}** ({progress}/{total_docs})" if subject else f" ({progress}/{total_docs})"
+                    elif phase == "factual_facts":
+                        d = data.get("disputed_count", 0)
+                        u = data.get("undisputed_count", 0)
+                        detail = f" — {d} disputed, {u} undisputed facts"
+                    elif phase == "governing_law":
+                        j = data.get("jurisdiction", "")
+                        detail = f" — {j}" if j else ""
+
+                    st.markdown(f"✅ {label}{detail}")
+
+                    if phase == "storage":
+                        fname = data.get("filename", "")
+                        status.update(label=f"💾 Saving {fname}..." if fname else "💾 Saving documents...")
+                    elif phase == "analyze_doc":
+                        fname = data.get("filename", "")
+                        status.update(label=f"{emoji} Analyzing {fname}..." if fname else f"{emoji} Analyzing documents...")
+                    elif phase == "analyze_email":
+                        subject = data.get("subject", "")
+                        status.update(label=f"{emoji} Analyzing {subject}..." if subject else f"{emoji} Analyzing emails...")
+
+                    if total > 0:
+                        pct = min(completed / total, 1.0)
+                        progress_bar.progress(pct, text=f"{emoji} {label}...")
+
+            progress_bar.progress(1.0, text="Complete!")
+            status.update(label=complete_label, state="complete")
+            return True
+
+        except Exception as e:
+            status.update(label="❌ Error during processing", state="error")
+            st.error(str(e))
+            logger.error(f"Error in project stream progress: {e}", exc_info=True)
+            return False
 
 
 class ProjectComponent:
@@ -1003,244 +1185,19 @@ class ProjectComponent:
         
     def _stream_init_progress(self, streaming_service, payload):
         """Display live streaming progress for project initialization."""
-
-        PHASE_CONFIG = {
-            "initialization": ("🚀", "Setting up project"),
-            "init_input": ("📋", "Analyzing case details"),
-            "storage": ("💾", "Saving documents"),
-            "parse-documents": ("📑", "Parsing documents"),
-            "parse_doc": ("📄", "Document parsed"),
-            "analyze_docs": ("📄", "Starting document analysis"),
-            "analyze_doc": ("📝", "Document analyzed"),
-            "analyze_email": ("✉️", "Email analyzed"),
-            "final_analysis": ("🔬", "Running final analysis"),
-            "factual_facts": ("⚖️", "Factual analysis"),
-            "governing_law": ("📜", "Legal framework analysis"),
-        }
-
-        with st.status("🚀 Initializing project...", expanded=True) as status:
-            progress_bar = st.progress(0, text="Starting...")
-            total = 0
-            completed = 0
-
-            try:
-                for event in streaming_service.init_project_stream(payload):
-                    if event.get("error"):
-                        status.update(label="❌ Error occurred", state="error")
-                        st.error(event["error"])
-                        return False
-
-                    phase_raw = event.get("phase", "")
-                    phase = phase_raw[0] if isinstance(phase_raw, list) else phase_raw
-                    event_status = event.get("status", "")
-                    data = event.get("data", {})
-                    emoji, label = PHASE_CONFIG.get(phase, ("⏳", phase))
-
-                    if event_status == "starting":
-                        n = data.get("total_operations", data.get("total", 0))
-                        total += n
-                        
-                        # Build detail for starting events
-                        if phase == "parse_doc":
-                            fname = data.get("filename", "")
-                            status.update(label=f"{emoji} Parsing {fname}..." if fname else f"{emoji} {label}...")
-                        elif phase == "storage":
-                            fname = data.get("filename", "")
-                            status.update(label=f"💾 Saving {fname} to vector store..." if fname else f"💾 {label}...")
-                        else:
-                            status.update(label=f"{emoji} {label}...")
-
-                        if phase == "initialization":
-                            n_att = data.get("attachments", 0)
-                            if n_att:
-                                st.caption(f"📎 {n_att} attachment(s) to process")
-                        elif phase in ("analyze_docs", "analyze_doc"):
-                            n_docs = data.get("total", 0)
-                            if n_docs:
-                                st.caption(f"📄 Analyzing {n_docs} document batch(es)...")
-
-                    elif event_status == "complete":
-                        # analyze_docs/complete is a summary event, skip counting
-                        if phase == "analyze_docs":
-                            continue
-
-                        completed += 1
-
-                        # Build detail text per phase
-                        detail = ""
-                        if phase == "init_input":
-                            n = data.get("parties_found", 0)
-                            detail = f" — {n} parties found" if n else ""
-                        elif phase == "parse_doc":
-                            fname = data.get("filename", "")
-                            progress = data.get("progress", 0)
-                            total_files = data.get("total", 0)
-                            detail = f": **{fname}** ({progress}/{total_files})" if fname else ""
-                        elif phase == "storage":
-                            fname = data.get("filename", "")
-                            storage_types = data.get("storage_type", [])
-                            if fname:
-                                detail = f": **{fname}**"
-                            elif "file_storage" in storage_types:
-                                detail = " — file storage"
-                            else:
-                                detail = ""
-                        elif phase == "analyze_doc":
-                            fname = data.get("filename", "")
-                            progress = data.get("progress", 0)
-                            total_docs = data.get("total", 0)
-                            detail = f": **{fname}** ({progress}/{total_docs})" if fname else f" ({progress}/{total_docs})"
-                        elif phase == "analyze_email":
-                            subject = data.get("subject", "")
-                            progress = data.get("progress", 0)
-                            total_docs = data.get("total", 0)
-                            detail = f": **{subject}** ({progress}/{total_docs})" if subject else f" ({progress}/{total_docs})"
-                        elif phase == "factual_facts":
-                            d = data.get("disputed_count", 0)
-                            u = data.get("undisputed_count", 0)
-                            detail = f" — {d} disputed, {u} undisputed facts"
-                        elif phase == "governing_law":
-                            j = data.get("jurisdiction", "")
-                            detail = f" — {j}" if j else ""
-
-                        st.markdown(f"✅ {label}{detail}")
-
-                        # Update status label to show current activity
-                        if phase == "storage":
-                            fname = data.get("filename", "")
-                            status.update(label=f"💾 Saving {fname}..." if fname else f"💾 Saving documents...")
-                        elif phase == "analyze_doc":
-                            fname = data.get("filename", "")
-                            status.update(label=f"{emoji} Analyzing {fname}..." if fname else f"{emoji} Analyzing documents...")
-                        elif phase == "analyze_email":
-                            subject = data.get("subject", "")
-                            status.update(label=f"{emoji} Analyzing {subject}..." if subject else f"{emoji} Analyzing emails...")
-
-                        # Update progress bar
-                        if total > 0:
-                            pct = min(completed / total, 1.0)
-                            progress_bar.progress(pct, text=f"{emoji} {label}...")
-
-                # Stream finished
-                progress_bar.progress(1.0, text="Complete!")
-                status.update(label="✅ Project initialized!", state="complete")
-                return True
-
-            except Exception as e:
-                status.update(label="❌ Error during initialization", state="error")
-                st.error(str(e))
-                logger.error(f"Error during init progress: {e}", exc_info=True)
-                return False
+        return _render_project_stream_progress(
+            stream_iter=streaming_service.init_project_stream(payload),
+            initial_label="🚀 Initializing project...",
+            complete_label="✅ Project initialized!",
+        )
 
     def _stream_update_progress(self, streaming_service, payload):
         """Display live streaming progress for project update."""
-
-        PHASE_CONFIG = {
-            "initialization": ("🚀", "Setting up update"),
-            "storage": ("💾", "Saving documents"),
-            "parse-documents": ("📑", "Parsing documents"),
-            "parse_doc": ("📄", "Document parsed"),
-            "analyze_docs": ("📄", "Document analysis"),
-            "analyze_doc": ("📝", "Document analyzed"),
-            "analyze_email": ("✉️", "Email analyzed"),
-        }
-
-        with st.status("🔄 Updating project...", expanded=True) as status:
-            progress_bar = st.progress(0, text="Starting...")
-            total = 0
-            completed = 0
-
-            try:
-                for event in streaming_service.update_project_stream(payload):
-                    if event.get("error"):
-                        status.update(label="❌ Error occurred", state="error")
-                        st.error(event["error"])
-                        return False
-
-                    phase_raw = event.get("phase", "")
-                    phase = phase_raw[0] if isinstance(phase_raw, list) else phase_raw
-                    event_status = event.get("status", "")
-                    data = event.get("data", {})
-                    emoji, label = PHASE_CONFIG.get(phase, ("⏳", phase))
-
-                    if event_status == "starting":
-                        n = data.get("total_operations", data.get("total", 0))
-                        total += n
-                        
-                        # Build detail for starting events
-                        if phase == "parse_doc":
-                            fname = data.get("filename", "")
-                            status.update(label=f"{emoji} Parsing {fname}..." if fname else f"{emoji} {label}...")
-                        elif phase == "storage":
-                            fname = data.get("filename", "")
-                            status.update(label=f"💾 Saving {fname} to vector store..." if fname else f"💾 {label}...")
-                        else:
-                            status.update(label=f"{emoji} {label}...")
-
-                        n_att = data.get("attachments", 0)
-                        if n_att:
-                            st.caption(f"📎 {n_att} attachment(s) to process")
-
-                    elif event_status == "complete":
-                        if phase == "analyze_docs":
-                            continue
-
-                        completed += 1
-
-                        detail = ""
-                        if phase == "parse_doc":
-                            fname = data.get("filename", "")
-                            progress = data.get("progress", 0)
-                            total_files = data.get("total", 0)
-                            detail = f": **{fname}** ({progress}/{total_files})" if fname else ""
-                        elif phase == "analyze_doc":
-                            fname = data.get("filename", "")
-                            progress = data.get("progress", 0)
-                            total_docs = data.get("total", 0)
-                            detail = f": **{fname}** ({progress}/{total_docs})" if fname else f" ({progress}/{total_docs})"
-                        elif phase == "analyze_email":
-                            subject = data.get("subject", "")
-                            progress = data.get("progress", 0)
-                            total_docs = data.get("total", 0)
-                            detail = f": **{subject}** ({progress}/{total_docs})" if subject else f" ({progress}/{total_docs})"
-                        elif phase == "storage":
-                            fname = data.get("filename", "")
-                            storage_types = data.get("storage_type", [])
-                            if fname:
-                                detail = f": **{fname}**"
-                            elif "database" in storage_types:
-                                detail = " — database"
-                            elif "file_storage" in storage_types:
-                                detail = " — file storage"
-                            else:
-                                detail = ""
-
-                        st.markdown(f"✅ {label}{detail}")
-
-                        # Update status label to show current activity
-                        if phase == "storage":
-                            fname = data.get("filename", "")
-                            status.update(label=f"💾 Saving {fname}..." if fname else f"💾 Saving documents...")
-                        elif phase == "analyze_doc":
-                            fname = data.get("filename", "")
-                            status.update(label=f"{emoji} Analyzing {fname}..." if fname else f"{emoji} Analyzing documents...")
-                        elif phase == "analyze_email":
-                            subject = data.get("subject", "")
-                            status.update(label=f"{emoji} Analyzing {subject}..." if subject else f"{emoji} Analyzing emails...")
-
-                        if total > 0:
-                            pct = min(completed / total, 1.0)
-                            progress_bar.progress(pct, text=f"{emoji} {label}...")
-
-                progress_bar.progress(1.0, text="Complete!")
-                status.update(label="✅ Project updated!", state="complete")
-                return True
-
-            except Exception as e:
-                status.update(label="❌ Error during update", state="error")
-                st.error(str(e))
-                logger.error(f"Error during update progress: {e}", exc_info=True)
-                return False
+        return _render_project_stream_progress(
+            stream_iter=streaming_service.update_project_stream(payload),
+            initial_label="🔄 Updating project...",
+            complete_label="✅ Project updated!",
+        )
 
     def render_new_project_input(self, mode : Literal["update","init"] = "init"):
         streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
