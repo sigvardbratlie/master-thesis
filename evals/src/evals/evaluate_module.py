@@ -1,5 +1,5 @@
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
-from deepeval.metrics import GEval, FaithfulnessMetric
+from deepeval.metrics import GEval, AnswerRelevancyMetric
 from deepeval import evaluate
 from deepeval.evaluate import AsyncConfig
 from deepeval.test_case import ConversationalTestCase, Turn, TurnParams
@@ -73,12 +73,12 @@ class Evaluater:
                         model=self.model,
                         threshold=0.5,
                     )
-        faithfulness = FaithfulnessMetric(
+        relevancy = AnswerRelevancyMetric(
                         threshold=0.5,
                         model=self.model,
                     )
 
-        return evaluate(test_cases=test_cases, metrics=[correctness, completeness, faithfulness], async_config=AsyncConfig(max_concurrent=2, throttle_value=3))
+        return evaluate(test_cases=test_cases, metrics=[correctness, completeness, relevancy], async_config=AsyncConfig(max_concurrent=2, throttle_value=3))
 
     def run_evaluation(self, data: GatheredResultPayload) -> list:
         results = []
