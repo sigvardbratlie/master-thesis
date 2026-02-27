@@ -124,7 +124,7 @@ class HumanEventData(BaseModel):
 class ToolResultData(BaseModel):
     tool_name: str
     tool_args: dict
-    data : Optional[dict] = None
+    data : Optional[Any] = None
 
 class AIEventData(BaseModel):
     content : Optional[str] = None
