@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Any, Literal, Optional
+from deepeval.evaluate.types import EvaluationResult
 
 
 # ── Conversation ───────────────────────────────────────────────────────────────
@@ -61,7 +62,7 @@ class EvalOutput(BaseModel):
     llm_model: Optional[str] = None
     agent_type: str = "unknown"
     created_at: str
-    results: Optional[list[dict]] = None
+    results: Optional[list[EvaluationResult]] = None
     # Populated at load time by joining 04_results on eval_run_id
     token_counts: Optional[Any] = None
     time_usage: Optional[Any] = None

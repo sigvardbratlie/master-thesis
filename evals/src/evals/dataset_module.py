@@ -411,26 +411,28 @@ class CollectAgentResult:
                             logger.debug(f"Update response: {response}")
                 else:
                     conv_query_id = str(uuid.uuid4())
-                    await self.run_conv(
-                        conv=ConversationTurn(input=session.init_query, answer=""),
-                        agent_class=agent_class,
-                        project_id=runtime_project_id,
-                        session_id=runtime_session_id,
-                        query_id=conv_query_id,
-                        user_id=self.data.user_id,
-                        attachments=attachments,
-                    )
+                    with tracing_context(metadata={"query_id": conv_query_id}):
+                        await self.run_conv(
+                            conv=ConversationTurn(input=session.init_query, answer=""),
+                            agent_class=agent_class,
+                            project_id=runtime_project_id,
+                            session_id=runtime_session_id,
+                            query_id=conv_query_id,
+                            user_id=self.data.user_id,
+                            attachments=attachments,
+                        )
 
                 for conv in session.conversation:
                     conv_query_id = conv.query_id or str(uuid.uuid4())
-                    await self.run_conv(
-                        conv=conv,
-                        agent_class=agent_class,
-                        project_id=runtime_project_id,
-                        session_id=runtime_session_id,
-                        query_id=conv_query_id,
-                        user_id=self.data.user_id,
-                    )
+                    with tracing_context(metadata={"query_id": conv_query_id}):
+                        await self.run_conv(
+                            conv=conv,
+                            agent_class=agent_class,
+                            project_id=runtime_project_id,
+                            session_id=runtime_session_id,
+                            query_id=conv_query_id,
+                            user_id=self.data.user_id,
+                        )
                 session_duration = (datetime.now() - session_starttime).total_seconds()
                 session.duration = session_duration
                 logger.debug(f"Session {idx} completed in {session_duration:.2f} seconds")

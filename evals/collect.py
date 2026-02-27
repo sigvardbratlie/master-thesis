@@ -14,7 +14,7 @@ load_dotenv()
 
 
 def get_token_counts(eval_run_id: str) -> dict:
-    """Query LangSmith for total token usage across an eval run."""
+    """Query LangSmith for total and per-query token usage across an eval run."""
     client = LangSmithClient()
     project_name = os.getenv("LANGCHAIN_PROJECT", "default")
     runs = list(client.list_runs(
@@ -22,12 +22,21 @@ def get_token_counts(eval_run_id: str) -> dict:
         filter=f'has(tags, "{eval_run_id}")',
         run_type="llm",
     ))
+    per_query: dict[str, dict] = {}
+    for r in runs:
+        qid = (r.extra or {}).get("metadata", {}).get("query_id", "unknown")
+        entry = per_query.setdefault(qid, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0})
+        entry["input_tokens"] += r.prompt_tokens or 0
+        entry["output_tokens"] += r.completion_tokens or 0
+        entry["total_tokens"] += r.total_tokens or 0
+        entry["llm_calls"] += 1
     return {
         "eval_run_id": eval_run_id,
         "input_tokens": sum(r.prompt_tokens or 0 for r in runs),
         "output_tokens": sum(r.completion_tokens or 0 for r in runs),
         "total_tokens": sum(r.total_tokens or 0 for r in runs),
         "llm_calls": len(runs),
+        "per_query": per_query,
     }
 
 async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_storage):
