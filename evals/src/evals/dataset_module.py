@@ -17,7 +17,9 @@ from psycopg_pool import AsyncConnectionPool
 
 from google.cloud import storage
 
-from .models import ConversationTurn, DatasetPayload, GatheredResultPayload, Session
+from .models import ConversationTurn, DatasetPayload, GatheredResultPayload, Session, EvalOutput
+from deepeval.evaluate.types import EvaluationResult
+
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +92,25 @@ class Dataset:
             logger.error(f"Failed to save results: {e}")
             raise
 
+    def save_evaluation_results(self, results: list[EvaluationResult], data: GatheredResultPayload) -> EvalOutput:
+        output = EvalOutput(
+            dataset_name=data.dataset_name,
+            project_id=data.project_id,
+            user_id=data.user_id,
+            eval_run_id=data.eval_run_id,
+            llm_model=data.llm_model,
+            agent_type=data.agent_type,
+            token_counts=data.token_counts,
+            created_at=datetime.now().isoformat(),
+            results=[r.model_dump() for r in results if isinstance(r, EvaluationResult)] if results else None,
+        )
+        filepath = f'datasets/{data.dataset_name}/05_evals/llm-as-judge_{data.llm_model}_{data.agent_type}_{data.eval_run_id}.json'
+        blob = self.bucket.blob(filepath)
+        blob.upload_from_string(
+            json.dumps(output.model_dump(), indent=4, ensure_ascii=False),
+            content_type='application/json'
+        )
+        return output
     # ── File helpers ──────────────────────────────────────────────────────────
 
     def get_all_data_files(self) -> tuple[dict[str, list[str]], list[str]]:
@@ -213,6 +234,7 @@ class Dataset:
                 f"– → {current_dt} | "
                 f"{len(attachments)} attachments (cumulative)"
             )
+
 
 
 _TOOLS_MAP = {

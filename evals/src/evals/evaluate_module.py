@@ -17,9 +17,10 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 class Evaluater:
-    def __init__(self, client=None, bucket_name="master-thesis-prod"):
+    def __init__(self, client=None, model = "gpt-4.1", bucket_name="master-thesis-prod"):
         self._client = client or storage.Client()
         self.bucket = self._client.bucket(bucket_name)
+        self.model = model
 
     def collect_single(self, conversation_turn: ConversationTurn, session_name: str = "unknown") -> LLMTestCase | None:
         if not conversation_turn.input or not conversation_turn.model_response or not conversation_turn.answer:
@@ -62,14 +63,14 @@ class Evaluater:
                         name="hallucination",
                         criteria="Determine if actual_output contains any claims that contradict or are unsupported by expected_output",
                         evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
-                        model = "gpt-4.1",
+                        model = self.model,
                         threshold=0.5,
                     )
         correctness = GEval(
             name="correctness",
             criteria="Determine if actual_output is factually correct based on expected_output",
             evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
-            model = "gpt-4.1",
+            model = self.model,
             threshold=0.5,
         )
 
@@ -81,22 +82,4 @@ class Evaluater:
             results.append(self.run_session_eval(session))
         return results
 
-    def save_evaluation_results(self, results: list[EvaluationResult], data: GatheredResultPayload) -> EvalOutput:
-        output = EvalOutput(
-            dataset_name=data.dataset_name,
-            project_id=data.project_id,
-            user_id=data.user_id,
-            eval_run_id=data.eval_run_id,
-            llm_model=data.llm_model,
-            agent_type=data.agent_type,
-            token_counts=data.token_counts,
-            created_at=datetime.now().isoformat(),
-            results=[r.model_dump() for r in results if isinstance(r, EvaluationResult)] if results else None,
-        )
-        filepath = f'datasets/{data.dataset_name}/05_evals/llm-as-judge_{data.llm_model}_{data.agent_type}_{data.eval_run_id}.json'
-        blob = self.bucket.blob(filepath)
-        blob.upload_from_string(
-            json.dumps(output.model_dump(), indent=4, ensure_ascii=False),
-            content_type='application/json'
-        )
-        return output
+    
