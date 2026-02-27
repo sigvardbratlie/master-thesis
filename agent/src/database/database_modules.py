@@ -707,7 +707,7 @@ class SupabaseManager:
             return SessionHistory(
                 events=session_events,
                 attachments=attachments,
-                project_id=session_data.get("project_id", ""),
+                project_id=session_data.get("project_id") or "",
                 title=session_data.get("title", ""),
                 llm_model=session_data.get("llm_model"),
                 updated_at=session_data.get("updated_at"),

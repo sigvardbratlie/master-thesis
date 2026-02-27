@@ -3,6 +3,8 @@ Fixture data for Agent tests.
 Contains realistic mock data for testing Agent class methods.
 """
 
+import base64
+
 from models import *
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from langchain_core.documents import Document
@@ -38,22 +40,7 @@ def get_mock_ask_agent_request_with_attachments() -> AskAgentRequest:
                 file_id="fc545f59-ac93-4cda-8b41-83eed0d04ee3",
                 filename="2023-08-25_kjoepekontrakt.pdf",
                 file_type="application/pdf",
-                content="""KJØPEKONTRAKT
-
-Mellom Camilla Marie Hansen og Daniel Erik Hansen (selgere)
-og Andreas Nilsen og Berit Johansen (kjøpere).
-
-Eiendom: Granveien 15B, Oslo
-Kjøpesum: NOK 15 500 000,-
-Overtakelse: 11. november 2023
-
-Kjøper har mottatt og gjennomgått tilstandsrapport.
-Eiendommen selges med boligselgerforsikring.
-Standard vilkår i Norges Eiendomsmeglerforbunds kjøpekontrakt legges til grunn.
-
-Medfølgende dokumentasjon:
-- Tilstandsrapport datert 30. mars 2023 fra ProTakst AS v/David Storvik
-""",
+                content=base64.b64encode(b"KJOEPEKONTRAKT\n\nMellom Camilla Marie Hansen og Daniel Erik Hansen (selgere)\nog Andreas Nilsen og Berit Johansen (kjopere).\n\nEiendom: Granveien 15B, Oslo\nKjoepesum: NOK 15 500 000,-\nOvertakelse: 11. november 2023\n").decode("ascii"),
                 size=4944,
                 path="53d63d18-cfa1-416e-96e8-770c8f66507b/8fbac4e4-c2ff-4f58-95ba-7836f207a89d/fc545f59-ac93-4cda-8b41-83eed0d04ee3.txt",
                 query_id="0c22552d-8bee-4c24-a099-335c80db5573"
@@ -62,30 +49,7 @@ Medfølgende dokumentasjon:
                 file_id="cbb594a1c8bda2dbec6904b560d5c3ad",
                 filename="2023-08-21_epost_selger_til_kjoeper.txt",
                 file_type="text/plain",
-                content="""Fra: Daniel Hansen <daniel.hansen@email.no>
-Til: Andreas Nilsen <andreas.nilsen@email.no>
-Dato: 21. august 2023
-Emne: Svar på spørsmål om boligen
-
-Hei Andreas og Berit,
-
-Takk for hyggelig visning i går! Her kommer svar på spørsmålene deres:
-
-Varmepumpene: Ja, de fungerer fint.
-Utbedringer: Nei, vi har ingen planlagte utbedringer. Alt vi ønsket å gjøre er ferdig.
-Huset er klart til innflytting.
-
-Som dere så gjorde vi bad oppe i 2020/2021 med fagfolk (Moderne Bygg),
-og vi skiftet tak i 2021 (AllFix).
-
-Elektrikeren har også vært innom og gjort det som skulle gjøres.
-Alt er sjekket og i orden.
-
-Dere vil få all dokumentasjon på arbeidene vi har gjort.
-
-Mvh,
-Daniel og Camilla
-""",
+                content=base64.b64encode(b"Fra: Daniel Hansen <daniel.hansen@email.no>\nTil: Andreas Nilsen <andreas.nilsen@email.no>\nDato: 21. august 2023\nEmne: Svar pa sporsmal om boligen\n\nHei Andreas og Berit,\n\nTakk for hyggelig visning i gar!\n\nVarmepumpene: Ja, de fungerer fint.\nUtbedringer: Nei, vi har ingen planlagte utbedringer.\nHuset er klart til innflytting.\n\nMvh,\nDaniel og Camilla\n").decode("ascii"),
                 size=1094,
                 path="53d63d18-cfa1-416e-96e8-770c8f66507b/8fbac4e4-c2ff-4f58-95ba-7836f207a89d/cbb594a1c8bda2dbec6904b560d5c3ad.txt",
                 query_id="0c22552d-8bee-4c24-a099-335c80db5573"
