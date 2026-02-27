@@ -58,15 +58,22 @@ class Evaluater:
             tc for conv in session.conversation
             if (tc := self.collect_single(conversation_turn=conv, session_name=session.session_name)) is not None
         ]
-
+        hallucination = GEval(
+                        name="hallucination",
+                        criteria="Determine if actual_output contains any claims that contradict or are unsupported by expected_output",
+                        evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
+                        model = "gpt-4.1",
+                        threshold=0.5,
+                    )
         correctness = GEval(
             name="correctness",
             criteria="Determine if actual_output is factually correct based on expected_output",
             evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
+            model = "gpt-4.1",
             threshold=0.5,
         )
 
-        return evaluate(test_cases=test_cases, metrics=[correctness], async_config=AsyncConfig(max_concurrent=2, throttle_value=3))
+        return evaluate(test_cases=test_cases, metrics=[correctness, hallucination], async_config=AsyncConfig(max_concurrent=2, throttle_value=3))
 
     def run_evaluation(self, data: GatheredResultPayload) -> list:
         results = []
