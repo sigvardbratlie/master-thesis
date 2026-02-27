@@ -184,16 +184,19 @@ async def update_project_endpoint(query: AskAgentRequest, user_id: str = Depends
             yield f'data: {json.dumps({"error": str(e)})}\n\n'
     return StreamingResponse(update_stream_generator(), media_type="text/event-stream")
 
-# @app.post("/cleanup-factsheet")
-# async def cleanup_factsheet_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
-#     try:
-#         result = await agent.cleanup_factsheet(
-#             query = query,
-#             user_id = user_id,)
-#         return result if result else {"message": "No cleanup needed."}
-#     except Exception as e:
-#         logger.error(f"Error in /cleanup-factsheet: {e}", exc_info=True)
-#         raise HTTPException(status_code=500, detail=f"Error in /cleanup-factsheet: {str(e)}")
+
+@app.post("/update-project-from-session")
+async def update_project_from_session_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
+    async def update_from_session_stream_generator():
+        try:
+            async for chunk in agent.update_project_from_session(query=query, user_id=user_id):
+                yield f'data: {json.dumps(chunk)}\n\n'
+                await asyncio.sleep(0.01)
+        except Exception as e:
+            logger.error(f"Error in update_from_session_stream_generator: {e}", exc_info=True)
+            yield f'data: {json.dumps({"error": str(e)})}\n\n'
+    return StreamingResponse(update_from_session_stream_generator(), media_type="text/event-stream")
+
 
 @app.post("/cleanup-project-element/{element_type}")
 async def cleanup_project_element_endpoint(query: AskAgentRequest, element_type : str):
@@ -261,7 +264,6 @@ async def load_projects(user_id: str = Depends(auth.get_current_user)):
 @app.get("/load-project-sessions/{project_id}")
 async def load_project_sessions(project_id: str): 
     return conversation_manager.load_project_sessions(project_id=project_id)
-
 
 @app.get("/", include_in_schema=False)
 def root():

@@ -28,7 +28,6 @@ from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, Chro
 from documents import DocumentProcessor, EmailHandler
 from models import *  
 from uuid import uuid4
-
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 
@@ -1564,8 +1563,31 @@ class Agent:
                                         user_id : str,
                                         ):
         '''Update the project with new input and attachments, using session data as context'''
-        # This function can be used to update the project based on new user input in an ongoing session, without re-analyzing all documents. It can also be used to trigger cleanup of specific elements (e.g. events) if the user indicates that the extracted data is incorrect.
-        # The function will load the existing project data, pass it to the context manager along with the new input, and let the context manager determine what needs to be updated/cleaned. This allows for more targeted updates without having to re-run the entire analysis pipeline.
+        input_attachments = query.attachments or []
+        new_input = ""
+        session_conv = self.conversation_manager.load_session_history(session_id=query.session_id)
+        if session_conv.attachments:
+            for att in session_conv.attachments:
+                content = self.storage.read_attachment(att.path) if att.path else None
+                if content:
+                    att.content = base64.b64encode(content.encode() if isinstance(content, str) else content).decode()
+                    input_attachments.append(att)
+        if session_conv.events:
+            new_input += "Session messages\n"
+            for event in session_conv.events:
+                if event.type == "human" and event.content:
+                    new_input += f"- {event.content}\n"
+
+        updated_query = AskAgentRequest(
+            project_id=query.project_id,
+            session_id=query.session_id,
+            llm_model=query.llm_model,
+            query_id=query.query_id,
+            attachments=input_attachments,
+            question=new_input or query.question,
+        )
+        async for event in self.update_project(updated_query, user_id):
+            yield event
         
     
     async def cleanup_element(self,
@@ -1590,15 +1612,15 @@ class Agent:
             self.conversation_manager.load_project,
             project_id=query.project_id
         )
-        if project_data and not isinstance(project_data, dict):
-            error_msg = f"load_project returned {type(project_data).__name__} instead of dict. Value: {project_data}"
+        if project_data and not isinstance(project_data, ProjectData):
+            error_msg = f"load_project returned {type(project_data).__name__} instead of ProjectData. Value: {project_data}"
             logger.error(f"Error in update_project: {error_msg}", exc_info=True)
             raise TypeError(error_msg)
-        
-        factsheet = project_data.get("factsheet")
-        attachments = project_data.get("attachments", [])
-        emails = project_data.get("emails", [])
-        
+
+        factsheet = project_data.factsheet
+        attachments = project_data.attachments
+        emails = project_data.emails
+
         content = factsheet.model_dump().get(element_type, []) if factsheet else []
 
         #content_model = [valid_element_types[element_type].model_validate(c) for c in content] if content else []
@@ -1683,13 +1705,13 @@ class Agent:
             project_id=query.project_id
         )
         
-        if project_data and not isinstance(project_data, dict):
-            error_msg = f"load_project returned {type(project_data).__name__} instead of dict. Value: {project_data}"
+        if project_data and not isinstance(project_data, ProjectData):
+            error_msg = f"load_project returned {type(project_data).__name__} instead of ProjectData. Value: {project_data}"
             logger.error(f"Error in update_project: {error_msg}", exc_info=True)
             raise TypeError(error_msg)
-        factsheet = project_data.get("factsheet")
-        attachments = project_data.get("attachments", [])
-        emails = project_data.get("emails", [])
+        factsheet = project_data.factsheet
+        attachments = project_data.attachments
+        emails = project_data.emails
         content = getattr(factsheet, element_type, "")
         yield {"type": "status",
                "phase" : [f"cleanup_{element_type}"],
