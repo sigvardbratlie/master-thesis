@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "sigvardbratlie", email = "sigvard.bratlie@gmail.com" }
 ]
-requires-python = ">=3.13,<4.0"
+requires-python = ">=3.13"
 dependencies = [
     "agent",
     "annotated-types==0.7.0",
@@ -72,6 +72,7 @@ dependencies = [
     "wcwidth==0.6.0",
     "widgetsnbextension==4.0.15",
     "wrapt==2.1.1",
+    "statsmodels>=0.14.6",
 ]
 
 [project.scripts]
