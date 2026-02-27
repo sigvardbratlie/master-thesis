@@ -81,6 +81,19 @@ class Dataset:
 
         return data
 
+    def load_evaluation_results(self) -> dict[str, EvalOutput] | None:
+        data = {}
+        path = f"datasets/{self.name}/05_evals"
+        for file in self.bucket.list_blobs(prefix=path):
+            if file.name.endswith(".json"):
+                try:
+                    content = json.loads(file.download_as_string().decode("utf-8"))
+                    data[file.name] = EvalOutput.model_validate(content)
+                except Exception as e:
+                    logger.warning(f"Failed to load {file.name}: {e}")
+
+        return data
+
     def save_results(self, data: GatheredResultPayload) -> None:
         path = f"datasets/{data.dataset_name}/04_results/{data.llm_model}_{data.agent_type}_{data.eval_run_id}.json"
         try:
@@ -259,7 +272,7 @@ class CollectAgentResult:
 
     async def init_agent(self, use_factsheet: bool = True, save_to_storage: bool = True, embed_to_vectorstore: bool = True, tools=None, prompt: str = None):
         connection_string = os.getenv("SUPABASE_DB_URL")
-        pool = AsyncConnectionPool(conninfo=connection_string, open=False)
+        pool = AsyncConnectionPool(conninfo=connection_string, open=False, min_size=1, max_size=2)
         await pool.open()
         checkpointer = AsyncPostgresSaver(pool)
         agent = Agent(
@@ -300,6 +313,7 @@ class CollectAgentResult:
         )
 
     async def run_conv(self, conv: ConversationTurn, agent_class, project_id, session_id, query_id, user_id, attachments=[]):
+        turn_starttime = datetime.now() 
         input_obj = AskAgentRequest(
             question=conv.input,
             session_id=session_id,
@@ -313,6 +327,7 @@ class CollectAgentResult:
             if response.get("type") == "ai":
                 answer = response.get("data", {}).get("token_stream", "No content")
         conv.model_response = answer
+        conv.turn_duration = (datetime.now() - turn_starttime).total_seconds()
 
     async def run_agent(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True) -> GatheredResultPayload:
         use_factsheet = self.agent_type == "custom"
@@ -322,9 +337,6 @@ class CollectAgentResult:
             base_project_id if self.agent_type == "custom"
             else f"{base_project_id}_{self.agent_type}"
         )
-
-        # save_to_storage = self.agent_type == "custom"
-        # embed_to_vectorstore = self.agent_type in ("custom", "baseline_rag")
 
         tools = _TOOLS_MAP[self.agent_type]
         prompt = _PROMPT_MAP[self.agent_type]
@@ -346,13 +358,14 @@ class CollectAgentResult:
             f'User: {self.data.user_id}\n\n'
         )
         eval_run_id = str(uuid.uuid4())
-
+        starttime = datetime.now()
         with tracing_context(
             tags=[eval_run_id],
             metadata={"eval_run_id": eval_run_id, "llm_model": self.llm_model, "agent_type": self.agent_type, "runtime_project_id": runtime_project_id},
         ):
             for idx, session in enumerate(self.data.sessions):
                 runtime_session_id = str(uuid.uuid4())
+                session_starttime = datetime.now()
                 session.runtime_session_id = runtime_session_id
                 logger.info(
                     f"Session {idx} | {session.date} | "
@@ -411,7 +424,11 @@ class CollectAgentResult:
                         query_id=conv_query_id,
                         user_id=self.data.user_id,
                     )
-
+                session_duration = (datetime.now() - session_starttime).total_seconds()
+                session.duration = session_duration
+                logger.debug(f"Session {idx} completed in {session_duration:.2f} seconds")
+        endtime = datetime.now()
+        duration = (endtime - starttime).total_seconds()
         return GatheredResultPayload(
             dataset_name=self.data.dataset_name,
             project_id=self.data.project_id,
@@ -421,4 +438,7 @@ class CollectAgentResult:
             llm_model=self.llm_model,
             agent_type=self.agent_type,
             runtime_project_id=runtime_project_id,
+            time_usage={"starttime": starttime.isoformat(), "endtime": endtime.isoformat(), "duration_seconds": duration},
         )
+
+    #async def run_agent_mult(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True)

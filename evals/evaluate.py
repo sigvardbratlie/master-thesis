@@ -24,10 +24,17 @@ if __name__ == "__main__":
 
     ds = Dataset(dataset_name)
     collected_results = ds.load_results()
+    evaluated_results = ds.load_evaluation_results()
+    eval_results = []
+    for r in evaluated_results.keys():
+        eval_results.append(r.split("/")[-1].replace("llm-as-judge_", ""))
 
     for result_file, data in collected_results.items():
         if not data.sessions:
             logger.warning(f"⚠️  No sessions in {result_file} — skipping")
+            continue
+        if result_file.split("/")[-1] in eval_results:
+            logger.info(f"✅  Already evaluated {result_file} — skipping")
             continue
 
         logger.info("┄" * 64)

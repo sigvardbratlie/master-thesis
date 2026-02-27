@@ -11,6 +11,7 @@ class ConversationTurn(BaseModel):
     order: Optional[int] = None
     query_id: Optional[str] = None
     model_response: Optional[str] = None  # Populated after agent run
+    turn_duration: Optional[float] = None  # Duration in seconds, populated after agent run
 
 
 # ── Session ────────────────────────────────────────────────────────────────────
@@ -23,6 +24,7 @@ class Session(BaseModel):
     conversation: list[ConversationTurn]
     attachments: list[str] = Field(default_factory=list)  # GCS blob paths
     runtime_session_id: Optional[str] = None  # Populated after agent run
+    duration : Optional[float] = None  # Duration in seconds, populated after agent run
 
 
 # ── Dataset payload ────────────────────────────────────────────────────────────
@@ -44,6 +46,7 @@ class GatheredResultPayload(DatasetPayload):
     agent_type: Literal["custom", "baseline", "baseline_rag"]
     runtime_project_id: str
     token_counts: Optional[Any] = None
+    time_usage: Optional[Any] = None
 
 
 # ── Eval output payload ────────────────────────────────────────────────────────

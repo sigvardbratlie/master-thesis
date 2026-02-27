@@ -1,5 +1,5 @@
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
-from deepeval.metrics import GEval
+from deepeval.metrics import GEval, FaithfulnessMetric
 from deepeval import evaluate
 from deepeval.evaluate import AsyncConfig
 from deepeval.test_case import ConversationalTestCase, Turn, TurnParams
@@ -59,22 +59,26 @@ class Evaluater:
             tc for conv in session.conversation
             if (tc := self.collect_single(conversation_turn=conv, session_name=session.session_name)) is not None
         ]
-        hallucination = GEval(
-                        name="hallucination",
-                        criteria="Determine if actual_output contains any claims that contradict or are unsupported by expected_output",
-                        evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
-                        model = self.model,
+        correctness = GEval(
+                        name="correctness",
+                        criteria="Determine if actual_output is factually correct based on expected_output",
+                        evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
+                        model=self.model,
                         threshold=0.5,
                     )
-        correctness = GEval(
-            name="correctness",
-            criteria="Determine if actual_output is factually correct based on expected_output",
-            evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
-            model = self.model,
-            threshold=0.5,
-        )
+        completeness = GEval(
+                        name="completeness",
+                        criteria="Determine if actual_output covers all key points and facts present in expected_output. Penalize missing critical information.",
+                        evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
+                        model=self.model,
+                        threshold=0.5,
+                    )
+        faithfulness = FaithfulnessMetric(
+                        threshold=0.5,
+                        model=self.model,
+                    )
 
-        return evaluate(test_cases=test_cases, metrics=[correctness, hallucination], async_config=AsyncConfig(max_concurrent=2, throttle_value=3))
+        return evaluate(test_cases=test_cases, metrics=[correctness, completeness, faithfulness], async_config=AsyncConfig(max_concurrent=2, throttle_value=3))
 
     def run_evaluation(self, data: GatheredResultPayload) -> list:
         results = []
