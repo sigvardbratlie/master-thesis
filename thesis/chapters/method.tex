@@ -2,17 +2,49 @@
 \chapter{Method}
 
 
-\section{Some examples to get started}
+\section{System Architecture}
+Describe the overall architecture of the system.
 
-\subsection{How to create Sections and Subsections}
+\section{Design choices}
+Discuss the design choices made in the system, such as the choice of LLM, the structure
 
-Simply use the section and subsection commands, as in this example document! With Overleaf, all the formatting and numbering is handled automatically according to the template you've chosen. If you're using the Visual Editor, you can also create new section and subsections via the buttons in the editor toolbar.
+\section{Evaluation Design}
+Describe the evaluation design, including the datasets used, metrics for evaluation, and the experimental setup.
 
-\subsection{How to include Figures}
-Here is a citation \cite{microsoft2024semantickernelpython} to a paper that is relevant for the method section. You can also include figures, like this one in Figure~\ref{fig:frog}. Just make sure to upload the image file via the file-tree menu, and use the \verb|\includegraphics| command to include it in your document. You can adjust the width or height of the image as needed, and add a caption and label for referencing it later on.
+\subsection{One-sided Hypothesis Tests}
 
-\begin{figure}
-\centering
-\includegraphics[width=0.25\linewidth]{figures/frog.jpg}
-\caption{\label{fig:frog}This frog was uploaded via the file-tree menu.}
-\end{figure}
+\textbf{For quality/performance metrics} (correctness, relevancy, completeness, passrate, self-consistency, Rouge-L):
+\[
+H_0: \mu_{\text{custom}} \leq \mu_{\text{baseline}} \qquad H_1: \mu_{\text{custom}} > \mu_{\text{baseline}}
+\]
+(and analogously vs. baseline+RAG)
+
+\textbf{For cost/efficiency metrics} (token usage, inference time):
+\[
+H_0: \mu_{\text{custom}} \geq \mu_{\text{baseline}} \qquad H_1: \mu_{\text{custom}} < \mu_{\text{baseline}}
+\]
+(and analogously vs. baseline+RAG)
+
+\textbf{Notation:}
+\begin{itemize}
+    \item $\mu_{\text{custom}}$ = population mean for the custom agent
+    \item $\mu_{\text{baseline}}$ = population mean for the baseline agent
+    \item $\mu_{\text{baseline+RAG}}$ = population mean for baseline with RAG
+\end{itemize}
+All tests are one-tailed / one-sided. \\ \\
+Metrics that are to be evaluated are:
+\begin{itemize}
+    \item \textbf{Correctness}: The degree to which the agent's output is factually accurate and consistent with the case information.
+    \item \textbf{Relevancy}: The extent to which the agent's output is pertinent to the current state of the case and the query.
+    \item \textbf{Completeness}: The degree to which the agent's output covers all necessary aspects of the query and case information.
+    \item \textbf{Self-consistency}: The degree to which the agent's output remains consistent across multiple queries and over time as the case evolves.
+    \item \textbf{Rouge-L score}: A measure of the overlap between the agent's output and a reference summary, capturing both precision and recall.
+    \item \textbf{Passrate}: The percentage of queries for which the agent's output meets a predefined quality threshold.
+    \item \textbf{Token Usage}: The number of tokens consumed by the agent during inference, including both input and output tokens.
+    \item \textbf{Inference Time}: The time taken by the agent to generate a response after receiving a query.
+\end{itemize}
+
+The dataset is constructed in collaboration with legal experts at Bahr AS, where each query has a designated corresponding expected output that is the basis of the tests. 
+DeepEval is used to evaluate correctness, relevancy, completeness, and self-consistency, while Rouge-L and passrate are calculated based on the expected output.
+Token usage and inference time are recorded during the agent's operation. \\ \\
+The evaluation will be conducted across multiple queries and cases to ensure robustness and generalizability of the
