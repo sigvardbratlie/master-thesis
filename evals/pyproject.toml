@@ -73,9 +73,9 @@ dependencies = [
     "widgetsnbextension==4.0.15",
     "wrapt==2.1.1",
     "statsmodels>=0.14.6",
-    "bert-score>=0.3.13",
     "scikit-learn>=1.8.0",
     "sentence-transformers>=5.2.3",
+    "rouge-score>=0.1.2",
 ]
 
 [project.scripts]
