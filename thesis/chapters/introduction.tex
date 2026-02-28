@@ -1,3 +1,30 @@
 \chapter{Introduction}
 
-Since the rise of transformer models and the frontier LLM models, the use cases and wide spread application has exploded, making it a fast inventar with many companies across almost all industries, including the Legal industry. The legal industry spearates it self with regards to the use of LLM in that that they have extremely large amounts of information in almost every case. This information needs to be boild down and extracted to a refined form and content that contains the utter most essentials for the case. This will be the core issue for this thesis, consdiering different approaches to handle large scale document attachemtns over conversations that extend to multuiple turns. 
+The legal industry is increasingly adopting large language models (LLMs) to assist lawyers in navigating the complexity of modern litigation.
+Legal cases are inherently dynamic: they evolve over time as new documents, correspondence, evidence, and procedural developments continuously
+emerge. What was once a central claim may become peripheral; a newly submitted document may reframe the entire dispute. This progression
+means that not only does the volume of material grow, but the \textit{relevance and weight} of existing information shifts as the case develops. \\ \\
+
+A fundamental limitation of current LLM-based systems is that they are stateless. Without explicit mechanisms for maintaining case state,
+models must re-read the full document history for every query. More critically, even models that handle large contexts tend to perform well
+in early stages but \textit{drift} over extended, multi-turn interactions --- gradually losing track of what is current, what has been superseded,
+and what actually matters. In legal case management, this drift is not merely an inconvenience; it can lead to factually incorrect summaries,
+missed deadlines, or misrepresentation of parties and claims. \\ \\
+
+This thesis addresses this problem through two complementary mechanisms: \textit{compression} of case-relevant information into a structured
+representation, and \textit{state maintenance} --- the continuous, structured tracking of case essentials as the project evolves. The vehicle
+for this is a structured \textit{FactSheet}: a living, machine-readable summary of the case that is initialized from initial input and updated
+incrementally as new documents and information arrive. \\ \\
+
+The research investigates whether maintaining an explicit, structured state representation improves an LLM agent's ability to preserve
+contextual accuracy over the full lifecycle of a legal case --- particularly as conversation length grows and the document landscape changes.
+The system is implemented as a LangGraph-based conversational agent, incorporating multi-phase document processing pipelines for both
+project initialization and incremental updates. \\ \\
+
+The contributions of this thesis are: (1) the design and implementation of initialization and update pipelines for structured legal case
+state management, (2) an evaluation framework comparing structured state agents against RAG-only and baseline approaches, and (3) an
+analysis of accuracy degradation, compression efficiency, and state consistency across extended multi-turn conversations. \\ \\
+
+The remaining chapters are organized as follows: Chapter 2 presents background and related work on long-context LLMs, context compression,
+and retrieval-augmented generation. Chapter 3 describes the methodology, system architecture, and evaluation design. Chapter 4 presents
+experimental results. Chapter 5 discusses findings and implications, and Chapter 6 concludes with a summary and directions for future work.
