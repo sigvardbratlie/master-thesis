@@ -32,3 +32,23 @@ secrets.toml
 
 **/.deepeval/
 evals/.deepeval/.deepeval-cache.json
+
+
+# Compiled
+*.pdf
+*.synctex.gz
+# LaTeX auxiliary
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+# Build
+_build/
+# OS
+Thumbs.db
