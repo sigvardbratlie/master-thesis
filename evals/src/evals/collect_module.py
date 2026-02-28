@@ -13,6 +13,7 @@ from agent.agent import Agent
 from models import AskAgentRequest, AttachmentModel
 from agent.utils import PROMPT, PROMPT_BASELINE, PROMPT_BASELINE_RAG
 from agent.tools import TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS
+from .dataset_module import Dataset
 from .models import ConversationTurn, DatasetPayload, GatheredResultPayload
 
 logger = logging.getLogger(__name__)

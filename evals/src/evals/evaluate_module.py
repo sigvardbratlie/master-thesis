@@ -5,23 +5,25 @@ from deepeval.evaluate import AsyncConfig
 from deepeval.test_case import ConversationalTestCase, Turn, TurnParams
 from deepeval.metrics import ConversationalGEval
 import logging
-import json
-from datetime import datetime
-from deepeval.evaluate.types import EvaluationResult
 from google.cloud import storage
 
-from .models import ConversationTurn, EvalOutput, GatheredResultPayload, Session
-
+from .models import ConversationTurn, GatheredResultPayload, Session
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("absl").setLevel(logging.WARNING)  
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 
+    
 class Evaluater:
     def __init__(self, client=None, model = "gpt-4.1", bucket_name="master-thesis-prod"):
         self._client = client or storage.Client()
         self.bucket = self._client.bucket(bucket_name)
         self.model = model
+        #self.sentence_transformer = SentenceTransformer("all-MiniLM-L6-v2")
 
+    
     def collect_single(self, conversation_turn: ConversationTurn, session_name: str = "unknown") -> LLMTestCase | None:
         if not conversation_turn.input or not conversation_turn.model_response or not conversation_turn.answer:
             logger.warning("Conversation turn is missing required fields. Skipping evaluation for this turn.")
@@ -85,5 +87,7 @@ class Evaluater:
         for session in data.sessions:
             results.append(self.run_session_eval(session))
         return results
+    
 
+    
     

@@ -1,7 +1,8 @@
 import logging
 from dotenv import load_dotenv
 import argparse
-from evals import Dataset, CollectAgentResult
+from evals import Dataset
+from evals.collect_module import CollectAgentResult
 from langsmith import Client as LangSmithClient
 import os
 import asyncio
