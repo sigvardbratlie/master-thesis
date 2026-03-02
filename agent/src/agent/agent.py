@@ -19,7 +19,6 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.documents import Document
 from langgraph.graph import StateGraph, END
-from langsmith.run_helpers import tracing_context
 
 from langchain.chat_models import init_chat_model
 
@@ -709,10 +708,11 @@ class Agent:
     # =================================
     #       PROJECT SCAN
     # =================================
-    def _prepare_analysis_tasks(self, attachments: list[AttachmentModel], 
-                                user_id: str, 
+    def _prepare_analysis_tasks(self, attachments: list[AttachmentModel],
+                                user_id: str,
                                 query: AskAgentRequest,
-                                input_: FactSheet | InitialInput, 
+                                input_: FactSheet | InitialInput,
+                                config: RunnableConfig = None,
                                 ) -> list:
         """Route attachments to doc/email analysis tasks, batching emails by size/count."""
         sem = asyncio.Semaphore(20)
@@ -721,17 +721,18 @@ class Agent:
             async with sem:
                 result = await self.context_manager.analyze_docs(
                     input_=input_,
-                    attachments = attatchments
+                    attachments=attatchments,
+                    config=config,
                 )
                 result["_source_filenames"] = [a.filename for a in attatchments]
                 return result
 
-        
         async def analyze_emails_with_limit(emails: list[EmailModel], input_):
             async with sem:
                 return await self.context_manager.analyze_emails(
-                    input_=  input_,
-                    emails=emails
+                    input_=input_,
+                    emails=emails,
+                    config=config,
                 )
 
         
@@ -882,7 +883,10 @@ class Agent:
                                  ):
         '''Initial project scan to generate FactSheet from initial input and attachments'''
         self.context_manager.llm = self._pick_llm(query.llm_model)
-        tracing_context(metadata={"query_id": query.query_id}).__enter__()
+        thread: RunnableConfig = {
+            "configurable": {"thread_id": query.session_id, "user_id": user_id, "custom_project_id": query.project_id},
+            "metadata": {"query_id": query.query_id},
+        }
 
         events: list[Event] = []
         damages: list[Damage] = []
@@ -934,7 +938,7 @@ class Agent:
         # Run file storage + init_input analysis in parallel
         initial_input = "No initial input extracted"
         parallel_tasks = [
-            asyncio.create_task(self.context_manager.analyze_init_input(query.question))
+            asyncio.create_task(self.context_manager.analyze_init_input(query.question, config=thread))
         ]
         if query.attachments and self.save_to_storage:
             parallel_tasks.append(asyncio.create_task(
@@ -1018,7 +1022,8 @@ class Agent:
         doc_tasks = self._prepare_analysis_tasks(
             attachments=query.attachments,
             user_id=user_id, query=query,
-            input_=initial_input, 
+            input_=initial_input,
+            config=thread,
         )
         
         yield {
@@ -1139,8 +1144,8 @@ class Agent:
 
         # Analyze factual facts and governing law in parallel
         analysis_tasks = [
-            self.context_manager.analyze_factual_facts(initial_input, events),
-            self.context_manager.analyze_governing_law(events=events, rag_content_law=rag_content_law),
+            self.context_manager.analyze_factual_facts(initial_input, events, config=thread),
+            self.context_manager.analyze_governing_law(events=events, rag_content_law=rag_content_law, config=thread),
         ]
         
         # ============= PHASE 3 =================
@@ -1241,7 +1246,10 @@ class Agent:
                              ):
         '''Update the project with new input and attachments'''
         self.context_manager.llm = self._pick_llm(query.llm_model)
-        tracing_context(metadata={"query_id": query.query_id}).__enter__()
+        thread: RunnableConfig = {
+            "configurable": {"thread_id": query.session_id, "user_id": user_id, "custom_project_id": query.project_id},
+            "metadata": {"query_id": query.query_id},
+        }
 
         # Validate project_data first
         factsheet = await asyncio.to_thread(
@@ -1285,7 +1293,8 @@ class Agent:
         doc_tasks = self._prepare_analysis_tasks(
             attachments=query.attachments,
             user_id=user_id, query=query,
-            input_=factsheet, 
+            input_=factsheet,
+            config=thread,
         )
 
         # ============= PHASE 1 =================

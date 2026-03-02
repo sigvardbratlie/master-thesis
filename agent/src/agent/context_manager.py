@@ -10,6 +10,7 @@ from pydantic import BaseModel, create_model,Field
 from langchain_core.messages import AIMessage,ToolMessage
 from langchain_core.documents import Document
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.runnables import RunnableConfig
 
 from langchain.chat_models import init_chat_model
 
@@ -97,14 +98,15 @@ class ContextManager:
 
 
     # ===== FUNCTIONS FOR INITIAL FACTSHEET CREATION =====
-    async def analyze_init_input(self, init_input : str) -> InitialInput:
+    async def analyze_init_input(self, init_input : str, config: RunnableConfig = None) -> InitialInput:
         structured_llm = self.llm.with_structured_output(InitialInput, method="function_calling")
         prompt = f'Analyze the following case introduction and extract key information into the InitialInput structure. If not sufficient information, leave blank:\n\n{init_input}. '
-        return await structured_llm.ainvoke(prompt)
+        return await structured_llm.ainvoke(prompt, config=config)
     
     async def analyze_docs(self,
                 input_ : InitialInput | FactSheet,
                 attachments : list[AttachmentModel],
+                config: RunnableConfig = None,
                 ) -> dict:
         '''Function to analyze multiple documents and extract structured data as Attachments.'''
         
@@ -148,8 +150,8 @@ class ContextManager:
 
                                 Documents to analyze:
                                 {documents_formatted}'''
-        response = await structured_llm.ainvoke(prompt)
-        
+        response = await structured_llm.ainvoke(prompt, config=config)
+
         if not response or not response.attachments:
             logger.error("LLM returned empty or invalid response")
             return {
@@ -242,6 +244,7 @@ class ContextManager:
     async def analyze_emails(self,
                 input_ : InitialInput | FactSheet,
                 emails : list[EmailModel],
+                config: RunnableConfig = None,
                 ) -> dict:
         '''Function to analyze multiple documents and extract structured data as Attachments.'''
         
@@ -289,7 +292,7 @@ class ContextManager:
                                 Emails to analyze:
                                 {emails_formatted}'''
         
-        response = await structured_llm.ainvoke(prompt)
+        response = await structured_llm.ainvoke(prompt, config=config)
 
         # Validate response structure
         if not response or not response.emails:
@@ -401,7 +404,7 @@ class ContextManager:
                 "claims" : claims}
 
 
-    async def analyze_governing_law(self, events : list[Event], rag_content_law : str) -> GoverningLaw:
+    async def analyze_governing_law(self, events : list[Event], rag_content_law : str, config: RunnableConfig = None) -> GoverningLaw:
         '''Function to analyze case events and extract governing law information.
         
         Args:
@@ -439,11 +442,12 @@ class ContextManager:
         structured_llm = self.llm.with_structured_output(GoverningLaw, method="function_calling")
         law_context = f'Extracted legal context:\n\n{rag_content_law}\n\n' if rag_content_law else ''
         prompt = law_context + f'Based on the following case events, analyze and extract governing law information:\n\n{events}'
-        return await structured_llm.ainvoke(prompt)
-        
-    async def analyze_factual_facts(self, 
-                              initial_input : InitialInput, 
-                              events : list[Event], 
+        return await structured_llm.ainvoke(prompt, config=config)
+
+    async def analyze_factual_facts(self,
+                              initial_input : InitialInput,
+                              events : list[Event],
+                              config: RunnableConfig = None,
                               ) -> FactualFacts:
         '''Function to analyze case events and extract disputed and undisputed facts.
         
@@ -457,7 +461,7 @@ class ContextManager:
         structured_llm = self.llm.with_structured_output(FactualFacts, method="function_calling")
         init = f'Initial case input: {initial_input.model_dump()}\n\n'
         prompt = init + f'Based on the following case events, extract disputed and undisputed facts:\n\n{events}'
-        return await structured_llm.ainvoke(prompt)
+        return await structured_llm.ainvoke(prompt, config=config)
     
 
     async def clean_element(self, 
