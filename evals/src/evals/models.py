@@ -101,10 +101,10 @@ class RougeObservation(BaseMetric):
 
 
 class ResourceObservation(BaseMetric):
-    """One observation per eval_run for resource usage metrics."""
+    """One observation per query × eval_run for resource usage metrics."""
     input_tokens: int = 0
     output_tokens: int = 0
     total_tokens: int = 0
     llm_calls: int = 0
-    duration: float = 0.0
+    duration: float = 0.0  # Per-query turn duration in seconds
 
