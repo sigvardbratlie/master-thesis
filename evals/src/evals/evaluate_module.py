@@ -24,7 +24,7 @@ class Evaluater:
         #self.sentence_transformer = SentenceTransformer("all-MiniLM-L6-v2")
 
     
-    def collect_single(self, conversation_turn: ConversationTurn, session_name: str = "unknown") -> LLMTestCase | None:
+    def collect_single(self, conversation_turn: ConversationTurn, session_name: str = "unknown", session_id: str = "unknown") -> LLMTestCase | None:
         if not conversation_turn.input or not conversation_turn.model_response or not conversation_turn.answer:
             logger.warning("Conversation turn is missing required fields. Skipping evaluation for this turn.")
             return None
@@ -36,6 +36,8 @@ class Evaluater:
             additional_metadata={
                 "turn_order": conversation_turn.order or "unknown",
                 "query_id": conversation_turn.query_id or "unknown",
+                "session_name" : session_name,
+                "session_id": session_id,
             },
         )
 
@@ -59,7 +61,7 @@ class Evaluater:
     def run_session_eval(self, session: Session):
         test_cases = [
             tc for conv in session.conversation
-            if (tc := self.collect_single(conversation_turn=conv, session_name=session.session_name)) is not None
+            if (tc := self.collect_single(conversation_turn=conv, session_name=session.session_name, session_id=session.runtime_session_id)) is not None
         ]
         correctness = GEval(
                         name="correctness",

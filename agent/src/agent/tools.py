@@ -138,12 +138,11 @@ TOOLS = [
         create_project,
       ]
 BASELINE_TOOLS = [tavily_search,
-                read_laws,
                 read_attachment,
                   ]
 
 BASELINE_RAG_TOOLS = [tavily_search,
                     read_laws,
-                    read_attachment,
                     query_project_attachments,
+                    read_attachment,
                     ]
