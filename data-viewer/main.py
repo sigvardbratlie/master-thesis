@@ -1056,7 +1056,7 @@ with tab_results:
             disabled=True,
         )
 
-        time_usage = result_data.get("time_usage", {})
+        time_usage = result_data.get("time_counts") or result_data.get("time_usage") or {}
         start_time = time_usage.get("starttime")
         end_time = time_usage.get("endtime")
         duration = time_usage.get("duration_seconds")
@@ -1138,7 +1138,8 @@ with tab_results:
                 answer = q.get("answer", "").strip()
                 model_response = q.get("model_response", "").strip()
                 has_response = bool(model_response)
-                turn_duration = q.get("turn_duration")
+                q_time = q.get("time_counts") or {}
+                turn_duration = q_time.get("duration_seconds") or q.get("turn_duration")
                 duration_str = f" ⏱️ {turn_duration:.1f}s" if turn_duration else ""
 
                 with st.expander(
@@ -1174,6 +1175,16 @@ with tab_results:
                             label_visibility="collapsed",
                             key=f"res_mr_{s_idx}_{q_idx}",
                         )
+
+                    q_tokens = q.get("token_counts")
+                    if q_tokens and isinstance(q_tokens, dict):
+                        st.write("")
+                        qt_cols = st.columns(len(q_tokens))
+                        for col, (k, v) in zip(qt_cols, q_tokens.items()):
+                            col.metric(
+                                k.replace("_", " ").title(),
+                                f"{v:,}" if isinstance(v, int) else v,
+                            )
 
         st.write("")
 
@@ -1272,11 +1283,14 @@ with tab_evals:
         if isinstance(session_result, dict):
             all_test_results.extend(session_result.get("test_results") or [])
 
-    all_test_results.sort(
-        key=lambda t: (t.get("additional_metadata") or {}).get(
-            "turn_order", float("inf")
-        )
-    )
+    def _turn_order_key(t: dict):
+        val = (t.get("additional_metadata") or {}).get("turn_order")
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return float("inf")
+
+    all_test_results.sort(key=_turn_order_key)
 
     if not all_test_results:
         st.info("No test results found in this eval run.")
