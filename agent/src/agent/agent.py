@@ -19,6 +19,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.documents import Document
 from langgraph.graph import StateGraph, END
+from langsmith.run_helpers import tracing_context
 
 from langchain.chat_models import init_chat_model
 
@@ -565,11 +566,14 @@ class Agent:
         #               SETUP
         # ================================
         
-        thread = {"configurable":
-                      {"thread_id": query.session_id,
-                       "user_id": user_id,
-                       "custom_project_id": query.project_id}
-                  }
+        thread = {
+            "configurable": {
+                "thread_id": query.session_id,
+                "user_id": user_id,
+                "custom_project_id": query.project_id,
+            },
+            "metadata": {"query_id": query.query_id},
+        }
         agent_instance = self._compile_agent(llm_model=query.llm_model, query_id=query.query_id)
         
         # NEW OR EXISTING CONVERSATION
@@ -878,6 +882,7 @@ class Agent:
                                  ):
         '''Initial project scan to generate FactSheet from initial input and attachments'''
         self.context_manager.llm = self._pick_llm(query.llm_model)
+        tracing_context(metadata={"query_id": query.query_id}).__enter__()
 
         events: list[Event] = []
         damages: list[Damage] = []
@@ -1235,8 +1240,9 @@ class Agent:
                               user_id : str,
                              ):
         '''Update the project with new input and attachments'''
-
         self.context_manager.llm = self._pick_llm(query.llm_model)
+        tracing_context(metadata={"query_id": query.query_id}).__enter__()
+
         # Validate project_data first
         factsheet = await asyncio.to_thread(
             self.conversation_manager.load_factsheet,
