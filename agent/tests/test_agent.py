@@ -411,7 +411,7 @@ async def test_call_llm_with_project_data(mock_agent):
 
     result = await mock_agent._call_llm(state, mock_llm, config)
 
-    mock_agent.conversation_manager.load_factsheet.assert_called_once_with(project_id="project-001")
+    mock_agent.conversation_manager.load_factsheet.assert_called_once_with(project_id="project-001", limited=False)
     assert "messages" in result
 
 
@@ -517,15 +517,6 @@ async def test_initialize_project(mock_agent):
     # Setup mocks
     mock_agent.context_manager.analyze_init_input = AsyncMock(return_value=get_mock_initial_input())
     mock_agent.context_manager.analyze_docs = AsyncMock(return_value=get_mock_analyzed_doc())
-    mock_agent.context_manager.analyze_factual_facts = AsyncMock(return_value=FactualFacts(
-        disputed_facts=["Fact 1"],
-        undisputed_facts=["Fact 2"]
-    ))
-    mock_agent.context_manager.analyze_governing_law = AsyncMock(return_value=GoverningLaw(
-        primary_jurisdiction="Norwegian law",
-        key_areas=["Contract Law"],
-        procedural_law="tvisteloven"
-    ))
     mock_agent.document_processor.process_attachment.return_value = get_mock_vector_store_docs()
     mock_agent.storage.save_raw_documents = AsyncMock()
 
@@ -550,16 +541,6 @@ async def test_initialize_project_no_attachments(mock_agent):
     user_id = "user-001"
 
     mock_agent.context_manager.analyze_init_input = AsyncMock(return_value=get_mock_initial_input())
-    mock_agent.context_manager.analyze_factual_facts = AsyncMock(return_value=FactualFacts(
-        disputed_facts=[],
-        undisputed_facts=[]
-    ))
-    mock_agent.context_manager.analyze_governing_law = AsyncMock(return_value=GoverningLaw(
-        primary_jurisdiction="Norwegian law",
-        key_areas=[],
-        procedural_law="tvisteloven"
-    ))
-
     with patch('agent.agent.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
 
@@ -831,24 +812,11 @@ async def test_initialize_project_with_mocks(mock_agent):
         "deadlines": []
     }
     
-    mock_factual_facts = FactualFacts(
-        disputed_facts=["Property defects disputed"],
-        undisputed_facts=["Contract signed on 2023-08-25"]
-    )
-    
-    mock_governing_law = GoverningLaw(
-        primary_jurisdiction="Norwegian law",
-        key_areas=["Contract law", "Property law"],
-        procedural_law="tvisteloven"
-    )
-    
     # Configure context_manager mocks
     mock_agent.context_manager.analyze_init_input = AsyncMock(return_value=mock_initial_input)
     mock_agent.context_manager.analyze_docs = AsyncMock(return_value=mock_analyzed_doc_result)
     mock_agent.context_manager.analyze_emails = AsyncMock(return_value=mock_analyzed_doc_result)
     mock_agent.context_manager.analyze_doc = AsyncMock(return_value=mock_analyzed_doc_result)
-    mock_agent.context_manager.analyze_factual_facts = AsyncMock(return_value=mock_factual_facts)
-    mock_agent.context_manager.analyze_governing_law = AsyncMock(return_value=mock_governing_law)
     
     # Configure storage mocks
     mock_agent.storage.save_raw_documents = AsyncMock(return_value={"status": "success"})
@@ -890,8 +858,6 @@ async def test_initialize_project_with_mocks(mock_agent):
     # Verify context_manager calls
     mock_agent.context_manager.analyze_init_input.assert_called_once()
     assert mock_agent.context_manager.analyze_docs.call_count >= 1
-    mock_agent.context_manager.analyze_factual_facts.assert_called_once()
-    mock_agent.context_manager.analyze_governing_law.assert_called_once()
     
     # Verify storage calls
     mock_agent.storage.save_raw_documents.assert_called_once()
@@ -988,7 +954,7 @@ Reklamasjon sendt til selger: 15. desember 2023
         # Should see key phases
         assert "initialization" in phases_seen or "init_input" in phases_seen
         assert "analyze_docs" in phases_seen or "analyze_doc" in phases_seen
-        assert "final_analysis" in phases_seen or "factual_facts" in phases_seen or "governing_law" in phases_seen
+        assert "final_analysis" in phases_seen or "analyze_docs" in phases_seen
         
         # Get final result
         final_result = next((r for r in results if r.get("type") == "result"), None)
@@ -1008,14 +974,6 @@ Reklamasjon sendt til selger: 15. desember 2023
         # Should have events (contract signing, takeover, etc)
         assert "events" in factsheet
         assert len(factsheet["events"]) >= 1, "Should identify key events like contract signing"
-        
-        # Should have governing law
-        assert "governing_law" in factsheet
-        assert factsheet["governing_law"] is not None
-        
-        # Should have factual facts
-        assert "disputed_facts" in factsheet
-        assert "undisputed_facts" in factsheet
         
         # Attachments should be processed
         assert "attachments" in final_result["data"]
@@ -1126,20 +1084,7 @@ async def test_initialize_project_empty_attachments(mock_agent):
         parties=[]
     )
     
-    mock_factual_facts = FactualFacts(
-        disputed_facts=[],
-        undisputed_facts=[]
-    )
-    
-    mock_governing_law = GoverningLaw(
-        primary_jurisdiction="Norwegian law",
-        key_areas=[],
-        procedural_law="tvisteloven"
-    )
-    
     mock_agent.context_manager.analyze_init_input = AsyncMock(return_value=mock_initial_input)
-    mock_agent.context_manager.analyze_factual_facts = AsyncMock(return_value=mock_factual_facts)
-    mock_agent.context_manager.analyze_governing_law = AsyncMock(return_value=mock_governing_law)
     mock_agent.conversation_manager.save_project = MagicMock(return_value=None)
     
     # Request without attachments

@@ -76,7 +76,7 @@ def test_save_project(mock_supabase_manager):
     first_call_args = calls[0][0][0]  # Første argument til første kall
     assert first_call_args['project_id'] == "test_project_id"
     assert first_call_args['user_id'] == "test_user_id"
-    assert client.table.call_count == 8 
+    assert client.table.call_count == 7
 
 
 def test_insert_project_element(mock_supabase_manager):

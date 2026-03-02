@@ -179,21 +179,6 @@ def get_mock_ask_agent_request_with_attachments() -> AskAgentRequest:
 #                 party_role="plaintiff"
 #             )
 #         ],
-#         disputed_facts=[
-#             "Selger hadde kunnskap om de elektriske feilene før salget",
-#             "Selgers opplysninger om at 'alt er sjekket og i orden' var uriktige"
-#         ],
-#         undisputed_facts=[
-#             "Eiendommen ble solgt for NOK 15 500 000",
-#             "Overtakelse skjedde 11. november 2023",
-#             "Tilstandsrapport fra ProTakst AS var vedlagt kjøpekontrakten",
-#             "Selger opplyste at elektrikeren hadde vært innom og gjort det som skulle gjøres"
-#         ],
-#         governing_law=GoverningLaw(
-#             primary_jurisdiction="Norsk rett",
-#             key_areas=["Avhendingslova", "Kontraktsrett", "Erstatningsrett"],
-#             procedural_law="tvisteloven"
-#         )
 #     )
 
 
