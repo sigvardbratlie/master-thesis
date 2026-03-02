@@ -89,7 +89,7 @@ class Dataset:
         path = f"datasets/{data.dataset_name}/04_results/{data.llm_model}_{data.agent_type}_{data.eval_run_id}.json"
         try:
             self.bucket.blob(path).upload_from_string(
-                json.dumps(data.model_dump(), indent=4), content_type="application/json"
+                json.dumps(data.model_dump(mode="json"), indent=4), content_type="application/json"
             )
             logger.info(f"Results saved to {path}")
         except Exception as e:
