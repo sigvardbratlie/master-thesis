@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import argparse
 from evals import Dataset
 from evals.collect_module import CollectAgentResult
+from evals.models import TokenCount
 from langsmith import Client as LangSmithClient
 import os
 import asyncio
@@ -43,16 +44,24 @@ def get_token_counts(eval_run_id: str) -> dict:
 async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_storage):
         car_custom = CollectAgentResult(data, llm_model=llm_model, agent_type=agent_type)
         collected_custom_results = await car_custom.run_agent(embed_to_vectorstore=embed_to_vectorstore, save_to_storage=save_to_storage)
-        token_counts = get_token_counts(collected_custom_results.eval_run_id)
-        logger.info(f"📊 Tokens — in: {token_counts['input_tokens']}  out: {token_counts['output_tokens']}  total: {token_counts['total_tokens']}  calls: {token_counts['llm_calls']}")
+        token_counts_dict = get_token_counts(collected_custom_results.eval_run_id)
+        logger.info(f"📊 Tokens — in: {token_counts_dict['input_tokens']}  out: {token_counts_dict['output_tokens']}  total: {token_counts_dict['total_tokens']}  calls: {token_counts_dict['llm_calls']}")
         for session in collected_custom_results.sessions:
             for conv in session.conversation:
                 qid = conv.query_id or "unknown"
-                entry = token_counts["per_query"].setdefault(
-                    qid, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0}
+                q = token_counts_dict["per_query"].get(qid, {})
+                conv.token_counts = TokenCount(
+                    input_tokens=q.get("input_tokens", 0),
+                    output_tokens=q.get("output_tokens", 0),
+                    total_tokens=q.get("total_tokens", 0),
+                    llm_calls=q.get("llm_calls", 0),
                 )
-                entry["duration"] = conv.turn_duration or 0.0
-        collected_custom_results.token_counts = token_counts
+        collected_custom_results.token_counts = TokenCount(
+            input_tokens=token_counts_dict["input_tokens"],
+            output_tokens=token_counts_dict["output_tokens"],
+            total_tokens=token_counts_dict["total_tokens"],
+            llm_calls=token_counts_dict["llm_calls"],
+        )
         ds = Dataset(data.dataset_name)
         ds.save_results(collected_custom_results)
         logger.info(f"✅ {agent_type} agent results saved")

@@ -14,7 +14,7 @@ from models import AskAgentRequest, AttachmentModel
 from agent.utils import PROMPT, PROMPT_BASELINE, PROMPT_BASELINE_RAG
 from agent.tools import TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS
 from .dataset_module import Dataset
-from .models import ConversationTurn, DatasetPayload, GatheredResultPayload
+from .models import ConversationTurn, DatasetPayload, GatheredResultPayload, TimeCount
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,12 @@ class CollectAgentResult:
             if response.get("type") == "ai":
                 answer = response.get("data", {}).get("token_stream", "No content")
         conv.model_response = answer
-        conv.turn_duration = (datetime.now() - turn_starttime).total_seconds()
+        turn_endtime = datetime.now()
+        conv.time_counts = TimeCount(
+            starttime=turn_starttime,
+            endtime=turn_endtime,
+            duration_seconds=(turn_endtime - turn_starttime).total_seconds(),
+        )
 
     async def run_agent(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True) -> GatheredResultPayload:
         use_factsheet = self.agent_type == "custom"
@@ -196,11 +201,14 @@ class CollectAgentResult:
                             query_id=conv_query_id,
                             user_id=self.data.user_id,
                         )
-                session_duration = (datetime.now() - session_starttime).total_seconds()
-                session.duration = session_duration
-                logger.debug(f"Session {idx} completed in {session_duration:.2f} seconds")
+                session_endtime = datetime.now()
+                session.time_counts = TimeCount(
+                    starttime=session_starttime,
+                    endtime=session_endtime,
+                    duration_seconds=(session_endtime - session_starttime).total_seconds(),
+                )
+                logger.debug(f"Session {idx} completed in {session.time_counts.duration_seconds:.2f} seconds")
         endtime = datetime.now()
-        duration = (endtime - starttime).total_seconds()
         return GatheredResultPayload(
             dataset_name=self.data.dataset_name,
             project_id=self.data.project_id,
@@ -210,7 +218,11 @@ class CollectAgentResult:
             llm_model=self.llm_model,
             agent_type=self.agent_type,
             runtime_project_id=runtime_project_id,
-            time_usage={"starttime": starttime.isoformat(), "endtime": endtime.isoformat(), "duration_seconds": duration},
+            time_counts=TimeCount(
+                starttime=starttime,
+                endtime=endtime,
+                duration_seconds=(endtime - starttime).total_seconds(),
+            ),
         )
 
     #async def run_agent_mult(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True)
