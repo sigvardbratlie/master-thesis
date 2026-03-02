@@ -277,9 +277,11 @@ if st.session_state.get("_loaded_dataset") != dataset:
         )
         st.stop()
 
-    # Backfill missing query_id and fix session/order numbering on load
+    # Backfill missing query_id / init_query_id and fix session/order numbering on load
     for s_idx, session in enumerate(raw.get("sessions", [])):
         session["session"] = s_idx
+        if not session.get("init_query_id"):
+            session["init_query_id"] = str(uuid.uuid4())
         for q_idx, query in enumerate(session.get("conversation", [])):
             if not query.get("query_id"):
                 query["query_id"] = str(uuid.uuid4())
@@ -483,6 +485,7 @@ def add_session() -> None:
         "session_id": str(uuid.uuid4()),
         "session_name": f"New session {len(sessions) + 1}",
         "init_query": "",
+        "init_query_id": str(uuid.uuid4()),
         "conversation": [
             {"input": "", "answer": "", "query_id": str(uuid.uuid4()), "order": 0}
         ],
@@ -656,6 +659,7 @@ with tab_dataset:
                     placeholder="Add an opening instruction for this session...",
                     help="The opening instruction given to the agent for this session",
                 )
+                st.caption(f"🔑 `{session.get('init_query_id', '—')}`")
 
             cap_col, btn_col = st.columns([0.65, 0.35])
             cap_col.caption(f"🔢 {n_queries} {'query' if n_queries == 1 else 'queries'} in this session")
