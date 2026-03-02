@@ -132,6 +132,7 @@ class Party(BaseModel):
     entity_type: entity_types
     key_contact: Optional[Contact] = Field(None, description="Primary contact person for this party")
     role_description: Optional[str] = Field(None, description="Additional details about the party's role or involvement in the case")
+    significance : significance_levels = Field(default="medium", description="Significance of the party to the case")
 
 
 class Parties(BaseModel):
@@ -147,7 +148,7 @@ class Event(BaseModel):
     description: str
     category: str = Field(description="Categorization of the event, e.g., 'court_filing', 'evidence_submission', 'contract_signing', 'communication', etc.")
     parties: Optional[list[str]] = Field(None, description="Roles of parties involved in the event")
-    significance: significance_levels
+    significance: significance_levels = Field(default="medium", description="Significance of the event to the case")
     disputed: bool
 
 class Events(BaseModel):
