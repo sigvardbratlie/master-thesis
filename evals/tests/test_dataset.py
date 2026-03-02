@@ -6,6 +6,7 @@ from datetime import date
 from unittest.mock import MagicMock, patch, call
 
 from evals.dataset_module import Dataset
+from evals.models import DatasetPayload, GatheredResultPayload, Session
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -79,13 +80,14 @@ class TestRunFormatCheck:
 
 class TestLoadDataset:
     def test_loads_valid_json(self, ds, mock_bucket):
-        payload = {"dataset_name": "THRD-2021-163881", "sessions": []}
+        payload = {"dataset_name": "THRD-2021-163881", "project_id": "p", "user_id": "u", "sessions": []}
         mock_bucket.blob.return_value.download_as_string.return_value = (
             json.dumps(payload).encode("utf-8")
         )
         result = ds.load_dataset()
-        assert result == payload
-        assert ds.data == payload
+        assert result is not None
+        assert result.dataset_name == "THRD-2021-163881"
+        assert ds.data.dataset_name == "THRD-2021-163881"
 
     def test_returns_none_on_error(self, ds, mock_bucket):
         mock_bucket.blob.return_value.download_as_string.side_effect = Exception("not found")
@@ -93,7 +95,8 @@ class TestLoadDataset:
         assert result is None
 
     def test_uses_correct_blob_path(self, ds, mock_bucket):
-        mock_bucket.blob.return_value.download_as_string.return_value = b'{"sessions": []}'
+        payload = {"dataset_name": "THRD-2021-163881", "project_id": "p", "user_id": "u", "sessions": []}
+        mock_bucket.blob.return_value.download_as_string.return_value = json.dumps(payload).encode()
         ds.load_dataset()
         mock_bucket.blob.assert_called_once_with(
             "datasets/THRD-2021-163881/dataset_THRD-2021-163881.json"
@@ -103,25 +106,34 @@ class TestLoadDataset:
 # ── save_results ──────────────────────────────────────────────────────────────
 
 class TestSaveResults:
+    def _make_data(self) -> GatheredResultPayload:
+        return GatheredResultPayload(
+            dataset_name="THRD-2021-163881",
+            project_id="p",
+            user_id="u",
+            sessions=[],
+            eval_run_id="run-1",
+            llm_model="gpt-4o",
+            agent_type="baseline",
+            runtime_project_id="p",
+        )
+
     def test_uploads_to_correct_prefix(self, ds, mock_bucket):
-        data = {"dataset_name": "THRD-2021-163881", "llm_model": "gpt-4o", "results": []}
-        ds.save_results(data)
+        ds.save_results(self._make_data())
         path = mock_bucket.blob.call_args[0][0]
         assert path.startswith("datasets/THRD-2021-163881/04_results/gpt-4o_")
         assert path.endswith(".json")
 
-    def test_raises_on_missing_dataset_name(self, ds):
-        with pytest.raises(ValueError, match="dataset_name"):
-            ds.save_results({"llm_model": "gpt-4o"})
-
-    def test_raises_on_missing_llm_model(self, ds):
-        with pytest.raises(ValueError, match="llm_model"):
-            ds.save_results({"dataset_name": "THRD-2021-163881"})
+    def test_path_contains_agent_type_and_eval_run_id(self, ds, mock_bucket):
+        ds.save_results(self._make_data())
+        path = mock_bucket.blob.call_args[0][0]
+        assert "baseline" in path
+        assert "run-1" in path
 
     def test_raises_when_upload_fails(self, ds, mock_bucket):
         mock_bucket.blob.return_value.upload_from_string.side_effect = Exception("GCS error")
         with pytest.raises(Exception, match="GCS error"):
-            ds.save_results({"dataset_name": "THRD-2021-163881", "llm_model": "gpt-4o"})
+            ds.save_results(self._make_data())
 
 
 # ── get_all_data_files ────────────────────────────────────────────────────────
@@ -199,13 +211,23 @@ class TestAssignSessionAttachments:
         with pytest.raises(ValueError, match="load_dataset"):
             ds.assign_session_attachments()
 
+    def _make_ds_data(self, *session_specs) -> DatasetPayload:
+        sessions = [
+            Session(
+                session_name=s.get("session_name", "S"),
+                date=s.get("date", "2024-01-01"),
+                init_query="Init",
+                conversation=[],
+            )
+            for s in session_specs
+        ]
+        return DatasetPayload(dataset_name="THRD", project_id="p", user_id="u", sessions=sessions)
+
     def test_assigns_files_in_date_window(self, ds, mock_bucket):
-        ds.data = {
-            "sessions": [
-                {"date": "2024-01-15", "session_name": "S1", "conversation": []},
-                {"date": "2024-02-20", "session_name": "S2", "conversation": []},
-            ]
-        }
+        ds.data = self._make_ds_data(
+            {"date": "2024-01-15", "session_name": "S1"},
+            {"date": "2024-02-20", "session_name": "S2"},
+        )
         mock_bucket.list_blobs.return_value = [
             _blob("datasets/THRD/01_data/2024-01-10_a.pdf"),
             _blob("datasets/THRD/01_data/2024-01-14_b.pdf"),
@@ -213,61 +235,45 @@ class TestAssignSessionAttachments:
         ]
         ds.assign_session_attachments()
 
-        s1 = ds.data["sessions"][0]
-        s2 = ds.data["sessions"][1]
-        assert len(s1["attachments"]) == 2   # a + b fall in (−∞, 2024-01-15]
-        assert len(s2["attachments"]) == 1   # c falls in (2024-01-15, 2024-02-20]
+        s1, s2 = ds.data.sessions
+        assert len(s1.attachments) == 2   # a + b fall in (−∞, 2024-01-15]
+        assert len(s2.attachments) == 1   # c falls in (2024-01-15, 2024-02-20]
 
     def test_file_not_assigned_twice(self, ds, mock_bucket):
         """A file on session 1's exact date must NOT also appear in session 2."""
-        ds.data = {
-            "sessions": [
-                {"date": "2024-01-15", "session_name": "S1", "conversation": []},
-                {"date": "2024-02-20", "session_name": "S2", "conversation": []},
-            ]
-        }
+        ds.data = self._make_ds_data(
+            {"date": "2024-01-15", "session_name": "S1"},
+            {"date": "2024-02-20", "session_name": "S2"},
+        )
         mock_bucket.list_blobs.return_value = [
             _blob("datasets/THRD/01_data/2024-01-15_boundary.pdf"),
         ]
         ds.assign_session_attachments()
-        s1_attachments = ds.data["sessions"][0]["attachments"]
-        s2_attachments = ds.data["sessions"][1]["attachments"]
-        assert len(s1_attachments) == 1
-        assert len(s2_attachments) == 0
+        assert len(ds.data.sessions[0].attachments) == 1
+        assert len(ds.data.sessions[1].attachments) == 0
 
     def test_session_without_date_gets_empty_list(self, ds, mock_bucket):
-        ds.data = {
-            "sessions": [
-                {"session_name": "No date", "conversation": []},
-            ]
-        }
+        ds.data = self._make_ds_data({"session_name": "No date", "date": "2000-01-01"})
+        ds.data.sessions[0].date = None  # type: ignore[assignment]
         mock_bucket.list_blobs.return_value = [
             _blob("datasets/THRD/01_data/2024-01-10_a.pdf"),
         ]
         ds.assign_session_attachments()
-        assert ds.data["sessions"][0]["attachments"] == []
+        assert ds.data.sessions[0].attachments == []
 
     def test_no_files_yields_empty_attachments(self, ds, mock_bucket):
-        ds.data = {
-            "sessions": [
-                {"date": "2024-01-15", "session_name": "S1", "conversation": []},
-            ]
-        }
+        ds.data = self._make_ds_data({"date": "2024-01-15", "session_name": "S1"})
         mock_bucket.list_blobs.return_value = []
         ds.assign_session_attachments()
-        assert ds.data["sessions"][0]["attachments"] == []
+        assert ds.data.sessions[0].attachments == []
 
     def test_file_after_last_session_not_assigned(self, ds, mock_bucket):
-        ds.data = {
-            "sessions": [
-                {"date": "2024-01-15", "session_name": "S1", "conversation": []},
-            ]
-        }
+        ds.data = self._make_ds_data({"date": "2024-01-15", "session_name": "S1"})
         mock_bucket.list_blobs.return_value = [
             _blob("datasets/THRD/01_data/2024-06-01_future.pdf"),
         ]
         ds.assign_session_attachments()
-        assert ds.data["sessions"][0]["attachments"] == []
+        assert ds.data.sessions[0].attachments == []
 
 
 # ── Integration tests ─────────────────────────────────────────────────────────
@@ -290,8 +296,7 @@ class TestDatasetIntegration:
     def test_load_dataset_returns_sessions(self, live_ds):
         data = live_ds.load_dataset()
         assert data is not None
-        assert "sessions" in data
-        assert len(data["sessions"]) > 0
+        assert len(data.sessions) > 0
 
     def test_get_all_data_files_returns_files(self, live_ds):
         date_to_files, sorted_dates = live_ds.get_all_data_files()
@@ -303,8 +308,8 @@ class TestDatasetIntegration:
         live_ds.assign_session_attachments()
         all_assigned = [
             f
-            for s in live_ds.data["sessions"]
-            for f in s.get("attachments", [])
+            for s in live_ds.data.sessions
+            for f in s.attachments
         ]
         assert len(all_assigned) == len(set(all_assigned)), "Duplicate files assigned"
 

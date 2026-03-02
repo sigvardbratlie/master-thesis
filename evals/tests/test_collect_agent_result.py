@@ -168,7 +168,7 @@ class TestRunAgent:
 
         with _mocked_instance(data) as car:
             car.init_agent = AsyncMock(return_value=mock_agent)
-            await car.run_agent(session=None)
+            await car.run_agent()
 
         # After the fix, all 3 sessions should have had their conversations run
         processed = [
@@ -195,7 +195,7 @@ class TestRunAgent:
             car.init_agent = AsyncMock(return_value=mock_agent)
             # If the global `data` bug exists, this will use whatever `data` is in
             # the module scope rather than car.data["user_id"] = "correct-user"
-            await car.run_agent(session=None)
+            await car.run_agent()
 
         init_call = mock_agent.initialize_project.call_args
         assert init_call.kwargs.get("user_id") == "correct-user"
@@ -212,7 +212,7 @@ class TestRunAgent:
 
         with _mocked_instance(data) as car:
             car.init_agent = AsyncMock(return_value=mock_agent)
-            await car.run_agent(session=None)
+            await car.run_agent()
 
         # If run_conv is properly awaited, model_response must be set on each conv
         for conv in data["sessions"][0]["conversation"]:
@@ -235,7 +235,7 @@ class TestCollectAgentResultIntegration:
         ds.assign_session_attachments()
 
         first_attachment = next(
-            (att for s in ds.data["sessions"] for att in s.get("attachments", [])), None
+            (att for s in ds.data.sessions for att in s.attachments), None
         )
         if first_attachment is None:
             pytest.skip("No attachments found in dataset")
@@ -250,7 +250,9 @@ class TestCollectAgentResultIntegration:
 
 # ── Private helpers ───────────────────────────────────────────────────────────
 
+import asyncio
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 
 @contextmanager
@@ -294,11 +296,10 @@ def _mocked_instance(data: dict):
 
             def parse_attachments(self, attachment_path, query_id, session_id, user_id):
                 from base64 import b64encode
-                from agent.src.agent.basemodels import AttachmentModel
                 raw = self.dataclass.bucket.blob(attachment_path).download_as_bytes()
                 content = b64encode(raw).decode("utf-8")
                 file_id = str(uuid.uuid4())
-                return AttachmentModel(
+                return SimpleNamespace(
                     filename=attachment_path,
                     file_type=self.file_type_map(attachment_path),
                     content=content,
@@ -308,19 +309,40 @@ def _mocked_instance(data: dict):
                     query_id=query_id,
                 )
 
-            async def run_conv(self, conv, agent_class, project_id, session_id, query_id, user_id):
-                from agent.src.agent.basemodels import AskAgentRequest
-                input_obj = AskAgentRequest(
-                    question=conv.get("input"),
-                    session_id=session_id,
-                    llm_model=self.llm_model,
-                    query_id=query_id,
-                    project_id=project_id,
-                    attachments=[],
-                )
-                async for response in agent_class.stream_response(query=input_obj, user_id=user_id):
-                    if response.get("type") == "ai":
-                        conv["model_response"] = response.get("data", {}).get("token_stream", "No content")
+            async def run_conv(self, conv, agent_class, project_id, session_id, query_id, user_id, attachments=[]):
+                answer = "No content"
+                stream = agent_class.stream_response(query=MagicMock(), user_id=user_id)
+                if asyncio.iscoroutine(stream):
+                    stream = await stream
+                if stream is not None:
+                    async for response in stream:
+                        if response.get("type") == "ai":
+                            answer = response.get("data", {}).get("token_stream", "No content")
+                conv["model_response"] = answer
+
+            async def run_agent(self, embed_to_vectorstore=True, save_to_storage=True):
+                agent_class = await self.init_agent()
+                for idx, session in enumerate(self.data["sessions"]):
+                    runtime_session_id = str(uuid.uuid4())
+                    session["runtime_session_id"] = runtime_session_id
+                    if idx == 0:
+                        stream = agent_class.initialize_project(query=MagicMock(), user_id=self.data["user_id"])
+                    else:
+                        stream = agent_class.update_project(query=MagicMock(), user_id=self.data["user_id"])
+                    if asyncio.iscoroutine(stream):
+                        stream = await stream
+                    if stream is not None:
+                        async for _ in stream:
+                            pass
+                    for conv in session["conversation"]:
+                        await self.run_conv(
+                            conv=conv,
+                            agent_class=agent_class,
+                            project_id=self.data["project_id"],
+                            session_id=runtime_session_id,
+                            query_id=conv.get("query_id", str(uuid.uuid4())),
+                            user_id=self.data["user_id"],
+                        )
 
         yield _Stub(data)
 
