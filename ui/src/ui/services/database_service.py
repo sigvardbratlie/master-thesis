@@ -63,7 +63,6 @@ class SupabaseManager:
                 project_deadlines(*),
                 project_damages(*),
                 project_claims(*),
-                project_legal(*),
                 project_emails(email_id, from_addr, to, cc, bcc, subject, body, date, created_at)
                 """
             
@@ -79,13 +78,13 @@ class SupabaseManager:
         project_claims = data.pop("project_claims", [])
         project_emails = data.pop("project_emails", [])
 
-        project_legal = data.pop("project_legal", {})
-        project_legal.pop("created_at", None)
-        project_legal.pop("project_id", None)
+        #project_legal = data.pop("project_legal", {})
+        # project_legal.pop("created_at", None)
+        # project_legal.pop("project_id", None)
 
         factsheet = {}
         factsheet = dict(**data,
-                              **project_legal,
+                              #**project_legal,
                               parties=project_parties,
                               events=project_events,
                               deadlines=project_deadlines,
