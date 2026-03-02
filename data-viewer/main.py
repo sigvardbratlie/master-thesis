@@ -55,7 +55,9 @@ def read_blob_bytes(blob_path: str) -> bytes:
 
 
 def write_blob(blob_path: str, data: bytes) -> None:
-    _bucket().blob(blob_path).upload_from_string(data, content_type="application/json; charset=utf-8")
+    _bucket().blob(blob_path).upload_from_string(
+        data, content_type="application/json; charset=utf-8"
+    )
 
 
 def delete_blob(blob_path: str) -> None:
@@ -107,7 +109,11 @@ def list_versions(ds: str) -> list[storage.Blob]:
     """Return published version blobs, newest first."""
     client = get_gcs_client()
     prefix = f"datasets/{ds}/versions/"
-    blobs = [b for b in client.list_blobs(BUCKET_NAME, prefix=prefix) if not b.name.endswith("/")]
+    blobs = [
+        b
+        for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
+        if not b.name.endswith("/")
+    ]
     return sorted(blobs, key=lambda b: b.name, reverse=True)
 
 
@@ -116,8 +122,10 @@ def list_data_blobs(dataset: str) -> list[storage.Blob]:
     client = get_gcs_client()
     prefix = f"datasets/{dataset}/01_data/"
     return [
-        b for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
-        if not b.name.endswith("/") and Path(b.name).suffix.lower() in SUPPORTED_EXTENSIONS
+        b
+        for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
+        if not b.name.endswith("/")
+        and Path(b.name).suffix.lower() in SUPPORTED_EXTENSIONS
     ]
 
 
@@ -126,7 +134,8 @@ def list_result_blobs(dataset: str) -> list[storage.Blob]:
     client = get_gcs_client()
     prefix = f"datasets/{dataset}/04_results/"
     blobs = [
-        b for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
+        b
+        for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
         if not b.name.endswith("/") and b.name.endswith(".json")
     ]
     return sorted(blobs, key=lambda b: b.name, reverse=True)
@@ -137,7 +146,8 @@ def list_eval_blobs(dataset: str) -> list[storage.Blob]:
     client = get_gcs_client()
     prefix = f"datasets/{dataset}/05_evals/"
     blobs = [
-        b for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
+        b
+        for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
         if not b.name.endswith("/") and b.name.endswith(".json")
     ]
     return sorted(blobs, key=lambda b: b.name, reverse=True)
@@ -165,7 +175,7 @@ def trash_dataset(ds_name: str) -> None:
     blobs = list(client.list_blobs(BUCKET_NAME, prefix=prefix))
     ts = datetime.now(_OSLO).strftime("%Y-%m-%dT%H-%M-%S")
     for blob in blobs:
-        rel = blob.name[len(prefix):]
+        rel = blob.name[len(prefix) :]
         move_blob(blob.name, f"_trash/datasets/{ds_name}_{ts}/{rel}")
 
 
@@ -174,6 +184,13 @@ def trash_file(dataset: str, blob_name: str) -> None:
     filename = blob_name.split("/")[-1]
     ts = datetime.now(_OSLO).strftime("%Y-%m-%dT%H-%M-%S")
     move_blob(blob_name, f"datasets/{dataset}/_trash/{ts}_{filename}")
+
+
+def trash_result_blob(dataset: str, blob_name: str) -> None:
+    """Move a result file to the dataset's _trash/ folder."""
+    filename = blob_name.split("/")[-1]
+    ts = datetime.now(_OSLO).strftime("%Y-%m-%dT%H-%M-%S")
+    move_blob(blob_name, f"datasets/{dataset}/_trash/results_{ts}_{filename}")
 
 
 _RESULT_RE = re.compile(r"^(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json$")
@@ -224,7 +241,9 @@ with _ds_col:
     )
 with _btn_new:
     if st.button("➕ New dataset", use_container_width=True):
-        st.session_state["_show_new_dataset"] = not st.session_state.get("_show_new_dataset", False)
+        st.session_state["_show_new_dataset"] = not st.session_state.get(
+            "_show_new_dataset", False
+        )
 with _btn_del:
     if dataset and st.button("🗑️ Delete dataset", use_container_width=True):
         st.session_state["_confirm_delete_dataset"] = dataset
@@ -267,7 +286,9 @@ if st.session_state.get("_loaded_dataset") != dataset:
             raw: dict = json.loads(read_blob_bytes(_draft).decode("utf-8"))
             st.session_state["_from_draft"] = True
         else:
-            raw: dict = json.loads(read_blob_bytes(dataset_blob_path(dataset)).decode("utf-8"))
+            raw: dict = json.loads(
+                read_blob_bytes(dataset_blob_path(dataset)).decode("utf-8")
+            )
             st.session_state["_from_draft"] = False
     except NotFound:
         st.error(
@@ -305,7 +326,10 @@ raw = st.session_state["_raw"]
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def text_height(text: str, min_height: int = 100, max_height: int = 800, chars_per_line: int = 90) -> int:
+
+def text_height(
+    text: str, min_height: int = 100, max_height: int = 800, chars_per_line: int = 90
+) -> int:
     lines = text.split("\n")
     total_lines = sum(max(1, math.ceil(len(line) / chars_per_line)) for line in lines)
     return max(min_height, min(max_height, total_lines * 22 + 50))
@@ -314,9 +338,9 @@ def text_height(text: str, min_height: int = 100, max_height: int = 800, chars_p
 SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".eml", ".docx", ".xlsx"}
 
 FILE_ICONS = {
-    ".pdf":  "📄",
-    ".txt":  "📝",
-    ".eml":  "📧",
+    ".pdf": "📄",
+    ".txt": "📝",
+    ".eml": "📧",
     ".docx": "📝",
     ".xlsx": "📊",
 }
@@ -344,7 +368,11 @@ def render_file(filename: str, content: bytes) -> None:
             if msg.is_multipart():
                 for part in msg.walk():
                     if part.get_content_type() == "text/plain":
-                        st.text(part.get_payload(decode=True).decode("utf-8", errors="ignore"))
+                        st.text(
+                            part.get_payload(decode=True).decode(
+                                "utf-8", errors="ignore"
+                            )
+                        )
             else:
                 st.text(msg.get_payload(decode=True).decode("utf-8", errors="ignore"))
 
@@ -363,17 +391,31 @@ def render_file(filename: str, content: bytes) -> None:
 def _sync_widgets_to_raw() -> None:
     """Write current widget values back into _raw before structural changes."""
     for s_idx, session in enumerate(st.session_state["_raw"]["sessions"]):
-        session["session_name"] = st.session_state.get(f"sname_{s_idx}", session.get("session_name", ""))
-        session["date"] = st.session_state.get(f"sdate_{s_idx}", session.get("date", ""))
-        session["init_query"] = st.session_state.get(f"sinit_{s_idx}", session.get("init_query", ""))
+        session["session_name"] = st.session_state.get(
+            f"sname_{s_idx}", session.get("session_name", "")
+        )
+        session["date"] = st.session_state.get(
+            f"sdate_{s_idx}", session.get("date", "")
+        )
+        session["init_query"] = st.session_state.get(
+            f"sinit_{s_idx}", session.get("init_query", "")
+        )
         for q_idx, query in enumerate(session["conversation"]):
-            query["input"] = st.session_state.get(f"inp_{s_idx}_{q_idx}", query.get("input", ""))
-            query["answer"] = st.session_state.get(f"ans_{s_idx}_{q_idx}", query.get("answer", ""))
+            query["input"] = st.session_state.get(
+                f"inp_{s_idx}_{q_idx}", query.get("input", "")
+            )
+            query["answer"] = st.session_state.get(
+                f"ans_{s_idx}_{q_idx}", query.get("answer", "")
+            )
 
 
 def _rebuild_session_keys() -> None:
     """Clear and re-initialise all index-based widget keys from _raw."""
-    for key in [k for k in st.session_state if k.startswith(("sname_", "sdate_", "sinit_", "inp_", "ans_"))]:
+    for key in [
+        k
+        for k in st.session_state
+        if k.startswith(("sname_", "sdate_", "sinit_", "inp_", "ans_"))
+    ]:
         del st.session_state[key]
     for s_idx, session in enumerate(st.session_state["_raw"]["sessions"]):
         st.session_state[f"sname_{s_idx}"] = session.get("session_name", "")
@@ -479,17 +521,18 @@ def add_session() -> None:
     _push_undo()
     _sync_widgets_to_raw()
     sessions = st.session_state["_raw"]["sessions"]
-    sessions.append({
-        "session": 0,
-        "date": datetime.now(_OSLO).strftime("%Y-%m-%d"),
-        "session_id": str(uuid.uuid4()),
-        "session_name": f"New session {len(sessions) + 1}",
-        "init_query": "",
-        "init_query_id": str(uuid.uuid4()),
-        "conversation": [
-            {"input": "", "answer": "", "query_id": str(uuid.uuid4()), "order": 0}
-        ],
-    })
+    sessions.append(
+        {
+            "session": 0,
+            "date": datetime.now(_OSLO).strftime("%Y-%m-%d"),
+            "session_id": str(uuid.uuid4()),
+            "session_name": f"New session {len(sessions) + 1}",
+            "init_query": "",
+            "conversation": [
+                {"input": "", "answer": "", "query_id": str(uuid.uuid4()), "order": 0}
+            ],
+        }
+    )
     _renumber()
     _rebuild_session_keys()
 
@@ -506,7 +549,10 @@ def save_draft() -> None:
     _sync_widgets_to_raw()
     data = copy.deepcopy(st.session_state["_raw"])
     data["last_updated"] = datetime.now(_OSLO).isoformat()
-    write_blob(draft_blob_path(st.session_state["_loaded_dataset"]), json.dumps(data, ensure_ascii=False, indent=4).encode("utf-8"))
+    write_blob(
+        draft_blob_path(st.session_state["_loaded_dataset"]),
+        json.dumps(data, ensure_ascii=False, indent=4).encode("utf-8"),
+    )
     st.session_state["_last_saved"] = datetime.now(_OSLO).strftime("%H:%M:%S")
     st.session_state["_from_draft"] = True
 
@@ -539,20 +585,24 @@ def reset_to_original() -> None:
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
-tab_dataset, tab_files, tab_results, tab_evals = st.tabs(["📋 Dataset", "📁 Files", "📊 Results", "📈 Evals"])
+tab_dataset, tab_files, tab_results, tab_evals = st.tabs(
+    ["📋 Dataset", "📁 Files", "📊 Results", "📈 Evals"]
+)
 
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 1 — Dataset editor
 # ════════════════════════════════════════════════════════════════════════════
 
 with tab_dataset:
-
     # ── Autosave draft on every rerun ────────────────────────────────────────
     save_draft()
 
     # ── Status bar ───────────────────────────────────────────────────────────
     if st.session_state.pop("_show_publish_toast", False):
-        st.toast(f"🚀 Published successfully at {st.session_state.get('_last_published')}", icon="✅")
+        st.toast(
+            f"🚀 Published successfully at {st.session_state.get('_last_published')}",
+            icon="✅",
+        )
 
     if st.session_state.get("_last_published"):
         st.success(f"✅ Published at {st.session_state['_last_published']}", icon=None)
@@ -573,9 +623,13 @@ with tab_dataset:
 
     with st.expander("ℹ️ Dataset metadata", expanded=False):
         c1, c2, c3 = st.columns(3)
-        c1.text_input("📛 Dataset name", value=raw.get("dataset_name", ""), disabled=True)
+        c1.text_input(
+            "📛 Dataset name", value=raw.get("dataset_name", ""), disabled=True
+        )
         c2.text_input("🔑 Project ID", value=raw.get("project_id", ""), disabled=True)
-        c3.text_input("🕐 Last updated", value=raw.get("last_updated", ""), disabled=True)
+        c3.text_input(
+            "🕐 Last updated", value=raw.get("last_updated", ""), disabled=True
+        )
 
     st.divider()
 
@@ -597,7 +651,9 @@ with tab_dataset:
         st.session_state["_all_collapsed"] = not collapsed
         st.rerun()
 
-    st.caption("Click a session to expand or collapse it. You can edit all text directly in the fields.")
+    st.caption(
+        "Click a session to expand or collapse it. You can edit all text directly in the fields."
+    )
     st.write("")
 
     for s_idx, session in enumerate(sessions):
@@ -606,8 +662,12 @@ with tab_dataset:
         sdate = st.session_state.get(f"sdate_{s_idx}", session.get("date", ""))
         label = f"📁 {sname or 'Unnamed session'}" + (f" — {sdate}" if sdate else "")
 
-        with st.expander(label, expanded=not st.session_state.get("_all_collapsed", False)):
-            col_name, col_date, col_up, col_down, col_del = st.columns([0.62, 0.16, 0.07, 0.07, 0.08])
+        with st.expander(
+            label, expanded=not st.session_state.get("_all_collapsed", False)
+        ):
+            col_name, col_date, col_up, col_down, col_del = st.columns(
+                [0.62, 0.16, 0.07, 0.07, 0.08]
+            )
             col_name.text_input(
                 "Session name",
                 key=f"sname_{s_idx}",
@@ -650,11 +710,17 @@ with tab_dataset:
                 type="tertiary",
             )
 
-            with st.expander("📝 Initial instruction", expanded=bool(session.get("init_query"))):
+            with st.expander(
+                "📝 Initial instruction", expanded=bool(session.get("init_query"))
+            ):
                 st.text_area(
                     "Initial instruction",
                     key=f"sinit_{s_idx}",
-                    height=text_height(st.session_state.get(f"sinit_{s_idx}", session.get("init_query", ""))),
+                    height=text_height(
+                        st.session_state.get(
+                            f"sinit_{s_idx}", session.get("init_query", "")
+                        )
+                    ),
                     label_visibility="collapsed",
                     placeholder="Add an opening instruction for this session...",
                     help="The opening instruction given to the agent for this session",
@@ -662,7 +728,9 @@ with tab_dataset:
                 st.caption(f"🔑 `{session.get('init_query_id', '—')}`")
 
             cap_col, btn_col = st.columns([0.65, 0.35])
-            cap_col.caption(f"🔢 {n_queries} {'query' if n_queries == 1 else 'queries'} in this session")
+            cap_col.caption(
+                f"🔢 {n_queries} {'query' if n_queries == 1 else 'queries'} in this session"
+            )
             q_collapsed = st.session_state.get(f"_q_collapsed_{s_idx}", False)
             if btn_col.button(
                 "⬆️ Collapse queries" if not q_collapsed else "⬇️ Expand queries",
@@ -675,27 +743,47 @@ with tab_dataset:
             st.write("")
 
             for q_idx, query in enumerate(session["conversation"]):
-                inp_val = st.session_state.get(f"inp_{s_idx}_{q_idx}", query.get("input", "").strip())
-                ans_val = st.session_state.get(f"ans_{s_idx}_{q_idx}", query.get("answer", "").strip())
+                inp_val = st.session_state.get(
+                    f"inp_{s_idx}_{q_idx}", query.get("input", "").strip()
+                )
+                ans_val = st.session_state.get(
+                    f"ans_{s_idx}_{q_idx}", query.get("answer", "").strip()
+                )
                 has_answer = bool(ans_val.strip())
                 n_queries = len(session["conversation"])
 
-                with st.expander(f"{'✅' if has_answer else '⬜'} Query {q_idx + 1}", expanded=not st.session_state.get(f"_q_collapsed_{s_idx}", False)):
-                    qc_up, qc_down, qc_del, qc_spacer = st.columns([0.07, 0.07, 0.09, 0.77])
+                with st.expander(
+                    f"{'✅' if has_answer else '⬜'} Query {q_idx + 1}",
+                    expanded=not st.session_state.get(f"_q_collapsed_{s_idx}", False),
+                ):
+                    qc_up, qc_down, qc_del, qc_spacer = st.columns(
+                        [0.07, 0.07, 0.09, 0.77]
+                    )
                     qc_up.button(
-                        "↑", key=f"up_q_{s_idx}_{q_idx}",
-                        on_click=move_query, args=(s_idx, q_idx, -1),
-                        help="Move query up", disabled=q_idx == 0, type="tertiary",
+                        "↑",
+                        key=f"up_q_{s_idx}_{q_idx}",
+                        on_click=move_query,
+                        args=(s_idx, q_idx, -1),
+                        help="Move query up",
+                        disabled=q_idx == 0,
+                        type="tertiary",
                     )
                     qc_down.button(
-                        "↓", key=f"down_q_{s_idx}_{q_idx}",
-                        on_click=move_query, args=(s_idx, q_idx, 1),
-                        help="Move query down", disabled=q_idx == n_queries - 1, type="tertiary",
+                        "↓",
+                        key=f"down_q_{s_idx}_{q_idx}",
+                        on_click=move_query,
+                        args=(s_idx, q_idx, 1),
+                        help="Move query down",
+                        disabled=q_idx == n_queries - 1,
+                        type="tertiary",
                     )
                     qc_del.button(
-                        "🗑️ Delete", key=f"del_q_{s_idx}_{q_idx}",
-                        on_click=delete_query, args=(s_idx, q_idx),
-                        help="Remove this query", type="tertiary",
+                        "🗑️ Delete",
+                        key=f"del_q_{s_idx}_{q_idx}",
+                        on_click=delete_query,
+                        args=(s_idx, q_idx),
+                        help="Remove this query",
+                        type="tertiary",
                     )
                     qc_spacer.caption(f"🔑 `{query.get('query_id', '—')}`")
 
@@ -775,11 +863,18 @@ with tab_dataset:
     with st.expander("🕘 Version history", expanded=False):
         versions = list_versions(dataset)
         if not versions:
-            st.info("No published versions yet. Hit **Publish** to create the first snapshot.")
+            st.info(
+                "No published versions yet. Hit **Publish** to create the first snapshot."
+            )
         else:
             for blob in versions:
                 vname = blob.name.split("/")[-1]
-                ts_display = vname.replace(f"dataset_{dataset}_", "").replace(".json", "").replace("T", " ").replace("-", ":", 2)
+                ts_display = (
+                    vname.replace(f"dataset_{dataset}_", "")
+                    .replace(".json", "")
+                    .replace("T", " ")
+                    .replace("-", ":", 2)
+                )
                 vcol_name, vcol_size, vcol_dl = st.columns([0.55, 0.2, 0.25])
                 vcol_name.markdown(f"📄 `{ts_display}`")
                 vcol_size.caption(f"{(blob.size or 0) / 1024:.1f} KB")
@@ -798,7 +893,6 @@ with tab_dataset:
 # ════════════════════════════════════════════════════════════════════════════
 
 with tab_files:
-
     all_blobs = list_data_blobs(dataset)
     all_blobs = sorted(all_blobs, key=lambda b: b.name)
 
@@ -816,13 +910,18 @@ with tab_files:
         if _uploaded is not None:
             _dest_path = f"datasets/{dataset}/01_data/{_uploaded.name}"
             if st.button("Upload to GCS", key="btn_upload_file"):
-                _ct = mimetypes.guess_type(_uploaded.name)[0] or "application/octet-stream"
+                _ct = (
+                    mimetypes.guess_type(_uploaded.name)[0]
+                    or "application/octet-stream"
+                )
                 upload_raw_blob(_dest_path, _uploaded.getvalue(), _ct)
                 st.success(f"✅ Uploaded `{_uploaded.name}`")
                 st.rerun()
 
     if not all_blobs:
-        st.info(f"No supported files in `01_data/` for **{dataset}**. Upload one above.")
+        st.info(
+            f"No supported files in `01_data/` for **{dataset}**. Upload one above."
+        )
     else:
         st.caption("Select a file on the left to preview its contents.")
         st.write("")
@@ -842,7 +941,9 @@ with tab_files:
                     file_labels,
                     label_visibility="collapsed",
                 )
-            if st.button("🗑️ Move to trash", key="btn_trash_file", use_container_width=True):
+            if st.button(
+                "🗑️ Move to trash", key="btn_trash_file", use_container_width=True
+            ):
                 st.session_state["_confirm_trash_file"] = selected_label
 
         selected_idx = file_labels.index(selected_label)
@@ -879,11 +980,12 @@ with tab_files:
 # ════════════════════════════════════════════════════════════════════════════
 
 with tab_results:
-
     result_blobs = list_result_blobs(dataset)
 
     if not result_blobs:
-        st.warning(f"⚠️ No result files found in `04_results` for dataset **{dataset}**.")
+        st.warning(
+            f"⚠️ No result files found in `04_results` for dataset **{dataset}**."
+        )
         st.stop()
 
     # Build display labels for the selectbox
@@ -897,21 +999,43 @@ with tab_results:
         f"#### 📊 Results &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({len(result_blobs)} runs)</span>",
         unsafe_allow_html=True,
     )
-    st.caption("Select a result run to compare model responses against the ground-truth answers.")
+    st.caption(
+        "Select a result run to compare model responses against the ground-truth answers."
+    )
     st.write("")
 
-    selected_result_label = st.selectbox(
-        "Result run",
-        result_labels,
-        index=0,
-        label_visibility="collapsed",
-    )
+    col_sel, col_del = st.columns([0.85, 0.15])
+    with col_sel:
+        selected_result_label = st.selectbox(
+            "Result run",
+            result_labels,
+            index=0,
+            label_visibility="collapsed",
+        )
+    with col_del:
+        if st.button("🗑️ Delete", key="btn_del_res", use_container_width=True):
+            st.session_state["_confirm_del_res"] = selected_result_label
+
+    if st.session_state.get("_confirm_del_res") == selected_result_label:
+        st.warning(f"⚠️ Move **{selected_result_label}** to trash?")
+        _col_yes, _col_no, _ = st.columns([0.12, 0.1, 0.78])
+        if _col_yes.button("Yes", key="confirm_del_res_yes"):
+            selected_idx = result_labels.index(selected_result_label)
+            selected_blob = result_blobs[selected_idx]
+            trash_result_blob(dataset, selected_blob.name)
+            st.session_state.pop("_confirm_del_res", None)
+            st.rerun()
+        if _col_no.button("Cancel", key="confirm_del_res_no"):
+            st.session_state.pop("_confirm_del_res", None)
+            st.rerun()
 
     selected_result_idx = result_labels.index(selected_result_label)
     selected_result_blob = result_blobs[selected_result_idx]
 
     try:
-        result_data: dict = json.loads(read_blob_bytes(selected_result_blob.name).decode("utf-8"))
+        result_data: dict = json.loads(
+            read_blob_bytes(selected_result_blob.name).decode("utf-8")
+        )
     except Exception as e:
         st.error(f"❌ Could not load result file: {e}")
         st.stop()
@@ -920,16 +1044,39 @@ with tab_results:
     with st.expander("ℹ️ Run metadata", expanded=False):
         m1, m2, m3, m4 = st.columns(4)
         m1.text_input("Model", value=result_data.get("llm_model", "—"), disabled=True)
-        m2.text_input("Dataset", value=result_data.get("dataset_name", "—"), disabled=True)
-        m3.text_input("Last updated", value=result_data.get("last_updated", "—"), disabled=True)
-        m4.text_input("Custom agent", value=str(result_data.get("custom_agent", "—")), disabled=True)
+        m2.text_input(
+            "Dataset", value=result_data.get("dataset_name", "—"), disabled=True
+        )
+        m3.text_input(
+            "Last updated", value=result_data.get("last_updated", "—"), disabled=True
+        )
+        m4.text_input(
+            "Custom agent",
+            value=str(result_data.get("custom_agent", "—")),
+            disabled=True,
+        )
+
+        time_usage = result_data.get("time_usage", {})
+        start_time = time_usage.get("starttime")
+        end_time = time_usage.get("endtime")
+        duration = time_usage.get("duration_seconds")
+
+        m5, m6, m7, m8 = st.columns(4)
+        m5.text_input(
+            "Duration", value=f"{duration:.1f}s" if duration else "—", disabled=True
+        )
+        m6.text_input("Start Time", value=start_time or "—", disabled=True)
+        m7.text_input("End Time", value=end_time or "—", disabled=True)
+        # m8 empty for now
 
         token_counts = result_data.get("token_counts")
         if token_counts and isinstance(token_counts, dict):
             st.write("")
             tc_cols = st.columns(len(token_counts))
             for col, (k, v) in zip(tc_cols, token_counts.items()):
-                col.metric(k.replace("_", " ").title(), f"{v:,}" if isinstance(v, int) else v)
+                col.metric(
+                    k.replace("_", " ").title(), f"{v:,}" if isinstance(v, int) else v
+                )
 
     st.divider()
 
@@ -945,7 +1092,9 @@ with tab_results:
         for q in s.get("conversation", [])
         if q.get("model_response", "").strip()
     )
-    st.caption(f"**{n_result_sessions}** sessions · **{total_queries}** queries · **{answered}** with model response")
+    st.caption(
+        f"**{n_result_sessions}** sessions · **{total_queries}** queries · **{answered}** with model response"
+    )
     st.write("")
 
     for s_idx, session in enumerate(result_sessions):
@@ -956,7 +1105,9 @@ with tab_results:
         with st.expander(label, expanded=True):
             conversation = session.get("conversation", [])
             res_cap_col, res_btn_col = st.columns([0.65, 0.35])
-            res_cap_col.caption(f"🔢 {len(conversation)} {'query' if len(conversation) == 1 else 'queries'}")
+            res_cap_col.caption(
+                f"🔢 {len(conversation)} {'query' if len(conversation) == 1 else 'queries'}"
+            )
             res_q_collapsed = st.session_state.get(f"_res_q_collapsed_{s_idx}", False)
             if res_btn_col.button(
                 "⬆️ Collapse queries" if not res_q_collapsed else "⬇️ Expand queries",
@@ -969,7 +1120,9 @@ with tab_results:
 
             attachments = session.get("attachments", [])
             if attachments:
-                with st.expander(f"📎 Attachments ({len(attachments)})", expanded=False):
+                with st.expander(
+                    f"📎 Attachments ({len(attachments)})", expanded=False
+                ):
                     for path in attachments:
                         fname = path.split("/")[-1]
                         ext = Path(fname).suffix.lower()
@@ -985,10 +1138,14 @@ with tab_results:
                 answer = q.get("answer", "").strip()
                 model_response = q.get("model_response", "").strip()
                 has_response = bool(model_response)
+                turn_duration = q.get("turn_duration")
+                duration_str = f" ⏱️ {turn_duration:.1f}s" if turn_duration else ""
 
                 with st.expander(
-                    f"{'✅' if has_response else '⬜'} Query {q_idx + 1}",
-                    expanded=not st.session_state.get(f"_res_q_collapsed_{s_idx}", False),
+                    f"{'✅' if has_response else '⬜'} Query {q_idx + 1}{duration_str}",
+                    expanded=not st.session_state.get(
+                        f"_res_q_collapsed_{s_idx}", False
+                    ),
                 ):
                     st.markdown(f"**🧑‍💼 Query**")
                     st.markdown(inp or "_No input_")
@@ -1010,7 +1167,9 @@ with tab_results:
                         st.text_area(
                             "Model response",
                             value=model_response or "No response",
-                            height=text_height(model_response) if model_response else 100,
+                            height=text_height(model_response)
+                            if model_response
+                            else 100,
                             disabled=True,
                             label_visibility="collapsed",
                             key=f"res_mr_{s_idx}_{q_idx}",
@@ -1024,7 +1183,6 @@ with tab_results:
 # ════════════════════════════════════════════════════════════════════════════
 
 with tab_evals:
-
     eval_blobs = list_eval_blobs(dataset)
 
     if not eval_blobs:
@@ -1046,7 +1204,9 @@ with tab_evals:
         f"#### 📈 Evals &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({n_eval_runs} run{'s' if n_eval_runs != 1 else ''})</span>",
         unsafe_allow_html=True,
     )
-    st.caption("LLM-as-judge evaluation results. Select a run to inspect scores per test case.")
+    st.caption(
+        "LLM-as-judge evaluation results. Select a run to inspect scores per test case."
+    )
     st.write("")
 
     selected_eval_label = st.selectbox(
@@ -1060,7 +1220,9 @@ with tab_evals:
     selected_eval_blob = eval_blobs[selected_eval_idx]
 
     try:
-        eval_data: dict = json.loads(read_blob_bytes(selected_eval_blob.name).decode("utf-8"))
+        eval_data: dict = json.loads(
+            read_blob_bytes(selected_eval_blob.name).decode("utf-8")
+        )
     except Exception as e:
         st.error(f"❌ Could not load eval file: {e}")
         st.stop()
@@ -1068,10 +1230,30 @@ with tab_evals:
     # ── Metadata strip ─────────────────────────────────────────────────────────
     with st.expander("ℹ️ Run metadata", expanded=False):
         e1, e2, e3, e4 = st.columns(4)
-        e1.text_input("LLM model", value=eval_data.get("llm_model", "—"), disabled=True, key="eval_meta_model")
-        e2.text_input("Agent type", value="custom" if eval_data.get("custom_agent") else "baseline", disabled=True, key="eval_meta_agent")
-        e3.text_input("Eval run ID", value=eval_data.get("eval_run_id", "—"), disabled=True, key="eval_meta_run")
-        e4.text_input("Created at", value=eval_data.get("created_at", "—"), disabled=True, key="eval_meta_created")
+        e1.text_input(
+            "LLM model",
+            value=eval_data.get("llm_model", "—"),
+            disabled=True,
+            key="eval_meta_model",
+        )
+        e2.text_input(
+            "Agent type",
+            value="custom" if eval_data.get("custom_agent") else "baseline",
+            disabled=True,
+            key="eval_meta_agent",
+        )
+        e3.text_input(
+            "Eval run ID",
+            value=eval_data.get("eval_run_id", "—"),
+            disabled=True,
+            key="eval_meta_run",
+        )
+        e4.text_input(
+            "Created at",
+            value=eval_data.get("created_at", "—"),
+            disabled=True,
+            key="eval_meta_created",
+        )
 
         token_counts = eval_data.get("token_counts")
         if token_counts and isinstance(token_counts, dict):
@@ -1090,7 +1272,11 @@ with tab_evals:
         if isinstance(session_result, dict):
             all_test_results.extend(session_result.get("test_results") or [])
 
-    all_test_results.sort(key=lambda t: (t.get("additional_metadata") or {}).get("turn_order", float("inf")))
+    all_test_results.sort(
+        key=lambda t: (t.get("additional_metadata") or {}).get(
+            "turn_order", float("inf")
+        )
+    )
 
     if not all_test_results:
         st.info("No test results found in this eval run.")
@@ -1115,7 +1301,9 @@ with tab_evals:
 
     sum_cols = st.columns(2 + len(metric_scores))
     sum_cols[0].metric("Test cases", total_cases)
-    sum_cols[1].metric("Overall pass rate", f"{passed_cases / total_cases:.0%}" if total_cases else "—")
+    sum_cols[1].metric(
+        "Overall pass rate", f"{passed_cases / total_cases:.0%}" if total_cases else "—"
+    )
     for i, metric_name in enumerate(metric_scores):
         scores = metric_scores[metric_name]
         passes = metric_passes.get(metric_name, [])
@@ -1129,7 +1317,10 @@ with tab_evals:
     st.divider()
 
     # ── Test case details ──────────────────────────────────────────────────────
-    st.markdown(f"#### Test cases &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({total_cases} total)</span>", unsafe_allow_html=True)
+    st.markdown(
+        f"#### Test cases &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({total_cases} total)</span>",
+        unsafe_allow_html=True,
+    )
     st.write("")
 
     for t_idx, test in enumerate(all_test_results):
@@ -1142,10 +1333,16 @@ with tab_evals:
             parts = []
             for m in metrics_data:
                 s = m.get("score")
-                parts.append(f"{m.get('name', '?')}: {s:.2f}" if s is not None else m.get("name", "?"))
+                parts.append(
+                    f"{m.get('name', '?')}: {s:.2f}"
+                    if s is not None
+                    else m.get("name", "?")
+                )
             score_summary = " · ".join(parts)
 
-        label = f"{'✅' if success else '❌'} {name}" + (f" — {score_summary}" if score_summary else "")
+        label = f"{'✅' if success else '❌'} {name}" + (
+            f" — {score_summary}" if score_summary else ""
+        )
 
         with st.expander(label, expanded=False):
             inp = test.get("input", "").strip()
@@ -1191,16 +1388,24 @@ with tab_evals:
 
                     badge = "✅" if m_pass else "❌"
                     score_str = f"{m_score:.3f}" if m_score is not None else "—"
-                    threshold_str = f"(threshold: {m_threshold})" if m_threshold is not None else ""
-                    model_str = f" · evaluated by `{m_eval_model}`" if m_eval_model else ""
+                    threshold_str = (
+                        f"(threshold: {m_threshold})" if m_threshold is not None else ""
+                    )
+                    model_str = (
+                        f" · evaluated by `{m_eval_model}`" if m_eval_model else ""
+                    )
 
-                    st.markdown(f"{badge} **{m_name}** — score: `{score_str}` {threshold_str}{model_str}")
+                    st.markdown(
+                        f"{badge} **{m_name}** — score: `{score_str}` {threshold_str}{model_str}"
+                    )
                     if m_reason:
                         st.caption(m_reason)
 
             meta = test.get("additional_metadata")
             if meta:
                 st.write("")
-                st.caption(f"query_id: `{meta.get('query_id', '—')}` · turn: `{meta.get('turn_order', '—')}`")
+                st.caption(
+                    f"query_id: `{meta.get('query_id', '—')}` · turn: `{meta.get('turn_order', '—')}`"
+                )
 
         st.write("")

@@ -85,99 +85,34 @@ Web search & Tavily \\
 \caption{System tech stack.}
 \label{tab:tech-stack}
 \end{table}
-\section{Design choices}
+\section{Design Choices}
+
+The system architecture was guided by several pragmatic design choices, prioritizing development speed, flexibility, and cost-efficiency given the constraints of a master's thesis. By separating the descriptive architecture from the rationale, the core motivations for the selected technologies are outlined below.
+
+\subsection*{Agent Layer and Orchestration}
+
+The core agent is implemented using \textbf{LangGraph} \cite{langgraph}. This framework was chosen primarily for its fast build time, which is essential given the limited time available for this thesis. It provides a clean \texttt{StateGraph} abstraction that is highly expandable for future extensions, such as adding dedicated reasoning nodes or document re-ranking stages. Furthermore, LangGraph is model-agnostic, providing built-in support for multiple LLM providers. This flexibility is crucial, allowing the system to easily switch between models or add new ones as desired for evaluation and experimentation.
+
 \subsection*{Database and Storage Architecture}
 
-The system requires three distinct persistence concerns: structured relational data
-(the factsheet and its entities), unstructured document storage (raw files), and
-semantic vector retrieval (RAG over case documents). Rather than consolidating these
-into a single store, the architecture separates them by concern, with each layer
-optimised for its specific access pattern.
+The system's persistence layer separates structured relational data, unstructured document storage, and semantic vector retrieval to optimize for specific access patterns and constraints.
 
-\paragraph{Relational storage: Supabase / PostgreSQL.}
-The factsheet --- parties, events, claims, damages, deadlines, and governing law ---
-is stored in a typed relational schema in PostgreSQL via Supabase. The entity types
-and their relationships are well-defined in advance, making a relational model more
-appropriate than a document store or graph database. Foreign key constraints enforce
-referential integrity between entities (e.g., events linked to source documents via
-\texttt{file\_id}, damages linked to party roles), and Supabase's row-level security
-provides per-user data isolation without custom middleware. Supabase also serves as
-the LangGraph checkpointer backend, storing full conversation state in the same
-database, reducing operational complexity.
+\paragraph{Relational Storage (PostgreSQL via Supabase):}
+PostgreSQL was selected for its flexibility and highly efficient reads across tables. The structured nature of the factsheet state requires strict enforcement of relationships through primary and foreign keys to maintain data integrity and orderly matching on IDs. An initial attempt was made using a NoSQL database (Firestore); while easy and fast to set up, the lack of an enforced schema led to a loss of overview, with state inconsistencies and errors accumulating over time. Additionally, performing complex reads and combining data across different entities proved expensive and inefficient in NoSQL. 
 
-\paragraph{File storage: Supabase Storage.}
-Raw documents (PDF, DOCX, EML, etc.) are stored in Supabase Storage (S3-compatible
-object storage). This decouples binary file storage from the relational schema while
-keeping both under the same managed platform, simplifying authentication and deployment.
-Files are referenced by \texttt{file\_id} in the relational layer, allowing the agent
-to fetch full document content on demand via the \texttt{read\_attachment} tool.
+Supabase was chosen as the PostgreSQL provider because it is affordable, open-source, and seamlessly integrates other necessary products like Authentication. Having these features included out-of-the-box makes the development process straightforward and fast.
 
-\paragraph{Vector store: ChromaDB (session) and BigQuery Vector Search (project).}
-Semantic retrieval over case documents is handled by two vector stores serving different
-scopes. ChromaDB provides lightweight in-memory retrieval for documents uploaded within
-the current session, with no persistence overhead. BigQuery Vector Search handles
-project-scoped retrieval across all previously embedded case documents, offering scalable
-approximate nearest-neighbour search without running a dedicated vector database server.
-This two-tier design avoids embedding documents multiple times while keeping latency low
-for the common case of single-session queries.
+\paragraph{File Storage (Supabase Storage):}
+Raw documents (PDF, DOCX, EML, etc.) are stored in Supabase Storage. There were no specific architectural requirements for this other than cost-efficiency. Since Supabase was already selected for the PostgreSQL database, using its built-in, affordable object storage was a natural and convenient choice.
 
-\paragraph{Structured factsheet over graph-based retrieval.}
-GraphRAG \cite{edge2025localglobalgraphrag} and related methods offer powerful capabilities
-for discovering latent entity relationships in large unstructured corpora. However, since
-the relevant entity types and their relationships are known in advance, an inductively
-constructed knowledge graph provides no structural advantage over the relational schema
-described above. Graph construction and traversal would introduce meaningful engineering
-overhead without a corresponding gain in retrieval quality for cases where the entity
-schema is bounded and predefined.
+\paragraph{Vector Store and Embeddings:}
+Semantic retrieval relies on \textbf{Google's embedding model} (\texttt{gemini-embedding-001}). This model was specifically chosen for its strong multilingual capabilities; smaller and cheaper open-source models often struggle with RAG matching when queries or documents are not strictly in English, which is a critical requirement for handling Norwegian legal texts.
 
-\subsection*{LangGraph as Agent Orchestration Framework}
-
-The agent in this thesis is implemented using LangGraph \cite{langgraph}, a graph-based
-orchestration framework built on top of LangChain. The primary motivation is pragmatic:
-given the time constraints of a master's thesis, developer velocity and observability
-take priority over building a custom orchestration layer from scratch.
-
-LangGraph offers several concrete advantages for this project. First, its \texttt{StateGraph}
-abstraction provides a clean separation between agent logic and state management, making
-the conversation flow explicit and easy to modify. Adding new nodes --- for example, a
-dedicated legal reasoning step or a document re-ranking stage --- requires minimal
-structural changes, supporting an expandable architecture for more complex graphs in
-future work. Second, LangGraph's built-in checkpointing with PostgreSQL enables persistent
-conversation state across sessions without custom implementation, which is critical for
-the multi-turn case management setting. Third, native integration with LangSmith provides
-turn-level tracing, latency profiling, and tool call inspection out of the box, which
-proved essential for debugging agent behavior and validating evaluation results. Finally,
-LangGraph is model-agnostic by design, allowing the same agent graph to be tested across
-multiple LLM providers (e.g., OpenAI, Anthropic, Google) by swapping the underlying LLM
-instance --- a prerequisite for the comparative evaluation conducted in this thesis.
-
-While LangGraph introduces a framework dependency and some abstraction overhead, these
-trade-offs are justified by the significant reduction in boilerplate, the improved
-testability, and the accelerated iteration cycle it enables within the scope of this project.
+For the vector database, a two-tier approach is used. \textbf{ChromaDB} is utilized as an in-memory store for fast, session-scoped retrieval. For persistent, project-scoped retrieval, \textbf{BigQuery Vector Search} is employed. BigQuery was chosen because it is affordable and operates on an on-demand pricing model. The primary drawback of BigQuery is its high latency, meaning a significant amount of time is spent indexing and saving to the vector store. However, this trade-off is worthwhile: the alternative would require provisioning an always-running vector database server, which introduces high continuous costs and additional operational setup.
 
 \subsection*{FastAPI and Server-Sent Events}
 
-The agent backend is implemented as a standalone REST API using FastAPI \cite{fastapi},
-rather than being tightly coupled to a specific frontend or notebook environment. This
-separation of concerns means the agent can be consumed by any HTTP client --- the
-Streamlit frontend developed in this thesis, a future web application, or automated
-evaluation scripts --- without modification to the agent logic itself. It also simplifies
-testing, as individual endpoints can be exercised independently via standard HTTP tooling.
-
-A central design decision is the use of Server-Sent Events (SSE) for streaming agent
-responses, rather than WebSockets or simple request-response polling. The agent pipeline
-is inherently long-running: a single request may involve multiple LLM calls, parallel
-document analysis, tool executions, and structured extraction phases. Returning a single
-blocking response would produce unacceptable latency from a user experience perspective.
-SSE allows the backend to emit incremental status events and partial results as they
-become available, keeping the frontend responsive throughout. Compared to WebSockets,
-SSE is simpler to implement and sufficient for this use case, as communication is
-unidirectional --- the server pushes events to the client, with no need for the client
-to send messages mid-stream.
-
-The streaming payload is typed using a shared \texttt{StreamEvent} schema, distinguishing
-between status updates (phase progress, tool calls) and final response chunks. This makes
-the frontend implementation straightforward and decouples the two layers cleanly.
+The backend is exposed as a standalone REST API using \textbf{FastAPI} \cite{fastapi} to decouple it from the frontend. \textbf{Server-Sent Events (SSE)} are used for streaming responses because the agent pipeline is long-running and asynchronous. SSE provides a responsive user experience by pushing incremental status updates and partial results without the complexity of WebSockets, which are unnecessary for this unidirectional communication flow.
 
 
 % -------------------------------------------------------
