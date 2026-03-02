@@ -8,14 +8,14 @@ from contextlib import asynccontextmanager
 
 load_dotenv()
 
-from fastapi import FastAPI,HTTPException,status,Depends
+from fastapi import FastAPI,HTTPException,Depends
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent.utils import PROMPT
 from agent.tools import TOOLS
 from agent.agent import Agent
-from database import FirestoreSaver,FirestoreManager,SupabaseManager
+from database import SupabaseManager
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
