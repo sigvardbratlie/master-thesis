@@ -15,13 +15,13 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
-def get_token_counts(eval_run_id: str) -> dict:
-    """Query LangSmith for total and per-query token usage across an eval run."""
+def get_session_token_counts(runtime_session_id: str) -> dict:
+    """Query LangSmith for per-query token usage for a single session via thread_id."""
     client = LangSmithClient()
     project_name = os.getenv("LANGCHAIN_PROJECT", "default")
     runs = list(client.list_runs(
         project_name=project_name,
-        filter=f'has(tags, "{eval_run_id}")',
+        filter=f'has(metadata, \'{{"thread_id": "{runtime_session_id}"}}\')',
         run_type="llm",
     ))
     per_query: dict[str, dict] = {}
@@ -33,7 +33,7 @@ def get_token_counts(eval_run_id: str) -> dict:
         entry["total_tokens"] += r.total_tokens or 0
         entry["llm_calls"] += 1
     return {
-        "eval_run_id": eval_run_id,
+        "runtime_session_id": runtime_session_id,
         "input_tokens": sum(r.prompt_tokens or 0 for r in runs),
         "output_tokens": sum(r.completion_tokens or 0 for r in runs),
         "total_tokens": sum(r.total_tokens or 0 for r in runs),
@@ -44,23 +44,34 @@ def get_token_counts(eval_run_id: str) -> dict:
 async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_storage):
         car_custom = CollectAgentResult(data, llm_model=llm_model, agent_type=agent_type)
         collected_results = await car_custom.run_agent(embed_to_vectorstore=embed_to_vectorstore, save_to_storage=save_to_storage)
-        token_counts_dict = get_token_counts(collected_results.eval_run_id)
-        logger.info(f"📊 Tokens — in: {token_counts_dict['input_tokens']}  out: {token_counts_dict['output_tokens']}  total: {token_counts_dict['total_tokens']}  calls: {token_counts_dict['llm_calls']}")
+        total_input, total_output, total_tokens, total_calls = 0, 0, 0, 0
         for session in collected_results.sessions:
+            session_tokens = get_session_token_counts(session.runtime_session_id)
+            total_input += session_tokens["input_tokens"]
+            total_output += session_tokens["output_tokens"]
+            total_tokens += session_tokens["total_tokens"]
+            total_calls += session_tokens["llm_calls"]
+            session.token_counts = TokenCount(
+                input_tokens=session_tokens["input_tokens"],
+                output_tokens=session_tokens["output_tokens"],
+                total_tokens=session_tokens["total_tokens"],
+                llm_calls=session_tokens["llm_calls"],
+            )
             for conv in session.conversation:
                 qid = conv.query_id or "unknown"
-                q = token_counts_dict["per_query"].get(qid, {})
+                q = session_tokens["per_query"].get(qid, {})
                 conv.token_counts = TokenCount(
                     input_tokens=q.get("input_tokens", 0),
                     output_tokens=q.get("output_tokens", 0),
                     total_tokens=q.get("total_tokens", 0),
                     llm_calls=q.get("llm_calls", 0),
                 )
+        logger.info(f"📊 Tokens — in: {total_input}  out: {total_output}  total: {total_tokens}  calls: {total_calls}")
         collected_results.token_counts = TokenCount(
-            input_tokens=token_counts_dict["input_tokens"],
-            output_tokens=token_counts_dict["output_tokens"],
-            total_tokens=token_counts_dict["total_tokens"],
-            llm_calls=token_counts_dict["llm_calls"],
+            input_tokens=total_input,
+            output_tokens=total_output,
+            total_tokens=total_tokens,
+            llm_calls=total_calls,
         )
         ds = Dataset(data.dataset_name)
         ds.save_results(collected_results)

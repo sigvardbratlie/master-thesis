@@ -147,7 +147,7 @@ class CollectAgentResult:
                     f"{session.session_name} | "
                     f"{len(session.attachments)} attachments"
                 )
-                query_id = str(uuid.uuid4())
+                query_id = session.init_query_id
                 attachments = [
                     self.parse_attachments(
                         attachment_path=att,

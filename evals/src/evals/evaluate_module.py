@@ -56,7 +56,7 @@ class Evaluater:
             threshold=0.5,
         )
 
-        return evaluate(test_cases=[convo_test_case], metrics=[metric], async_config=AsyncConfig(max_concurrent=2, throttle_value=3))
+        return evaluate(test_cases=[convo_test_case], metrics=[metric], async_config=AsyncConfig(max_concurrent=1, throttle_value=15))
 
     def run_session_eval(self, session: Session):
         test_cases = [
@@ -82,7 +82,7 @@ class Evaluater:
                         model=self.model,
                     )
 
-        return evaluate(test_cases=test_cases, metrics=[correctness, completeness, relevancy], async_config=AsyncConfig(max_concurrent=2, throttle_value=3))
+        return evaluate(test_cases=test_cases, metrics=[correctness, completeness, relevancy], async_config=AsyncConfig(max_concurrent=1, throttle_value=15))
 
     def run_evaluation(self, data: GatheredResultPayload) -> list:
         results = []
