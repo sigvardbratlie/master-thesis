@@ -79,10 +79,6 @@ class Dataset:
                 try:
                     content = json.loads(file.download_as_string().decode("utf-8"))
                     output = EvalOutput.model_validate(content)
-                    if output.eval_run_id and output.eval_run_id in collected_by_run_id:
-                        source = collected_by_run_id[output.eval_run_id]
-                        output.token_counts = source.token_counts
-                        output.time_usage = source.time_usage
                     data[file.name] = output
                 except Exception as e:
                     logger.warning(f"Failed to load {file.name}: {e}")
