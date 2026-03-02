@@ -5,7 +5,7 @@ import logging
 import tiktoken
 from datetime import datetime
 import asyncio
-from typing import Dict, List, Literal, Optional, Sequence, Annotated
+from typing import List
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -221,9 +221,8 @@ class Agent:
                 attachment_contents[file_id] = att.get("body", "")  if att.get("body", "") else "NO BODY CONTENT"
 
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
-        factsheet = self.conversation_manager.load_factsheet(project_id=project_id) if project_id and self.use_factsheet else None
+        factsheet = self.conversation_manager.load_factsheet(project_id=project_id, limited=False) if project_id and self.use_factsheet else None
                                                            
-
 
         # ---- BUILD ATTACHMENT CONTEXT FOR LLM ----
         attachment_context = self._build_attachment_context(
@@ -1137,79 +1136,17 @@ class Agent:
             }
                 
 
-        # Build RAG query from events and run in thread (sync function)
-        #events_txt = " ".join([f"- {event.description} (Date: {event.event_date})" for event in events])
-        rag_content_law = "No rag content" #await asyncio.to_thread(self.vs.query, query=initial_input.background, collection_id="laws", k=1)
-        logger.debug('\n\n' + '='*5 + f" RAG Content for Governing Law Analysis: {rag_content_law} " + '='*5 + '\n\n')
-
-        # Analyze factual facts and governing law in parallel
-        analysis_tasks = [
-            self.context_manager.analyze_factual_facts(initial_input, events, config=thread),
-            self.context_manager.analyze_governing_law(events=events, rag_content_law=rag_content_law, config=thread),
-        ]
         
-        # ============= PHASE 3 =================
-        # Analyse factual facts and governing law
-        # ========================================
-        yield {
-            "type": "status",
-            "phase": ["final_analysis"],
-            "status": "starting",
-            "data": {"total_operations": 2},
-            "timestamp": datetime.now().isoformat(),
-            "query_id": query.query_id
-        }
-        factual_facts = FactualFacts(disputed_facts=[], undisputed_facts=[])
-        governing_law = GoverningLaw(
-                                     key_areas=[],
-                                     )
         
-        completed_analysis = 0
-        for coro in asyncio.as_completed(analysis_tasks):
-            result = await coro
-            completed_analysis += 1
-            if result:
-                if isinstance(result, FactualFacts):
-                    factual_facts = result
-                    logger.debug('\n\n' + '='*5 + f" Analyzed Factual Facts: {str(factual_facts.model_dump(mode = "json"))[:500]} " + '='*5 + '\n\n')
-                    yield {
-                        "type": "status",
-                        "phase": ["factual_facts"],
-                        "status": "complete",
-                        "data": {
-                            "progress": completed_analysis,
-                            "total": 2,
-                            "disputed_count": len(factual_facts.disputed_facts or []),
-                            "undisputed_count": len(factual_facts.undisputed_facts or [])
-                        },
-                        "timestamp": datetime.now().isoformat(),
-                        "query_id": query.query_id
-                    }
-                elif isinstance(result, GoverningLaw):
-                    governing_law = result
-                    logger.debug('\n\n' + '='*5 + f" Analyzed Governing Law: {str(governing_law.model_dump(mode = "json"))[:500]} " + '='*5 + '\n\n')
-                    yield {
-                            "type": "status",
-                            "phase": ["governing_law"],
-                            "status": "complete",
-                            "data": {
-                                "progress": completed_analysis,
-                                "total": 2,
-                                "jurisdiction": governing_law.primary_jurisdiction
-                            },
-                            "timestamp": datetime.now().isoformat(),
-                            "query_id": query.query_id
-                        }
-
-
         result = FactSheet(
             events=events,
             damages=damages if damages else None,
             claims=claims if claims else None,
             deadlines=deadlines if deadlines else None,
-            governing_law=governing_law,
-            **factual_facts.model_dump(),
+            
             **initial_input.model_dump(),
+            
+            
         )
         logger.debug(f"About to save project {query.project_id} to Supabase...")
         self.conversation_manager.save_project(factsheet=result,
@@ -1712,7 +1649,9 @@ class Agent:
                                 ):
         '''Cleanup simple text attribute in factsheet (e.g. case title)'''
         self.context_manager.llm = self._pick_llm(query.llm_model)
-        valid_element_types = ["title", "background","disputed_facts","undisputed_facts","governing_law"]
+        valid_element_types = ["title", "background",
+                               #"disputed_facts","undisputed_facts","governing_law",
+                               ]
         if element_type not in valid_element_types:
             raise ValueError(f"Invalid element_type: {element_type}. Must be one of {', '.join(valid_element_types)}")
         project_data = await asyncio.to_thread(
@@ -1745,11 +1684,13 @@ class Agent:
                                                                         emails=emails,
                                                                         element_type=element_type)
         else:
-            cleaned_content = await self.context_manager.clean_legal_attr(content=content, 
-                                                                          factsheet=factsheet, 
-                                                                            attachments=attachments,
-                                                                            emails=emails,
-                                                                          element_type=element_type)
+            logger.warning(f"Element type {element_type} is not configured for metadata cleaning. Returning original content.")
+            cleaned_content = content
+            # cleaned_content = await self.context_manager.clean_legal_attr(content=content, 
+            #                                                               factsheet=factsheet, 
+            #                                                                 attachments=attachments,
+            #                                                                 emails=emails,
+            #                                                               element_type=element_type)
         logger.debug(f"======== Cleaned content for {element_type}: {cleaned_content} ========\n")
         yield {"type": "status",
                "phase" : [f"cleanup_{element_type}"],
@@ -1767,10 +1708,11 @@ class Agent:
                                                      element_type=element_type,
                                                      project_id=query.project_id)
         else:
-            self.conversation_manager.upsert_project_custom(data = cleaned_content, 
-                                                            element_type= element_type,
-                                                            project_id=query.project_id, 
-                                                            table_name = f"project_legal")
+            logger.warning(f"Element type {element_type} is not configured for legal attribute upsert. Skipping database update.")
+            # self.conversation_manager.upsert_project_custom(data = cleaned_content, 
+            #                                                 element_type= element_type,
+            #                                                 project_id=query.project_id, 
+            #                                                 table_name = f"project_legal")
         yield {"type": "status",
                "phase" : [f"storage"],
                 "status": "complete",
@@ -1783,4 +1725,75 @@ class Agent:
                  "query_id": query.query_id
                 }
 
-    
+    async def extract_legal(self, query : AskAgentRequest) : 
+        
+        initial_input = "" #to be read in from supabase
+        events = []  #to be read in from supabase
+        thread: RunnableConfig = {
+            "configurable": {"thread_id": query.session_id, "user_id": query.user_id, "custom_project_id": query.project_id},
+            "metadata": {"query_id": query.query_id},
+        }
+        factual_facts = {}
+        governing_law = {}
+        
+        do_analysis_tasks = False
+        if do_analysis_tasks:
+            # Analyze factual facts and governing law in parallel
+            # Build RAG query from events and run in thread (sync function)
+            rag_content_law = await asyncio.to_thread(self.vs.query, query=initial_input.background, collection_id="laws", k=5)
+            logger.debug('\n\n' + '='*5 + f" RAG Content for Governing Law Analysis: {rag_content_law} " + '='*5 + '\n\n')
+
+            analysis_tasks = [
+                self.context_manager.analyze_factual_facts(initial_input, events, config=thread),
+                self.context_manager.analyze_governing_law(events=events, rag_content_law=rag_content_law, config=thread),
+            ]
+            
+            # ============= PHASE 3 =================
+            # Analyse factual facts and governing law
+            # ========================================
+            yield {
+                "type": "status",
+                "phase": ["final_analysis"],
+                "status": "starting",
+                "data": {"total_operations": 2},
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id
+            }
+            
+            
+            completed_analysis = 0
+            for coro in asyncio.as_completed(analysis_tasks):
+                result = await coro
+                completed_analysis += 1
+                if result:
+                    if isinstance(result, FactualFacts):
+                        factual_facts = result
+                        logger.debug('\n\n' + '='*5 + f" Analyzed Factual Facts: {str(factual_facts.model_dump(mode = "json"))[:500]} " + '='*5 + '\n\n')
+                        yield {
+                            "type": "status",
+                            "phase": ["factual_facts"],
+                            "status": "complete",
+                            "data": {
+                                "progress": completed_analysis,
+                                "total": 2,
+                                "disputed_count": len(factual_facts.disputed_facts or []),
+                                "undisputed_count": len(factual_facts.undisputed_facts or [])
+                            },
+                            "timestamp": datetime.now().isoformat(),
+                            "query_id": query.query_id
+                        }
+                    elif isinstance(result, GoverningLaw):
+                        governing_law = result
+                        logger.debug('\n\n' + '='*5 + f" Analyzed Governing Law: {str(governing_law.model_dump(mode = "json"))[:500]} " + '='*5 + '\n\n')
+                        yield {
+                                "type": "status",
+                                "phase": ["governing_law"],
+                                "status": "complete",
+                                "data": {
+                                    "progress": completed_analysis,
+                                    "total": 2,
+                                    "jurisdiction": governing_law.primary_jurisdiction
+                                },
+                                "timestamp": datetime.now().isoformat(),
+                                "query_id": query.query_id
+                            }

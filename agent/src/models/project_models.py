@@ -63,7 +63,7 @@ significance_levels = Literal["high", "medium", "low"]
 # === #Custom fields === 
 class GoverningLaw(BaseModel):
     primary_jurisdiction: str = Field(default = "norwegian_law" , description="Which law governs (e.g., Norwegian law)")
-    key_areas: list[str] = Field(default_factory=list, description="Relevant legal areas (contract law, tort, etc)")
+    key_areas: Optional[list[str]] = Field(default_factory=list, description="Relevant legal areas (contract law, tort, etc)")
     international_elements: Optional[str] = Field(
         None, description="Cross-border or conflicts of law issues"
     )
@@ -73,8 +73,8 @@ class GoverningLaw(BaseModel):
     ] = Field(default="tvisteloven",description="Applicable procedural law, if relevant")
 
 class FactualFacts(BaseModel):
-    disputed_facts: list[str]
-    undisputed_facts: list[str]
+    disputed_facts: Optional[list[str]] = Field(None, description="Key facts that are in dispute between the parties")
+    undisputed_facts: Optional[list[str]] = Field(None, description="Key facts that are undisputed between the parties")
 
 class Claim(BaseModel):
     claim_id : Optional[str] = None
@@ -88,6 +88,7 @@ class Claim(BaseModel):
     file_id: Optional[str] = None  # For claims from attachments
     email_id: Optional[str] = None  # For claims from emails
     party_role : Optional[PartyRole] = None
+    significance : significance_levels = Field(default="medium", description="Significance of the claim to the case")
 
 class Claims(BaseModel):
     claims: list[Claim] = Field(description="Legal claims made by the parties, including legal and factual basis, relief sought, and strength assessment")
@@ -96,11 +97,13 @@ class Damage(BaseModel):
     damage_id: Optional[str] = None
     category: Literal["direct_losses", "interest", "consequential", "punitive"]
     amount: Optional[int | float] = Field(None, description="Monetary amount if amount is known and mentioned, else None")
+    currency: Optional[str] = Field(None, description="Currency of the amount, e.g., 'NOK', 'USD', etc.")
     basis: str
     supporting_evidence: list[str] = Field(description="File_IDs supporting the damage claim")
     file_id: Optional[str] = None  # For damages from attachments
     email_id: Optional[str] = None  # For damages from emails
     party_role: Optional[PartyRole] = None
+    significance : significance_levels = Field(default="medium", description="Significance of the damage claim to the case")
 
 class Damages(BaseModel):
     damages: list[Damage] = Field(description="Information about damages claimed or incurred in the case, including type, amount if mentioned, evidentiary basis, and associated party roles")
@@ -194,11 +197,13 @@ class Attachment(AttachmentExtracted):
     email_id: Optional[str] = Field(None, description="If this attachment was extracted from an email, reference the email_id here")
 
 
-class FactSheet(InitialInput,FactualFacts):
+class FactSheet(InitialInput,
+                #FactualFacts
+                ):
     """Structured representation of case facts for legal analysis."""
     project_id: Optional[str] = None
     events: list[Event] #prior variable name: timeline 
-    governing_law: GoverningLaw 
+    #governing_law: Optional[GoverningLaw] = None
     claims: Optional[list[Claim]] = None
     damages: Optional[list[Damage]] = None
     deadlines: Optional[list[Deadline]] = None

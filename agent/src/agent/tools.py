@@ -117,7 +117,9 @@ def update_project(project_id: str,):
     return f"Project {project_id} has been sent for update"
 
 @tool
-def clean_element(element_type : Literal["events", "parties", "title", "background", "claims", "deadlines", "damages", "disputed_facts", "undisputed_facts"], project_id: str):
+def clean_element(element_type : Literal["events", "parties", "title", "background", "claims", "deadlines", "damages", 
+                                         #"disputed_facts", "undisputed_facts",
+                                         ], project_id: str):
     '''Use this function to trigger a cleaning of a specific element in the projects state. 
     For example, if you want to clean the vectorstore of the project, use element_type 'vectorstore'.'''
     return f"Element {element_type} in project {project_id} has been sent for cleaning"
