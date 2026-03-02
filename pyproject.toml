@@ -19,3 +19,12 @@ members = [
     "evals",
     "data-viewer",
 ]
+
+[dependency-groups]
+dev = [
+    "appnope>=0.1.4",
+    "debugpy>=1.8.20",
+    "ipykernel>=7.2.0",
+    "jupyter-client>=8.8.0",
+    "pyzmq>=27.1.0",
+]
