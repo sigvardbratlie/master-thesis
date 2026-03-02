@@ -138,7 +138,6 @@ def _gathered(
         eval_run_id=eval_run_id,
         llm_model=llm_model,
         agent_type=agent_type,
-        runtime_project_id="p",
     )
 
 
@@ -431,7 +430,7 @@ class TestCollectResourceMetrics:
         )
         run = GatheredResultPayload(
             dataset_name="D", project_id="p", user_id="u", sessions=[session],
-            eval_run_id="r", llm_model="m", agent_type="baseline", runtime_project_id="p",
+            eval_run_id="r", llm_model="m", agent_type="baseline",
         )
         obs = cm.collect_resource_metrics([run])
         assert obs == []
@@ -448,7 +447,7 @@ class TestCollectResourceMetrics:
         )
         run = GatheredResultPayload(
             dataset_name="D", project_id="p", user_id="u", sessions=[session],
-            eval_run_id="r", llm_model="m", agent_type="baseline", runtime_project_id="p",
+            eval_run_id="r", llm_model="m", agent_type="baseline",
         )
         obs = cm.collect_resource_metrics([run])
         assert obs == []
@@ -471,7 +470,7 @@ class TestCollectResourceMetrics:
         ]
         run = GatheredResultPayload(
             dataset_name="D", project_id="p", user_id="u", sessions=sessions,
-            eval_run_id="r", llm_model="m", agent_type="baseline", runtime_project_id="p",
+            eval_run_id="r", llm_model="m", agent_type="baseline",
         )
         obs = cm.collect_resource_metrics([run])
         assert len(obs) == 3

@@ -115,7 +115,6 @@ class TestSaveResults:
             eval_run_id="run-1",
             llm_model="gpt-4o",
             agent_type="baseline",
-            runtime_project_id="p",
         )
 
     def test_uploads_to_correct_prefix(self, ds, mock_bucket):

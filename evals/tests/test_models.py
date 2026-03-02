@@ -179,7 +179,6 @@ class TestGatheredResultPayload:
             eval_run_id="run-1",
             llm_model="gpt-4o",
             agent_type="custom",
-            runtime_project_id="p",
         )
         return GatheredResultPayload(**{**defaults, **kw})
 
@@ -204,11 +203,11 @@ class TestGatheredResultPayload:
         assert grp.token_counts.llm_calls == 3
         assert grp.time_counts.duration_seconds == 30.0
 
-    def test_runtime_project_id_differs_for_baseline(self):
-        """Verify the model stores runtime_project_id independently of project_id."""
-        grp = self._build(project_id="proj-A", runtime_project_id="proj-A_baseline")
-        assert grp.runtime_project_id == "proj-A_baseline"
-        assert grp.project_id == "proj-A"
+    def test_eval_run_id_is_supabase_project_id(self):
+        """eval_run_id doubles as the Supabase project_id for isolation between runs."""
+        grp = self._build(project_id="proj-A", eval_run_id="run-xyz")
+        assert grp.eval_run_id == "run-xyz"   # used as Supabase project_id at runtime
+        assert grp.project_id == "proj-A"      # original case ID from dataset
 
 
 # ── EvalOutput ────────────────────────────────────────────────────────────────

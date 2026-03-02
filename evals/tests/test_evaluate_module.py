@@ -85,7 +85,6 @@ def _gathered(n_sessions: int = 1, agent_type: str = "baseline") -> GatheredResu
         eval_run_id="run-1",
         llm_model="gpt-4o",
         agent_type=agent_type,
-        runtime_project_id="proj-1",
     )
 
 
@@ -280,7 +279,6 @@ class TestLoadResults:
             "eval_run_id": "run-1",
             "llm_model": "gpt-4o",
             "agent_type": "baseline",
-            "runtime_project_id": "p",
         }
 
     def test_returns_gathered_result_payloads(self, ds, mock_bucket):
