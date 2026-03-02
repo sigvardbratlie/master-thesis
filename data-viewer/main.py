@@ -3,6 +3,7 @@ import email
 import json
 import logging
 import math
+import mimetypes
 import os
 import re
 import uuid
@@ -61,6 +62,20 @@ def delete_blob(blob_path: str) -> None:
     blob = _bucket().blob(blob_path)
     if blob.exists():
         blob.delete()
+
+
+def copy_blob(src: str, dst: str) -> None:
+    bucket = _bucket()
+    bucket.copy_blob(bucket.blob(src), bucket, dst)
+
+
+def move_blob(src: str, dst: str) -> None:
+    copy_blob(src, dst)
+    delete_blob(src)
+
+
+def upload_raw_blob(blob_path: str, data: bytes, content_type: str) -> None:
+    _bucket().blob(blob_path).upload_from_string(data, content_type=content_type)
 
 
 def list_dataset_names() -> list[str]:
@@ -128,6 +143,39 @@ def list_eval_blobs(dataset: str) -> list[storage.Blob]:
     return sorted(blobs, key=lambda b: b.name, reverse=True)
 
 
+def create_dataset(ds_name: str) -> None:
+    """Create a new empty dataset JSON in GCS."""
+    payload = json.dumps(
+        {
+            "dataset_name": ds_name,
+            "project_id": "",
+            "last_updated": datetime.now(_OSLO).isoformat(),
+            "sessions": [],
+        },
+        ensure_ascii=False,
+        indent=4,
+    ).encode("utf-8")
+    write_blob(dataset_blob_path(ds_name), payload)
+
+
+def trash_dataset(ds_name: str) -> None:
+    """Move all blobs for a dataset to _trash/datasets/{ds_name}_{ts}/."""
+    client = get_gcs_client()
+    prefix = f"datasets/{ds_name}/"
+    blobs = list(client.list_blobs(BUCKET_NAME, prefix=prefix))
+    ts = datetime.now(_OSLO).strftime("%Y-%m-%dT%H-%M-%S")
+    for blob in blobs:
+        rel = blob.name[len(prefix):]
+        move_blob(blob.name, f"_trash/datasets/{ds_name}_{ts}/{rel}")
+
+
+def trash_file(dataset: str, blob_name: str) -> None:
+    """Move a data file to the dataset's _trash/ folder."""
+    filename = blob_name.split("/")[-1]
+    ts = datetime.now(_OSLO).strftime("%Y-%m-%dT%H-%M-%S")
+    move_blob(blob_name, f"datasets/{dataset}/_trash/{ts}_{filename}")
+
+
 _RESULT_RE = re.compile(r"^(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json$")
 _EVAL_RE = re.compile(r"^llm-as-judge_(.+)_(custom|baseline)_(.+)\.json$")
 
@@ -166,12 +214,45 @@ st.divider()
 dataset_names = list_dataset_names()
 
 st.markdown("#### 🗂️ Select dataset")
-dataset = st.selectbox(
-    "Dataset",
-    dataset_names,
-    index=0,
-    label_visibility="collapsed",
-)
+_ds_col, _btn_new, _btn_del = st.columns([0.6, 0.2, 0.2])
+with _ds_col:
+    dataset = st.selectbox(
+        "Dataset",
+        dataset_names,
+        index=0,
+        label_visibility="collapsed",
+    )
+with _btn_new:
+    if st.button("➕ New dataset", use_container_width=True):
+        st.session_state["_show_new_dataset"] = not st.session_state.get("_show_new_dataset", False)
+with _btn_del:
+    if dataset and st.button("🗑️ Delete dataset", use_container_width=True):
+        st.session_state["_confirm_delete_dataset"] = dataset
+
+if st.session_state.get("_show_new_dataset"):
+    with st.form("form_new_dataset", clear_on_submit=True):
+        _new_name = st.text_input("Dataset name", placeholder="e.g. my-dataset-01")
+        if st.form_submit_button("Create") and _new_name:
+            if _new_name in dataset_names:
+                st.error(f"Dataset **{_new_name}** already exists.")
+            else:
+                create_dataset(_new_name)
+                st.session_state["_show_new_dataset"] = False
+                st.rerun()
+
+if _ds_to_del := st.session_state.get("_confirm_delete_dataset"):
+    st.warning(f"⚠️ Move dataset **{_ds_to_del}** and all its files to trash?")
+    _col_yes, _col_no, _ = st.columns([0.1, 0.1, 0.8])
+    if _col_yes.button("Yes", key="del_ds_yes"):
+        trash_dataset(_ds_to_del)
+        st.session_state.pop("_confirm_delete_dataset", None)
+        if st.session_state.get("_loaded_dataset") == _ds_to_del:
+            st.session_state.pop("_loaded_dataset", None)
+        st.rerun()
+    if _col_no.button("Cancel", key="del_ds_no"):
+        st.session_state.pop("_confirm_delete_dataset", None)
+        st.rerun()
+
 if not dataset:
     st.stop()
 
@@ -715,52 +796,78 @@ with tab_dataset:
 with tab_files:
 
     all_blobs = list_data_blobs(dataset)
-
-    if not all_blobs:
-        st.warning(f"⚠️ No supported files found in `01_data` for dataset **{dataset}**.")
-        st.stop()
-
     all_blobs = sorted(all_blobs, key=lambda b: b.name)
 
     st.markdown(
         f"#### 📁 Files &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({len(all_blobs)} supported files)</span>",
         unsafe_allow_html=True,
     )
-    st.caption("Select a file on the left to preview its contents.")
-    st.write("")
 
-    col_list, col_preview = st.columns([0.28, 0.72])
+    with st.expander("⬆️ Upload file"):
+        _uploaded = st.file_uploader(
+            "Choose a file",
+            type=[ext.lstrip(".") for ext in SUPPORTED_EXTENSIONS],
+            key="file_uploader",
+        )
+        if _uploaded is not None:
+            _dest_path = f"datasets/{dataset}/01_data/{_uploaded.name}"
+            if st.button("Upload to GCS", key="btn_upload_file"):
+                _ct = mimetypes.guess_type(_uploaded.name)[0] or "application/octet-stream"
+                upload_raw_blob(_dest_path, _uploaded.getvalue(), _ct)
+                st.success(f"✅ Uploaded `{_uploaded.name}`")
+                st.rerun()
 
-    filenames = [b.name.split("/")[-1] for b in all_blobs]
-    file_labels = [
-        f"{FILE_ICONS.get(Path(name).suffix.lower(), '📎')} {name}"
-        for name in filenames
-    ]
+    if not all_blobs:
+        st.info(f"No supported files in `01_data/` for **{dataset}**. Upload one above.")
+    else:
+        st.caption("Select a file on the left to preview its contents.")
+        st.write("")
 
-    with col_list:
-        with st.container(height=600, border=True):
-            selected_label = st.radio(
-                "Files",
-                file_labels,
-                label_visibility="collapsed",
-            )
+        col_list, col_preview = st.columns([0.28, 0.72])
 
-    selected_idx = file_labels.index(selected_label)
-    selected_blob = all_blobs[selected_idx]
-    selected_name = filenames[selected_idx]
-    selected_ext = Path(selected_name).suffix.lower()
+        filenames = [b.name.split("/")[-1] for b in all_blobs]
+        file_labels = [
+            f"{FILE_ICONS.get(Path(name).suffix.lower(), '📎')} {name}"
+            for name in filenames
+        ]
 
-    with col_preview:
-        st.markdown(f"**{FILE_ICONS.get(selected_ext, '📎')} {selected_name}**")
-        size_kb = (selected_blob.size or 0) / 1024
-        st.caption(f"{selected_ext.upper().lstrip('.')} · {size_kb:.1f} KB")
-        st.divider()
-        try:
-            content = read_blob_bytes(selected_blob.name)
-            render_file(selected_name, content)
-        except Exception as e:
-            st.error(f"❌ Could not render file: {e}")
-            logger.error(f"Error rendering {selected_name}: {e}", exc_info=True)
+        with col_list:
+            with st.container(height=550, border=True):
+                selected_label = st.radio(
+                    "Files",
+                    file_labels,
+                    label_visibility="collapsed",
+                )
+            if st.button("🗑️ Move to trash", key="btn_trash_file", use_container_width=True):
+                st.session_state["_confirm_trash_file"] = selected_label
+
+        selected_idx = file_labels.index(selected_label)
+        selected_blob = all_blobs[selected_idx]
+        selected_name = filenames[selected_idx]
+        selected_ext = Path(selected_name).suffix.lower()
+
+        if st.session_state.get("_confirm_trash_file") == selected_label:
+            st.warning(f"⚠️ Move **{selected_name}** to trash?")
+            _col_yes, _col_no, _ = st.columns([0.12, 0.1, 0.78])
+            if _col_yes.button("Yes", key="confirm_trash_file_yes"):
+                trash_file(dataset, selected_blob.name)
+                st.session_state.pop("_confirm_trash_file", None)
+                st.rerun()
+            if _col_no.button("Cancel", key="confirm_trash_file_no"):
+                st.session_state.pop("_confirm_trash_file", None)
+                st.rerun()
+
+        with col_preview:
+            st.markdown(f"**{FILE_ICONS.get(selected_ext, '📎')} {selected_name}**")
+            size_kb = (selected_blob.size or 0) / 1024
+            st.caption(f"{selected_ext.upper().lstrip('.')} · {size_kb:.1f} KB")
+            st.divider()
+            try:
+                content = read_blob_bytes(selected_blob.name)
+                render_file(selected_name, content)
+            except Exception as e:
+                st.error(f"❌ Could not render file: {e}")
+                logger.error(f"Error rendering {selected_name}: {e}", exc_info=True)
 
 
 # ════════════════════════════════════════════════════════════════════════════

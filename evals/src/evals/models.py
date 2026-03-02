@@ -2,7 +2,6 @@ from pydantic import BaseModel, Field
 from typing import Any, Literal, Optional
 from deepeval.evaluate.types import EvaluationResult
 
-
 # ── Conversation ───────────────────────────────────────────────────────────────
 
 class ConversationTurn(BaseModel):
@@ -66,3 +65,46 @@ class EvalOutput(BaseModel):
     # Populated at load time by joining 04_results on eval_run_id
     token_counts: Optional[Any] = None
     time_usage: Optional[Any] = None
+
+
+
+# ── Base metric ────────────────────────────────────────────────────────────────
+
+class BaseMetric(BaseModel):
+    """Shared identity fields for all observation-level metric models."""
+    dataset_name: str
+    eval_run_id: str
+    query_id: Optional[str] = None
+    session_id: Optional[str] = None
+    llm_model: str
+    agent_type: str
+
+
+# ── Observation-level metrics ──────────────────────────────────────────────────
+
+class DeepEvalObservation(BaseMetric):
+    """One observation per query × eval_run from LLM-as-judge evaluation."""
+    name: Optional[str] = None
+    correctness: float
+    relevancy: float
+    completeness: float
+    success: bool
+
+
+class RougeObservation(BaseMetric):
+    """One observation per query × eval_run for reference-based metrics."""
+    name: Optional[str] = None
+    rouge_precision: float
+    rouge_recall: float
+    rouge_fmeasure: float
+    actual_output: str
+
+
+class ResourceObservation(BaseMetric):
+    """One observation per eval_run for resource usage metrics."""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    llm_calls: int = 0
+    duration: float = 0.0
+
