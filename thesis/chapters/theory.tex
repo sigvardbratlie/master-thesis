@@ -1,0 +1,105 @@
+\chapter{Theory}
+
+This chapter presents the theoretical foundation for the approaches explored in this thesis.
+We examine the core challenges of applying large language models to long-context, multi-turn
+legal document analysis, and survey the relevant literature on retrieval, compression, and
+agentic context management strategies.
+
+% -------------------------------------------------------
+\section{Large Language Models and Context Windows}
+% -------------------------------------------------------
+
+Modern large language models (LLMs) are built on the transformer architecture \cite{vaswani2023attentionneed},
+which processes input as a sequence of tokens bounded by a fixed context window. While
+recent models advertise context windows of 128k tokens or more, empirical benchmarks
+reveal a significant gap between nominal and effective context utilization.
+introduce RULER, a benchmark designed to measure the \textit{real} usable context size
+of long-context LLMs, demonstrating that performance degrades substantially before the
+advertised limit is reached \cite{hsieh2024ruler}. This has direct implications for
+legal use cases, where case files can span hundreds of pages across dozens of documents.
+
+% -------------------------------------------------------
+\section{The Lost in the Middle Problem}
+% -------------------------------------------------------
+
+Even within the effective context window, LLMs do not attend uniformly to all input.
+Liu et al.\ show that model performance is highest when relevant information appears
+at the beginning or end of the context, and degrades for information placed in the middle
+--- a phenomenon they term \textit{lost in the middle} \cite{liu2023lostmiddlelanguagemodels}. This positional
+bias has critical consequences for legal document analysis, where key facts may be embedded
+deep within lengthy attachments. It motivates the need for strategies that either restructure
+context placement or reduce reliance on verbatim document injection altogether.
+
+% -------------------------------------------------------
+\section{Retrieval-Augmented Generation}
+% -------------------------------------------------------
+
+Retrieval-Augmented Generation (RAG) addresses context limitations by retrieving only
+the most relevant document chunks at query time, rather than loading entire documents
+into the context window \cite{lewis2021retrievalaugmentedgenerationknowledgeintensivenlp}. A standard RAG pipeline consists of
+offline chunking and embedding of documents into a vector store, followed by semantic
+retrieval at inference time. While effective for single-turn question answering, naive
+RAG struggles in multi-turn conversational settings where relevance depends on
+accumulated context across turns --- a central challenge in this thesis.
+
+RECOMP \cite{xu2023recomp} extends the RAG paradigm with both extractive and abstractive
+compressors that filter and condense retrieved passages before they are passed to the
+generator, reducing noise and token consumption while preserving relevant information.
+
+% -------------------------------------------------------
+\section{Prompt Compression}
+% -------------------------------------------------------
+
+An orthogonal approach to managing long contexts is prompt compression: reducing the
+token footprint of the input itself rather than selectively retrieving. LLMLingua
+\cite{jiang2023llmlingua} proposes a coarse-to-fine compression method guided by a
+smaller language model, identifying and removing tokens with low information content.
+LongLLMLingua \cite{jiang2024longllmlingua} extends this to long-document scenarios,
+incorporating question-aware compression that prioritizes tokens contextually relevant
+to the user query. Both methods are relevant as baseline comparisons for the context
+management strategies implemented in this thesis.
+
+% -------------------------------------------------------
+\section{Graph-Based and Multi-Hop Retrieval}
+% -------------------------------------------------------
+
+Standard vector similarity retrieval operates on isolated chunks and does not capture
+relational structure between entities. In legal cases, facts, parties, events, and claims
+are deeply interconnected, making relational retrieval particularly valuable.
+GraphRAG \cite{edge2024graphrag} proposes building a knowledge graph over the document
+corpus, enabling community-level summarization and structured traversal of entity
+relationships. HopRAG \cite{liu2025hoprag} further extends this with multi-hop reasoning,
+constructing logical chains across documents to answer complex queries that require
+synthesizing information from multiple sources. These approaches are particularly
+relevant to the factsheet extraction pipeline implemented in this thesis, where structured
+relationships between parties, events, and claims must be maintained across turns.
+
+% -------------------------------------------------------
+\section{Infinite and Extended Context Architectures}
+% -------------------------------------------------------
+
+An alternative to prompt-level strategies is modifying the underlying model architecture
+to support longer effective memory. Munkhdalai et al.\ propose Infini-Attention, which
+introduces compressive memory into the transformer attention mechanism to enable theoretically
+unbounded context without quadratic scaling \cite{munkhdalai2024leave}. While this
+represents a promising long-term direction, it requires architectural changes to the model
+and is not applicable in API-based deployment settings, which is the constraint under
+which this thesis operates.
+
+% -------------------------------------------------------
+\section{Agentic Context Management}
+% -------------------------------------------------------
+
+Beyond static retrieval and compression, agentic systems can actively manage context
+across multi-turn conversations. Rolling summarization --- periodically condensing
+conversation history into a compact summary --- is a practical strategy for preventing
+context overflow in long sessions \cite{microsoft2024semantickernelpython}. Stateful
+agent frameworks such as LangGraph enable persistent state management through checkpointing,
+allowing the agent to maintain structured representations (e.g., factsheets) that
+accumulate case knowledge across turns without requiring the full document history to
+remain in context.
+
+Taken together, the strategies surveyed in this chapter --- effective context benchmarking,
+positional bias awareness, RAG with compression, graph-based retrieval, and agentic
+summarization --- form the theoretical basis for the system design and experimental
+comparisons presented in the following chapters.

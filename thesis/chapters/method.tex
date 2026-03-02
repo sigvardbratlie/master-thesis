@@ -1,0 +1,226 @@
+
+\chapter{Method}
+
+
+\section{System Architecture}
+
+The system is designed as a modular, client-server application consisting of four main packages organized as a \texttt{uv} workspace: \texttt{agent}, \texttt{ui}, \texttt{evals}, and \texttt{data-viewer}. The architecture follows a separation of concerns, where the backend handles all agent logic, data persistence, and document processing, while the frontend is responsible for user interaction and result presentation.
+
+\subsection{Overview}
+
+The backend is implemented as a \textbf{FastAPI} application (\texttt{agent/main.py}) that exposes a RESTful API with Server-Sent Events (SSE) for real-time response streaming. The frontend is a \textbf{Streamlit} application that communicates with the backend over HTTP, consuming streamed responses. Authentication is handled via \textbf{Supabase Auth} using JWT tokens, which are validated on each request through a \texttt{HTTPBearer} dependency in FastAPI.
+
+\subsection{Agent Layer}
+
+The core agent is implemented using \textbf{LangGraph's} \texttt{StateGraph}, a directed graph framework for building stateful LLM applications. The agent graph consists of two nodes:
+
+\begin{itemize}
+    \item \texttt{call\_llm} — Constructs the full input payload, including the system prompt, factsheet context, conversation history, and RAG-retrieved document chunks, then invokes the LLM.
+    \item \texttt{call\_tool} — Executes any tool calls returned by the LLM.
+\end{itemize}
+
+A conditional edge routes control back to \texttt{call\_tool} if the LLM emits tool calls, or terminates the graph otherwise. To manage long conversations within the model's context window, a rolling summarization strategy is applied every eight messages using a dedicated \texttt{Summarizer} module.
+
+Conversation state is persisted using LangGraph's \texttt{AsyncPostgresSaver} checkpointer, backed by \textbf{Supabase PostgreSQL}, enabling session resumption and multi-turn dialogue across requests.
+
+\subsection{Tool Layer}
+
+The agent has access to a set of callable tools defined in \texttt{tools.py}. The full tool set (\texttt{TOOLS}) used in the primary agent configuration includes:
+
+\begin{itemize}
+    \item \texttt{tavily\_search} — Web search via the Tavily API.
+    \item \texttt{read\_attachment} — Fetches and parses a document from Supabase Storage.
+    \item \texttt{query\_project\_attachments} — Performs semantic retrieval (RAG) against project-specific documents indexed in BigQuery Vector Store.
+    \item \texttt{read\_laws} — Semantic retrieval against a corpus of Norwegian legislation.
+    \item \texttt{update\_project}, \texttt{clean\_element}, \texttt{create\_project} — Tools for managing the factsheet state.
+\end{itemize}
+
+Two ablated tool configurations are also defined for evaluation purposes: \texttt{BASELINE\_TOOLS} (web search and law retrieval only) and \texttt{BASELINE\_RAG\_TOOLS} (web search, law retrieval, and project document RAG, but without file storage access).
+
+\subsection{Data and Storage Layer}
+
+Document persistence is handled through two complementary mechanisms. Raw files (PDF, DOCX, PPTX, EML) are stored in \textbf{Supabase Storage}, where they can be retrieved on demand by the \texttt{read\_attachment} tool. Parsed and chunked document content is embedded using \textbf{Google's \texttt{gemini-embedding-001} model} and stored in \textbf{BigQuery Vector Store} for semantic retrieval. Structured project data — including the \texttt{FactSheet} and session metadata — is stored in Supabase PostgreSQL via the \texttt{SupabaseManager} CRUD interface.
+
+\subsection{Document Processing Pipeline}
+
+Upon project initialization (\texttt{POST /init-project}), a multi-phase asynchronous pipeline is triggered:
+
+\begin{enumerate}
+    \item \textbf{Phase 1:} Documents are parsed using \texttt{DocumentProcessor} (supporting PDF with OCR, DOCX, PPTX, and EML formats), stored in file storage, and indexed in the vector store.
+    \item \textbf{Phase 2:} Documents and emails are analyzed in parallel to extract structured entities — events, claims, damages, deadlines, and attachment metadata.
+    \item \textbf{Phase 3:} Factual facts and governing law are synthesized across all documents.
+\end{enumerate}
+
+Status events are streamed back to the frontend via SSE throughout all phases.
+
+\subsection{LLM Configuration}
+
+The system supports multiple LLM providers through LangChain's \texttt{init\_chat\_model} interface. \textbf{Google Gemini} serves as the primary provider, with \textbf{OpenAI GPT} available as a secondary option. The active model is configurable per session request, allowing for flexible experimentation and evaluation across providers.
+
+\subsection{Tech Stack Summary}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\hline
+\textbf{Layer} & \textbf{Technology} \\
+\hline
+Language & Python 3.13 \\
+Agent framework & LangGraph (StateGraph) \\
+LLM orchestration & LangChain (\texttt{init\_chat\_model}) \\
+LLM providers & Google Gemini (primary), OpenAI GPT (secondary) \\
+Backend API & FastAPI + Uvicorn \\
+Streaming & Server-Sent Events (SSE) \\
+Frontend & Streamlit \\
+Authentication & Supabase Auth (JWT) \\
+Database & Supabase (PostgreSQL) \\
+Vector store & BigQuery Vector Store (persistent) \\
+File storage & Supabase Storage \\
+Conversation checkpointer & LangGraph \texttt{AsyncPostgresSaver} \\
+Document parsing & PyPDF2, ocrmypdf, python-docx, python-pptx \\
+Embeddings & Google \texttt{gemini-embedding-001} \\
+Web search & Tavily \\
+\hline
+\end{tabular}
+\caption{System tech stack.}
+\label{tab:tech-stack}
+\end{table}
+\section{Design choices}
+\subsection*{Database and Storage Architecture}
+
+The system requires three distinct persistence concerns: structured relational data
+(the factsheet and its entities), unstructured document storage (raw files), and
+semantic vector retrieval (RAG over case documents). Rather than consolidating these
+into a single store, the architecture separates them by concern, with each layer
+optimised for its specific access pattern.
+
+\paragraph{Relational storage: Supabase / PostgreSQL.}
+The factsheet --- parties, events, claims, damages, deadlines, and governing law ---
+is stored in a typed relational schema in PostgreSQL via Supabase. The entity types
+and their relationships are well-defined in advance, making a relational model more
+appropriate than a document store or graph database. Foreign key constraints enforce
+referential integrity between entities (e.g., events linked to source documents via
+\texttt{file\_id}, damages linked to party roles), and Supabase's row-level security
+provides per-user data isolation without custom middleware. Supabase also serves as
+the LangGraph checkpointer backend, storing full conversation state in the same
+database, reducing operational complexity.
+
+\paragraph{File storage: Supabase Storage.}
+Raw documents (PDF, DOCX, EML, etc.) are stored in Supabase Storage (S3-compatible
+object storage). This decouples binary file storage from the relational schema while
+keeping both under the same managed platform, simplifying authentication and deployment.
+Files are referenced by \texttt{file\_id} in the relational layer, allowing the agent
+to fetch full document content on demand via the \texttt{read\_attachment} tool.
+
+\paragraph{Vector store: ChromaDB (session) and BigQuery Vector Search (project).}
+Semantic retrieval over case documents is handled by two vector stores serving different
+scopes. ChromaDB provides lightweight in-memory retrieval for documents uploaded within
+the current session, with no persistence overhead. BigQuery Vector Search handles
+project-scoped retrieval across all previously embedded case documents, offering scalable
+approximate nearest-neighbour search without running a dedicated vector database server.
+This two-tier design avoids embedding documents multiple times while keeping latency low
+for the common case of single-session queries.
+
+\paragraph{Structured factsheet over graph-based retrieval.}
+GraphRAG \cite{edge2025localglobalgraphrag} and related methods offer powerful capabilities
+for discovering latent entity relationships in large unstructured corpora. However, since
+the relevant entity types and their relationships are known in advance, an inductively
+constructed knowledge graph provides no structural advantage over the relational schema
+described above. Graph construction and traversal would introduce meaningful engineering
+overhead without a corresponding gain in retrieval quality for cases where the entity
+schema is bounded and predefined.
+
+\subsection*{LangGraph as Agent Orchestration Framework}
+
+The agent in this thesis is implemented using LangGraph \cite{langgraph}, a graph-based
+orchestration framework built on top of LangChain. The primary motivation is pragmatic:
+given the time constraints of a master's thesis, developer velocity and observability
+take priority over building a custom orchestration layer from scratch.
+
+LangGraph offers several concrete advantages for this project. First, its \texttt{StateGraph}
+abstraction provides a clean separation between agent logic and state management, making
+the conversation flow explicit and easy to modify. Adding new nodes --- for example, a
+dedicated legal reasoning step or a document re-ranking stage --- requires minimal
+structural changes, supporting an expandable architecture for more complex graphs in
+future work. Second, LangGraph's built-in checkpointing with PostgreSQL enables persistent
+conversation state across sessions without custom implementation, which is critical for
+the multi-turn case management setting. Third, native integration with LangSmith provides
+turn-level tracing, latency profiling, and tool call inspection out of the box, which
+proved essential for debugging agent behavior and validating evaluation results. Finally,
+LangGraph is model-agnostic by design, allowing the same agent graph to be tested across
+multiple LLM providers (e.g., OpenAI, Anthropic, Google) by swapping the underlying LLM
+instance --- a prerequisite for the comparative evaluation conducted in this thesis.
+
+While LangGraph introduces a framework dependency and some abstraction overhead, these
+trade-offs are justified by the significant reduction in boilerplate, the improved
+testability, and the accelerated iteration cycle it enables within the scope of this project.
+
+\subsection*{FastAPI and Server-Sent Events}
+
+The agent backend is implemented as a standalone REST API using FastAPI \cite{fastapi},
+rather than being tightly coupled to a specific frontend or notebook environment. This
+separation of concerns means the agent can be consumed by any HTTP client --- the
+Streamlit frontend developed in this thesis, a future web application, or automated
+evaluation scripts --- without modification to the agent logic itself. It also simplifies
+testing, as individual endpoints can be exercised independently via standard HTTP tooling.
+
+A central design decision is the use of Server-Sent Events (SSE) for streaming agent
+responses, rather than WebSockets or simple request-response polling. The agent pipeline
+is inherently long-running: a single request may involve multiple LLM calls, parallel
+document analysis, tool executions, and structured extraction phases. Returning a single
+blocking response would produce unacceptable latency from a user experience perspective.
+SSE allows the backend to emit incremental status events and partial results as they
+become available, keeping the frontend responsive throughout. Compared to WebSockets,
+SSE is simpler to implement and sufficient for this use case, as communication is
+unidirectional --- the server pushes events to the client, with no need for the client
+to send messages mid-stream.
+
+The streaming payload is typed using a shared \texttt{StreamEvent} schema, distinguishing
+between status updates (phase progress, tool calls) and final response chunks. This makes
+the frontend implementation straightforward and decouples the two layers cleanly.
+
+
+% -------------------------------------------------------
+% EVALUATION DESIGN
+% -------------------------------------------------------
+
+\section{Evaluation Design}
+Describe the evaluation design, including the datasets used, metrics for evaluation, and the experimental setup.
+
+\subsection{One-sided Hypothesis Tests}
+
+\textbf{For quality/performance metrics} (correctness, relevancy, completeness, passrate, self-consistency, Rouge-L):
+\[
+H_0: \mu_{\text{custom}} \leq \mu_{\text{baseline}} \qquad H_1: \mu_{\text{custom}} > \mu_{\text{baseline}}
+\]
+(and analogously vs. baseline+RAG)
+
+\textbf{For cost/efficiency metrics} (token usage, inference time):
+\[
+H_0: \mu_{\text{custom}} \geq \mu_{\text{baseline}} \qquad H_1: \mu_{\text{custom}} < \mu_{\text{baseline}}
+\]
+(and analogously vs. baseline+RAG)
+
+\textbf{Notation:}
+\begin{itemize}
+    \item $\mu_{\text{custom}}$ = population mean for the custom agent
+    \item $\mu_{\text{baseline}}$ = population mean for the baseline agent
+    \item $\mu_{\text{baseline+RAG}}$ = population mean for baseline with RAG
+\end{itemize}
+All tests are one-tailed / one-sided. \\ \\
+Metrics that are to be evaluated are:
+\begin{itemize}
+    \item \textbf{Correctness}: The degree to which the agent's output is factually accurate and consistent with the case information.
+    \item \textbf{Relevancy}: The extent to which the agent's output is pertinent to the current state of the case and the query.
+    \item \textbf{Completeness}: The degree to which the agent's output covers all necessary aspects of the query and case information.
+    \item \textbf{Self-consistency}: The degree to which the agent's output remains consistent across multiple queries and over time as the case evolves.
+    \item \textbf{Rouge-L score}: A measure of the overlap between the agent's output and a reference summary, capturing both precision and recall.
+    \item \textbf{Passrate}: The percentage of queries for which the agent's output meets a predefined quality threshold.
+    \item \textbf{Token Usage}: The number of tokens consumed by the agent during inference, including both input and output tokens.
+    \item \textbf{Inference Time}: The time taken by the agent to generate a response after receiving a query.
+\end{itemize}
+
+The dataset is constructed in collaboration with legal experts at Bahr AS, where each query has a designated corresponding expected output that is the basis of the tests. 
+DeepEval is used to evaluate correctness, relevancy, completeness, and self-consistency, while Rouge-L and passrate are calculated based on the expected output.
+Token usage and inference time are recorded during the agent's operation. \\ \\
+The evaluation will be conducted across multiple queries and cases to ensure robustness and generalizability of the
