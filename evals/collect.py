@@ -129,10 +129,12 @@ async def main():
         logger.info(f"━" * 64)
         logger.info(f"🔁  RUN {i+1}/{n_runs}  |  CUSTOM AGENT  |  {llm_model}  |  dataset: {dataset_name}")
         logger.info("━" * 64)
-        await single_run(data = data_custom, 
-                         llm_model=llm_model, 
-                         agent_type="custom", 
-                         embed_to_vectorstore=embed_to_vectorstore, 
+        # Deep copy so each run starts with clean session state (no stale
+        # runtime_session_id / token_counts / time_counts from previous runs).
+        await single_run(data=data_custom.model_copy(deep=True),
+                         llm_model=llm_model,
+                         agent_type="custom",
+                         embed_to_vectorstore=embed_to_vectorstore,
                          save_to_storage=save_to_storage)
 
     # ====== RUN BASELINE + BASELINE RAG IN PARALLEL ======
@@ -144,8 +146,8 @@ async def main():
         logger.info(f"🔁  RUN {i+1}/{n_runs}  |  BASELINE + BASELINE RAG (parallel)  |  {llm_model}  |  dataset: {dataset_name}")
         logger.info("━" * 64)
         await asyncio.gather(
-            single_run(data=data_baseline,     llm_model=llm_model, agent_type="baseline",     embed_to_vectorstore=False, save_to_storage=True),
-            single_run(data=data_baseline_rag, llm_model=llm_model, agent_type="baseline_rag", embed_to_vectorstore=False, save_to_storage=True),
+            single_run(data=data_baseline.model_copy(deep=True),     llm_model=llm_model, agent_type="baseline",     embed_to_vectorstore=False, save_to_storage=True),
+            single_run(data=data_baseline_rag.model_copy(deep=True), llm_model=llm_model, agent_type="baseline_rag", embed_to_vectorstore=False, save_to_storage=True),
         )
 
     logger.info("━" * 64)

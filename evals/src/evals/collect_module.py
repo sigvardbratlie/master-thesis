@@ -107,11 +107,10 @@ class CollectAgentResult:
     async def run_agent(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True) -> GatheredResultPayload:
         use_factsheet = self.agent_type == "custom"
 
-        base_project_id = self.data.project_id
-        runtime_project_id = (
-            base_project_id if self.agent_type == "custom"
-            else f"{base_project_id}_{self.agent_type}"
-        )
+        base_project_id = self.data.project_id  # original case ID from dataset
+        # eval_run_id doubles as the Supabase project_id for this run,
+        # ensuring full isolation: N identical runs never share a project row.
+        eval_run_id = str(uuid.uuid4())
 
         tools = _TOOLS_MAP[self.agent_type]
         prompt = _PROMPT_MAP[self.agent_type]
@@ -129,14 +128,14 @@ class CollectAgentResult:
             f'LLM Model: {self.llm_model} | '
             f'Agent Type: {self.agent_type} | '
             f'Sessions: {len(self.data.sessions)} | '
-            f'Project (runtime): {runtime_project_id} | '
+            f'Project (runtime): {eval_run_id} | '
             f'User: {self.data.user_id}\n\n'
         )
-        eval_run_id = str(uuid.uuid4())
+        
         starttime = datetime.now()
         with tracing_context(
             tags=[eval_run_id],
-            metadata={"eval_run_id": eval_run_id, "llm_model": self.llm_model, "agent_type": self.agent_type, "runtime_project_id": runtime_project_id},
+            metadata={"eval_run_id": eval_run_id, "llm_model": self.llm_model, "agent_type": self.agent_type, "project_id": base_project_id},
         ):
             for idx, session in enumerate(self.data.sessions):
                 runtime_session_id = str(uuid.uuid4())
@@ -163,7 +162,7 @@ class CollectAgentResult:
                     session_id=runtime_session_id,
                     llm_model=self.llm_model,
                     query_id=query_id,
-                    project_id=runtime_project_id,
+                    project_id=eval_run_id,
                     attachments=attachments,
                 )
                 if use_factsheet:
@@ -183,7 +182,7 @@ class CollectAgentResult:
                         await self.run_conv(
                             conv=ConversationTurn(input=session.init_query, answer=""),
                             agent_class=agent_class,
-                            project_id=runtime_project_id,
+                            project_id=eval_run_id,
                             session_id=runtime_session_id,
                             query_id=conv_query_id,
                             user_id=self.data.user_id,
@@ -196,7 +195,7 @@ class CollectAgentResult:
                         await self.run_conv(
                             conv=conv,
                             agent_class=agent_class,
-                            project_id=runtime_project_id,
+                            project_id=eval_run_id,
                             session_id=runtime_session_id,
                             query_id=conv_query_id,
                             user_id=self.data.user_id,
@@ -217,7 +216,7 @@ class CollectAgentResult:
             eval_run_id=eval_run_id,
             llm_model=self.llm_model,
             agent_type=self.agent_type,
-            runtime_project_id=runtime_project_id,
+            #runtime_project_id=eval_run_id,
             time_counts=TimeCount(
                 starttime=starttime,
                 endtime=endtime,

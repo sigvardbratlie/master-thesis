@@ -57,11 +57,18 @@ class DatasetPayload(BaseModel):
 # ── Gathered result payload ────────────────────────────────────────────────────
 
 class GatheredResultPayload(DatasetPayload):
-    """Dataset enriched with agent run metadata after CollectAgentResult.run_agent()."""
+    """Dataset enriched with agent run metadata after CollectAgentResult.run_agent().
+
+    Key identity fields:
+    - project_id   (from DatasetPayload): original case ID from the dataset JSON — for
+                   tracing back to the source legal case.
+    - eval_run_id: unique ID generated per run. This is also used as the Supabase
+                   project_id during execution, so each run gets a fully isolated
+                   Supabase project. To look up agent data in Supabase, use eval_run_id.
+    """
     eval_run_id: str
     llm_model: str
     agent_type: Literal["custom", "baseline", "baseline_rag"]
-    runtime_project_id: str
     token_counts: Optional[TokenCount] = None
     time_counts: Optional[TimeCount] = None
 
