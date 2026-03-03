@@ -105,6 +105,8 @@ class Damage(BaseModel):
     party_role: Optional[PartyRole] = None
     significance : significance_levels = Field(default="medium", description="Significance of the damage claim to the case")
 
+    
+
 class Damages(BaseModel):
     damages: list[Damage] = Field(description="Information about damages claimed or incurred in the case, including type, amount if mentioned, evidentiary basis, and associated party roles")
 
@@ -208,6 +210,55 @@ class FactSheet(InitialInput,
     claims: Optional[list[Claim]] = None
     damages: Optional[list[Damage]] = None
     deadlines: Optional[list[Deadline]] = None
+
+    def shorten_events(self) -> str:
+        if not self.events:
+            return ""
+        rows = [
+            f"\t{e.event_start_date} | {e.event_name} | {e.description or ''}"
+            + (" | Disputed" if e.disputed else "")
+            for e in self.events
+        ]
+        return "Events:\n" + "\n".join(rows) + "\n\n"
+
+    def shorten_parties(self, parties: list[Party]) -> str:
+        if not parties:
+            return ""
+        rows = [
+            f"\t{p.legal_name} ({p.entity_type}) | {p.role}"
+            + (f" | {p.role_description}" if p.role_description else "")
+            for p in parties
+        ]
+        return "Parties:\n" + "\n".join(rows) + "\n\n"
+
+    def shorten_claims(self) -> str:
+        if not self.claims:
+            return ""
+        rows = [
+            f"\tRelief sought: {c.relief_sought} | Factual basis: {c.factual_basis} | Legal basis: {c.legal_basis}"
+            for c in self.claims
+        ]
+        return "Claims:\n" + "\n".join(rows) + "\n\n"
+
+    def shorten_damages(self) -> str:
+        if not self.damages:
+            return ""
+        rows = []
+        for d in self.damages:
+            row = f"\t{d.basis} | Category: {d.category}"
+            if d.amount is not None:
+                row += f" | Amount: {d.amount} {d.currency}"
+            rows.append(row)
+        return "Damages:\n" + "\n".join(rows) + "\n\n"
+
+    def shorten_factsheet(self) -> str:
+        view = f"Factsheet for project: {self.title}:\n\n"
+        view += f"Background\n {self.background}\n\n"
+        view += self.shorten_parties(self.parties)
+        view += self.shorten_events(self.events)
+        view += self.shorten_claims(self.claims)
+        view += self.shorten_damages(self.damages)
+        return view
 
 
 class RelevanceCheck(BaseModel):
