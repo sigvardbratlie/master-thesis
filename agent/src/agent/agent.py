@@ -280,7 +280,42 @@ class Agent:
             logger.debug(f"  {m.type}: {content_preview}")
 
         try:
-            message = await llm_with_tools.ainvoke(payload)
+            # Stream and accumulate manually to prevent Gemini 2.5 thinking-model truncation:
+            # when LangGraph's astream_events wraps ainvoke, pure-text responses only store
+            # the first streaming chunk in state. Using astream fixes this while still
+            # forwarding all chunks (including reasoning) as on_chat_model_stream events.
+            accumulated: AIMessageChunk | None = None
+            async for chunk in llm_with_tools.astream(payload, config=config):
+                accumulated = chunk if accumulated is None else accumulated + chunk
+            if accumulated is None:
+                raise ValueError("LLM returned no response chunks")
+
+            # Extract full text from accumulated content.
+            # LangChain content type is Union[str, List[Union[str, Dict]]], so after
+            # accumulating streaming chunks the result can be any combination:
+            #   - plain str (OpenAI, some Gemini chunks)
+            #   - list of dicts only (Anthropic, Gemini 3.x)
+            #   - mixed list of dicts + plain strings (Gemini 2.5-pro — the signature
+            #     dict is followed by continuation text as a bare string)
+            # Thinking blocks (type == "thinking") are excluded from the stored response.
+            if isinstance(accumulated.content, list):
+                parts = []
+                for block in accumulated.content:
+                    if isinstance(block, str):
+                        parts.append(block)
+                    elif isinstance(block, dict) and block.get("type") != "thinking":
+                        parts.append(block.get("text", ""))
+                full_text = "".join(parts)
+            else:
+                full_text = accumulated.content or ""
+
+            message = AIMessage(
+                content=full_text,
+                tool_calls=accumulated.tool_calls if accumulated.tool_calls else [],
+                id=accumulated.id,
+                response_metadata=getattr(accumulated, "response_metadata", {}),
+                usage_metadata=getattr(accumulated, "usage_metadata", None),
+            )
             # Return enhanced_msg to save full context in state (with same ID to replace)
             messages_to_return = [enhanced_msg, message] if enhanced_msg else [message]
             return {
@@ -367,6 +402,18 @@ class Agent:
     PROVIDER_MAP = {
         "google": "google_genai",
         "openai": "openai",
+        # "claude": "anthropic",  # uncomment when Claude is added
+    }
+
+    # Provider-specific kwargs to enable thinking token exposure.
+    # Keyed by (model_provider, model_name_substring).
+    # on_chat_model_stream handles type="thinking" blocks identically regardless of provider.
+    # Pro/full models from Google process thinking internally and never return blocks.
+    # OpenAI o-series reasoning is also hidden; no config needed there.
+    THINKING_KWARGS: dict[tuple[str, str], dict] = {
+        ("google_genai", "flash"): {"include_thoughts": True},
+        # Anthropic extended thinking — add when Claude is wired up:
+        # ("anthropic", "claude"): {"thinking": {"type": "enabled", "budget_tokens": 8000}},
     }
 
     def _pick_llm(self, llm_model: str) -> BaseChatModel:
@@ -376,8 +423,13 @@ class Agent:
         if not model_provider:
             logger.warning(f"⚠️  Unknown provider '{provider_key}' — defaulting to google_genai")
             model_provider = "google_genai"
-        logger.debug(f'🤖 LLM: provider={model_provider} model={model_name}')
-        return init_chat_model(model_name, model_provider=model_provider)
+        kwargs = {}
+        for (provider, name_hint), thinking_kwargs in self.THINKING_KWARGS.items():
+            if model_provider == provider and name_hint in model_name:
+                kwargs.update(thinking_kwargs)
+                break
+        logger.debug(f'🤖 LLM: provider={model_provider} model={model_name} thinking={bool(kwargs)}')
+        return init_chat_model(model_name, model_provider=model_provider, **kwargs)
 
     def _compile_agent(self,llm_model : str ,query_id : str,):
         """
@@ -466,33 +518,41 @@ class Agent:
     #       STREAM RESPONSE
     # =================================
 
-    def on_chat_model_stream(self, data : dict, query_id : str, token_stream : str):
+    def on_chat_model_stream(self, data: dict, query_id: str, token_stream: str) -> list[dict]:
+        results = []
         if data.get("chunk"):
             chunk = data.get("chunk")
-            if isinstance(chunk,AIMessageChunk) and chunk.content:
-                # Handle structured content (list of content blocks) from LangChain
+            if isinstance(chunk, AIMessageChunk) and chunk.content:
                 if isinstance(chunk.content, list):
-                    # Extract text from content blocks
-                    text_content = "".join(
-                        block.get("text", "") 
-                        for block in chunk.content 
-                        if isinstance(block, dict) and block.get("type") == "text"
-                    )
+                    text_parts = []
+                    reasoning_parts = []
+                    for block in chunk.content:
+                        if isinstance(block, str):
+                            text_parts.append(block)
+                        elif isinstance(block, dict):
+                            if block.get("type") == "thinking":
+                                reasoning_parts.append(block.get("thinking", ""))
+                            elif block.get("type") != "thinking":
+                                text_parts.append(block.get("text", ""))
+                    text_content = "".join(text_parts)
+                    reasoning_content = "".join(reasoning_parts)
                     if text_content:
-                        token_stream += text_content
-                        return {"type": "token", "data": text_content, "query_id": query_id}
+                        results.append({"type": "token", "data": text_content, "query_id": query_id})
+                    if reasoning_content:
+                        results.append({"type": "reasoning", "data": reasoning_content, "query_id": query_id})
                 elif isinstance(chunk.content, str):
-                    token_stream += chunk.content
-                    return {"type": "token", "data": chunk.content, "query_id": query_id}
+                    results.append({"type": "token", "data": chunk.content, "query_id": query_id})
                 else:
                     logger.warning(f"⚠️  Unexpected content type in AIMessageChunk: {type(chunk.content)}")
+        return results
 
-    def on_call_llm(self, data : dict, 
+    def on_call_llm(self, data : dict,
                     query_id : str,
                     session_id : str,
-                    events : list, 
-                    event_counter : int, 
-                    token_stream : str):
+                    events : list,
+                    event_counter : int,
+                    token_stream : str,
+                    reasoning_stream: str = ""):
         
         output = data.get("output")
         if output and output.get("messages"):
@@ -514,7 +574,8 @@ class Agent:
                 
                 event_model = StreamEvent(data = EventData(
                                                             tool_calls = ai_msg.tool_calls,
-                                                            token_stream = token_stream),
+                                                            token_stream = token_stream,
+                                                            reasoning_stream = reasoning_stream or None),
                                           order = event_counter,
                                           type = "ai",
                                           created_at = datetime.now().isoformat(),
@@ -583,6 +644,7 @@ class Agent:
         #HANDLE USER QUERY
         events = []
         token_stream = ""
+        reasoning_stream = ""
 
         # Get current max order from existing events to continue sequentially
         try:
@@ -665,22 +727,26 @@ class Agent:
 
                 #token for token streaming
                 if ev == "on_chat_model_stream":
-                    result = self.on_chat_model_stream(data, query_id=query.query_id, token_stream=token_stream)
-                    if result:
-                        token_stream += result.get("data","")
+                    for result in self.on_chat_model_stream(data, query_id=query.query_id, token_stream=token_stream):
+                        if result.get("type") == "token":
+                            token_stream += result.get("data", "")
+                        elif result.get("type") == "reasoning":
+                            reasoning_stream += result.get("data", "")
                         yield result
-                        
+
                 #ai messages
                 if name == "call_llm":
-                    result = self.on_call_llm(data, 
-                                              query_id=query.query_id, 
-                                              session_id=query.session_id, 
-                                              events=events, 
-                                              event_counter=event_counter, 
-                                              token_stream=token_stream)
+                    result = self.on_call_llm(data,
+                                              query_id=query.query_id,
+                                              session_id=query.session_id,
+                                              events=events,
+                                              event_counter=event_counter,
+                                              token_stream=token_stream,
+                                              reasoning_stream=reasoning_stream)
                     if result:
                         yield result
-                        token_stream  = "" 
+                        token_stream = ""
+                        reasoning_stream = ""
                 #direct tool results
                 if name == "call_tool" and ev == "on_chain_end":
                     result = self.on_call_tool(data, 
