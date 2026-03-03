@@ -88,6 +88,7 @@ class EventData(BaseModel):
     invalid_tool_calls : Optional[list] = None
     tool_calls : Optional[list] = None
     token_stream: Optional[str] = None
+    reasoning_stream: Optional[str] = None
 
 
 class StreamEvent(BaseModel):

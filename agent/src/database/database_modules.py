@@ -38,15 +38,14 @@ class SupabaseManager:
         # Initialize Supabase client here if needed
 
     def load_factsheet(self, project_id: str, significance: list[str] | None = None, include_deadlines: bool = False) -> FactSheet:
-        
-       
 
         if significance is None:
             significance = ["high", "medium", "low"]
 
         # Limited versjon (bare utvalgte kolonner)
         select_query = """
-            project_events(event_id, event_name, file_id, category, description, event_start_date, disputed, parties, significance),
+            *,
+            project_events(event_id, event_name, category, description, event_start_date, disputed, parties, significance),
             project_parties(party_id, entity_type, legal_name, role, role_description, significance),
             project_damages(damage_id, category, amount, currency, party_role, basis, supporting_evidence, significance),
             project_claims(claim_id, factual_basis, legal_basis, relief_sought, strength_assessment, party_role, significance)
