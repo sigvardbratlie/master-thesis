@@ -1,4 +1,5 @@
 import os
+import re
 from dotenv import load_dotenv
 import json
 from typing import Optional, Literal
@@ -23,112 +24,215 @@ tavily_search = TavilySearch(
     topic="general",
 )
 
+
 @tool
-def read_attachment(path : str, 
-                    #config : RunnableConfig
-                    ) -> str:
-    '''
+def read_attachment(
+    path: str,
+    # config : RunnableConfig
+) -> str:
+    """
     Reads and processes an attachment from Supabase storage based on the provided path.
     Use only when the attachment content is not provided in the conversation history.
 
     Args:
         path (str): The path to the attachment in Supabase storage. Always in the form of "<user_id>/<session_id>/<file_id>.<ext>".
-    
+
     Returns:
         str: Processed content of the attachment.
-    '''
+    """
     storage_manager = SupabaseStorageManager()
     document_processor = DocumentProcessor()
     content = storage_manager.read_attachment(path=path)
     try:
-        file_id = path.split("/")[-1].split(".")[0] if "." in path else path.split("/")[-1]
+        file_id = (
+            path.split("/")[-1].split(".")[0] if "." in path else path.split("/")[-1]
+        )
         ext = "." + path.split(".")[-1] if "." in path else ""
     except Exception as e:
         logger.error(f"Error extracting file_id and extension from path: {e}")
         return None
     if ext in [".pdf", ".docx", ".pptx", ".eml", ".txt", ".md"]:
         file_type = document_processor.map_file_type(ext)
-        docs = document_processor.parse(content=content,
-                                        metadata = {"file_id": file_id, 
-                                                    "filename": file_id + ext,
-                                                    "session_id": None,
-                                                    "embedding_model": None},  
-                                        file_type=file_type,
-                                        force_metadata_model=False)
+        docs = document_processor.parse(
+            content=content,
+            metadata={
+                "file_id": file_id,
+                "filename": file_id + ext,
+                "session_id": None,
+                "embedding_model": None,
+            },
+            file_type=file_type,
+            force_metadata_model=False,
+        )
         content_txt = document_processor.to_plain_text(docs)
         return f"Content for file path {path}: \n{content_txt}\n\n"
     else:
         logger.error(f"Unsupported file extension: {ext}")
         return []
 
+
 @tool
-def query_project_attachments(query:  str, 
-                             project_id: str,
-                             k: int = 5
-                             ) -> str:
-    '''Function to use RAG to retrieve documents of a specific project.
-    
+def query_project_attachments(query: str, project_id: str, k: int = 3) -> str:
+    """Function to use RAG to retrieve documents of a specific project.
+
     Args:
         query (str): The query to search in the vectorstore.
         project_id (str): The project id to identify which vectorstore to query.
         k (int): The number of top results to retrieve from the vectorstore. Default is 5.
     Returns:
         str: The retrieved information from the vectorstore based on the query.
-    '''
+    """
     vectorstore = BQVectorStore()
-    results = vectorstore.query(query=query, collection_id="attachments", k=k, filter = {"project_id": project_id})
+    results = vectorstore.query(
+        query=query, collection_id="attachments", k=k, filter={"project_id": project_id}
+    )
     if not results:
         return f"No relevant information found in the vectorstore for project {project_id}."
     res = "=== Retrieved relevant chunks from vectorstore: ===\n"
     for doc in results:
-        res += f'filename: {doc.metadata.get("filename", "Unknown")}' \
-        f'title: {doc.metadata.get("title", "Unknown")} | ' \
-        f'path: {doc.metadata.get("path", "Unknown")} | ' \
-        f'| chunk: {doc.metadata.get("chunk", "Unknown")} of {doc.metadata.get("total_chunks", "Unknown")} total chunks\n'
+        res += (
+            f"filename: {doc.metadata.get('filename', 'Unknown')}"
+            f"title: {doc.metadata.get('title', 'Unknown')} | "
+            f"path: {doc.metadata.get('path', 'Unknown')} | "
+            f"| chunk: {doc.metadata.get('chunk', 'Unknown')} of {doc.metadata.get('total_chunks', 'Unknown')} total chunks\n"
+        )
         res += f"{doc.page_content}\n\n"
     return res
 
+
 @tool
-def read_laws(query: str, k: int = 5) -> str:
-    '''Function to use RAG to retrieve relevant laws based on a query.
-    
+def query_laws(query: str, 
+              title : str = None,
+              short_title: str = None, 
+              paragraph : str = None, 
+              k: int = 3) -> str:
+    """Function to use RAG to retrieve relevant laws based on a query.
+
     Args:
-        query (str): The query to search in the vectorstore.
+        query (str): The query to search in the vectorstore. Make sure to describe the in words what you are looking for, for example the users question.
+        title (str): The title of the law to filter by.
+        short_title (str): The short title of the law to filter by.
+        paragraph (str): The paragraph number to filter by. Must be on the form of "§ 5", "§ 5-7", etc.
         k (int): The number of top results to retrieve from the vectorstore. Default is 5.
     Returns:
         str: The retrieved information from the vectorstore based on the query.
-    '''
+    """
     vectorstore = BQVectorStore()
-    results = vectorstore.query(query=query, collection_id="laws", k=k)
-    if not results:
-        return "No relevant laws found in the vectorstore."
-    res = "=== Retrieved relevant laws from vectorstore: ===\n"
-    for doc in results:
-        res += f'Title {doc.metadata.get("title", "Unknown")} | Paragraph {doc.metadata.get("paragraph_number", "Unknown")} |Legal area: {doc.metadata.get("legal_area", "Unknown")}\n'
-        res += f"{doc.page_content}\n\n"
-    return res
+
+    filter_dict = {}
+
+    if title:
+        filter_dict["title"] = title
+
+    if short_title:
+        filter_dict["short_title"] = short_title
+
+    if paragraph:
+        filter_dict["paragraph_number"] = paragraph
+    
+    res = ""
+    if query or filter_dict:
+        results = vectorstore.query(
+            query=query or " ",  # dummy hvis ingen query, men bedre å ha noe
+            collection_id="laws",
+            k=k,
+            filter=filter_dict   # BigQuery aksepterer dict-filter
+        )
+
+        if results:
+            res += "=== Hentet lover med filter og/eller semantisk søk: ===\n"
+            for doc in results:
+                res += (
+                    f"Title: {doc.metadata.get('title', 'Ukjent')} "
+                    f"({doc.metadata.get('short_title', '')}) | "
+                    f"{doc.metadata.get('paragraph_number', 'Ukjent')} | "
+                    f"Område: {doc.metadata.get('legal_area', 'Ukjent')}\n"
+                )
+                res += f"{doc.page_content}\n\n"
+        else:
+            res += "Ingen treff med det gitte filteret eller søket.\n"
+
+    # Fallback: rent vektorsøk uten filter hvis ingenting traff
+    if not res and query:
+        results = vectorstore.query(query=query, collection_id="laws", k=k)
+        if results:
+            res += "=== Fallback: Semantisk søk uten filter ===\n"
+            for doc in results:
+                res += f"Title: {doc.metadata.get('title', 'Ukjent')} | § {doc.metadata.get('paragraph_number', 'Ukjent')}\n"
+                res += f"{doc.page_content}\n\n"
+        else:
+            res = "Ingen relevante lover funnet i databasen."
+
+    return res.strip() or "Ingen resultater."
 
 @tool
-def update_project(project_id: str,):
-    '''Use this function to trigger an update of the projects state to include the conversations current information'''
+def read_specific_law(title: str, paragraph: list[str] = None) -> str:
+    """Function to retrieve the content of a specific law paragraph based on title and paragraph number.
+
+    Args:
+        title (str): The title of the law to retrieve.
+        paragraph (list[str]): The paragraph numbers to retrieve. Must be on the form of ["§ 5", "§ 5-7"].
+
+    Returns:
+        str: The content of the specified law paragraph.
+    """
+    query  = f''''SELECT content 
+        FROM vector_store.laws
+        WHERE LOWER(title) LIKE "%{title.lower()}%" 
+        '''
+    if paragraph:
+        query += "AND paragraph_number IN UNNEST(@paragraphs)"
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ArrayQueryParameter("paragraphs", "STRING", paragraph)
+        ]    )
+    client = bigquery.Client(project=project_id)
+    query_job = client.query(query, job_config=job_config)
+    results = query_job.result()
+    res = f"=== Content for {title} "
+    if paragraph:
+        res += f"Paragraph {' and '.join(paragraph)}"
+    res += " ===\n"
+    for row in results:
+        res += f"{row.content}\n\n"
+    return res.strip() or "Ingen resultater."
+
+@tool
+def update_project(
+    project_id: str,
+):
+    """Use this function to trigger an update of the projects state to include the conversations current information"""
     return f"Project {project_id} has been sent for update"
 
+
 @tool
-def clean_element(element_type : Literal["events", "parties", "title", "background", "claims", "deadlines", "damages", 
-                                         #"disputed_facts", "undisputed_facts",
-                                         ], project_id: str):
-    '''Use this function to trigger a cleaning of a specific element in the projects state. 
-    For example, if you want to clean the vectorstore of the project, use element_type 'vectorstore'.'''
+def clean_element(
+    element_type: Literal[
+        "events",
+        "parties",
+        "title",
+        "background",
+        "claims",
+        "deadlines",
+        "damages",
+        # "disputed_facts", "undisputed_facts",
+    ],
+    project_id: str,
+):
+    """Use this function to trigger a cleaning of a specific element in the projects state.
+    For example, if you want to clean the vectorstore of the project, use element_type 'vectorstore'."""
     return f"Element {element_type} in project {project_id} has been sent for cleaning"
+
 
 @tool
 def create_project():
-    '''Use this function to trigger the creation of a new project in the database.'''
+    """Use this function to trigger the creation of a new project in the database."""
     return "A new project has been sent for creation"
+
 
 @tool
 def list_project_files_emails(project_id: str):
-    '''Use this function to retrieve a list of the projects files and emails.'''
+    """Use this function to retrieve a list of the projects files and emails."""
     sm = SupabaseManager()
     attachments = sm.list_project_attachments(project_id)
     emails = sm.list_project_emails(project_id)
@@ -140,22 +244,27 @@ def list_project_files_emails(project_id: str):
         res += f"Subject: {email.subject} | From: {email.from_addr} | To: {email.to_addrs} | Path: {email.path}\n"
     return res
 
-TOOLS = [
-        tavily_search,
-        read_attachment,
-        list_project_files_emails,
-        query_project_attachments,
-        read_laws,
-        update_project,
-        clean_element,
-        create_project,
-      ]
-BASELINE_TOOLS = [tavily_search,
-                read_attachment,
-                  ]
 
-BASELINE_RAG_TOOLS = [tavily_search,
-                    read_laws,
-                    query_project_attachments,
-                    read_attachment,
-                    ]
+TOOLS = [
+    tavily_search,
+    read_attachment,
+    list_project_files_emails,
+    query_project_attachments,
+    query_laws,
+    #read_specific_law,
+    update_project,
+    clean_element,
+    #create_project,
+]
+BASELINE_TOOLS = [
+    tavily_search,
+    read_attachment,
+]
+
+BASELINE_RAG_TOOLS = [
+    tavily_search,
+    query_laws,
+    #read_specific_law,
+    query_project_attachments,
+    read_attachment,
+]
