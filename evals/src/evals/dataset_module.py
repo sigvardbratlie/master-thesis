@@ -4,7 +4,7 @@ import re
 from collections import defaultdict
 from datetime import datetime
 from google.cloud import storage
-from .models import DatasetPayload, GatheredResultPayload, EvalOutput
+from .models import DatasetPayload, GatheredResultPayload, EvalOutput, TokenCount
 from deepeval.evaluate.types import EvaluationResult
 
 
@@ -95,6 +95,55 @@ class Dataset:
         except Exception as e:
             logger.error(f"Failed to save results: {e}")
             raise
+
+    def update_token_counts(self, result: GatheredResultPayload) -> None:
+        """Backfill token counts from LangSmith and re-save the result.
+
+        Safe to call after the fact — avoids race conditions where the last
+        LLM run hasn't been ingested into LangSmith yet at collection time.
+        """
+        from .langsmith_module import get_session_token_counts
+        total_input, total_output, total_tokens, total_calls = 0, 0, 0, 0
+        for session in result.sessions:
+            session_tokens = get_session_token_counts(session.runtime_session_id)
+            total_input += session_tokens["input_tokens"]
+            total_output += session_tokens["output_tokens"]
+            total_tokens += session_tokens["total_tokens"]
+            total_calls += session_tokens["llm_calls"]
+            session.token_counts = TokenCount(
+                input_tokens=session_tokens["input_tokens"],
+                output_tokens=session_tokens["output_tokens"],
+                total_tokens=session_tokens["total_tokens"],
+                llm_calls=session_tokens["llm_calls"],
+            )
+            if session.init_query_id:
+                q_init = session_tokens["per_query"].get(session.init_query_id, {})
+                session.init_query_token_count = TokenCount(
+                    input_tokens=q_init.get("input_tokens", 0),
+                    output_tokens=q_init.get("output_tokens", 0),
+                    total_tokens=q_init.get("total_tokens", 0),
+                    llm_calls=q_init.get("llm_calls", 0),
+                )
+            for conv in session.conversation:
+                qid = conv.query_id or "unknown"
+                q = session_tokens["per_query"].get(qid, {})
+                if not q.get("input_tokens") or not q.get("output_tokens") or not q.get("total_tokens"):
+                    logger.warning(f"Query ID {qid} in session {session.runtime_session_id} has token counts but query_id is missing in conversation entry. This may indicate a mismatch between LangSmith data and conversation entries. \nSESSION TOKENS {json.dumps(session_tokens, indent=2)} CONVERSATION {conv.model_dump()}")
+                    
+                conv.token_counts = TokenCount(
+                    input_tokens=q.get("input_tokens", 0),
+                    output_tokens=q.get("output_tokens", 0),
+                    total_tokens=q.get("total_tokens", 0),
+                    llm_calls=q.get("llm_calls", 0),
+                )
+        result.token_counts = TokenCount(
+            input_tokens=total_input,
+            output_tokens=total_output,
+            total_tokens=total_tokens,
+            llm_calls=total_calls,
+        )
+        logger.info(f"📊 Tokens — in: {total_input}  out: {total_output}  total: {total_tokens}  calls: {total_calls}")
+        self.save_results(result)
 
     def save_evaluation_results(self, results: list[EvaluationResult], data: GatheredResultPayload) -> EvalOutput:
         output = EvalOutput(

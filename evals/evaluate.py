@@ -14,9 +14,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate attachment assignment")
     parser.add_argument("-d","--dataset", type=str, choices=["test", "THRD-2021-163881", "TOSL-2024-103311", "TOSL-2024-125319"], help="Dataset name to evaluate")
     parser.add_argument("-m","--model", type=str, help="LLM model to evaluate (optional, defaults to all models in dataset)")
+    parser.add_argument("-t","--throttle", type=int, default=5, help="Throttle value for evaluation (default: 5)")
+    parser.add_argument("-c","--concurrent", type=int, default=1, help="Max concurrent evaluations (default: 1)")
+    parser.add_argument("--threshold", type=float, default=0.5, help="Threshold for evaluation metrics (default: 0.5)")
     args = parser.parse_args()
     dataset_name = args.dataset
     model = args.model
+    throttle = args.throttle
+    concurrent = args.concurrent
+    threshold = args.threshold
 
     logger.info("━" * 64)
     logger.info(f"🧪  EVALUATE  |  dataset: {dataset_name}")
@@ -46,7 +52,7 @@ if __name__ == "__main__":
         logger.info(f"📂  {data.dataset_name}  |  {data.llm_model}  |  {data.agent_type}  |  run: {data.eval_run_id}")
         logger.info("┄" * 64)
 
-        evaluater = Evaluater(model=model)
+        evaluater = Evaluater(model=model, throttle_value=throttle, max_concurrent=concurrent, threshold=threshold)
         results = evaluater.run_evaluation(data=data)
         ds.save_evaluation_results(results, data)
         logger.info(f"✅  Evaluation saved for {data.agent_type} — {data.llm_model}")

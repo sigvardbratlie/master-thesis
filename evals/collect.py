@@ -3,8 +3,6 @@ from dotenv import load_dotenv
 import argparse
 from evals import Dataset
 from evals.collect_module import CollectAgentResult
-from evals.models import TokenCount
-from langsmith import Client as LangSmithClient
 import os
 import asyncio
 logging.basicConfig(level=logging.INFO)
@@ -15,74 +13,11 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
-def get_session_token_counts(runtime_session_id: str) -> dict:
-    """Query LangSmith for per-query token usage for a single session via thread_id."""
-    client = LangSmithClient()
-    project_name = os.getenv("LANGCHAIN_PROJECT", "default")
-    runs = list(client.list_runs(
-        project_name=project_name,
-        filter=f'has(metadata, \'{{"thread_id": "{runtime_session_id}"}}\')',
-        run_type="llm",
-    ))
-    per_query: dict[str, dict] = {}
-    for r in runs:
-        qid = (r.extra or {}).get("metadata", {}).get("query_id", "unknown")
-        entry = per_query.setdefault(qid, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0})
-        entry["input_tokens"] += r.prompt_tokens or 0
-        entry["output_tokens"] += r.completion_tokens or 0
-        entry["total_tokens"] += r.total_tokens or 0
-        entry["llm_calls"] += 1
-    return {
-        "runtime_session_id": runtime_session_id,
-        "input_tokens": sum(r.prompt_tokens or 0 for r in runs),
-        "output_tokens": sum(r.completion_tokens or 0 for r in runs),
-        "total_tokens": sum(r.total_tokens or 0 for r in runs),
-        "llm_calls": len(runs),
-        "per_query": per_query,
-    }
-
 async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_storage):
         car_custom = CollectAgentResult(data, llm_model=llm_model, agent_type=agent_type)
         collected_results = await car_custom.run_agent(embed_to_vectorstore=embed_to_vectorstore, save_to_storage=save_to_storage)
-        total_input, total_output, total_tokens, total_calls = 0, 0, 0, 0
-        for session in collected_results.sessions:
-            session_tokens = get_session_token_counts(session.runtime_session_id)
-            total_input += session_tokens["input_tokens"]
-            total_output += session_tokens["output_tokens"]
-            total_tokens += session_tokens["total_tokens"]
-            total_calls += session_tokens["llm_calls"]
-            session.token_counts = TokenCount(
-                input_tokens=session_tokens["input_tokens"],
-                output_tokens=session_tokens["output_tokens"],
-                total_tokens=session_tokens["total_tokens"],
-                llm_calls=session_tokens["llm_calls"],
-            )
-            if agent_type == "custom" and session.init_query_id:
-                q_init = session_tokens["per_query"].get(session.init_query_id, {})
-                session.init_query_token_count = TokenCount(
-                    input_tokens=q_init.get("input_tokens", 0),
-                    output_tokens=q_init.get("output_tokens", 0),
-                    total_tokens=q_init.get("total_tokens", 0),
-                    llm_calls=q_init.get("llm_calls", 0),
-                )
-            for conv in session.conversation:
-                qid = conv.query_id or "unknown"
-                q = session_tokens["per_query"].get(qid, {})
-                conv.token_counts = TokenCount(
-                    input_tokens=q.get("input_tokens", 0),
-                    output_tokens=q.get("output_tokens", 0),
-                    total_tokens=q.get("total_tokens", 0),
-                    llm_calls=q.get("llm_calls", 0),
-                )
-        logger.info(f"📊 Tokens — in: {total_input}  out: {total_output}  total: {total_tokens}  calls: {total_calls}")
-        collected_results.token_counts = TokenCount(
-            input_tokens=total_input,
-            output_tokens=total_output,
-            total_tokens=total_tokens,
-            llm_calls=total_calls,
-        )
         ds = Dataset(data.dataset_name)
-        ds.save_results(collected_results)
+        ds.update_token_counts(collected_results)
         logger.info(f"✅ {agent_type} agent results saved")
 
 async def main():

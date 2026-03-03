@@ -2,12 +2,40 @@ from langsmith import Client
 from dotenv import load_dotenv
 import logging
 import json
+import os
 from pydantic import BaseModel
 from typing import List, Dict, Any
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 load_dotenv()
+
+def get_session_token_counts(runtime_session_id: str) -> dict:
+    """Query LangSmith for per-query token usage for a single session via thread_id."""
+    client = Client()
+    project_name = os.getenv("LANGCHAIN_PROJECT", "default")
+    runs = list(client.list_runs(
+        project_name=project_name,
+        filter=f'has(metadata, \'{{"thread_id": "{runtime_session_id}"}}\')',
+        run_type="llm",
+    ))
+    per_query: dict[str, dict] = {}
+    for r in runs:
+        qid = (r.extra or {}).get("metadata", {}).get("query_id", "unknown")
+        entry = per_query.setdefault(qid, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0})
+        entry["input_tokens"] += r.prompt_tokens or 0
+        entry["output_tokens"] += r.completion_tokens or 0
+        entry["total_tokens"] += r.total_tokens or 0
+        entry["llm_calls"] += 1
+    return {
+        "runtime_session_id": runtime_session_id,
+        "input_tokens": sum(r.prompt_tokens or 0 for r in runs),
+        "output_tokens": sum(r.completion_tokens or 0 for r in runs),
+        "total_tokens": sum(r.total_tokens or 0 for r in runs),
+        "llm_calls": len(runs),
+        "per_query": per_query,
+    }
+
 
 class ConversationEntry(BaseModel):
     input: str

@@ -17,10 +17,13 @@ logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 
     
 class Evaluater:
-    def __init__(self, client=None, model = "gpt-4.1", bucket_name="master-thesis-prod"):
+    def __init__(self, client=None, model = "gpt-4.1", bucket_name="master-thesis-prod", throttle_value=5, max_concurrent=1, threshold=0.5):
         self._client = client or storage.Client()
         self.bucket = self._client.bucket(bucket_name)
         self.model = model
+        self.throttle_value = throttle_value
+        self.max_concurrent = max_concurrent
+        self.threshold = threshold
         #self.sentence_transformer = SentenceTransformer("all-MiniLM-L6-v2")
 
     
@@ -53,10 +56,10 @@ class Evaluater:
             name="Legal Accuracy",
             criteria="Evaluate whether the assistant's legal analysis is accurate and consistent across the conversation.",
             evaluation_params=[TurnParams.CONTENT],
-            threshold=0.5,
+            threshold=self.threshold,
         )
 
-        return evaluate(test_cases=[convo_test_case], metrics=[metric], async_config=AsyncConfig(max_concurrent=1, throttle_value=15))
+        return evaluate(test_cases=[convo_test_case], metrics=[metric], async_config=AsyncConfig(max_concurrent=self.max_concurrent, throttle_value=self.throttle_value))
 
     def run_session_eval(self, session: Session):
         test_cases = [
@@ -68,21 +71,21 @@ class Evaluater:
                         criteria="Determine if actual_output is factually correct based on expected_output",
                         evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
                         model=self.model,
-                        threshold=0.5,
+                        threshold=self.threshold,
                     )
         completeness = GEval(
                         name="completeness",
                         criteria="Determine if actual_output covers all key points and facts present in expected_output. Penalize missing critical information.",
                         evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
                         model=self.model,
-                        threshold=0.5,
+                        threshold=self.threshold,
                     )
         relevancy = AnswerRelevancyMetric(
-                        threshold=0.5,
+                        threshold=self.threshold,
                         model=self.model,
                     )
 
-        return evaluate(test_cases=test_cases, metrics=[correctness, completeness, relevancy], async_config=AsyncConfig(max_concurrent=1, throttle_value=15))
+        return evaluate(test_cases=test_cases, metrics=[correctness, completeness, relevancy], async_config=AsyncConfig(max_concurrent=self.max_concurrent, throttle_value=self.throttle_value))
 
     def run_evaluation(self, data: GatheredResultPayload) -> list:
         results = []
