@@ -162,6 +162,7 @@ class ChatComponent:
             # Prepare containers for this cycle
             with st.chat_message("assistant"):
                 details_expander = st.expander("Detaljer", expanded=False)
+                reasoning_expander = st.expander("Tankegang", expanded=False)
                 elements_container = st.container()
                 company_data_container = st.container()
                 text_container = st.container()
@@ -192,6 +193,14 @@ class ChatComponent:
                                 st.markdown("**SQL-spørring:**")
                                 st.code(sql_msg.get("tool_args", {}).get("sql_query", ""), language="sql")
                                 st.divider()
+
+                # Display reasoning if stored
+                for msg in cycle:
+                    if msg.get("type") == "ai":
+                        reasoning = msg.get("data", {}).get("reasoning_stream", "")
+                        if reasoning:
+                            with reasoning_expander:
+                                st.markdown(reasoning)
 
                 # Display tool results
                 for msg in cycle:
@@ -394,6 +403,9 @@ class ChatComponent:
                     elements_container = st.container()
                     company_data_container = st.container()
                     details_expander = st.expander("Detaljer", expanded=False)
+                    reasoning_expander = st.expander("Tankegang", expanded=False)
+                    reasoning_placeholder = reasoning_expander.empty()
+                    reasoning_text = ""
                     text_container = st.container()
                     status_container = st.container()
 
@@ -420,6 +432,11 @@ class ChatComponent:
                         text_container=text_container
                     )
 
+                def on_reasoning(text: str):
+                    nonlocal reasoning_text
+                    reasoning_text += text
+                    reasoning_placeholder.markdown(reasoning_text)
+
                 def status_callback(label: str, state: str):
                     status_box.update(label=label, state=state)
 
@@ -429,6 +446,7 @@ class ChatComponent:
                         st.write_stream(streaming_service.stream_response(
                             request=request,
                             on_tool_result=on_tool_result,
+                            on_reasoning=on_reasoning,
                             status_callback=status_callback
                         ))
                 except Exception as e:

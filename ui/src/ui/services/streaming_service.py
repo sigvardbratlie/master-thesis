@@ -26,6 +26,7 @@ class StreamingService:
         on_token: Optional[Callable[[str], None]] = None,
         on_ai_message: Optional[Callable[[StreamEvent], None]] = None,
         on_tool_result: Optional[Callable[[StreamEvent], None]] = None,
+        on_reasoning: Optional[Callable[[str], None]] = None,
         status_callback: Optional[Callable[[str, str], None]] = None
     ) -> Generator[str, None, None]:
         """
@@ -75,8 +76,14 @@ class StreamingService:
 
                         event_type = data.get("type")
 
+                        # Handle reasoning events
+                        if event_type == "reasoning":
+                            content = data.get("data", "")
+                            if content and on_reasoning:
+                                on_reasoning(content)
+
                         # Handle token events
-                        if event_type == "token":
+                        elif event_type == "token":
                             # Clear status box on first token
                             if not streaming_started and status_callback:
                                 status_callback("", "complete")

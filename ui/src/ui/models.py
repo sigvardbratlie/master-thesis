@@ -130,6 +130,7 @@ class AIEventData(BaseModel):
     content : Optional[str] = None
     invalid_tool_calls : Optional[list] = None
     token_stream: Optional[str] = None
+    reasoning_stream: Optional[str] = None
     tool_calls : Optional[list] = None
 
 class StreamEvent(BaseModel):
