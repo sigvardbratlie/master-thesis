@@ -10,7 +10,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
 from agent.agent import Agent
-from models import AskAgentRequest, AttachmentModel
+from models import AskAgentRequest, AttachmentModel,CleanupElementsRequest
 from agent.utils import PROMPT, PROMPT_BASELINE, PROMPT_BASELINE_RAG
 from agent.tools import TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS
 from .dataset_module import Dataset
@@ -172,6 +172,14 @@ class CollectAgentResult:
                         ):
                             logger.debug(f"Init response: {response}")
                     else:
+                        if idx % 2 == 0: #cleanup every 2 sessions to avoid too much context buildup, which can lead to token limits being hit and increased costs
+                            cleanup_query = CleanupElementsRequest(
+                                **input_obj.model_dump(),
+                                element_types = ["parties", "events", "damages"])
+                            async for response in agent_class.cleanup_elements(
+                                query = cleanup_query):
+                                logger.debug(f"Cleanup response: {response}")
+
                         async for response in agent_class.update_project(
                             query=input_obj, user_id=self.data.user_id
                         ):
