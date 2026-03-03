@@ -19,15 +19,6 @@ import uuid
 logger = logging.getLogger(__name__)
 
 
-class AttachmentSummary(BaseModel):
-    filename: str
-    path: str
-
-class EmailSummary(BaseModel):
-    subject: str
-    from_addr: str
-    to_addrs: list[str]
-    path: str
 
 
 class SupabaseManager:
@@ -37,23 +28,15 @@ class SupabaseManager:
         self.supabase = create_client(self.url, self.key)
         # Initialize Supabase client here if needed
 
-    def load_factsheet(self, project_id: str, significance: list[str] | None = None, include_deadlines: bool = False) -> FactSheet:
-
-        if significance is None:
-            significance = ["high", "medium", "low"]
-
-        # Limited versjon (bare utvalgte kolonner)
+    def load_factsheet(self, project_id: str,) -> FactSheet:
         select_query = """
             *,
-            project_events(event_id, event_name, category, description, event_start_date, disputed, parties, significance),
-            project_parties(party_id, entity_type, legal_name, role, role_description, significance),
-            project_damages(damage_id, category, amount, currency, party_role, basis, supporting_evidence, significance),
-            project_claims(claim_id, factual_basis, legal_basis, relief_sought, strength_assessment, party_role, significance)
+            project_events(*),
+            project_parties(*),
+            project_damages(*),
+            project_claims(*),
+            project_deadlines(*)
         """
-        if include_deadlines:
-            select_query += ", project_deadlines(deadline_id, deadline_date, description, party_role, significance)"
-        # Fjern eventuelt trailing komma (sikkerhet)
-        select_query = select_query.rstrip(',').strip()
 
         # Utfør spørringen — ved limited: filtrer ut low-significance events og parties
         try:
@@ -62,15 +45,6 @@ class SupabaseManager:
                 .select(select_query)
                 .eq("project_id", project_id)
             )
-            if significance:
-                query = (
-                    query
-                    .filter("project_events.significance", "in", f"({','.join(significance)})")
-                    .filter("project_parties.significance", "in", f"({','.join(significance)})")
-                    #.filter("project_deadlines.significance", "in", f"({','.join(significance)})")
-                    .filter("project_damages.significance", "in", f"({','.join(significance)})")
-                    .filter("project_claims.significance", "in", f"({','.join(significance)})")
-                )
             response = query.single().execute()
         except Exception as e:
             raise ValueError(f"Feil ved lasting av factsheet: {e}")
@@ -80,7 +54,7 @@ class SupabaseManager:
         # Pop ut nested arrays (Supabase returnerer dem som lister)
         project_events    = data.pop("project_events",    [])
         project_parties   = data.pop("project_parties",   [])
-        project_deadlines = data.pop("project_deadlines", []) if include_deadlines else []
+        project_deadlines = data.pop("project_deadlines", [])
         project_damages   = data.pop("project_damages",   [])
         project_claims    = data.pop("project_claims",    [])
 
@@ -104,7 +78,6 @@ class SupabaseManager:
                 project_deadlines(*),
                 project_damages(*),
                 project_claims(*),
-                project_legal(*),
                 project_emails(*)"""
 
         project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
@@ -118,15 +91,8 @@ class SupabaseManager:
         project_damages = data.pop("project_damages", [])
         project_claims = data.pop("project_claims", [])
         project_emails = data.pop("project_emails", [])
-        project_legal = data.pop("project_legal", {})
-        if project_legal:
-            project_legal.pop("created_at", None)
-            project_legal.pop("project_id", None)
-        else:
-            logger.warning(f"No legal data found for project_id: {project_id}")
 
         factsheet = FactSheet(**data,
-                              **project_legal,
                               parties=project_parties,
                               events=project_events,
                               deadlines=project_deadlines,
@@ -139,14 +105,6 @@ class SupabaseManager:
             attachments=attachments_models,
             emails=emails_models,
         )
-
-    def list_project_attachments(self, project_id: str) -> list[AttachmentSummary]:
-        response = self.supabase.table("project_attachments").select("filename, path").eq("project_id", project_id).execute()
-        return [AttachmentSummary(**att) for att in (response.data or [])]
-
-    def list_project_emails(self, project_id: str) -> list[EmailSummary]:
-        response = self.supabase.table("project_emails").select("subject, from_addr, to_addrs, path").eq("project_id", project_id).execute()
-        return [EmailSummary(**email) for email in (response.data or [])]
 
     def save_project(self,
                        factsheet : FactSheet,
@@ -167,15 +125,12 @@ class SupabaseManager:
                 attachment_dict = attachment.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
                 attachment_dict["project_id"] = project_id
                 attachment_dicts.append(attachment_dict)
-            logger.debug(f' ========= ATTACHEMNT CONTENTS TO SAVE ======== \n {attachment_dicts} \n')
+            #logger.debug(f' ========= ATTACHEMNT CONTENTS TO SAVE ======== \n {attachment_dicts} \n')
         
         if emails:
             for email in emails:
                 email_dict = email.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
                 email_dict["project_id"] = project_id
-                # # Map from_addr to from for database compatibility
-                # if "from_addr" in email_dict:
-                #     email_dict["from"] = email_dict.pop("from_addr")
                 email_dicts.append(email_dict)
         
         factsheet_dict = factsheet.model_dump(mode='json')
@@ -184,9 +139,6 @@ class SupabaseManager:
         deadlines = factsheet_dict.pop("deadlines", [])
         events = factsheet_dict.pop("events", [])
         parties = factsheet_dict.pop("parties", [])
-        # custom = {}
-        # for key in custom_fields:
-        #     custom[key] = factsheet_dict.pop(key, None)
         
         factsheet_dict["project_id"] = project_id
         factsheet_dict["user_id"] = user_id
@@ -216,14 +168,6 @@ class SupabaseManager:
                 logger.debug(f'Upserted {len(attachments)} attachments for project {project_id} in Supabase.')
             except Exception as e:
                 logger.error(f'Error upserting attachments for project {project_id} in Supabase: {e}', exc_info=True)
-
-        # if custom:
-        #     #========= PROJECT CUSTOM FIELDS ==========
-        #     try:
-        #         self.supabase.table("project_legal").upsert({**custom, "project_id": project_id}).execute()
-        #         logger.debug(f'Custom fields for project {project_id} upserted in Supabase.')
-        #     except Exception as e:
-        #         logger.error(f'Error upserting custom fields for project {project_id} in Supabase: {e}', exc_info=True)
 
         if parties:
             # ========== PROJECT PARTIES ==========

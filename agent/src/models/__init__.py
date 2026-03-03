@@ -33,6 +33,7 @@ __all__ = [
     
     # API REQUEST MODELS
     "AskAgentRequest",
+    "CleanupElementsRequest",
     "StreamEvent",
     "StreamData",
     "StreamlitUserInfo",

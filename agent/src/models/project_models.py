@@ -215,19 +215,19 @@ class FactSheet(InitialInput,
         if not self.events:
             return ""
         rows = [
-            f"\t{e.event_start_date} | {e.event_name} | {e.description or ''}"
+            f"\t* {e.event_start_date} | {e.event_name} | {e.description or ''}"
             + (" | Disputed" if e.disputed else "")
             for e in self.events
         ]
         return "Events:\n" + "\n".join(rows) + "\n\n"
 
-    def shorten_parties(self, parties: list[Party]) -> str:
-        if not parties:
+    def shorten_parties(self) -> str:
+        if not self.parties:
             return ""
         rows = [
-            f"\t{p.legal_name} ({p.entity_type}) | {p.role}"
+            f"\t* {p.legal_name} ({p.entity_type}) | {p.role}"
             + (f" | {p.role_description}" if p.role_description else "")
-            for p in parties
+            for p in self.parties
         ]
         return "Parties:\n" + "\n".join(rows) + "\n\n"
 
@@ -235,7 +235,7 @@ class FactSheet(InitialInput,
         if not self.claims:
             return ""
         rows = [
-            f"\tRelief sought: {c.relief_sought} | Factual basis: {c.factual_basis} | Legal basis: {c.legal_basis}"
+            f"\t* Relief sought: {c.relief_sought} | Factual basis: {c.factual_basis} | Legal basis: {c.legal_basis}"
             for c in self.claims
         ]
         return "Claims:\n" + "\n".join(rows) + "\n\n"
@@ -245,19 +245,19 @@ class FactSheet(InitialInput,
             return ""
         rows = []
         for d in self.damages:
-            row = f"\t{d.basis} | Category: {d.category}"
+            row = f"\t* {d.basis} | Category: {d.category}"
             if d.amount is not None:
                 row += f" | Amount: {d.amount} {d.currency}"
             rows.append(row)
         return "Damages:\n" + "\n".join(rows) + "\n\n"
 
-    def shorten_factsheet(self) -> str:
-        view = f"Factsheet for project: {self.title}:\n\n"
-        view += f"Background\n {self.background}\n\n"
-        view += self.shorten_parties(self.parties)
-        view += self.shorten_events(self.events)
-        view += self.shorten_claims(self.claims)
-        view += self.shorten_damages(self.damages)
+    def shorten_factsheet(self, excluded_fields: list[Literal["events", "parties", "claims", "damages", "title", "background"]] = None) -> str:
+        view = f"Factsheet for project: {self.title}:\n\n" if not excluded_fields or "title" not in excluded_fields else ""
+        view += f"Background\n {self.background}\n\n" if self.background and (not excluded_fields or "background" not in excluded_fields) else ""
+        view += self.shorten_parties() if not excluded_fields or "parties" not in excluded_fields else ""
+        view += self.shorten_events() if not excluded_fields or "events" not in excluded_fields else ""
+        view += self.shorten_claims() if self.claims and (not excluded_fields or "claims" not in excluded_fields) else ""
+        view += self.shorten_damages() if self.damages and (not excluded_fields or "damages" not in excluded_fields) else ""
         return view
 
 

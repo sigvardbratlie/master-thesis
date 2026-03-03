@@ -166,35 +166,44 @@ def query_laws(query: str,
     return res.strip() or "Ingen resultater."
 
 @tool
-def read_specific_law(title: str, paragraph: list[str] = None) -> str:
+def read_specific_law(title: list[str], 
+                      short_title : Optional[str] = None,
+                      paragraph: list[str] = None) -> str:
     """Function to retrieve the content of a specific law paragraph based on title and paragraph number.
 
     Args:
-        title (str): The title of the law to retrieve.
-        paragraph (list[str]): The paragraph numbers to retrieve. Must be on the form of ["§ 5", "§ 5-7"].
+        title (list[str]): The title(s) of the law to retrieve. For example ["Arbeidsmiljøloven", "Arbeidsmiljølova", ].
+        short_title (str): The short title of the law to retrieve.
+        paragraph (list[str], optional): The paragraph number(s) to retrieve. For example ["§ 3-7", "§ 3-8"]. If None, retrieves all paragraphs.
 
     Returns:
         str: The content of the specified law paragraph.
     """
-    query  = f''''SELECT content 
+    title_filters = " OR ".join([f"LOWER(title) LIKE '%{t.lower()}%'" for t in title])
+
+    query = f'''SELECT content, title, short_title, paragraph_number
         FROM vector_store.laws
-        WHERE LOWER(title) LIKE "%{title.lower()}%" 
+        WHERE ({title_filters})
         '''
+    
+    if short_title:
+        query += f" AND LOWER(short_title) LIKE '%{short_title.lower()}%'"
     if paragraph:
-        query += "AND paragraph_number IN UNNEST(@paragraphs)"
-    job_config = bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ArrayQueryParameter("paragraphs", "STRING", paragraph)
-        ]    )
-    client = bigquery.Client(project=project_id)
+        query += " AND paragraph_number IN UNNEST(@paragraphs)"
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ArrayQueryParameter("paragraphs", "STRING", paragraph)
+            ]
+        )
+    else:
+        job_config = None
+    client = bigquery.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT"))
     query_job = client.query(query, job_config=job_config)
     results = query_job.result()
-    res = f"=== Content for {title} "
-    if paragraph:
-        res += f"Paragraph {' and '.join(paragraph)}"
-    res += " ===\n"
+    res = f"=== Content for {title} short title: {short_title} ===\n"
     for row in results:
-        res += f"{row.content}\n\n"
+        res += f"{row.paragraph_number}\n{row.content}\n\n"
     return res.strip() or "Ingen resultater."
 
 @tool
@@ -234,15 +243,13 @@ def create_project():
 def list_project_files_emails(project_id: str):
     """Use this function to retrieve a list of the projects files and emails."""
     sm = SupabaseManager()
-    attachments = sm.list_project_attachments(project_id)
-    emails = sm.list_project_emails(project_id)
-    res = f"Project {project_id} attachments:\n"
-    for att in attachments:
-        res += f"Filename: {att.filename} | Path: {att.path}\n"
-    res += f"\nProject {project_id} emails:\n"
-    for email in emails:
-        res += f"Subject: {email.subject} | From: {email.from_addr} | To: {email.to_addrs} | Path: {email.path}\n"
-    return res
+    project = sm.load_project(project_id=project_id)
+    if not project:
+        return f"No project {project_id}"
+    value = "=== List of project files and emails ===\n\n"
+    value += project.shorten_attachments()
+    value += project.shorten_emails()
+    return value
 
 
 TOOLS = [
@@ -251,7 +258,7 @@ TOOLS = [
     list_project_files_emails,
     query_project_attachments,
     query_laws,
-    #read_specific_law,
+    read_specific_law,
     update_project,
     clean_element,
     #create_project,
@@ -264,7 +271,7 @@ BASELINE_TOOLS = [
 BASELINE_RAG_TOOLS = [
     tavily_search,
     query_laws,
-    #read_specific_law,
+    read_specific_law,
     query_project_attachments,
     read_attachment,
 ]
