@@ -150,7 +150,19 @@ class ContextManager:
 
                                 Documents to analyze:
                                 {documents_formatted}'''
-        response = await structured_llm.ainvoke(prompt, config=config)
+        retry_prompt = prompt
+        response = None
+        for attempt in range(2):
+            try:
+                response = await structured_llm.ainvoke(retry_prompt, config=config)
+                break
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} failed validation: {e}")
+                if attempt == 0:
+                    retry_prompt = prompt + f"\n\nPREVIOUS ATTEMPT FAILED WITH VALIDATION ERROR:\n{e}\nPlease fix the above errors and try again."
+                else:
+                    logger.error("Both attempts failed, returning empty result.")
+                    return {"attachments": [], "events": [], "damages": [], "deadlines": [], "claims": []}
 
         if not response or not response.attachments:
             logger.error("LLM returned empty or invalid response")
