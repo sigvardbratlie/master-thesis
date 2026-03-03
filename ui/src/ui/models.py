@@ -73,6 +73,11 @@ class AskAgentRequest(BaseModel):
     focus_context: Optional[str] = None
 
 
+class CleanupElementsRequest(AskAgentRequest):
+    """POST /cleanup-project-elements request"""
+    element_types: list[str]
+
+
 class StreamlitUserInfo(BaseModel):
     """POST /token-from-streamlit request"""
     sub: str

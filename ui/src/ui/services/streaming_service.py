@@ -309,6 +309,56 @@ class StreamingService:
             logger.error(f"Error in cleanup_project_attr stream: {e}", exc_info=True)
             raise
     
+    def cleanup_all_metadata_stream(self, payload: AskAgentRequest) -> Generator[dict, None, None]:
+        try:
+            with requests.post(
+                url=f"{self.backend_url}/cleanup-all-metadata",
+                json=payload.model_dump(),
+                headers=self.headers,
+                stream=True,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    decoded_line = line.decode('utf-8')
+                    if not decoded_line.startswith('data:'):
+                        continue
+                    try:
+                        data = json.loads(decoded_line[5:])
+                        logger.debug(f"Cleanup all metadata stream data: {data}")
+                        yield data
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON decode error in cleanup_all_metadata_stream: {e}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error in cleanup_all_metadata_stream: {e}", exc_info=True)
+            raise
+
+    def cleanup_elements_stream(self, payload: CleanupElementsRequest) -> Generator[dict, None, None]:
+        try:
+            with requests.post(
+                url=f"{self.backend_url}/cleanup-project-elements",
+                json=payload.model_dump(),
+                headers=self.headers,
+                stream=True,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    decoded_line = line.decode('utf-8')
+                    if not decoded_line.startswith('data:'):
+                        continue
+                    try:
+                        data = json.loads(decoded_line[5:])
+                        logger.debug(f"Cleanup elements stream data: {data}")
+                        yield data
+                    except json.JSONDecodeError as e:
+                        logger.error(f"JSON decode error in cleanup_elements_stream: {e}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error in cleanup_elements_stream: {e}", exc_info=True)
+            raise
+
     def delete_project_vectorstore(self, project_id: str) -> dict:
         """Delete project from BigQuery vector store."""
         try:

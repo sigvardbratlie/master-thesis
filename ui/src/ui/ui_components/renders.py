@@ -881,22 +881,15 @@ class ProjectComponent:
         streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
                                                   access_token=st.session_state.access_token)
         with st.popover("Clean and update project element"):
-            # Separate element types clearly
-            relational_elements = ["Events", "Parties", "Claims", "Damages", "Deadlines"]
-            metadata_elements = ["Background", "Title"]
-            custom_law_elements = ["Governing Law", "Disputed Facts", "Undisputed Facts"]
-            
-            all_elements = relational_elements + metadata_elements + custom_law_elements
-            element_to_clean = st.selectbox("Select element to clean", options=all_elements)
-            
-            if st.button("Clean Element", icon="🧹"):
-                # Map display names to backend keys
-                element_key_map = {
-                    "Disputed Facts": "disputed_facts",
-                    "Undisputed Facts": "undisputed_facts",
-                }
-                element_key = element_key_map.get(element_to_clean, element_to_clean.lower().replace(" ", "_"))
-                
+            relational_options = ["Events", "Parties", "Claims", "Damages", "Deadlines"]
+            metadata_options = ["Title", "Background", "All Metadata"]
+            custom_law_options = ["Governing Law", "Disputed Facts", "Undisputed Facts"]
+
+            selected_relational = st.multiselect("Relational elements", options=relational_options)
+            selected_metadata = st.selectbox("Metadata", options=["—"] + metadata_options)
+            selected_law = st.selectbox("Legal attributes", options=["—"] + custom_law_options)
+
+            if st.button("Clean selected", icon="🧹"):
                 payload = AskAgentRequest(
                     project_id=st.session_state.project_id,
                     session_id=st.session_state.session_id,
@@ -905,28 +898,75 @@ class ProjectComponent:
                     query_id=str(uuid4()),
                     llm_model=st.session_state.llm_model,
                 )
-                
-                # Route to correct cleaning function
-                if element_to_clean in relational_elements:
-                    success = self._stream_cleanup_progress(streaming_service.cleanup_project_element_stream, payload, element_key)
-                elif element_to_clean in custom_law_elements:
-                    success = self._stream_cleanup_progress(streaming_service.cleanup_attr_stream, payload, element_key)
-                else:  # metadata_elements
-                    success = self._stream_cleanup_progress(streaming_service.cleanup_attr_stream, payload, element_key)
-                
-                if success:
-                    project_element = self.backend_service.load_project_element(
-                        project_id=st.session_state.project_id,
-                        element_type=element_key)
-                    st.session_state.factsheet[element_key] = project_element
-                    st.rerun()
-                    
-    def _stream_cleanup_progress(self, streaming_function : callable, payload, element_type):
-        """Display live streaming progress for cleanup element."""
 
-        with st.status(f"🧹 Cleaning {element_type}...", expanded=True) as status:
+                rerun_needed = False
+
+                # --- Relational elements (any subset) ---
+                if selected_relational:
+                    element_types = [e.lower() for e in selected_relational]
+                    elements_payload = CleanupElementsRequest(
+                        **payload.model_dump(),
+                        element_types=element_types,
+                    )
+                    success = self._stream_cleanup_progress(
+                        streaming_service.cleanup_elements_stream, elements_payload
+                    )
+                    if success:
+                        for field in element_types:
+                            st.session_state.factsheet[field] = self.backend_service.load_project_element(
+                                project_id=st.session_state.project_id, element_type=field
+                            )
+                        rerun_needed = True
+
+                # --- Metadata ---
+                if selected_metadata != "—":
+                    if selected_metadata == "All Metadata":
+                        success = self._stream_cleanup_progress(
+                            streaming_service.cleanup_all_metadata_stream, payload
+                        )
+                        if success:
+                            for field in ["title", "background"]:
+                                st.session_state.factsheet[field] = self.backend_service.load_project_element(
+                                    project_id=st.session_state.project_id, element_type=field
+                                )
+                            rerun_needed = True
+                    else:
+                        element_key = selected_metadata.lower()
+                        success = self._stream_cleanup_progress(
+                            streaming_service.cleanup_attr_stream, payload, element_key
+                        )
+                        if success:
+                            st.session_state.factsheet[element_key] = self.backend_service.load_project_element(
+                                project_id=st.session_state.project_id, element_type=element_key
+                            )
+                            rerun_needed = True
+
+                # --- Legal attributes ---
+                if selected_law != "—":
+                    element_key_map = {
+                        "Disputed Facts": "disputed_facts",
+                        "Undisputed Facts": "undisputed_facts",
+                    }
+                    element_key = element_key_map.get(selected_law, selected_law.lower().replace(" ", "_"))
+                    success = self._stream_cleanup_progress(
+                        streaming_service.cleanup_attr_stream, payload, element_key
+                    )
+                    if success:
+                        st.session_state.factsheet[element_key] = self.backend_service.load_project_element(
+                            project_id=st.session_state.project_id, element_type=element_key
+                        )
+                        rerun_needed = True
+
+                if rerun_needed:
+                    st.rerun()
+
+    def _stream_cleanup_progress(self, streaming_function: callable, payload, element_type: str = None):
+        """Display live streaming progress for cleanup operation."""
+        label = element_type or "elements"
+        with st.status(f"🧹 Cleaning {label}...", expanded=True) as status:
             try:
-                for event in streaming_function(payload, element_type):
+                stream = streaming_function(payload) if element_type is None else streaming_function(payload, element_type)
+                for event in stream:
                     if event.get("error"):
                         status.update(label="❌ Error occurred", state="error")
                         st.error(event["error"])
@@ -936,30 +976,32 @@ class ProjectComponent:
                     phase = phase_raw[0] if isinstance(phase_raw, list) else phase_raw
                     event_status = event.get("status", "")
                     data = event.get("data", {})
-                    
-                    # Build PHASE_CONFIG dynamically
-                    PHASE_CONFIG = {
-                        f"cleanup_{element_type}": ("🧹", f"Cleaning {element_type}"),
-                        "storage": ("💾", "Saving to database"),
-                    }
-                    emoji, label = PHASE_CONFIG.get(phase, ("⏳", phase))
+
+                    if phase.startswith("cleanup_"):
+                        element = phase[len("cleanup_"):]
+                        emoji, phase_label = "🧹", f"Cleaning {element}"
+                    elif phase == "storage":
+                        emoji, phase_label = "💾", "Saving to database"
+                    else:
+                        emoji, phase_label = "⏳", phase
 
                     if event_status == "starting":
-                        status.update(label=f"{emoji} {label}...")
+                        status.update(label=f"{emoji} {phase_label}...")
                         original = data.get("original_count", 0)
                         if original:
-                            st.caption(f"📋 {original} {element_type} to process")
+                            st.caption(f"📋 {original} {data.get('element_type', label)} to process")
 
                     elif event_status == "complete":
                         detail = ""
-                        if phase == f"cleanup_{element_type}":
+                        if phase.startswith("cleanup_"):
                             original = data.get("original_count", 0)
                             cleaned = data.get("cleaned_count", 0)
                             removed = data.get("removed", 0)
-                            detail = f": {cleaned} kept, {removed} removed (from {original})"
-                        st.markdown(f"✅ {label}{detail}")
+                            if original or cleaned:
+                                detail = f": {cleaned} kept, {removed} removed (from {original})"
+                        st.markdown(f"✅ {phase_label}{detail}")
 
-                status.update(label=f"✅ {element_type.title()} cleaned!", state="complete")
+                status.update(label=f"✅ Done!", state="complete")
                 return True
 
             except Exception as e:
@@ -1113,23 +1155,52 @@ class ProjectComponent:
                 else:
                     st.markdown(f"- {sig_icon} **No Date**: {event.get('description', 'No Description')}")
         
-        elements = {"parties" : "👥", "governing_law" : "⚖️", "claims" : "📄", "damages" : "💰", "deadlines" : "⏰",
-        }
-        for field, icon in elements.items():
-            self.display_field(label = field.replace("_"," ").title(), value = field, icon = icon, factsheet=factsheet)
+        # elements = {"parties" : "👥", "claims" : "📄", "damages" : "💰", "deadlines" : "⏰",
+        # }
+        # for field, icon in elements.items():
+        #     self.display_field(label = field.replace("_"," ").title(), value = field, icon = icon, factsheet=factsheet)
+        with st.expander("Parties", expanded=False, icon="👥"):
+            parties = factsheet.get("parties", [])
+            for party in parties:
+                significance = party.get("significance", "medium")
+                sig_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(significance, "⚪")
+                st.markdown(f"- {sig_icon} {party.get('legal_name', 'No Legal Name')} ({party.get('role', 'No Role')})")
         
+        with st.expander("Claims", expanded=False, icon="📄"):
+            claims = factsheet.get("claims", [])
+            for claim in claims:
+                significance = claim.get("significance", "medium")
+                sig_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(significance, "⚪")
+                st.markdown(f"- {sig_icon} {claim.get('relief_sought', 'No Relief Sought')}")
+        
+        with st.expander("Damages", expanded=False, icon="💰"):
+            damages = factsheet.get("damages", [])
+            for damage in damages:
+                significance = damage.get("significance", "medium")
+                sig_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(significance, "⚪")
+                st.markdown(f"- {sig_icon} {damage.get('basis', 'No Basis')} | {damage.get('amount', 'No Amount')} {damage.get('currency', '')}")
+        
+        with st.expander("Deadlines", expanded=False, icon="⏰"):
+            deadlines = factsheet.get("deadlines", [])
+            for deadline in deadlines:
+                significance = deadline.get("significance", "medium")
+                sig_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(significance, "⚪")
+                date = deadline.get('deadline_date', 'No Date',)
+                st.markdown(f"- {sig_icon} **{date}**: {deadline.get('description', 'No Description')}")
+
+
         with st.expander("Background", expanded=False, icon="📚"):
             st.markdown(factsheet.get("background", ""))
         
-        with st.expander("disputed & undisputed facts", expanded=False, icon="⚔️"):
-            disputed_facts = factsheet.get('disputed_facts', [])
-            with st.expander("Disputed Facts", expanded=False, icon="❌"):
-                for fact in disputed_facts:
-                    st.markdown(f"- {fact}")
+        # with st.expander("disputed & undisputed facts", expanded=False, icon="⚔️"):
+        #     disputed_facts = factsheet.get('disputed_facts', [])
+        #     with st.expander("Disputed Facts", expanded=False, icon="❌"):
+        #         for fact in disputed_facts:
+        #             st.markdown(f"- {fact}")
             
-            with st.expander("Undisputed Facts", expanded=True, icon="✅"):
-                for fact in factsheet.get('undisputed_facts', []):
-                    st.markdown(f"- {fact}")
+        #     with st.expander("Undisputed Facts", expanded=True, icon="✅"):
+        #         for fact in factsheet.get('undisputed_facts', []):
+        #             st.markdown(f"- {fact}")
             
 
         with st.expander("Attachments Overview", expanded=False, icon="📎"):
