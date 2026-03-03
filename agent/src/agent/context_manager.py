@@ -138,7 +138,7 @@ class ContextManager:
         ])
 
         structured_llm = self.llm.with_structured_output(MultipleAttachmentsResult, method="function_calling")
-        init_prompt = f'Case input: {input_.model_dump()}\n\n'
+        init_prompt = f'{input_.shorten_factsheet()}\n\n' if isinstance(input_, FactSheet) else f'Case input: {input_.model_dump(mode = "json")}\n\n'
         prompt = init_prompt + f'''Analyze the following {len(attachments)} documents.
 
                                 For EACH document, return an AttachmentWithEvents object containing:
@@ -283,7 +283,7 @@ class ContextManager:
         events = []
 
         structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
-        init_prompt = f'Case input: {input_.model_dump()}\n\n'
+        init_prompt = f'{input_.shorten_factsheet()}\n\n' if isinstance(input_, FactSheet) else f'Case input: {input_.model_dump(mode = "json")}\n\n'
         
         # Format emails with clear ID separation
         emails_formatted = "\n\n".join([
@@ -327,7 +327,6 @@ class ContextManager:
                 break
             
             extracted = email_result.email
-            #logger.info(f"==== EMAIL ELEMENENT DEBUG == \n{extracted.model_dump(mode = "json")}\n \n ==== END OF ELEMENT DEBUG ====")
             
             # Validate that extracted email_id matches one of our original IDs
             if extracted.email_id not in org_ids:
@@ -478,10 +477,8 @@ class ContextManager:
 
     async def clean_element(self, 
                             content: BaseModel, 
-                            factsheet: FactSheet, 
                             element_type : str,
-                            attachments : Optional[List[Attachment]] = None,
-                            emails : Optional[List[dict]] = None,
+                            project_data : ProjectData,
                             ) -> list[dict]:   
         '''Clean/merge items with LLM, then deduplicate with Python and assign UUIDs.'''
         
@@ -509,10 +506,10 @@ class ContextManager:
         else:
             data = []
         prompt = (
-            f"Context factsheet: {factsheet.model_dump(mode = "json")}\n\n"
-            f'Context from attachments:\n{[att.model_dump(mode="json", include = {"file_id", "filename", "description", "file_date"}) for att in attachments] if attachments else "No attachments"}\n\n'
-            f'Context from emails:\n{[eml.model_dump(mode="json", include = {"from","from_addr", "to", "subject", "body","date"}) for eml in emails] if emails else "No emails"}\n\n'
-            f'Use the context of the existing factsheet to clean, fill in missing information, if content is empty -> fill the content!'
+            f'{project_data.shorten_factsheet(excluded_fields=[element_type])}\n'
+            f'{project_data.shorten_attachments()}\n'
+            f'{project_data.shorten_emails()}\n'
+            f'Use the context of the given above to clean, fill in missing information, if content is empty -> fill the content!'
             f'If content is filled, merge similar entries for the following {name} items if they are refering to the same entity.'
             "I.e for party, fill in all relevant roles such as plaintiff, defendant, witness, legal representative, etc. For events, fill in event dates and categorize the type of event.n\n'"
             f":\n\n{data}"
@@ -577,12 +574,76 @@ class ContextManager:
         
         logger.info(f'✅ Cleaned {name}: {len(data) if data else 0} → {len(llm_cleaned) if llm_cleaned else 0} (LLM) → {len(result) if result else 0} (deduplicated)')
         return result
-    
-    async def clean_metadata(self, content : str, 
-                             factsheet : FactSheet, 
+
+    async def clean_elements(self,
+                             element_types: list[str],
+                             project_data: ProjectData,
+                             ) -> dict[str, list[dict]]:
+        """Clean multiple element types in a single LLM call. Returns {element_type: cleaned_items}."""
+        item_model_map = {
+            "events": (list[Event], Field(default_factory=list)),
+            "parties": (list[Party], Field(default_factory=list)),
+            "claims": (list[Claim], Field(default_factory=list)),
+            "damages": (list[Damage], Field(default_factory=list)),
+            "deadlines": (list[Deadline], Field(default_factory=list)),
+        }
+        id_map = {
+            "events": "event_id", "parties": "party_id", "claims": "claim_id",
+            "damages": "damage_id", "deadlines": "deadline_id",
+        }
+        identity_fields_map = {
+            "events": ["event_date", "category", "event_name"],
+            "damages": ["category", "file_id", "party_role"],
+            "claims": ["relief_sought", "file_id", "party_role"],
+            "deadlines": ["file_id", "deadline_date", "party_role"],
+            "parties": ["legal_name", "role"],
+        }
+
+        CombinedModel = create_model("CombinedElements", **{et: item_model_map[et] for et in element_types})
+
+        data_map = {et: project_data.factsheet.model_dump().get(et, []) for et in element_types}
+
+        prompt = (
+            f'{project_data.shorten_factsheet(excluded_fields=element_types)}\n'
+            f'{project_data.shorten_attachments()}\n'
+            f'{project_data.shorten_emails()}\n'
+            f'Use the context above to clean and fill in missing information for: {", ".join(element_types)}.\n'
+            f'Merge entries that refer to the same entity within each type.\n\n'
+        )
+        for et in element_types:
+            prompt += f'Current {et}:\n{json.dumps(data_map[et], default=str)}\n\n'
+
+        structured_llm = self.llm.with_structured_output(CombinedModel, method="function_calling")
+        response = await structured_llm.ainvoke(prompt)
+
+        results = {}
+        for et in element_types:
+            id_field = id_map[et]
+            raw_items = getattr(response, et, []) or []
+            llm_cleaned = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in raw_items]
+
+            for item in llm_cleaned:
+                if not item.get(id_field) or not self.is_valid_uuid(item[id_field]):
+                    item[id_field] = str(uuid.uuid4())
+
+            identity_fields = identity_fields_map.get(et, [])
+            seen = {}
+            deduped = []
+            for item in llm_cleaned:
+                sig = tuple(item.get(f) for f in identity_fields)
+                if sig not in seen:
+                    seen[sig] = True
+                    deduped.append(item)
+
+            logger.info(f'✅ Cleaned {et}: {len(data_map[et])} → {len(llm_cleaned)} (LLM) → {len(deduped)} (deduplicated)')
+            results[et] = deduped
+
+        return results
+
+    async def clean_metadata(self, content : str,
                              element_type : str,
-                             attachments: Optional[List[dict]] = None,
-                             emails : Optional[List[dict]] = None) -> str:
+                             project_data : ProjectData,
+                             ) -> str:
         """Clean metadata fields (title, background) using structured output to avoid LLM wrapper text."""
         
         if element_type not in ["title", "background"]:
@@ -596,9 +657,9 @@ class ContextManager:
         )
         
         prompt = (
-            f'Context from factsheet:\n{factsheet.model_dump(mode="json")}\n\n'
-            f'Context from attachments:\n{[att.model_dump(mode="json", include = {"file_id", "filename", "description", "file_date"}) for att in attachments] if attachments else "No attachments"}\n\n'
-            f'Context from emails:\n{[eml.model_dump(mode="json", include = {"from","from_addr", "to", "subject", "description","date"}) for eml in emails] if emails else "No emails"}\n\n'
+            f'{project_data.shorten_factsheet(excluded_fields=[element_type])}\n'
+            f'{project_data.shorten_attachments()}\n'
+            f'{project_data.shorten_emails()}\n'
             f'Task: Clean and/or rewrite the following {element_type} according to the context. '
             f'Return ONLY the cleaned {element_type} itself, no explanation or preamble.\n\n'
             f'Original {element_type}:\n{content}'
@@ -610,12 +671,37 @@ class ContextManager:
         
         return response.cleaned_text if hasattr(response, 'cleaned_text') else str(response)
     
+    async def clean_all_metadata(self, 
+                             project_data : ProjectData,
+                             ) -> str:
+        """Clean metadata fields (title, background) using structured output to avoid LLM wrapper text."""
+        
+        
+        
+        class ProjectMetadata(BaseModel):
+            title: str = Field(description="The cleaned and revised title, without any preamble or explanation")
+            background: str = Field(description="The cleaned and revised background, without any preamble or explanation")
+        
+        prompt = (
+            f'{project_data.shorten_factsheet(excluded_fields=["title", "background"])}\n'
+            #f'{project_data.shorten_attachments()}\n'
+            #f'{project_data.shorten_emails()}\n'
+            f'Task: Clean and/or rewrite the metadata (title & background) according to the context. '
+            f'Return ONLY the cleaned metadata content itself, no explanation or preamble.\n\n'
+            f'Original metadata content:\nCurrent Title: {project_data.factsheet.title}\nCurrent Background: {project_data.factsheet.background}'
+        )        
+        structured_llm = self.llm.with_structured_output(ProjectMetadata, method="function_calling")
+        response = await structured_llm.ainvoke(prompt)
+        
+        return {
+            "title": response.title if hasattr(response, 'title') else str(response),
+            "background": response.background if hasattr(response, 'background') else str(response)
+        }
+    
     async def clean_legal_attr(self, 
                                content : BaseModel, 
-                               factsheet : FactSheet, 
                                element_type : str,
-                               attachments: Optional[List[dict]] = None,
-                                 emails : Optional[List[dict]] = None
+                               project_data : ProjectData
                                ) -> dict:
         '''Clean/fill a simple attribute (e.g. case title) with LLM.
         
@@ -633,9 +719,9 @@ class ContextManager:
             raise ValueError(f'Unknown element type for cleaning: {element_type}')
         
         prompt = (
-            f'Context from factsheet:\n{factsheet.model_dump(mode="json")}\n\n'
-            f'Context from attachments:\n{[att.model_dump(mode="json", include = {"file_id", "filename", "description", "file_date"}) for att in attachments] if attachments else "No attachments"}\n\n'
-            f'Context from emails:\n{[eml.model_dump(mode="json", include = {"from","from_addr", "to", "subject", "description","date"}) for eml in emails] if emails else "No emails"}\n\n'
+            f'Context from factsheet:\n{project_data.shorten_factsheet(excluded_fields=[element_type])}\n\n'
+            f'Context from attachments:\n{project_data.shorten_attachments()}\n\n'
+            f'Context from emails:\n{project_data.shorten_emails()}\n\n'
             f'Task: Clean and revise the following {element_type}. '
             f'Return ONLY the cleaned {element_type} itself, no explanation or preamble.\n\n'
             f'Original {element_type}:\n{content}'

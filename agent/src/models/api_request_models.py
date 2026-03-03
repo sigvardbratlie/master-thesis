@@ -70,6 +70,11 @@ class AskAgentRequest(BaseModel):
     focus_context: Optional[str] = None
 
 
+class CleanupElementsRequest(AskAgentRequest):
+    """POST /cleanup-project-elements request"""
+    element_types: list[str]
+
+
 class StreamlitUserInfo(BaseModel):
     sub: str  # Unique Google ID
     email: str

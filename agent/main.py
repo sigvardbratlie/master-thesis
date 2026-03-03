@@ -20,7 +20,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
 from auth import SupabaseAuth
-from models import AskAgentRequest
+from models import AskAgentRequest, CleanupElementsRequest
 
 logging.basicConfig(
     level=logging.INFO,
@@ -222,6 +222,32 @@ async def cleanup_project_attr_endpoint(query: AskAgentRequest, element_type : s
             logger.error(f"Error in cleanup_attr_stream_generator: {e}", exc_info=True)
             yield f'data: {json.dumps({"error": str(e)})}\n\n'
     return StreamingResponse(cleanup_attr_stream_generator(), media_type="text/event-stream")
+
+@app.post("/cleanup-all-metadata")
+async def cleanup_all_metadata_endpoint(query: AskAgentRequest):
+    async def gen():
+        try:
+            async for chunk in agent.cleanup_all_metadata(query=query):
+                yield f'data: {json.dumps(chunk)}\n\n'
+                await asyncio.sleep(0.01)
+        except Exception as e:
+            logger.error(f"Error in cleanup_all_metadata_endpoint: {e}", exc_info=True)
+            yield f'data: {json.dumps({"error": str(e)})}\n\n'
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.post("/cleanup-project-elements")
+async def cleanup_project_elements_endpoint(query: CleanupElementsRequest):
+    async def gen():
+        try:
+            async for chunk in agent.cleanup_elements(query=query):
+                yield f'data: {json.dumps(chunk)}\n\n'
+                await asyncio.sleep(0.01)
+        except Exception as e:
+            logger.error(f"Error in cleanup_project_elements_endpoint: {e}", exc_info=True)
+            yield f'data: {json.dumps({"error": str(e)})}\n\n'
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
 
 @app.delete("/delete-vectorstore-project/{project_id}")
 async def delete_vectorstore_project_endpoint(project_id: str):

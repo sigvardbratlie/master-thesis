@@ -5,7 +5,7 @@ import logging
 import tiktoken
 from datetime import datetime
 import asyncio
-from typing import List
+from typing import List, Optional
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -221,8 +221,7 @@ class Agent:
                 attachment_contents[file_id] = att.get("body", "")  if att.get("body", "") else "NO BODY CONTENT"
 
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
-        factsheet = self.conversation_manager.load_factsheet(project_id=project_id,) if project_id and self.use_factsheet else None
-        attachment_idx = self.conversation_manager.list_project_attachments(project_id=project_id) if project_id and self.use_factsheet else []
+        project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.use_factsheet else None
 
         # ---- BUILD ATTACHMENT CONTEXT FOR LLM ----
         attachment_context = self._build_attachment_context(
@@ -235,13 +234,10 @@ class Agent:
         payload = [SystemMessage(content=self.prompt)]
 
         # Add factsheet context
-        if factsheet and isinstance(factsheet, FactSheet):
-            content = "Here is the current FactSheet for the case: " + factsheet.shorten_factsheet()
-            if attachment_idx:
-                att_lines = "\n".join(f"  - {a.filename} | {a.path}" for a in attachment_idx)
-                content += f"\n\nAttachments indexed for this project (filename | path):\n{att_lines}"
-            else:
-                content += "\n\nNo attachments are currently indexed for this project."
+        if project.factsheet and isinstance(project.factsheet, FactSheet):
+            content = project.shorten_factsheet()
+            content += project.shorten_attachments(excluded_fields=["description"])
+            #content += project.shorten_emails(excluded_fields=["description"])
             payload.append(HumanMessage(content=content))
 
         # ---- LONG CONVERSATION HANDLING ----
@@ -411,7 +407,7 @@ class Agent:
     # Pro/full models from Google process thinking internally and never return blocks.
     # OpenAI o-series reasoning is also hidden; no config needed there.
     THINKING_KWARGS: dict[tuple[str, str], dict] = {
-        ("google_genai", "flash"): {"include_thoughts": True},
+        ("google_genai", "flash"): {"include_thoughts": False},
         # Anthropic extended thinking — add when Claude is wired up:
         # ("anthropic", "claude"): {"thinking": {"type": "enabled", "budget_tokens": 8000}},
     }
@@ -1479,12 +1475,7 @@ class Agent:
         if emails:
             if not hasattr(emails[0], "model_dump"):
                 logger.critical("Email objects are missing model_dump method. Emails will not be saved to database.")
-            # emails_data = []
-            # for email in emails:
-            #     d = email.model_dump(mode="json", exclude={"events", "claims", "damages", "deadlines"})
-            #     if "from_addr" in d:
-            #         d["from"] = d.pop("from_addr")
-            #     emails_data.append(d)
+
             await asyncio.to_thread(
                 self.conversation_manager.insert_project_element,
                 data=[email.model_dump(mode="json", exclude={"events", "claims", "damages", "deadlines"}) for email in emails],
@@ -1639,10 +1630,8 @@ class Agent:
             raise TypeError(error_msg)
 
         factsheet = project_data.factsheet
-        attachments = project_data.attachments
-        emails = project_data.emails
 
-        content = factsheet.model_dump().get(element_type, []) if factsheet else []
+        content = project_data.factsheet.model_dump().get(element_type, []) if factsheet else []
 
         #content_model = [valid_element_types[element_type].model_validate(c) for c in content] if content else []
         content_model = valid_element_types[element_type].model_validate({element_type : content}) if content else None
@@ -1657,10 +1646,8 @@ class Agent:
                 "query_id": query.query_id
                }
         cleaned_element = await self.context_manager.clean_element(content = content_model,
-                                                                   factsheet=factsheet,
-                                                                     attachments=attachments,
-                                                                        emails=emails,
-                                                                   element_type=element_type
+                                                                   element_type=element_type,
+                                                                   project_data=project_data
                                                                    )
         
         yield {"type": "status",
@@ -1712,6 +1699,7 @@ class Agent:
             }
         }
     
+    
     async def cleanup_attr(self,
                               query : AskAgentRequest,
                               element_type: str,
@@ -1748,10 +1736,9 @@ class Agent:
                }
         if element_type in ["title", "background"]:
             cleaned_content = await self.context_manager.clean_metadata(content=content, 
-                                                                        factsheet=factsheet, 
-                                                                        attachments=attachments,
-                                                                        emails=emails,
-                                                                        element_type=element_type)
+                                                                        element_type=element_type,
+                                                                        project_data=project_data
+                                                                        )
         else:
             logger.warning(f"Element type {element_type} is not configured for metadata cleaning. Returning original content.")
             cleaned_content = content
@@ -1794,7 +1781,130 @@ class Agent:
                  "query_id": query.query_id
                 }
 
-    async def extract_legal(self, query : AskAgentRequest) : 
+    async def cleanup_all_metadata(self, query: AskAgentRequest):
+        '''Clean title and background metadata fields together.'''
+        self.context_manager.llm = self._pick_llm(query.llm_model)
+        project_data = await asyncio.to_thread(
+            self.conversation_manager.load_project,
+            project_id=query.project_id
+        )
+        if project_data and not isinstance(project_data, ProjectData):
+            error_msg = f"load_project returned {type(project_data).__name__} instead of ProjectData."
+            logger.error(error_msg)
+            raise TypeError(error_msg)
+
+        yield {
+            "type": "status",
+            "phase": ["cleanup_metadata"],
+            "status": "starting",
+            "data": {"element_type": "metadata"},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        }
+        result = await self.context_manager.clean_all_metadata(project_data=project_data)
+        yield {
+            "type": "status",
+            "phase": ["cleanup_metadata"],
+            "status": "complete",
+            "data": {"title": result.get("title"), "background": result.get("background")},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        }
+        yield {
+            "type": "status",
+            "phase": ["storage"],
+            "status": "starting",
+            "data": {"element_type": "metadata", "storage_type": ["database"]},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        }
+        self.conversation_manager.upsert_project(result["title"], element_type="title", project_id=query.project_id)
+        self.conversation_manager.upsert_project(result["background"], element_type="background", project_id=query.project_id)
+        yield {
+            "type": "status",
+            "phase": ["storage"],
+            "status": "complete",
+            "data": {"element_type": "metadata", "storage_type": ["database"]},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        }
+        yield {"type": "result", "data": {"success": True, "element_types": ["title", "background"]}}
+
+    async def cleanup_elements(self, query: CleanupElementsRequest):
+        '''Clean multiple relational element types in a single LLM call.'''
+        self.context_manager.llm = self._pick_llm(query.llm_model)
+        valid_element_types = {"events", "damages", "claims", "deadlines", "parties"}
+        element_types = query.element_types
+        invalid = [e for e in element_types if e not in valid_element_types]
+        if invalid:
+            raise ValueError(f"Invalid element_types: {invalid}. Must be subset of {sorted(valid_element_types)}")
+
+        project_data = await asyncio.to_thread(
+            self.conversation_manager.load_project,
+            project_id=query.project_id
+        )
+        if project_data and not isinstance(project_data, ProjectData):
+            error_msg = f"load_project returned {type(project_data).__name__} instead of ProjectData."
+            logger.error(error_msg)
+            raise TypeError(error_msg)
+
+        original_counts = {
+            et: len(project_data.factsheet.model_dump().get(et, []))
+            for et in element_types
+        }
+
+        yield {
+            "type": "status",
+            "phase": ["cleanup_elements"],
+            "status": "starting",
+            "data": {"element_types": element_types, "original_counts": original_counts},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        }
+
+        # Single LLM call for all element types
+        results = await self.context_manager.clean_elements(element_types, project_data)
+
+        yield {
+            "type": "status",
+            "phase": ["cleanup_elements"],
+            "status": "complete",
+            "data": {
+                "element_types": element_types,
+                "cleaned_counts": {et: len(items) for et, items in results.items()},
+                "removed": {et: original_counts[et] - len(items) for et, items in results.items()},
+            },
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        }
+
+        # Save each element type to DB
+        for et, cleaned in results.items():
+            yield {
+                "type": "status",
+                "phase": ["storage"],
+                "status": "starting",
+                "data": {"element_type": et, "cleaned_count": len(cleaned), "storage_type": ["database"]},
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            }
+            self.conversation_manager.replace_project_element(
+                data=cleaned,
+                project_id=query.project_id,
+                table_name=f"project_{et}",
+            )
+            yield {
+                "type": "status",
+                "phase": ["storage"],
+                "status": "complete",
+                "data": {"element_type": et, "cleaned_count": len(cleaned), "storage_type": ["database"]},
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            }
+
+        yield {"type": "result", "data": {"success": True, "element_types": element_types}}
+
+    async def extract_legal(self, query : AskAgentRequest) :
         
         initial_input = "" #to be read in from supabase
         events = []  #to be read in from supabase
