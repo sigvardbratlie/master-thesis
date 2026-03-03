@@ -411,7 +411,7 @@ async def test_call_llm_with_project_data(mock_agent):
 
     result = await mock_agent._call_llm(state, mock_llm, config)
 
-    mock_agent.conversation_manager.load_factsheet.assert_called_once_with(project_id="project-001", limited=False)
+    mock_agent.conversation_manager.load_factsheet.assert_called_once_with(project_id="project-001", significance=["high"],include_deadlines = False)
     assert "messages" in result
 
 

@@ -115,6 +115,7 @@ class Deadline(BaseModel):
     file_id: Optional[str] = Field(None, description="Related attachment reference")
     email_id: Optional[str] = None  # For deadlines from emails
     party_role : Optional[PartyRole] = None
+    significance : significance_levels = Field(default="medium", description="Significance of the deadline to the case")
 
 class Deadlines(BaseModel):
     deadlines: list[Deadline] = Field(description="Important deadlines mentioned in the case, e.g., contract milestones, court dates, statute of limitations, etc.")

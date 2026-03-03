@@ -10,7 +10,7 @@ from langchain_tavily import TavilySearch
 from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool
 
-from database import SupabaseStorageManager, BQVectorStore
+from database import SupabaseStorageManager, BQVectorStore, SupabaseManager
 from documents import DocumentProcessor
 
 
@@ -99,9 +99,6 @@ def read_laws(query: str, k: int = 5) -> str:
         str: The retrieved information from the vectorstore based on the query.
     '''
     vectorstore = BQVectorStore()
-    query = '''Jeg kjøpt en elektrisk sparkesykkel som ikke fungerer og virker farlig å kjøpe på. 
-    Hva skal jeg gjøre? Hva er mine frister og rettigheter?'''
-    k = 5
     results = vectorstore.query(query=query, collection_id="laws", k=k)
     if not results:
         return "No relevant laws found in the vectorstore."
@@ -129,10 +126,24 @@ def create_project():
     '''Use this function to trigger the creation of a new project in the database.'''
     return "A new project has been sent for creation"
 
+@tool
+def list_project_files_emails(project_id: str):
+    '''Use this function to retrieve a list of the projects files and emails.'''
+    sm = SupabaseManager()
+    attachments = sm.list_project_attachments(project_id)
+    emails = sm.list_project_emails(project_id)
+    res = f"Project {project_id} attachments:\n"
+    for att in attachments:
+        res += f"Filename: {att.filename} | Path: {att.path}\n"
+    res += f"\nProject {project_id} emails:\n"
+    for email in emails:
+        res += f"Subject: {email.subject} | From: {email.from_addr} | To: {email.to_addrs} | Path: {email.path}\n"
+    return res
 
 TOOLS = [
         tavily_search,
         read_attachment,
+        list_project_files_emails,
         query_project_attachments,
         read_laws,
         update_project,

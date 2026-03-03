@@ -19,6 +19,17 @@ import uuid
 logger = logging.getLogger(__name__)
 
 
+class AttachmentSummary(BaseModel):
+    filename: str
+    path: str
+
+class EmailSummary(BaseModel):
+    subject: str
+    from_addr: str
+    to_addrs: list[str]
+    path: str
+
+
 class SupabaseManager:
     def __init__(self):
         self.url = os.getenv("SUPABASE_URL")
@@ -26,33 +37,22 @@ class SupabaseManager:
         self.supabase = create_client(self.url, self.key)
         # Initialize Supabase client here if needed
 
-    def load_factsheet(self, project_id: str, limited : bool = False) -> FactSheet:
+    def load_factsheet(self, project_id: str, significance: list[str] | None = None, include_deadlines: bool = False) -> FactSheet:
         
-        # Base-select (felles for begge)
-        base_select = "*, project_deadlines(*)"
+       
 
-        # Full versjon (alle kolonner i relasjoner)
-        full_nested = """
-            project_events(*),
-            project_parties(*),
-            project_damages(*),
-            project_claims(*)
-        """
+        if significance is None:
+            significance = ["high", "medium", "low"]
 
         # Limited versjon (bare utvalgte kolonner)
-        limited_nested = """
+        select_query = """
             project_events(event_id, event_name, file_id, category, description, event_start_date, disputed, parties, significance),
             project_parties(party_id, entity_type, legal_name, role, role_description, significance),
             project_damages(damage_id, category, amount, currency, party_role, basis, supporting_evidence, significance),
             project_claims(claim_id, factual_basis, legal_basis, relief_sought, strength_assessment, party_role, significance)
         """
-
-        # Bygg hele select-strengen
-        if limited:
-            select_query = f"{base_select.strip(',')}, {limited_nested.strip()}"
-        else:
-            select_query = f"{base_select.strip(',')}, {full_nested.strip()}"
-
+        if include_deadlines:
+            select_query += ", project_deadlines(deadline_id, deadline_date, description, party_role, significance)"
         # Fjern eventuelt trailing komma (sikkerhet)
         select_query = select_query.rstrip(',').strip()
 
@@ -63,11 +63,14 @@ class SupabaseManager:
                 .select(select_query)
                 .eq("project_id", project_id)
             )
-            if limited:
+            if significance:
                 query = (
                     query
-                    .filter("project_events.significance", "in", "(high,medium)")
-                    .filter("project_parties.significance", "in", "(high,medium)")
+                    .filter("project_events.significance", "in", f"({','.join(significance)})")
+                    .filter("project_parties.significance", "in", f"({','.join(significance)})")
+                    #.filter("project_deadlines.significance", "in", f"({','.join(significance)})")
+                    .filter("project_damages.significance", "in", f"({','.join(significance)})")
+                    .filter("project_claims.significance", "in", f"({','.join(significance)})")
                 )
             response = query.single().execute()
         except Exception as e:
@@ -78,7 +81,7 @@ class SupabaseManager:
         # Pop ut nested arrays (Supabase returnerer dem som lister)
         project_events    = data.pop("project_events",    [])
         project_parties   = data.pop("project_parties",   [])
-        project_deadlines = data.pop("project_deadlines", [])
+        project_deadlines = data.pop("project_deadlines", []) if include_deadlines else []
         project_damages   = data.pop("project_damages",   [])
         project_claims    = data.pop("project_claims",    [])
 
@@ -137,6 +140,14 @@ class SupabaseManager:
             attachments=attachments_models,
             emails=emails_models,
         )
+
+    def list_project_attachments(self, project_id: str) -> list[AttachmentSummary]:
+        response = self.supabase.table("project_attachments").select("filename, path").eq("project_id", project_id).execute()
+        return [AttachmentSummary(**att) for att in (response.data or [])]
+
+    def list_project_emails(self, project_id: str) -> list[EmailSummary]:
+        response = self.supabase.table("project_emails").select("subject, from_addr, to_addrs, path").eq("project_id", project_id).execute()
+        return [EmailSummary(**email) for email in (response.data or [])]
 
     def save_project(self,
                        factsheet : FactSheet,

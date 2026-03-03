@@ -221,8 +221,8 @@ class Agent:
                 attachment_contents[file_id] = att.get("body", "")  if att.get("body", "") else "NO BODY CONTENT"
 
         # ---- PROCESS ATTACHMENTS: Update factsheet ----
-        factsheet = self.conversation_manager.load_factsheet(project_id=project_id, limited=False) if project_id and self.use_factsheet else None
-                                                           
+        factsheet = self.conversation_manager.load_factsheet(project_id=project_id, significance=["high"]) if project_id and self.use_factsheet else None
+        attachment_idx = self.conversation_manager.list_project_attachments(project_id=project_id) if project_id and self.use_factsheet else []
 
         # ---- BUILD ATTACHMENT CONTEXT FOR LLM ----
         attachment_context = self._build_attachment_context(
@@ -236,10 +236,13 @@ class Agent:
 
         # Add factsheet context
         if factsheet and isinstance(factsheet, FactSheet):
-            factsheet_message = HumanMessage(
-                content="Here is the current FactSheet for the case: " + json.dumps(factsheet.model_dump(mode="json"))
-            )
-            payload.append(factsheet_message)
+            content = "Here is the current FactSheet for the case: " + json.dumps(factsheet.model_dump(mode="json"))
+            if attachment_idx:
+                att_lines = "\n".join(f"  - {a.filename} | {a.path}" for a in attachment_idx)
+                content += f"\n\nAttachments indexed for this project (filename | path):\n{att_lines}"
+            else:
+                content += "\n\nNo attachments are currently indexed for this project."
+            payload.append(HumanMessage(content=content))
 
         # ---- LONG CONVERSATION HANDLING ----
         sum_rate = 8
