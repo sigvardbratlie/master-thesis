@@ -80,9 +80,16 @@ class Evaluater:
                         model=self.model,
                         threshold=self.threshold,
                     )
-        relevancy = AnswerRelevancyMetric(
-                        threshold=self.threshold,
+        # relevancy = AnswerRelevancyMetric(
+        #                 threshold=self.threshold,
+        #                 model=self.model,
+        #             )
+        relevancy = GEval(
+                        name="relevancy",
+                        criteria="Evaluate the relevance of the actual_output in relation to the input query and expected_output. Consider whether the response directly addresses the question and includes pertinent information while excluding irrelevant details.",
+                        evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
                         model=self.model,
+                        threshold=self.threshold,
                     )
 
         return evaluate(test_cases=test_cases, metrics=[correctness, completeness, relevancy], async_config=AsyncConfig(max_concurrent=self.max_concurrent, throttle_value=self.throttle_value))

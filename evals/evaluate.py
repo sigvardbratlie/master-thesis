@@ -1,10 +1,13 @@
 import argparse
 import logging
-from datetime import datetime
-from evals import Dataset, Evaluater
-from dotenv import load_dotenv
 import os
+from datetime import datetime
+from dotenv import load_dotenv
 load_dotenv()
+
+os.environ.setdefault("DEEPEVAL_PER_TASK_TIMEOUT_SECONDS_OVERRIDE", "600")
+
+from evals import Dataset, Evaluater
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
