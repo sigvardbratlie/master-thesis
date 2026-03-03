@@ -234,7 +234,7 @@ class Agent:
         payload = [SystemMessage(content=self.prompt)]
 
         # Add factsheet context
-        if project.factsheet and isinstance(project.factsheet, FactSheet):
+        if project and isinstance(project, ProjectData) and isinstance(project.factsheet, FactSheet):
             content = project.shorten_factsheet()
             content += project.shorten_attachments(excluded_fields=["description"])
             #content += project.shorten_emails(excluded_fields=["description"])

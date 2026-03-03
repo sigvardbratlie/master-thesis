@@ -128,7 +128,7 @@ class Dataset:
                 qid = conv.query_id or "unknown"
                 q = session_tokens["per_query"].get(qid, {})
                 if not q.get("input_tokens") or not q.get("output_tokens") or not q.get("total_tokens"):
-                    logger.warning(f"Query ID {qid} in session {session.runtime_session_id} has token counts but query_id is missing in conversation entry. This may indicate a mismatch between LangSmith data and conversation entries. \nSESSION TOKENS {json.dumps(session_tokens, indent=2)} CONVERSATION {conv.model_dump()}")
+                    logger.warning(f"Query ID {qid} in session {session.runtime_session_id} has token counts but query_id is missing in conversation entry. This may indicate a mismatch between LangSmith data and conversation entries.")
                     
                 conv.token_counts = TokenCount(
                     input_tokens=q.get("input_tokens", 0),

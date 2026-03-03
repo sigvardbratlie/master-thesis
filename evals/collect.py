@@ -25,12 +25,14 @@ async def main():
     parser.add_argument("-d","--dataset", type=str, choices=["test", "THRD-2021-163881", "TOSL-2024-103311", "TOSL-2024-125319"], help="Dataset name to evaluate")
     parser.add_argument("-m","--model", type=str, choices=["google_gemini-2.5-flash", "google_gemini-2.5-pro", "openai_gpt-5.2", "openai_gpt-4.0", "openai_gpt-5-mini"],
                         help="LLM model to use for evaluation")
+    parser.add_argument("-a", "--agent-type", nargs="+", type=str, choices=["custom", "baseline", "baseline_rag"], default=["custom", "baseline", "baseline_rag"],help="Agent type to run (custom, baseline, or baseline_rag)")
     parser.add_argument("-n","--n-runs", type=int, default=1, help="Number of runs to execute for each agent")
     parser.add_argument("--skip-embedding", action="store_true", help="Skip embedding step for custom agent")
     parser.add_argument("--skip-storage", action="store_true", help="Skip saving results to storage for custom agent")
     args = parser.parse_args()
     dataset_name = args.dataset
     llm_model = args.model
+    agent_types = args.agent_type
     n_runs = args.n_runs
     embed_to_vectorstore = not args.skip_embedding
     save_to_storage = not args.skip_storage
@@ -43,59 +45,61 @@ async def main():
     ds_baseline = Dataset(dataset_name)
     ds_baseline_rag = Dataset(dataset_name)
 
-    data_custom = ds_custom.load_dataset()
-    data_baseline = ds_baseline.load_dataset()
-    data_baseline_rag = ds_baseline_rag.load_dataset()
+    data_custom = ds_custom.load_dataset() if "custom" in agent_types else None
+    data_baseline = ds_baseline.load_dataset() if "baseline" in agent_types else None
+    data_baseline_rag = ds_baseline_rag.load_dataset() if "baseline_rag" in agent_types else None
 
-    if not data_custom or not data_custom.sessions:
+    if "custom" in agent_types and (not data_custom or not data_custom.sessions):
         logger.error("Custom dataset is empty or missing 'sessions' key.")
         exit()
-    if not data_baseline or not data_baseline.sessions:
+    if "baseline" in agent_types and (not data_baseline or not data_baseline.sessions):
         logger.error("Baseline dataset is empty or missing 'sessions' key.")
         exit()
-    if not data_baseline_rag or not data_baseline_rag.sessions:
+    if "baseline_rag" in agent_types and (not data_baseline_rag or not data_baseline_rag.sessions):
         logger.error("Baseline RAG dataset is empty or missing 'sessions' key.")
         exit()
 
-    ds_custom.assign_session_attachments()
-    ds_baseline.assign_session_attachments_baseline()
-    ds_baseline_rag.assign_session_attachments()
-    total_attachments = sum(len(s.attachments) for s in data_custom.sessions)
-    logger.info(f"✅ {len(data_custom.sessions)} sessions ready — {total_attachments} attachments assigned in total")
+    ds_custom.assign_session_attachments() if "custom" in agent_types else None
+    ds_baseline.assign_session_attachments_baseline() if "baseline" in agent_types else None
+    ds_baseline_rag.assign_session_attachments() if "baseline_rag" in agent_types else None
+    #total_attachments = sum(len(s.attachments) for s in data_custom.sessions)
+    #logger.info(f"✅ {len(data_custom.sessions)} sessions ready — {total_attachments} attachments assigned in total")
 
-    # ====== RUN CUSTOM AGENT ======
-    logger.info("━" * 64)
-    logger.info(f"🤖  CUSTOM AGENT  |  {llm_model}  |  dataset: {dataset_name}")
-    logger.info("━" * 64)
-
-    for i in range(n_runs):
-        logger.info(f"━" * 64)
-        logger.info(f"🔁  RUN {i+1}/{n_runs}  |  CUSTOM AGENT  |  {llm_model}  |  dataset: {dataset_name}")
+    if "custom" in agent_types:
+        # ====== RUN CUSTOM AGENT ======
         logger.info("━" * 64)
-        # Deep copy so each run starts with clean session state (no stale
-        # runtime_session_id / token_counts / time_counts from previous runs).
-        await single_run(data=data_custom.model_copy(deep=True),
-                         llm_model=llm_model,
-                         agent_type="custom",
-                         embed_to_vectorstore=embed_to_vectorstore,
-                         save_to_storage=save_to_storage)
-
-    # ====== RUN BASELINE + BASELINE RAG IN PARALLEL ======
-    logger.info("━" * 64)
-    logger.info(f"📋🔍  BASELINE + BASELINE RAG (parallel)  |  {llm_model}  |  dataset: {dataset_name}")
-    logger.info("━" * 64)
-    for i in range(n_runs):
+        logger.info(f"🤖  CUSTOM AGENT  |  {llm_model}  |  dataset: {dataset_name}")
         logger.info("━" * 64)
-        logger.info(f"🔁  RUN {i+1}/{n_runs}  |  BASELINE + BASELINE RAG (parallel)  |  {llm_model}  |  dataset: {dataset_name}")
-        logger.info("━" * 64)
-        await asyncio.gather(
-            single_run(data=data_baseline.model_copy(deep=True),     llm_model=llm_model, agent_type="baseline",     embed_to_vectorstore=False, save_to_storage=True),
-            single_run(data=data_baseline_rag.model_copy(deep=True), llm_model=llm_model, agent_type="baseline_rag", embed_to_vectorstore=False, save_to_storage=True),
-        )
 
-    logger.info("━" * 64)
-    logger.info(f"🎉  All done — results saved for dataset: {dataset_name}")
-    logger.info("━" * 64)
+        for i in range(n_runs):
+            logger.info(f"━" * 64)
+            logger.info(f"🔁  RUN {i+1}/{n_runs}  |  CUSTOM AGENT  |  {llm_model}  |  dataset: {dataset_name}")
+            logger.info("━" * 64)
+            # Deep copy so each run starts with clean session state (no stale
+            # runtime_session_id / token_counts / time_counts from previous runs).
+            await single_run(data=data_custom.model_copy(deep=True),
+                            llm_model=llm_model,
+                            agent_type="custom",
+                            embed_to_vectorstore=embed_to_vectorstore,
+                            save_to_storage=save_to_storage)
+            
+    if "baseline" in agent_types and "baseline_rag" in agent_types:
+        # ====== RUN BASELINE + BASELINE RAG IN PARALLEL ======
+        logger.info("━" * 64)
+        logger.info(f"📋🔍  BASELINE + BASELINE RAG (parallel)  |  {llm_model}  |  dataset: {dataset_name}")
+        logger.info("━" * 64)
+        for i in range(n_runs):
+            logger.info("━" * 64)
+            logger.info(f"🔁  RUN {i+1}/{n_runs}  |  BASELINE + BASELINE RAG (parallel)  |  {llm_model}  |  dataset: {dataset_name}")
+            logger.info("━" * 64)
+            await asyncio.gather(
+                single_run(data=data_baseline.model_copy(deep=True),     llm_model=llm_model, agent_type="baseline",     embed_to_vectorstore=False, save_to_storage=True) if "baseline" in agent_types else None,
+                single_run(data=data_baseline_rag.model_copy(deep=True), llm_model=llm_model, agent_type="baseline_rag", embed_to_vectorstore=False, save_to_storage=True) if "baseline_rag" in agent_types else None,
+            )
+
+        logger.info("━" * 64)
+        logger.info(f"🎉  All done — results saved for dataset: {dataset_name}")
+        logger.info("━" * 64)
 
 if __name__ == "__main__":
     asyncio.run(main())

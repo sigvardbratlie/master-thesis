@@ -197,6 +197,95 @@ _RESULT_RE = re.compile(r"^(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json$")
 _EVAL_RE = re.compile(r"^llm-as-judge_(.+)_(custom|baseline)_(.+)\.json$")
 
 
+# ── LangSmith token counts ─────────────────────────────────────────────────────
+
+def _get_langsmith_client():
+    import os
+    from langsmith import Client
+    api_key = st.secrets["langsmith"].get("LANGSMITH_API_KEY")
+    if api_key:
+        os.environ["LANGSMITH_API_KEY"] = api_key
+    return Client()
+
+
+def _get_session_token_counts(client, runtime_session_id: str, project_name: str) -> dict:
+    runs = list(client.list_runs(
+        project_name=project_name,
+        filter=f'has(metadata, \'{{"thread_id": "{runtime_session_id}"}}\')',
+        run_type="llm",
+    ))
+    per_query: dict[str, dict] = {}
+    for r in runs:
+        qid = (r.extra or {}).get("metadata", {}).get("query_id", "unknown")
+        entry = per_query.setdefault(qid, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0})
+        entry["input_tokens"] += r.prompt_tokens or 0
+        entry["output_tokens"] += r.completion_tokens or 0
+        entry["total_tokens"] += r.total_tokens or 0
+        entry["llm_calls"] += 1
+    return {
+        "input_tokens": sum(r.prompt_tokens or 0 for r in runs),
+        "output_tokens": sum(r.completion_tokens or 0 for r in runs),
+        "total_tokens": sum(r.total_tokens or 0 for r in runs),
+        "llm_calls": len(runs),
+        "per_query": per_query,
+    }
+
+
+def update_token_counts(blob_name: str, result_data: dict) -> None:
+    """Fetch token counts from LangSmith for each session and re-save the result blob."""
+    import os
+    client = _get_langsmith_client()
+    project_name = st.secrets.get("LANGCHAIN_PROJECT") or os.environ.get("LANGCHAIN_PROJECT", "default")
+
+    total_input, total_output, total_tokens, total_calls = 0, 0, 0, 0
+    for session in result_data.get("sessions", []):
+        rid = session.get("runtime_session_id")
+        if not rid:
+            continue
+        s_tok = _get_session_token_counts(client, rid, project_name)
+        total_input += s_tok["input_tokens"]
+        total_output += s_tok["output_tokens"]
+        total_tokens += s_tok["total_tokens"]
+        total_calls += s_tok["llm_calls"]
+
+        session["token_counts"] = {
+            "input_tokens": s_tok["input_tokens"],
+            "output_tokens": s_tok["output_tokens"],
+            "total_tokens": s_tok["total_tokens"],
+            "llm_calls": s_tok["llm_calls"],
+        }
+
+        init_qid = session.get("init_query_id")
+        if init_qid:
+            q_init = s_tok["per_query"].get(init_qid, {})
+            session["init_query_token_count"] = {
+                "input_tokens": q_init.get("input_tokens", 0),
+                "output_tokens": q_init.get("output_tokens", 0),
+                "total_tokens": q_init.get("total_tokens", 0),
+                "llm_calls": q_init.get("llm_calls", 0),
+            }
+
+        for conv in session.get("conversation", []):
+            qid = conv.get("query_id", "unknown")
+            q = s_tok["per_query"].get(qid, {})
+            conv["token_counts"] = {
+                "input_tokens": q.get("input_tokens", 0),
+                "output_tokens": q.get("output_tokens", 0),
+                "total_tokens": q.get("total_tokens", 0),
+                "llm_calls": q.get("llm_calls", 0),
+            }
+
+    result_data["token_counts"] = {
+        "input_tokens": total_input,
+        "output_tokens": total_output,
+        "total_tokens": total_tokens,
+        "llm_calls": total_calls,
+    }
+
+    write_blob(blob_name, json.dumps(result_data, ensure_ascii=False, indent=4).encode("utf-8"))
+    logger.info(f"Token counts updated and saved to {blob_name}")
+
+
 def parse_result_filename(name: str) -> tuple[str, str]:
     """Return (model, display_timestamp) from a result filename, or (name, '') on failure."""
     m = _RESULT_RE.match(name)
@@ -1004,7 +1093,7 @@ with tab_results:
     )
     st.write("")
 
-    col_sel, col_del = st.columns([0.85, 0.15])
+    col_sel, col_tok, col_del = st.columns([0.72, 0.16, 0.12])
     with col_sel:
         selected_result_label = st.selectbox(
             "Result run",
@@ -1012,9 +1101,32 @@ with tab_results:
             index=0,
             label_visibility="collapsed",
         )
+    with col_tok:
+        if st.button("🔢 Update tokens", key="btn_update_tokens", use_container_width=True):
+            st.session_state["_confirm_update_tokens"] = selected_result_label
     with col_del:
         if st.button("🗑️ Delete", key="btn_del_res", use_container_width=True):
             st.session_state["_confirm_del_res"] = selected_result_label
+
+    if st.session_state.get("_confirm_update_tokens") == selected_result_label:
+        st.info(f"⏳ Fetch token counts from LangSmith for **{selected_result_label}**?")
+        _col_yes, _col_no, _ = st.columns([0.12, 0.1, 0.78])
+        if _col_yes.button("Yes", key="confirm_update_tokens_yes"):
+            selected_idx = result_labels.index(selected_result_label)
+            selected_blob = result_blobs[selected_idx]
+            try:
+                _rd = json.loads(read_blob_bytes(selected_blob.name).decode("utf-8"))
+                with st.spinner("Fetching token counts from LangSmith…"):
+                    update_token_counts(selected_blob.name, _rd)
+                st.session_state.pop("_confirm_update_tokens", None)
+                st.success("✅ Token counts updated.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Failed to update token counts: {e}")
+                logger.error("update_token_counts failed", exc_info=True)
+        if _col_no.button("Cancel", key="confirm_update_tokens_no"):
+            st.session_state.pop("_confirm_update_tokens", None)
+            st.rerun()
 
     if st.session_state.get("_confirm_del_res") == selected_result_label:
         st.warning(f"⚠️ Move **{selected_result_label}** to trash?")
