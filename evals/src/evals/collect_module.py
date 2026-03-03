@@ -176,6 +176,13 @@ class CollectAgentResult:
                             query=input_obj, user_id=self.data.user_id
                         ):
                             logger.debug(f"Update response: {response}")
+                    endtime_init = datetime.now()
+                    session.init_query_time_count = TimeCount(
+                        starttime=session_starttime,
+                        endtime=endtime_init,
+                        duration_seconds=(endtime_init - session_starttime).total_seconds(),
+                    )
+                    logger.debug(f"Session {idx} initialization completed in {session.init_query_time_count.duration_seconds:.2f} seconds")
                 else:
                     conv_query_id = str(uuid.uuid4())
                     with tracing_context(metadata={"query_id": conv_query_id}):

@@ -57,6 +57,14 @@ async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_
                 total_tokens=session_tokens["total_tokens"],
                 llm_calls=session_tokens["llm_calls"],
             )
+            if agent_type == "custom" and session.init_query_id:
+                q_init = session_tokens["per_query"].get(session.init_query_id, {})
+                session.init_query_token_count = TokenCount(
+                    input_tokens=q_init.get("input_tokens", 0),
+                    output_tokens=q_init.get("output_tokens", 0),
+                    total_tokens=q_init.get("total_tokens", 0),
+                    llm_calls=q_init.get("llm_calls", 0),
+                )
             for conv in session.conversation:
                 qid = conv.query_id or "unknown"
                 q = session_tokens["per_query"].get(qid, {})

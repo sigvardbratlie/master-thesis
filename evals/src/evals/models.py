@@ -37,6 +37,8 @@ class Session(BaseModel):
     date: str  # YYYY-MM-DD
     init_query: str
     init_query_id: Optional[str] = None
+    init_query_token_count : Optional[TokenCount] = None
+    init_query_time_count : Optional[TimeCount] = None
     conversation: list[ConversationTurn]
     attachments: list[str] = Field(default_factory=list)  # GCS blob paths
     runtime_session_id: Optional[str] = None  # Populated after agent run

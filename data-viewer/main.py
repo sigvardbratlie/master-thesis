@@ -1132,6 +1132,12 @@ with tab_results:
             if session.get("init_query"):
                 with st.expander("📝 Initial instruction", expanded=False):
                     st.text(session["init_query"])
+                    init_tokens = session.get("init_query_token_count")
+                    if init_tokens and isinstance(init_tokens, dict):
+                        st.write("")
+                        it_cols = st.columns(len(init_tokens))
+                        for col, (k, v) in zip(it_cols, init_tokens.items()):
+                            col.metric(k.replace("_", " ").title(), f"{v:,}" if isinstance(v, int) else v)
 
             for q_idx, q in enumerate(conversation):
                 inp = q.get("input", "").strip()
