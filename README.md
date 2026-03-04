@@ -18,19 +18,20 @@ master-thesis/
 │       │   ├── tools.py           # Agent tools (TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS)
 │       │   └── utils.py           # PROMPT constants, LLM initialization
 │       ├── auth/
-│       │   ├── google_auth.py     # Google OAuth (legacy)
-│       │   └── supabase_auth.py   # Supabase JWT auth
+│       │   ├── supabase_auth.py   # Supabase JWT auth (primary)
+│       │   └── google_auth.py     # Google OAuth (legacy, unused)
 │       ├── database/
-│       │   ├── database_modules.py    # FirestoreManager, SupabaseManager (CRUD)
-│       │   ├── vectorstore_modules.py # BQVectorStore, ChromaVectorStore (RAG)
-│       │   ├── storage_modules.py     # GCSManager (legacy), SupabaseStorageManager
-│       │   └── langchain_firestore.py # FirestoreSaver (LangGraph checkpointer)
+│       │   ├── database_modules.py    # SupabaseManager (CRUD)
+│       │   ├── vectorstore_modules.py # BQVectorStore (persistent), ChromaVectorStore (in-memory)
+│       │   ├── storage_modules.py     # SupabaseStorageManager, GCSManager (legacy)
+│       │   ├── firestore_module.py    # FirestoreManager (legacy, unused)
+│       │   └── langchain_firestore.py # Custom Firestore checkpointer (legacy, unused)
 │       ├── documents/
 │       │   └── document_modules.py    # DocumentProcessor, EmailHandler (PDF/DOCX/PPTX/EML + OCR)
 │       └── models/
 │           ├── project_models.py      # FactSheet, Party, Event, Claim, Damage, etc.
 │           ├── agent_models.py        # AgentState (LangGraph TypedDict)
-│           ├── api_request_models.py  # AskAgentRequest, StreamEvent, AttachmentModel, etc.
+│           ├── api_request_models.py  # AskAgentRequest, AttachmentModel, CleanupElementsRequest
 │           ├── response_models.py     # Response structures
 │           └── document_models.py     # Document metadata models
 ├── ui/                            # Streamlit frontend
@@ -61,7 +62,12 @@ master-thesis/
 │       ├── lovdata_module.py      # Norwegian legal document processing
 │       └── utils.py               # DocumentHandler, ParsedAttachment, ParsedEmail
 ├── data-viewer/                   # Streamlit app for browsing GCS datasets
-│   └── main.py                    # Dataset viewer (list, inspect, download)
+│   ├── main.py                    # Dataset viewer (browse, compare results, display metrics)
+│   └── fix_dataset.py             # Data migration/cleanup utility
+├── thesis/                        # LaTeX master thesis source
+│   ├── main.tex                   # Root document
+│   ├── chapters/                  # Chapter tex files
+│   └── figures/                   # Images and diagrams
 ├── factsheet.md                   # FactSheet template (reference for legal structure)
 ├── promptx/personas/              # AI assistant persona definitions
 ├── CLAUDE.md                      # AI assistant instructions
@@ -76,7 +82,7 @@ master-thesis/
 | Package manager | uv (workspace) |
 | Agent framework | LangGraph (StateGraph) |
 | LLM orchestration | LangChain (init_chat_model) |
-| LLM providers | Google Gemini (primary), OpenAI GPT (secondary) |
+| LLM providers | Google Gemini 2.5 Flash (primary), OpenAI GPT-4o-mini (secondary) |
 | Backend API | FastAPI + Uvicorn |
 | Streaming | Server-Sent Events (SSE) |
 | Frontend | Streamlit |
@@ -100,8 +106,6 @@ Structured Pydantic model (`FactSheet`) representing a legal case summary. Conta
 - **Claims** (legal basis, factual basis, relief sought, strength)
 - **Damages** (category, amount, supporting evidence)
 - **Deadlines** (dates, descriptions)
-- **Governing Law** (jurisdiction, key legal areas, procedural law)
-- **Disputed / Undisputed Facts**
 
 ### Agent Flow (LangGraph)
 The agent uses a `StateGraph` with two nodes:
@@ -124,25 +128,25 @@ All phases stream status events back to the frontend via SSE.
 The agent has access to these tools (`agent/src/agent/tools.py`):
 
 **Full agent (TOOLS):**
-- `tavily_search` - Web search via Tavily
-- `read_attachment` - Read file from Supabase storage
+- `web_search` - Web search via Tavily
+- `read_attachment` - Read single file from Supabase Storage
+- `read_attachments` - Batch read files from Supabase Storage
 - `query_project_attachments` - RAG query against project documents in BigQuery
-- `read_laws` - RAG query against Norwegian law corpus
-- `update_project` - Trigger project state update
-- `clean_element` - Trigger cleanup of a specific factsheet element
-- `create_project` - Trigger creation of a new project
+- `query_laws` - Semantic search over Norwegian legal corpus
+- `read_specific_law` - Retrieve a specific Norwegian statute by paragraph
+- `list_project_files_emails` - List all attachments and emails in a project
 
 **Baseline variants:**
-- `BASELINE_TOOLS` — `tavily_search`, `read_laws`
-- `BASELINE_RAG_TOOLS` — `tavily_search`, `read_laws`, `query_project_attachments`
+- `BASELINE_TOOLS` — `web_search`, `query_laws`, `read_specific_law`
+- `BASELINE_RAG_TOOLS` — `web_search`, `query_laws`, `read_specific_law`, `query_project_attachments`
 
 ### Evaluation Framework
 Three agent configurations are compared in `evals/`:
-1. **Custom Agent** — Full tools + vector store + storage
+1. **Custom Agent** — Full tools: web search, file read, project RAG, Norwegian laws, file listing
 2. **Baseline Agent** — Web search + Norwegian laws only
-3. **Baseline RAG Agent** — Web search + laws + project attachment RAG (no storage/embedding)
+3. **Baseline RAG Agent** — Web search + Norwegian laws + project attachment RAG
 
-Results and metrics are stored in GCS and scored with DeepEval (hallucination detection, correctness, legal accuracy).
+Results and metrics are stored in GCS and scored with DeepEval (legal accuracy, answer relevancy).
 
 ## API Endpoints
 
@@ -152,8 +156,10 @@ Results and metrics are stored in GCS and scored with DeepEval (hallucination de
 | POST | `/init-project` | Initialize project from attachments (SSE stream) |
 | POST | `/update-project` | Add new attachments to existing project (SSE stream) |
 | POST | `/update-project-from-session` | Update project based on session conversation (SSE stream) |
-| POST | `/cleanup-project-element/{type}` | Clean/deduplicate factsheet elements (SSE stream) |
-| POST | `/cleanup-project-attr/{type}` | Clean factsheet text attributes (SSE stream) |
+| POST | `/cleanup-project-element/{type}` | Clean/deduplicate a single factsheet element type (SSE stream) |
+| POST | `/cleanup-project-elements` | Clean multiple factsheet element types in one LLM call (SSE stream) |
+| POST | `/cleanup-project-attr/{type}` | Clean factsheet text attribute (SSE stream) |
+| POST | `/cleanup-all-metadata` | Clean title and background fields (SSE stream) |
 | DELETE | `/delete-vectorstore-project/{project_id}` | Delete project from BigQuery vector store |
 | DELETE | `/delete-vectorstore-file/{file_id}` | Delete single file from vector store |
 | GET | `/load-session-history/{id}` | Load chat history |

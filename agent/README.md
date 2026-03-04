@@ -1,127 +1,151 @@
 # Agent Module
 
-AI-powered legal document analysis agent built with LangChain and LangGraph. The agent provides intelligent document processing, retrieval-augmented generation (RAG), and structured data extraction for legal case management.
+FastAPI backend and LangGraph-based conversational AI agent for legal case management.
 
 ## Overview
 
-This module implements a stateful conversational AI agent that:
-- Processes and analyzes legal documents (PDF, text files)
-- Extracts structured information (claims, events, parties, deadlines, damages)
-- Provides context-aware responses using RAG
-- Maintains conversation state with checkpointing
-- Integrates with Supabase for data persistence and Google Cloud services
+The agent processes legal documents, extracts structured case data (FactSheet), and provides context-aware responses through a stateful conversational interface. It streams responses via Server-Sent Events (SSE) and persists state to Supabase PostgreSQL.
 
-## Architecture
+## Structure
 
-### Core Components
+```
+agent/
+├── main.py                        # FastAPI app, all endpoints, SSE streaming
+└── src/
+    ├── agent/
+    │   ├── agent.py               # Agent class (LangGraph StateGraph orchestrator)
+    │   ├── agent_modules.py       # Summarizer, ToolManager
+    │   ├── context_manager.py     # ContextManager (document analysis, extraction, cleanup)
+    │   ├── tools.py               # LangChain tools (TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS)
+    │   └── utils.py               # System prompts (PROMPT, PROMPT_BASELINE, PROMPT_BASELINE_RAG)
+    ├── auth/
+    │   ├── supabase_auth.py       # JWT auth via Supabase (primary)
+    │   └── google_auth.py         # Google OAuth (legacy, unused)
+    ├── database/
+    │   ├── database_modules.py    # SupabaseManager (CRUD for all project/session tables)
+    │   ├── storage_modules.py     # SupabaseStorageManager, GCSManager (legacy)
+    │   ├── vectorstore_modules.py # BQVectorStore (persistent), ChromaVectorStore (in-memory)
+    │   ├── firestore_module.py    # FirestoreManager (legacy, unused)
+    │   └── langchain_firestore.py # Custom Firestore checkpointer (legacy, unused)
+    ├── documents/
+    │   └── document_modules.py    # DocumentProcessor (PDF/DOCX/PPTX), EmailHandler (EML)
+    └── models/
+        ├── project_models.py      # FactSheet, Party, Event, Claim, Damage, Deadline, etc.
+        ├── agent_models.py        # AgentState (LangGraph TypedDict)
+        ├── api_request_models.py  # AskAgentRequest, AttachmentModel, CleanupElementsRequest
+        ├── response_models.py     # Response structures
+        └── document_models.py     # Document metadata models
+```
 
-- **Agent** (`agent.py`): Main orchestrator handling conversation flow and tool execution
-- **Agent Modules** (`agent_modules.py`): 
-  - `Summarizer`: Document summarization
-  - `ContextManager`: Retrieval and context management
-  - `ToolManager`: Tool execution and validation
-- **Tools** (`tools.py`): Custom tools for BigQuery queries, web search (Tavily), and document retrieval
-- **Database Modules**: Supabase and Firestore integrations
-- **Storage Modules**: Document upload/download via Supabase Storage
-- **Vector Store**: ChromaDB and BigQuery Vector Search for semantic retrieval
+## API Endpoints
 
-### State Management
+### Streaming (SSE)
 
-The agent uses LangGraph's checkpointing system with PostgreSQL (via Supabase) to maintain conversation state, enabling:
-- Conversation history persistence
-- Session resumption
-- Multi-turn dialogue context
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/ask-agent` | Chat with agent (question + optional attachments) |
+| POST | `/init-project` | Initialize project from attachments (multi-phase pipeline) |
+| POST | `/update-project` | Add new attachments to existing project |
+| POST | `/update-project-from-session` | Update project from current session context |
 
-## Database Structure
+### Cleanup (SSE)
 
-### Supabase Schema
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/cleanup-project-element/{type}` | Clean/deduplicate a single element type |
+| POST | `/cleanup-project-elements` | Clean multiple element types in one LLM call |
+| POST | `/cleanup-project-attr/{type}` | Clean a factsheet text attribute |
+| POST | `/cleanup-all-metadata` | Clean title and background fields |
 
-#### Core Tables
+### Vector Store
 
-**projects**
-- Primary entity for legal cases/projects
-- Links to user accounts
-- Tracks creation and update timestamps
+| Method | Path | Description |
+|--------|------|-------------|
+| DELETE | `/delete-vectorstore-project/{project_id}` | Remove all project documents from BigQuery |
+| DELETE | `/delete-vectorstore-file/{file_id}` | Remove a single file from the vector store |
 
-**sessions**
-- Conversation sessions tied to projects
-- Stores LLM model configuration
-- Tracks session lifecycle
+### Data Retrieval
 
-**session_events**
-- Individual events within a session (messages, tool calls)
-- Ordered sequence of interactions
-- Contains LangChain run IDs for traceability
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/load-session-history/{session_id}` | Load conversation history for a session |
+| GET | `/load-user-sessions` | List all sessions for the authenticated user |
+| GET | `/load-project/{project_id}` | Load full project data (FactSheet + attachments) |
+| GET | `/load-projects` | List all projects for the authenticated user |
+| GET | `/load-project-sessions/{project_id}` | List all sessions for a project |
 
-**session_attachments**
-- Files uploaded during sessions
-- Links to specific queries and events
+## Agent Architecture
 
-#### Project Data Tables
+### LangGraph StateGraph
 
-**project_attachments**
-- Case documents and files
-- Metadata: file type, category, significance
-- Key provisions extraction (JSONB)
-- Party roles and dates
+The `Agent` class uses a two-node graph:
 
-**project_parties**
-- Parties involved in the case
-- Legal names, roles, entity types
-- Contact information
+1. **`call_llm`** — Builds the payload (system prompt + FactSheet context + conversation history + RAG results) and calls the LLM.
+2. **`call_tool`** — Executes tool calls returned by the LLM.
 
-**project_events**
-- Timeline events in the case
-- Categorized by significance
-- Party involvement tracking
-- Disputed vs. undisputed markers
+Conditional edge: if LLM returns tool calls → `call_tool` → back to `call_llm`, else → END.
 
-**project_claims**
-- Legal claims and counterclaims
-- Factual and legal basis
-- Relief sought
-- Strength assessments
-- Defense arguments
+Rolling summarization triggers every 8 messages to manage context window.
 
-**project_damages**
-- Damage claims with amounts
-- Supporting evidence (JSONB)
-- Categorization by type
+### Tools (`tools.py`)
 
-**project_deadlines**
-- Important dates and deadlines
-- Party-specific deadlines
+| Tool | Description | Tool Set |
+|------|-------------|----------|
+| `web_search` | Web search via Tavily | All |
+| `read_attachment` | Read single file from Supabase Storage | TOOLS only |
+| `read_attachments` | Batch read files from Supabase Storage | TOOLS only |
+| `query_project_attachments` | RAG search over project documents in BigQuery | TOOLS + BASELINE_RAG |
+| `query_laws` | Semantic search over Norwegian legal corpus | All |
+| `read_specific_law` | Retrieve a specific Norwegian statute by paragraph | All |
+| `list_project_files_emails` | List all attachments and emails in a project | TOOLS only |
 
-**project_legal**
-- Governing law references
-- Disputed and undisputed facts
+**Tool sets:**
+- `TOOLS` — Full agent (all tools above)
+- `BASELINE_TOOLS` — `web_search`, `query_laws`, `read_specific_law`
+- `BASELINE_RAG_TOOLS` — `web_search`, `query_laws`, `read_specific_law`, `query_project_attachments`
 
-#### Checkpoint Tables (LangGraph)
+### LLMs
 
-**checkpoints**
-- Primary checkpoint storage
-- Contains full conversation state (JSONB)
-- Hierarchical with namespaces
+- **Primary**: Google Gemini 2.5 Flash (conversation, analysis, embeddings)
+- **Secondary**: OpenAI GPT-4o-mini (summarization, titles)
 
-**checkpoint_writes**
-- Pending writes during checkpoint creation
-- Task-based organization
+### Project Initialization Pipeline
 
-**checkpoint_blobs**
-- Large binary data associated with checkpoints
-- Channel-based versioning
+`POST /init-project` runs a three-phase async pipeline:
 
-**checkpoint_migrations**
-- Schema version tracking for checkpoints
+1. **Phase 1** — Parse documents (PDF/DOCX/PPTX/EML with OCR), store in vector store and file storage, analyze initial input
+2. **Phase 2** — Analyze documents and emails in parallel (extract events, claims, damages, deadlines, attachment metadata)
+3. **Phase 3** — Analyze factual facts and governing law
 
-#### User Management
+All phases stream status events back via SSE.
 
-**user_details**
-- Extended user profile information
-- Company associations
-- User roles
+## Database Schema
 
-### Foreign Key Relationships
+### Core Tables
+
+| Table | Description |
+|-------|-------------|
+| `projects` | Legal cases, linked to users |
+| `sessions` | Conversation sessions per project |
+| `session_events` | Individual events within a session (messages, tool calls) |
+| `session_attachments` | Files uploaded within a session |
+| `project_attachments` | Case documents with metadata (type, category, key provisions) |
+| `project_parties` | Parties involved (name, role, entity type) |
+| `project_events` | Timeline events (date, category, significance) |
+| `project_claims` | Legal claims with basis, relief, strength |
+| `project_damages` | Damage claims with amounts and evidence |
+| `project_deadlines` | Important dates and deadlines |
+
+### Checkpoint Tables (LangGraph)
+
+| Table | Description |
+|-------|-------------|
+| `checkpoints` | Full conversation state (JSONB) |
+| `checkpoint_writes` | Pending writes during checkpoint creation |
+| `checkpoint_blobs` | Large binary data for checkpoints |
+| `checkpoint_migrations` | Schema version tracking |
+
+### Relationships
 
 ```
 auth.users
@@ -138,289 +162,28 @@ auth.users
       └── project_legal (project_id)
 ```
 
-## Setup
-
-### Prerequisites
-
-- Python 3.13+
-- Supabase project with PostgreSQL database
-- Google Cloud Project (for BigQuery, Firestore, Cloud Storage)
-- OpenAI API key or other LLM provider
-- Tavily API key (for web search)
-
-### Environment Variables
-
-Create a `.env` file in the `agent/` directory:
+## Running
 
 ```bash
-# Supabase
+uv run --package agent python agent/main.py
+```
+
+The API runs on `http://localhost:8080`.
+
+## Environment Variables
+
+```bash
 SUPABASE_URL=your_supabase_url
 SUPABASE_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-
-# Google Cloud
-GOOGLE_CLOUD_PROJECT=your_project_id
-GOOGLE_APPLICATION_CREDENTIALS=./gcloud-keys.json
-
-# LLM Provider
+SUPABASE_DB_URL=postgresql://...
+GOOGLE_CLOUD_PROJECT=your_gcp_project_id
+GOOGLE_API_KEY=your_google_ai_key
 OPENAI_API_KEY=your_openai_key
-# or
-ANTHROPIC_API_KEY=your_anthropic_key
-
-# Tools
 TAVILY_API_KEY=your_tavily_key
-
-# Database
-DATABASE_URL=postgresql://user:pass@host:port/dbname
 ```
-
-### Installation
-
-```bash
-# Navigate to agent directory
-cd agent/
-
-# Install dependencies with uv
-uv sync
-
-# Or with pip
-pip install -e .
-```
-
-### Google Cloud Setup
-
-1. Create a service account with appropriate permissions:
-   - BigQuery Data Editor
-   - Firestore User
-   - Storage Object Admin
-
-2. Download the service account key as `gcloud-keys.json` in the `agent/` directory
-
-### Database Initialization
-
-The Supabase database schema is automatically managed through migrations. Ensure your Supabase project has the checkpoint tables initialized:
-
-```sql
--- Run the LangGraph checkpoint schema initialization
--- (see SUPABASE_SCHEMA.md for full schema)
-```
-
-## Usage
-
-### Basic Agent Initialization
-
-```python
-from agent.agent import Agent
-from agent.tools import tavily_search, list_table_info, run_query
-from langgraph.checkpoint.postgres import PostgresSaver
-
-# Initialize checkpointer
-checkpointer = PostgresSaver.from_conn_string(
-    os.getenv("DATABASE_URL")
-)
-
-# Create agent
-agent = Agent(
-    tools=[tavily_search, list_table_info, run_query],
-    prompt="You are a helpful legal assistant...",
-    checkpointer=checkpointer
-)
-
-# Run agent
-config = {"configurable": {"thread_id": "session-123"}}
-response = await agent.run(
-    user_message="Analyze this document",
-    config=config
-)
-```
-
-### Document Processing
-
-```python
-from database import SupabaseStorageManager, DocumentProcessor
-
-# Upload document
-storage = SupabaseStorageManager()
-file_path = storage.upload_file(
-    file_content=pdf_bytes,
-    filename="contract.pdf",
-    bucket="documents"
-)
-
-# Process document
-processor = DocumentProcessor()
-chunks = processor.process_pdf(pdf_bytes)
-```
-
-### Database Operations
-
-```python
-from database import SupabaseManager
-
-db = SupabaseManager()
-
-# Create project
-project = db.create_project(
-    user_id="user-uuid",
-    title="Case ABC vs XYZ",
-    background="Contract dispute..."
-)
-
-# Create session
-session = db.create_session(
-    user_id="user-uuid",
-    project_id=project.project_id,
-    llm_model="gpt-4"
-)
-
-# Add event
-event = db.create_event(
-    session_id=session.session_id,
-    type="user_message",
-    content="What are the key claims?"
-)
-```
-
-## Testing
-
-```bash
-# Run all tests
-pytest
-
-# Run specific test file
-pytest tests/test_agent.py
-
-# Run with coverage
-pytest --cov=src tests/
-```
-
-### Test Structure
-
-- `test_agent.py`: Agent behavior and state management
-- `test_storage.py`: File upload/download operations
-- `test_vectorstore.py`: RAG and retrieval functionality
-- `test_supabase.py`: Database operations
-- `fixtures/`: Test data and mock objects
-
-## Project Structure
-
-```
-agent/
-├── src/
-│   ├── agent/
-│   │   ├── agent.py              # Main agent class
-│   │   ├── agent_modules.py      # Helper modules (Summarizer, ContextManager, etc.)
-│   │   ├── tools.py              # Custom LangChain tools
-│   │   ├── basemodels.py         # Pydantic models
-│   │   └── utils.py              # Utility functions
-│   ├── auth/
-│   │   ├── google_auth.py        # Google OAuth integration
-│   │   └── supabase_auth.py      # Supabase authentication
-│   └── database/
-│       ├── database_modules.py   # Supabase + Firestore managers
-│       ├── storage_modules.py    # File storage operations
-│       ├── vectorstore_modules.py # Vector search implementations
-│       └── langchain_firestore.py # LangChain Firestore integration
-├── tests/                        # Test suite
-├── gcloud-keys.json             # Google Cloud credentials (git-ignored)
-├── pyproject.toml               # Project dependencies
-└── README.md                    # This file
-```
-
-## Key Features
-
-### Document Intelligence
-- PDF text extraction with OCR fallback
-- Semantic chunking and embedding
-- Multi-document context retrieval
-
-### Structured Extraction
-- Automated extraction of legal entities (parties, claims, damages)
-- Timeline reconstruction from events
-- Deadline tracking
-
-### Conversation Management
-- Persistent conversation state
-- Thread-based session management
-- Message streaming support
-
-### Multi-Model Support
-- OpenAI (GPT-4, GPT-3.5)
-- Anthropic Claude
-- Google Gemini
-- Configurable per session
-
-## Development
-
-### Adding New Tools
-
-```python
-from langchain.tools import tool
-
-@tool
-def my_custom_tool(query: str) -> str:
-    """Tool description for the LLM"""
-    # Implementation
-    return result
-
-# Add to agent initialization
-agent = Agent(tools=[..., my_custom_tool], ...)
-```
-
-### Extending Database Schema
-
-1. Create migration in Supabase dashboard
-2. Update `basemodels.py` with new Pydantic models
-3. Add methods to `SupabaseManager` in `database_modules.py`
-4. Update tests
-
-### Custom Vector Stores
-
-Implement the vector store interface:
-
-```python
-class CustomVectorStore:
-    def add_documents(self, documents: List[Document]):
-        pass
-    
-    def similarity_search(self, query: str, k: int) -> List[Document]:
-        pass
-```
-
-## Performance Considerations
-
-- **Token Management**: Text is chunked to fit within model context windows (tracked with tiktoken)
-- **Caching**: Vector embeddings are cached to reduce computation
-- **Batch Operations**: Document processing supports batch uploads
-- **Connection Pooling**: Database connections use Supabase's built-in pooling
 
 ## Security
 
-- All file uploads are scoped to user accounts
-- Row-level security (RLS) policies on Supabase tables
-- Service role keys kept in environment variables
-- JWT-based authentication for API access
-
-## Troubleshooting
-
-### Common Issues
-
-**Checkpoint not saving**
-- Verify `DATABASE_URL` is correct PostgreSQL connection string
-- Check Supabase connection pooler settings (use transaction mode)
-
-**Documents not retrieving**
-- Ensure vector store is initialized with correct collection name
-- Verify embeddings model matches between indexing and retrieval
-
-**File upload fails**
-- Check Supabase storage bucket permissions
-- Verify file size limits in Supabase dashboard
-
-## License
-
-[Your License]
-
-## Contributing
-
-[Contributing guidelines]
+- JWT-based auth: all endpoints require `Authorization: Bearer <token>`
+- Row-level security (RLS) on all Supabase tables
+- File access scoped to user accounts via Supabase Storage

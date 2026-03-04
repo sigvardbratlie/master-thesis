@@ -30,7 +30,8 @@ This repository provides:
 ### Key Concepts
 - **FactSheet**: Structured legal case summary (parties, claims, damages, timeline, governing law)
 - **Attachments**: PDF/DOCX/PPTX/EML documents parsed and stored in vector store for RAG
-- **Multi-LLM**: Supports Google Gemini (primary) and OpenAI GPT (secondary)
+- **Multi-LLM**: Google Gemini 2.5 Flash (primary), OpenAI GPT-4o-mini (secondary/summarization)
+- **Tools**: `web_search`, `read_attachment`, `read_attachments`, `query_project_attachments`, `query_laws`, `read_specific_law`, `list_project_files_emails`
 
 ```
 ├── agent/
@@ -42,7 +43,7 @@ This repository provides:
 │       │   ├── context_manager.py # ContextManager (extraction, cleanup)
 │       │   ├── tools.py           # Agent tools (TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS)
 │       │   └── utils.py           # PROMPT constants, LLM initialization
-│       ├── auth/                  # Supabase JWT auth (google_auth.py is legacy)
+│       ├── auth/                  # supabase_auth.py (primary), google_auth.py (legacy)
 │       ├── database/              # SupabaseManager, BQVectorStore, SupabaseStorageManager
 │       ├── documents/             # DocumentProcessor, EmailHandler (PDF/DOCX/PPTX/EML + OCR)
 │       └── models/                # Pydantic models (project_models, agent_models, api_request_models)
@@ -53,9 +54,11 @@ This repository provides:
 ├── evals/
 │   ├── collect.py                 # CLI: run agent against test datasets
 │   ├── evaluate.py                # CLI: run DeepEval metrics
-│   └── src/evals/                 # dataset_module, evaluate_module, models, utils
+│   └── src/evals/                 # collect_module, dataset_module, evaluate_module, models, utils
 ├── data-viewer/
-│   └── main.py                    # Streamlit app for browsing GCS datasets
+│   ├── main.py                    # Streamlit app for browsing GCS datasets
+│   └── fix_dataset.py             # Data migration/cleanup utility
+├── thesis/                        # LaTeX master thesis source
 ├── promptx/
 │   └── personas/                  # Agent persona definitions
 └── factsheet.md                   # FactSheet template
@@ -74,6 +77,8 @@ This repository provides:
 - **Python 3.13** with uv for dependency management (workspace: agent, ui, evals, data-viewer)
 - **Secrets**: Environment variables in `.env` (never commit)
 - **LangChain/LangGraph**: For agent orchestration and streaming
-- **Auth**: Supabase JWT (Bearer token). `supabase_auth.py` is primary; `google_auth.py` is legacy
-- **Database**: Supabase PostgreSQL (primary). FirestoreManager is legacy
+- **Auth**: Supabase JWT (Bearer token). `supabase_auth.py` is primary; `google_auth.py` is legacy (unused)
+- **Database**: Supabase PostgreSQL (primary). `firestore_module.py` and `langchain_firestore.py` are legacy (unused)
 - **Checkpointer**: `AsyncPostgresSaver` (LangGraph state via Supabase PostgreSQL)
+- **Vector Store**: `BQVectorStore` (BigQuery, persistent, cross-session); `ChromaVectorStore` (in-memory, ephemeral)
+- **Embeddings**: Google Generative AI (`gemini-embedding-001`)
