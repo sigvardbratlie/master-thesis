@@ -215,29 +215,21 @@ class FactSheet(InitialInput,
         if not self.events:
             return ""
         view = ""
+        view += "\t* Format: event_start_date | event_name | file_id | description" + "(Disputed)"  + "\n"
         for e in self.events:
             if significance and e.significance not in significance:
                 continue
-            view += f"\t* {e.event_start_date} | {e.event_name} | {e.description or ''}"
+            view += f"\t* {e.event_start_date} | {e.event_name} | {e.file_id or 'No file ID'} | {e.description or ''}"
             if e.disputed:
                 view += " | Disputed"
             view += "\n"
-        # rows = [
-        #     f"\t* {e.event_start_date} | {e.event_name} | {e.description or ''}"
-        #     + (" | Disputed" if e.disputed else "")
-        #     for e in self.events
-        # ]
         return "Events:\n" + view + "\n\n"
 
     def shorten_parties(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
         if not self.parties:
             return ""
         view = ""
-        # rows = [
-        #     f"\t* {p.legal_name} ({p.entity_type}) | {p.role}"
-        #     + (f" | {p.role_description}" if p.role_description else "")
-        #     for p in self.parties
-        # ]
+        view += "\t* Format: legal_name (entity_type) | role | role_description\n"
         for p in self.parties:
             if significance and p.significance not in significance:
                 continue
@@ -250,11 +242,8 @@ class FactSheet(InitialInput,
     def shorten_claims(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
         if not self.claims:
             return ""
-        # rows = [
-        #     f"\t* Relief sought: {c.relief_sought} | Factual basis: {c.factual_basis} | Legal basis: {c.legal_basis}"
-        #     for c in self.claims
-        # ]
         view = ""
+        view += "\t* Format: relief_sought | factual_basis | legal_basis\n"
         for c in self.claims:
             if significance and c.significance not in significance:
                 continue
