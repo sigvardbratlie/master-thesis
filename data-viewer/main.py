@@ -617,6 +617,7 @@ def add_session() -> None:
             "session_id": str(uuid.uuid4()),
             "session_name": f"New session {len(sessions) + 1}",
             "init_query": "",
+            "init_query_id": str(uuid.uuid4()),
             "conversation": [
                 {"input": "", "answer": "", "query_id": str(uuid.uuid4()), "order": 0}
             ],

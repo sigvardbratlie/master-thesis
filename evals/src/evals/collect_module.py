@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime
 import uuid
@@ -10,7 +11,8 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
 from agent.agent import Agent
-from models import AskAgentRequest, AttachmentModel,CleanupElementsRequest
+from models import AskAgentRequest, AttachmentModel, CleanupElementsRequest
+from models.project_models import FactSheet
 from agent.utils import PROMPT, PROMPT_BASELINE, PROMPT_BASELINE_RAG
 from agent.tools import TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS
 from .dataset_module import Dataset
@@ -131,7 +133,20 @@ class CollectAgentResult:
             f'Project (runtime): {eval_run_id} | '
             f'User: {self.data.user_id}\n\n'
         )
-        
+
+        # Baseline agents never call initialize_project, so the project row is never created.
+        # Create a minimal project entry now to satisfy the FK constraint in save_stream.
+        if not use_factsheet and save_to_storage:
+            await asyncio.to_thread(
+                agent_class.conversation_manager.save_project,
+                factsheet=FactSheet(events=[]),
+                attachments=[],
+                user_id=self.data.user_id,
+                project_id=eval_run_id,
+                session_id="",
+            )
+            logger.info(f"Baseline agent: created minimal project entry for {eval_run_id}")
+
         starttime = datetime.now()
         with tracing_context(
             tags=[eval_run_id],
@@ -146,7 +161,7 @@ class CollectAgentResult:
                     f"{session.session_name} | "
                     f"{len(session.attachments)} attachments"
                 )
-                query_id = session.init_query_id
+                query_id = session.init_query_id if session.init_query_id else str(uuid.uuid4())
                 attachments = [
                     self.parse_attachments(
                         attachment_path=att,
@@ -192,17 +207,20 @@ class CollectAgentResult:
                     )
                     logger.debug(f"Session {idx} initialization completed in {session.init_query_time_count.duration_seconds:.2f} seconds")
                 else:
-                    conv_query_id = str(uuid.uuid4())
-                    with tracing_context(metadata={"query_id": conv_query_id}):
-                        await self.run_conv(
-                            conv=ConversationTurn(input=session.init_query, answer=""),
-                            agent_class=agent_class,
-                            project_id=eval_run_id,
-                            session_id=runtime_session_id,
-                            query_id=conv_query_id,
-                            user_id=self.data.user_id,
-                            attachments=attachments,
-                        )
+                    if session.init_query.strip():
+                        conv_query_id = str(uuid.uuid4())
+                        with tracing_context(metadata={"query_id": conv_query_id}):
+                            await self.run_conv(
+                                conv=ConversationTurn(input=session.init_query, answer=""),
+                                agent_class=agent_class,
+                                project_id=eval_run_id,
+                                session_id=runtime_session_id,
+                                query_id=conv_query_id,
+                                user_id=self.data.user_id,
+                                attachments=attachments,
+                            )
+                    else:
+                        logger.info(f"Session {idx}: skipping empty init_query for baseline agent")
 
                 for conv in session.conversation:
                     conv_query_id = conv.query_id or str(uuid.uuid4())
