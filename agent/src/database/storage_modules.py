@@ -166,6 +166,16 @@ class SupabaseStorageManager:
         response = self.supabase.storage.from_(bucket_name)\
             .download(path)
         return response
+    def read_attachments(self, paths: list[str], bucket_name: str = "attachments") -> dict[str, Optional[bytes]]:
+        results = {}
+        for path in paths:
+            try:
+                content = self.read_attachment(path, bucket_name)
+                results[path] = content
+            except Exception as e:
+                logger.error(f"❌ Failed to read {path} from Supabase Storage: {e}")
+                results[path] = None
+        return results
     
     def delete_attachment(self, path : str, bucket_name: str = "attachments") -> None:
         self.supabase.storage.from_(bucket_name).remove([path])

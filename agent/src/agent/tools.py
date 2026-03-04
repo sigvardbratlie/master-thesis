@@ -1,3 +1,4 @@
+from importlib.resources import path
 import os
 import re
 from dotenv import load_dotenv
@@ -70,6 +71,61 @@ def read_attachment(
         logger.error(f"Unsupported file extension: {ext}")
         return []
 
+@tool
+def read_attachments(
+    paths: list[str],
+    # config : RunnableConfig
+) -> str:
+    """
+    Reads and processes multiple attachments from Supabase storage based on the provided paths.
+    Use only when the attachment content is not provided in the conversation history.
+
+    Args:
+        path (str): The path to the attachment in Supabase storage. Always in the form of "<user_id>/<session_id>/<file_id>.<ext>".
+
+    Returns:
+        str: Processed content of the attachment.
+    """
+    storage_manager = SupabaseStorageManager()
+    document_processor = DocumentProcessor()
+    contents = storage_manager.read_attachments(paths=paths)
+    def process_attachment(path, content):
+        try:
+            file_id = (
+                path.split("/")[-1].split(".")[0] if "." in path else path.split("/")[-1]
+            )
+            ext = "." + path.split(".")[-1] if "." in path else ""
+        except Exception as e:
+            logger.error(f"Error extracting file_id and extension from path: {e}")
+            return None
+        if ext in [".pdf", ".docx", ".pptx", ".eml", ".txt", ".md"]:
+            file_type = document_processor.map_file_type(ext)
+            docs = document_processor.parse(
+                content=content,
+                metadata={
+                    "file_id": file_id,
+                    "filename": file_id + ext,
+                    "session_id": None,
+                    "embedding_model": None,
+                },
+                file_type=file_type,
+                force_metadata_model=False,
+            )
+            content_txt = document_processor.to_plain_text(docs)
+            return f"CONTENT FOR FILEPATH {path}: \n\n{content_txt}\n\n"
+        else:
+            logger.error(f"Unsupported file extension: {ext}")
+            return []
+
+    results = "Results for reading attachments:" + "\n" + "-" * 50 + "\n\n"
+    for path, content in contents.items():
+        if content is not None:
+            results += process_attachment(path, content)
+            results += "\n" + "-" * 50 + "\n\n"
+        else:
+            results += f"Can not find any contents for {path}\n"
+            results += "\n" + "-" * 50 + "\n\n"
+    return results
 
 @tool
 def query_project_attachments(query: str, project_id: str, k: int = 3) -> str:
@@ -104,15 +160,14 @@ def query_project_attachments(query: str, project_id: str, k: int = 3) -> str:
 def query_laws(query: str, 
               title : str = None,
               short_title: str = None, 
-              paragraph : str = None, 
               k: int = 3) -> str:
-    """Function to use RAG to retrieve relevant laws based on a query.
+    """Function to use RAG to retrieve relevant laws based on a query. Use this to search in laws based on a question. 
+    
 
     Args:
         query (str): The query to search in the vectorstore. Make sure to describe the in words what you are looking for, for example the users question.
         title (str): The title of the law to filter by.
         short_title (str): The short title of the law to filter by.
-        paragraph (str): The paragraph number to filter by. Must be on the form of "§ 5", "§ 5-7", etc.
         k (int): The number of top results to retrieve from the vectorstore. Default is 5.
     Returns:
         str: The retrieved information from the vectorstore based on the query.
@@ -167,45 +222,62 @@ def query_laws(query: str,
 
 @tool
 def read_specific_law(title: list[str], 
-                      short_title : Optional[str] = None,
                       paragraph: list[str] = None) -> str:
     """Function to retrieve the content of a specific law paragraph based on title and paragraph number.
 
     Args:
-        title (list[str]): The title(s) of the law to retrieve. For example ["Arbeidsmiljøloven", "Arbeidsmiljølova", ].
-        short_title (str): The short title of the law to retrieve.
-        paragraph (list[str], optional): The paragraph number(s) to retrieve. For example ["§ 3-7", "§ 3-8"]. If None, retrieves all paragraphs.
+        title (list[str]): The title(s) of the law to retrieve. For example ["Arbeidsmiljøloven", "Arbeidsmiljølova"]. Make sure to include different variations of the title to increase the chances of a match.
+        paragraph (list[str], optional): The paragraph number(s) to retrieve. For example ["§3-7", § 3-8] or [§1]. If None, retrieves all paragraphs.
 
     Returns:
         str: The content of the specified law paragraph.
     """
-    title_filters = " OR ".join([f"LOWER(title) LIKE '%{t.lower()}%'" for t in title])
-
-    query = f'''SELECT content, title, short_title, paragraph_number
-        FROM vector_store.laws
-        WHERE ({title_filters})
-        '''
-    
-    if short_title:
-        query += f" AND LOWER(short_title) LIKE '%{short_title.lower()}%'"
-    if paragraph:
-        query += " AND paragraph_number IN UNNEST(@paragraphs)"
-
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ArrayQueryParameter("paragraphs", "STRING", paragraph)
-            ]
+    query = """
+        SELECT content, title, short_title, paragraph_number
+        FROM `vector_store.laws`
+        WHERE EXISTS (
+            SELECT 1 FROM UNNEST(@titles) AS t 
+            WHERE LOWER(title) LIKE CONCAT('%', LOWER(t), '%')
         )
-    else:
-        job_config = None
-    client = bigquery.Client(project=os.getenv("GOOGLE_CLOUD_PROJECT"))
-    query_job = client.query(query, job_config=job_config)
-    results = query_job.result()
-    res = f"=== Content for {title} short title: {short_title} ===\n"
-    for row in results:
-        res += f"{row.paragraph_number}\n{row.content}\n\n"
-    return res.strip() or "Ingen resultater."
+    """
+    
+    query_parameters = [
+        bigquery.ArrayQueryParameter("titles", "STRING", title)
+    ]
 
+    if paragraph:
+        # Vi vasker input for å fjerne mellomrom slik at "§ 1" og "§1" begge funker
+        clean_paragraphs = [p.replace(" ", "") for p in paragraph]
+        query += """
+            AND EXISTS (
+                SELECT 1 FROM UNNEST(@paragraphs) AS p 
+                WHERE REPLACE(paragraph_number, ' ', '') LIKE CONCAT('%', p, '%')
+            )
+        """
+        query_parameters.append(
+            bigquery.ArrayQueryParameter("paragraphs", "STRING", clean_paragraphs)
+        )
+
+    job_config = bigquery.QueryJobConfig(query_parameters=query_parameters)
+    
+    try:
+        # Husk å spesifisere project hvis det ikke ligger i miljøvariabler
+        client = bigquery.Client() 
+        query_job = client.query(query, job_config=job_config)
+        results = query_job.result()
+        
+        res_list = []
+        for row in results:
+            res_list.append(f"--- {row.paragraph_number} ---\n{row.content}")
+        
+        if not res_list:
+            return "Ingen resultater funnet."
+            
+        header = f"=== Resultater for {', '.join(title)} ===\n\n"
+        return header + "\n\n".join(res_list)
+        
+    except Exception as e:
+        return f"Feil ved spørring: {str(e)}"
 @tool
 def update_project(
     project_id: str,
@@ -254,7 +326,7 @@ def list_project_files_emails(project_id: str):
 
 TOOLS = [
     tavily_search,
-    read_attachment,
+    read_attachments,
     list_project_files_emails,
     query_project_attachments,
     query_laws,
@@ -265,7 +337,7 @@ TOOLS = [
 ]
 BASELINE_TOOLS = [
     tavily_search,
-    read_attachment,
+    read_attachments,
 ]
 
 BASELINE_RAG_TOOLS = [
@@ -273,5 +345,5 @@ BASELINE_RAG_TOOLS = [
     query_laws,
     read_specific_law,
     query_project_attachments,
-    read_attachment,
+    read_attachments,
 ]
