@@ -172,7 +172,7 @@ class CollectAgentResult:
                         ):
                             logger.debug(f"Init response: {response}")
                     else:
-                        if idx % 2 == 0: #cleanup every 2 sessions to avoid too much context buildup, which can lead to token limits being hit and increased costs
+                        if idx % 2 != 0: #cleanup project every odd session to prevent fact overload, keeping only parties, events and damages
                             cleanup_query = CleanupElementsRequest(
                                 **input_obj.model_dump(),
                                 element_types = ["parties", "events", "damages"])

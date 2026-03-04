@@ -17,7 +17,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate attachment assignment")
     parser.add_argument("-d","--dataset", type=str, choices=["test", "THRD-2021-163881", "TOSL-2024-103311", "TOSL-2024-125319"], help="Dataset name to evaluate")
     parser.add_argument("-m","--model", type=str, help="LLM model to evaluate (optional, defaults to all models in dataset)")
-    parser.add_argument("-t","--throttle", type=int, default=5, help="Throttle value for evaluation (default: 5)")
+    parser.add_argument("-t","--throttle", type=int, default=10, help="Throttle value for evaluation (default: 5)")
     parser.add_argument("-c","--concurrent", type=int, default=1, help="Max concurrent evaluations (default: 1)")
     parser.add_argument("--threshold", type=float, default=0.5, help="Threshold for evaluation metrics (default: 0.5)")
     args = parser.parse_args()
