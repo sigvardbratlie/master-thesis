@@ -1,5 +1,7 @@
 """UI Components module for reusable Streamlit components"""
-from .renders import get_chat_component, get_sidebar_component, get_project_component
+from .chat_component import get_chat_component
+from .sidebar_component import get_sidebar_component
+from .project_component import get_project_component
 from .tool_results import get_tool_result_component
 from .attachments import get_attachment_component
 
