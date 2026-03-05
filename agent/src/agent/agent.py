@@ -2,6 +2,7 @@ import os
 import base64
 import json
 import logging
+from langchain_openai import ChatOpenAI
 import tiktoken
 from datetime import datetime
 import asyncio
@@ -21,6 +22,7 @@ from langchain_core.documents import Document
 from langgraph.graph import StateGraph, END
 
 from langchain.chat_models import init_chat_model
+from langchain_openai import ChatOpenAI
 
 from .agent_modules import Summarizer, ToolManager
 from .context_manager import ContextManager
@@ -133,6 +135,14 @@ class Agent:
             if isinstance(msg, SystemMessage):
                 sanitized.append(msg)
                 continue
+
+            # Drop empty AI messages with no tool calls — they confuse open-source models
+            if isinstance(msg, AIMessage):
+                has_content = bool(msg.content) if isinstance(msg.content, str) else bool(msg.content)
+                has_tool_calls = bool(getattr(msg, 'tool_calls', None))
+                if not has_content and not has_tool_calls:
+                    logger.debug("🧹 Dropping empty AIMessage from payload")
+                    continue
 
             # Normalize AI message content from list to string
             if isinstance(msg, AIMessage) and isinstance(msg.content, list):
@@ -398,14 +408,12 @@ class Agent:
     PROVIDER_MAP = {
         "google": "google_genai",
         "openai": "openai",
-        # "claude": "anthropic",  # uncomment when Claude is added
+        "meta": "together",
+        "qwen": "together",
+        #"claude": "anthropic", 
     }
 
-    # Provider-specific kwargs to enable thinking token exposure.
-    # Keyed by (model_provider, model_name_substring).
-    # on_chat_model_stream handles type="thinking" blocks identically regardless of provider.
-    # Pro/full models from Google process thinking internally and never return blocks.
-    # OpenAI o-series reasoning is also hidden; no config needed there.
+    
     THINKING_KWARGS: dict[tuple[str, str], dict] = {
         ("google_genai", "flash"): {"include_thoughts": False},
         # Anthropic extended thinking — add when Claude is wired up:
@@ -425,6 +433,18 @@ class Agent:
                 kwargs.update(thinking_kwargs)
                 break
         logger.debug(f'🤖 LLM: provider={model_provider} model={model_name} thinking={bool(kwargs)}')
+        if model_provider in ["together"]:
+            is_qwen3 = "Qwen3" in model_name
+            return ChatOpenAI(
+                        base_url="https://api.together.xyz/v1",
+                        api_key=os.getenv("TOGETHER_API_KEY"),
+                        model=model_name,
+                        max_tokens=4096,
+                        stream_usage=False,  # Together AI doesn't support stream_options/include_usage
+                        stop=["<|im_end|>", "<|endoftext|>"] if is_qwen3 else None,
+                        extra_body={"enable_thinking": False} if is_qwen3 else {},
+                    )
+
         return init_chat_model(model_name, model_provider=model_provider, **kwargs)
 
     def _compile_agent(self,llm_model : str ,query_id : str,):
