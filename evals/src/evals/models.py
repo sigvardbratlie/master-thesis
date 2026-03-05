@@ -116,13 +116,14 @@ class DeepEvalObservation(BaseMetric):
     success: bool
 
 
-class RougeObservation(BaseMetric):
+class ReferenceObservation(BaseMetric):
     """One observation per query × eval_run for reference-based metrics."""
     name: Optional[str] = None
-    rouge_precision: float
-    rouge_recall: float
-    rouge_fmeasure: float
-    actual_output: str
+    bert_precision: float
+    bert_recall: float
+    bert_f1: float
+    s_bert_similarity: float
+    
 
 
 class ResourceObservation(BaseMetric,TokenCount, TimeCount):
