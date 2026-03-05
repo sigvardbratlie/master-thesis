@@ -35,7 +35,7 @@ evals/.deepeval/.deepeval-cache.json
 
 
 # Compiled
-*.pdf
+#*.pdf
 *.synctex.gz
 # LaTeX auxiliary
 *.aux

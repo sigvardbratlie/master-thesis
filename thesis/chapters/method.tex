@@ -103,6 +103,68 @@ PostgreSQL was selected for its flexibility and highly efficient reads across ta
 An initial attempt was made using a NoSQL database (Firestore); while easy and fast to set up, the lack of an enforced schema led to a loss of overview, with state inconsistencies and errors accumulating over time. Additionally, performing complex reads and combining data across different entities proved expensive and inefficient in NoSQL. 
 
 Supabase was chosen as the PostgreSQL provider because it is affordable, open-source, and seamlessly integrates other necessary products like Authentication. Having these features included out-of-the-box makes the development process straightforward and fast.
+\bigskip
+
+\textbf{Database Schema}
+
+The database schema is designed to support the agent's state management and document metadata, while being flexible enough to accommodate future extensions. 
+There are three main groupings of tables:
+
+\bigskip
+
+\noindent
+\begin{minipage}[t]{0.32\textwidth}
+  \centering
+  \renewcommand{\arraystretch}{1.1}
+  \begin{tabular}{|l|}
+    \hline
+    \textbf{Project related tables} \\ \hline
+    Projects                  \\ \hline
+    Parties                   \\ \hline
+    Events                    \\ \hline
+    Deadlines                 \\ \hline
+    Attachments               \\ \hline
+    Emails                    \\ \hline
+    Claims (legal specific)   \\ \hline
+    Damages (legal specific)  \\ \hline
+  \end{tabular}
+  
+  \vspace{1em}
+  
+  \small These tables are combined to form the factsheet state, which is the agent's internal representation of the case. The factsheet is updated and referenced throughout the agent's operation, and it is crucial that it is stored in a structured and consistent manner.
+\end{minipage}%
+\hfill
+\begin{minipage}[t]{0.32\textwidth}
+  \centering
+  \renewcommand{\arraystretch}{1.1}
+  \begin{tabular}{|l|}
+    \hline
+    \textbf{Session related tables} \\ \hline
+    Sessions         \\ \hline
+    Session Events   \\ \hline
+    Attachments      \\ \hline
+  \end{tabular}
+  
+  \vspace{1em}
+  
+  \small Tables for storing document metadata and relationships.
+\end{minipage}%
+\hfill
+\begin{minipage}[t]{0.32\textwidth}
+  \centering
+  \renewcommand{\arraystretch}{1.1}
+  \begin{tabular}{|l|}
+    \hline
+    \textbf{Agent checkpoints} \\ \hline
+    Checkpoints \\ \hline
+    Writes      \\ \hline
+    Blobs       \\ \hline
+  \end{tabular}
+  
+  \vspace{1em}
+  
+  \small Tables for the agent's memory and conversation history.
+\end{minipage}
 
 \paragraph{File Storage (Supabase Storage):}
 Raw documents (PDF, DOCX, EML, etc.) are stored in Supabase Storage. There were no specific architectural requirements for this other than cost-efficiency. 
@@ -126,15 +188,17 @@ The backend is exposed as a standalone REST API using \textbf{FastAPI} \cite{fas
 Describe the evaluation design, including the datasets used, metrics for evaluation, and the experimental setup.
 
 \subsection{Datasets}
-The datasets are constructed exclusively for this thesis in collaboration with legal experts at Bahr AS. 
-The system will be evaluated on three distinct datasets, all real cases recieved from the Norwegian district court system. Each dataset corresponds to a different legal case, with varying complexity and document types.
-Altough the verdict and final submissions of each side are available, the case documents are not. Therefore we have constructed a synthetic case docuemnts containing emails, agreements, contracts, and other relevant documents based on the information available in the case. 
-Each dataset is designed to test the agent's ability to understand and process complex legal information, as well as its capacity to generate accurate and relevant responses to queries related to the case.
+The evaluation framework relies on three custom-built datasets developed specifically for this thesis in collaboration with legal experts from the law firm BAHR AS. Each dataset is derived from a unique, real-world legal case processed through the Norwegian district court system. While the final verdicts and formal submissions from both parties were publicly available, the underlying case documents (e.g., correspondence, internal notes, and evidence) remained confidential. 
 
-Each dataset is structured to replicate a simulated cyclus of a case. There are sessions, and within sessions queries. 
-Each query has a corresponding expected output, which serves as the basis for evaluating the agent's performance across various metrics.
-Both the queries and expected outputs are crafted in collaboration with legal experts to ensure they are realistic and representative of actual legal inquiries and responses.
-The session follows a chronological order, where the agent is expected to maintain context and consistency across multiple queries as the case evolves.
+To facilitate a robust evaluation of the RAG (Retrieval-Augmented Generation) system, we have reconstructed these cases by generating synthetic document sets. These sets include simulated emails, technical reports, agreements, and contracts, all meticulously crafted to mirror the factual matrix and legal complexities described in the official court records. This approach ensures that the agent is tested against a realistic representation of a legal case file while maintaining necessary privacy standards.
+
+The datasets are organized to simulate the chronological lifecycle of a legal proceeding. Each case is structured into several \textit{sessions}, each containing a sequence of \textit{queries}. This structure is designed to evaluate two critical capabilities of the agent:
+\begin{enumerate}
+    \item \textbf{Contextual Awareness}: The ability to maintain a coherent understanding of the case as it evolves through different stages of litigation.
+    \item \textbf{Analytical Accuracy}: Each query is paired with a "gold standard" expected output, defined by legal experts. These references serve as the ground truth for measuring correctness, relevancy, and completeness.
+\end{enumerate}
+
+By following a chronological order, the sessions require the agent to handle increasing amounts of information and maintain consistency over time, reflecting the professional requirements of a legal practitioner managing an ongoing case.
 
 \subsection{Evaluation Environment}
 \textbf{Evalutation Framework:} \\
@@ -150,41 +214,54 @@ There are three agent configurations to be evaluated:
 \end{itemize} 
 
 \textbf{Model Configuration:} \\
-Since the scope of the thesis is not to evauate models, but rather the design and architecture of the agent, 
-we will use in total four models for comparison, two closed-source and two open-source, but the same model will be used across all agent configurations to ensure a fair comparison.
-\begin{itemize}
-    \item \textbf{Google Gemini 2.5 Pro} - Advanced capabilities (closed source)
-    \item \textbf{Google Gemini 2.5 flash} - faster and lighter model (closed source)
-    \item \textbf{LLama 4} - Open-source model with strong performance (open source)
-    \item \textbf{Qwen 3.5} - Open-source model with strong performance (open source)
-\end{itemize}
-The evaluation will be conducted across all datasets, with the same model for comparison. \\
-Each evalution set (model + agent configuration) will be ran 5 times. 
+Since the scope of the thesis is not to evaluate the models themselves, but rather the design and architecture of the agent, a selection of four models is used for comparison. These include both closed-source and open-source variants to ensure the agent's performance is consistent across different provider architectures.
 
+\begin{table}[h!]
+    \centering
+    \caption{Overview of Large Language Models used in evaluation.}
+    \label{tab:model_config}
+    \begin{tabular}{l l r r c}
+        \hline
+        \textbf{Model Name} & \textbf{Type} & \textbf{Total Params} & \textbf{Active Params} & \textbf{Provider} \\
+        \hline
+        Gemini 2.5 Pro & Closed & Unknown & Unknown & Google \\
+        Gemini 2.5 Flash & Closed & Unknown & Unknown & Google \\
+        Llama 4 Maverick \cite{arxiv2026llama4herdarchitecture} & Open (MoE) & 400B & 17B & Meta  \\
+        Qwen 3.5 \cite{yang2025qwen3technicalreport} & Open (MoE) & 397B & 17B & Alibaba  \\
+        Nemotron-3 Nano \cite{nvidia2025nvidianemotron3efficient} & Open (MoE) & 31.6B & 3.2B & NVIDIA  \\
+        \hline
+    \end{tabular}
+\end{table}
+
+The evaluation will be conducted across all datasets using consistent model-agent pairings. To account for the inherent stochastic nature of LLM outputs, each evaluation set (model + agent configuration) will be executed 5 times to ensure statistical significance in the results.
 
 \subsection{Metrics}
 The evaluation will focus on several key metrics, measering both the quality of the agent's responses and its efficiency in terms of resource usage.
 Metrics that are to be evaluated are:
 \begin{itemize}
-    \item \textbf{Correctness}: The degree to which the agent's output is factually accurate and consistent with the expected output for each query, as determined by legal experts.
-    \item \textbf{Relevancy}: The extent to which the agent's output is pertinent to the current state of the case and the query.
-    \item \textbf{Completeness}: The degree to which the agent's output covers all necessary aspects of the query and case information.
-    \item \textbf{Self-consistency}: The degree to which the agent's output remains consistent across multiple queries and over time as the case evolves.
-    \item \textbf{Rouge-L score}: A measure of the overlap between the agent's output and a reference summary, capturing both precision and recall.
+    \item \textbf{Correctness, Relevancy, and Completeness}: These semantic metrics are evaluated using the DeepEval framework. The agent's output is compared against a "gold standard" reference created in collaboration with legal experts. Each metric is scored on a scale from 0 to 1.
+    \item \textbf{Self-consistency}: The degree to which the agent's output remains consistent across multiple queries and over time as the case evolves. \begin{equation}
+    \text{Self-Consistency} = \frac{2}{n(n-1)} \sum_{i=1}^{n-1} \sum_{j=i+1}^{n} \text{cos}(\mathbf{e}_i, \mathbf{e}_j)
+\end{equation}
+\noindent where $n$ is the number of generated outputs, $\mathbf{e}_i$ and $\mathbf{e}_j$ are the sentence embeddings of the $i$-th and $j$-th output, and the cosine similarity is defined as:
+\begin{equation}
+    \text{cos}(\mathbf{e}_i, \mathbf{e}_j) = \frac{\mathbf{e}_i \cdot \mathbf{e}_j}{\|\mathbf{e}_i\| \|\mathbf{e}_j\|}
+\end{equation}
+    \item \textbf{BERTScore}: A metric that evaluates the similarity between the agent's output and a reference text using BERT embeddings \cite{zhang2020bertscoreevaluatingtextgeneration}.
     \item \textbf{Passrate}: The percentage of queries for which the agent's output meets a predefined quality threshold.
-    \item \textbf{Token Usage}: The number of tokens consumed by the agent during inference, including both input and output tokens.
-    \item \textbf{Inference Time}: The time taken by the agent to generate a response after receiving a query.
+    \item \textbf{Efficiency Metrics}: \textbf{Token Usage} (total tokens consumed) and \textbf{Inference Time} (latency) are recorded to assess the practical viability of the system.
 \end{itemize}
 Correctness, relevancy, Completeness are all evaluated against the expected out (constructed in collaboration with legal experts) using DeepEval. 
 The framework rates each response on a scale from 0 to 1, with a certain threshold for what is considered a "pass" for the passrate metric.
-Rouge-L are calculated based on the expected output. 
+
+BERTScore is calculated based on the expected output. 
 Self-consistency is evaluated by comparing the agent's responses across multiple queries and sessions to assess whether it maintains a coherent understanding of the case over time.
 Token usage and inference time are recorded during the agent's operation.
 
 
 \subsection{One-sided Hypothesis Tests}
 
-\textbf{For quality/performance metrics} (correctness, relevancy, completeness, passrate, self-consistency, Rouge-L):
+\textbf{For quality/performance metrics} (correctness, relevancy, completeness, passrate, self-consistency, BERTScore):
 \[
 H_0: \mu_{\text{custom}} \leq \mu_{\text{baseline}} \qquad H_1: \mu_{\text{custom}} > \mu_{\text{baseline}}
 \]
@@ -203,7 +280,4 @@ H_0: \mu_{\text{custom}} \geq \mu_{\text{baseline}} \qquad H_1: \mu_{\text{custo
     \item $\mu_{\text{baseline+RAG}}$ = population mean for baseline with RAG
 \end{itemize}
 All tests are one-tailed / one-sided. \\ \\
-The dataset is constructed in collaboration with legal experts at Bahr AS, where each query has a designated corresponding expected output that is the basis of the tests. 
-DeepEval is used to evaluate correctness, relevancy, completeness, and self-consistency, while Rouge-L and passrate are calculated based on the expected output.
-Token usage and inference time are recorded during the agent's operation. \\ \\
-The evaluation will be conducted across multiple queries and cases to ensure robustness and generalizability of the
+
