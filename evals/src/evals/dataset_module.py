@@ -86,7 +86,7 @@ class Dataset:
         return data
 
     def save_results(self, data: GatheredResultPayload) -> None:
-        path = f"datasets/{data.dataset_name}/04_results/{data.llm_model}_{data.agent_type}_{data.eval_run_id}.json"
+        path = f"datasets/{data.dataset_name}/04_results/{data.llm_model.replace("/","-")}_{data.agent_type}_{data.eval_run_id}.json"
         try:
             self.bucket.blob(path).upload_from_string(
                 json.dumps(data.model_dump(mode="json"), indent=4), content_type="application/json"
