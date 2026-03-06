@@ -35,15 +35,6 @@ class GCSManager:
         tasks = []
         
         for att in attachments:
-            # meta = {
-            #     "filename": att.filename,
-            #     "file_id": att.file_id,
-            #     "user_id": user_id,
-            #     "session_id": session_id,
-            #     'query_id': query_id,
-            #     "source_type": att.file_type,
-            #     "uploaded_at": datetime.now().isoformat(),
-            # }
             content = att.content
             
             # Decode content
