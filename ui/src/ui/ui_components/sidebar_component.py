@@ -21,21 +21,24 @@ class SidebarComponent:
     def llm_model_options(self, default_choice = None,expanded = False):
         llm_options = {
                     "openai": {
-                        "fast": "gpt-4o-mini", 
-                        "expert": "gpt-4o"
-                    },
+                            "fast": "gpt-5.3-chat-latest",      
+                            "expert": "gpt-5.4",
+                        },
                     "google": {
                         "fast": "gemini-2.5-flash", 
                         "expert": "gemini-2.5-pro"
                     },
+                    "anthropic" : {
+                        "fast"   : "claude-haiku-4-5",    
+                                    "expert" : "claude-sonnet-4-6"
+                    },
                     "qwen": {
-                        "fast": "Qwen/Qwen3-VL-8B-Instruct", 
+                        "fast": "Qwen/Qwen3-Next-80B-A3B-Instruct",
                         "expert": "Qwen/Qwen3.5-397B-A17B"
                     },
-                    "meta" : {
-                        "fast": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-                        "expert": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8"
-                    },
+                    "zai" : {"fast" : "zai-org/GLM-4.5-Air-FP8",
+                             "expert" : "zai-org/GLM-5",},
+                    
                 }
 
         # Agent type selector
@@ -48,7 +51,7 @@ class SidebarComponent:
         with st.expander("Velg spesifikk modell (valgfritt)", expanded=expanded):
             llm_provider = st.radio(
                 "Velg LLM leverandør:",
-                ("openai", "google", "meta", "qwen"),
+                tuple(llm_options.keys()),
                 #"claude"
                 
                 horizontal=True,
@@ -70,7 +73,7 @@ class SidebarComponent:
                 st.session_state.llm_model = llm_provider+ "_" + llm_options[llm_provider][agent_type]
 
         st.session_state.llm_model_index = all_models.index(custom_llm) if custom_llm else None
-        st.session_state.llm_provider_index = ["openai", "google", "meta", "qwen"].index(st.session_state.llm_model.split("_")[0]) if st.session_state.llm_model.split("_")[0] in ["openai","google","qwen","meta"] else None
+        st.session_state.llm_provider_index = list(llm_options.keys()).index(st.session_state.llm_model.split("_")[0]) if st.session_state.llm_model.split("_")[0] in ["openai","google","qwen","meta"] else None
         st.session_state.agent_type_index = ["fast", "expert"].index(st.session_state.llm_model.split("_")[1]) if st.session_state.llm_model.split("_")[1] in ["fast", "expert"] else None
         st.info(f'Model: **{st.session_state.llm_model.replace("_"," - ")}**')
 

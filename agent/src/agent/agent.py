@@ -410,7 +410,8 @@ class Agent:
         "openai": "openai",
         "meta": "together",
         "qwen": "together",
-        #"claude": "anthropic", 
+        "zai" : "together",
+        "anthropic": "anthropic", 
     }
 
     
