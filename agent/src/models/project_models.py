@@ -216,6 +216,10 @@ class FactSheet(InitialInput,
             return ""
         view = ""
         view += "\t* Format: event_start_date | event_name | file_id | description" + "(Disputed)"  + "\n"
+        if isinstance(self.events, list):
+            self.events.sort(key=lambda e: str(e.event_start_date))
+        else:
+            raise ValueError(f'Events should be of type list, but actual type is {type(self.events)}')
         for e in self.events:
             if significance and e.significance not in significance:
                 continue
