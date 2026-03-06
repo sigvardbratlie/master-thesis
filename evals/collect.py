@@ -1,11 +1,4 @@
 import logging
-from dotenv import load_dotenv
-import argparse
-from evals import Dataset
-from evals.collect_module import CollectAgentResult
-import os
-import asyncio
-from datetime import datetime
 
 _log_fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 _console_handler = logging.StreamHandler()
@@ -18,19 +11,30 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("hpack").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("anthropic").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("asyncio").setLevel(logging.WARNING)
 logging.getLogger("langsmith").setLevel(logging.WARNING)
 
-
+from dotenv import load_dotenv
+import argparse
+from evals import Dataset
+from evals.collect_module import CollectAgentResult
+import os
+import asyncio
+from datetime import datetime
+from agent.config import AgentConfig
 
 
 logger = logging.getLogger(__name__)
 load_dotenv()
 
 
-async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_storage):
-        car_custom = CollectAgentResult(data, llm_model=llm_model, agent_type=agent_type)
-        collected_results = await car_custom.run_agent(embed_to_vectorstore=embed_to_vectorstore, save_to_storage=save_to_storage)
+async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_storage, async_config):
+        car_custom = CollectAgentResult(data, llm_model=llm_model, agent_type=agent_type,
+                                        async_config = async_config)
+        collected_results = await car_custom.run_agent(embed_to_vectorstore=embed_to_vectorstore, 
+                                                       save_to_storage=save_to_storage,
+                                                       )
         ds = Dataset(data.dataset_name)
         ds.update_token_counts(collected_results)
         logger.info(f"✅ {agent_type} agent results saved")
@@ -41,13 +45,15 @@ async def main():
     parser.add_argument("-m","--model", type=str, choices=["google_gemini-2.5-flash", "google_gemini-2.5-pro", 
                                                            "openai_gpt-5.3-chat-latest", "openai_gpt-5.4",
                                                              "anthropic_claude-haiku-4-5", "anthropic_claude-sonnet-4-6",
-                                                             "qwn_Qwen/Qwen3-Next-80B-A3B-Instruct", "qwen_Qwen/Qwen3.5-397B-A17B",
+                                                             "qwen_Qwen/Qwen3-Next-80B-A3B-Instruct", "qwen_Qwen/Qwen3.5-397B-A17B",
                                                            ],
                         help="LLM model to use for evaluation")
     parser.add_argument("-a", "--agent-type", nargs="+", type=str, choices=["custom", "baseline", "baseline_rag"], default=["custom", "baseline", "baseline_rag"],help="Agent type to run (custom, baseline, or baseline_rag)")
     parser.add_argument("-n","--n-runs", type=int, default=1, help="Number of runs to execute for each agent")
     parser.add_argument("--skip-embedding", action="store_true", help="Skip embedding step for custom agent")
     parser.add_argument("--skip-storage", action="store_true", help="Skip saving results to storage for custom agent")
+    parser.add_argument("--max-concurrent", type = int, default = 15, help="Max concurrent requests")
+    parser.add_argument("--throttle-value", type = float, default = 0.0, help = "Throttle value")
     args = parser.parse_args()
     dataset_name = args.dataset
     llm_model = args.model
@@ -55,6 +61,8 @@ async def main():
     n_runs = args.n_runs
     embed_to_vectorstore = not args.skip_embedding
     save_to_storage = not args.skip_storage
+    max_conc = args.max_concurrent
+    throttle = args.throttle_value
 
     _log_dir = os.path.join(os.path.dirname(__file__), "logs")
     os.makedirs(_log_dir, exist_ok=True)
@@ -108,7 +116,9 @@ async def main():
                             llm_model=llm_model,
                             agent_type="custom",
                             embed_to_vectorstore=embed_to_vectorstore,
-                            save_to_storage=save_to_storage)
+                            save_to_storage=save_to_storage,
+                            async_config = AgentConfig(max_concurrent=max_conc,
+                                        throttle_value=throttle))
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Custom")
         logger.info("━" * 64)
@@ -124,7 +134,9 @@ async def main():
             await single_run(data=data_baseline.model_copy(deep=True),     
                            llm_model=llm_model,
                              agent_type="baseline",     
-                           embed_to_vectorstore=False, save_to_storage=True) 
+                           embed_to_vectorstore=False, save_to_storage=True,
+                           async_config = AgentConfig(max_concurrent=max_conc,
+                                        throttle_value=throttle))
 
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline")
@@ -142,8 +154,10 @@ async def main():
             await single_run(data=data_baseline_rag.model_copy(deep=True), 
                            llm_model=llm_model, 
                            agent_type="baseline_rag", 
-                           embed_to_vectorstore=False, 
-                           save_to_storage=True)
+                           embed_to_vectorstore=True, 
+                           save_to_storage=True,
+                           async_config = AgentConfig(max_concurrent=max_conc,
+                                        throttle_value=throttle))
 
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline + RAG")
