@@ -18,6 +18,9 @@ from documents import DocumentProcessor
 
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger(__name__)
 
 tavily_search = TavilySearch(
@@ -78,10 +81,9 @@ def read_attachments(
 ) -> str:
     """
     Reads and processes multiple attachments from Supabase storage based on the provided paths.
-    Use only when the attachment content is not provided in the conversation history.
 
     Args:
-        path (str): The path to the attachment in Supabase storage. Always in the form of "<user_id>/<session_id>/<file_id>.<ext>".
+        paths (str): The path to the attachments in Supabase storage. Always in the form of ["<user_id>/<session_id>/<file_id>.<ext>", etc...].
 
     Returns:
         str: Processed content of the attachment.
@@ -312,8 +314,10 @@ def create_project():
 
 
 @tool
-def list_project_files_emails(project_id: str):
-    """Use this function to retrieve a list of the projects files and emails."""
+def list_project_files_emails(project_id: str, session_id : str = None, ):
+    """Use this function to retrieve a list of the projects files and emails.
+    
+    """
     sm = SupabaseManager()
     project = sm.load_project(project_id=project_id)
     if not project:

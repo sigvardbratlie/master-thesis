@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import uuid
 from datetime import datetime
 from dotenv import load_dotenv
 load_dotenv()
@@ -9,8 +10,18 @@ os.environ.setdefault("DEEPEVAL_PER_TASK_TIMEOUT_SECONDS_OVERRIDE", "600")
 
 from evals import Dataset, Evaluater
 
+_log_fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+_console_handler = logging.StreamHandler()
+_console_handler.setLevel(logging.INFO)
+_console_handler.setFormatter(_log_fmt)
+logging.root.setLevel(logging.DEBUG)
+logging.root.addHandler(_console_handler)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("hpack").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 
 if __name__ == "__main__":
@@ -26,6 +37,16 @@ if __name__ == "__main__":
     throttle = args.throttle
     concurrent = args.concurrent
     threshold = args.threshold
+
+    _run_id = uuid.uuid4().hex[:8]
+    _log_dir = os.path.join(os.path.dirname(__file__), "logs")
+    os.makedirs(_log_dir, exist_ok=True)
+    _log_file = os.path.join(_log_dir, f"evaluate_{_run_id}.log")
+    _file_handler = logging.FileHandler(_log_file)
+    _file_handler.setLevel(logging.DEBUG)
+    _file_handler.setFormatter(_log_fmt)
+    logging.root.addHandler(_file_handler)
+    logger.info(f"Logging to {_log_file}")
 
     logger.info("━" * 64)
     logger.info(f"🧪  EVALUATE  |  dataset: {dataset_name}")

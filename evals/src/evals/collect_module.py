@@ -143,7 +143,7 @@ class CollectAgentResult:
                 attachments=[],
                 user_id=self.data.user_id,
                 project_id=eval_run_id,
-                session_id="",
+                session_id=str(uuid.uuid4()),
             )
             logger.info(f"Baseline agent: created minimal project entry for {eval_run_id}")
 

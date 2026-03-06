@@ -5,10 +5,25 @@ from evals import Dataset
 from evals.collect_module import CollectAgentResult
 import os
 import asyncio
-logging.basicConfig(level=logging.INFO)
-logging.getLogger(__name__).setLevel(logging.DEBUG)
+from datetime import datetime
+
+_log_fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+_console_handler = logging.StreamHandler()
+_console_handler.setLevel(logging.INFO)
+_console_handler.setFormatter(_log_fmt)
+logging.root.setLevel(logging.DEBUG)
+logging.root.addHandler(_console_handler)
 logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("agent.agent").setLevel(logging.DEBUG)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("hpack").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("anthropic").setLevel(logging.WARNING)
+logging.getLogger("asyncio").setLevel(logging.WARNING)
+logging.getLogger("langsmith").setLevel(logging.WARNING)
+
+
+
+
 logger = logging.getLogger(__name__)
 load_dotenv()
 
@@ -40,6 +55,16 @@ async def main():
     n_runs = args.n_runs
     embed_to_vectorstore = not args.skip_embedding
     save_to_storage = not args.skip_storage
+
+    _log_dir = os.path.join(os.path.dirname(__file__), "logs")
+    os.makedirs(_log_dir, exist_ok=True)
+    _model_slug = (llm_model or "unknown").replace("/", "-")
+    _log_file = os.path.join(_log_dir, f"collect_{_model_slug}_{dataset_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+    _file_handler = logging.FileHandler(_log_file)
+    _file_handler.setLevel(logging.DEBUG)
+    _file_handler.setFormatter(_log_fmt)
+    logging.root.addHandler(_file_handler)
+    logger.info(f"Logging to {_log_file}")
 
     logger.info("━" * 64)
     logger.info(f"🚀  COLLECT  |  dataset: {dataset_name}  |  model: {llm_model}  |  n_runs: {n_runs}")
@@ -79,31 +104,52 @@ async def main():
             logger.info(f"━" * 64)
             logger.info(f"🔁  RUN {i+1}/{n_runs}  |  CUSTOM AGENT  |  {llm_model}  |  dataset: {dataset_name}")
             logger.info("━" * 64)
-            # Deep copy so each run starts with clean session state (no stale
-            # runtime_session_id / token_counts / time_counts from previous runs).
             await single_run(data=data_custom.model_copy(deep=True),
                             llm_model=llm_model,
                             agent_type="custom",
                             embed_to_vectorstore=embed_to_vectorstore,
                             save_to_storage=save_to_storage)
-            
-    if "baseline" in agent_types and "baseline_rag" in agent_types:
-        # ====== RUN BASELINE + BASELINE RAG IN PARALLEL ======
         logger.info("━" * 64)
-        logger.info(f"📋🔍  BASELINE + BASELINE RAG (parallel)  |  {llm_model}  |  dataset: {dataset_name}")
+        logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Custom")
+        logger.info("━" * 64)
+            
+    if "baseline" in agent_types:
+        logger.info("━" * 64)
+        logger.info(f"📋🔍  BASELINE  |  {llm_model}  |  dataset: {dataset_name}")
         logger.info("━" * 64)
         for i in range(n_runs):
             logger.info("━" * 64)
-            logger.info(f"🔁  RUN {i+1}/{n_runs}  |  BASELINE + BASELINE RAG (parallel)  |  {llm_model}  |  dataset: {dataset_name}")
+            logger.info(f"🔁  RUN {i+1}/{n_runs}  |     BASELINE   |  {llm_model}  |  dataset: {dataset_name}")
             logger.info("━" * 64)
-            await asyncio.gather(
-                single_run(data=data_baseline.model_copy(deep=True),     llm_model=llm_model, agent_type="baseline",     embed_to_vectorstore=False, save_to_storage=True) if "baseline" in agent_types else None,
-                single_run(data=data_baseline_rag.model_copy(deep=True), llm_model=llm_model, agent_type="baseline_rag", embed_to_vectorstore=False, save_to_storage=True) if "baseline_rag" in agent_types else None,
-            )
+            await single_run(data=data_baseline.model_copy(deep=True),     
+                           llm_model=llm_model,
+                             agent_type="baseline",     
+                           embed_to_vectorstore=False, save_to_storage=True) 
 
         logger.info("━" * 64)
-        logger.info(f"🎉  All done — results saved for dataset: {dataset_name}")
+        logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline")
+        logger.info("━" * 64)
+    
+    if "baseline_rag" in agent_types:
+        # ====== RUN BASELINE + BASELINE RAG IN PARALLEL ======
+        logger.info("━" * 64)
+        logger.info(f"📋🔍  BASELINE + RAG |  {llm_model}  |  dataset: {dataset_name}")
+        logger.info("━" * 64)
+        for i in range(n_runs):
+            logger.info("━" * 64)
+            logger.info(f"🔁  RUN {i+1}/{n_runs}  |  BASELINE RAG |  {llm_model}  |  dataset: {dataset_name}")
+            logger.info("━" * 64)
+            await single_run(data=data_baseline_rag.model_copy(deep=True), 
+                           llm_model=llm_model, 
+                           agent_type="baseline_rag", 
+                           embed_to_vectorstore=False, 
+                           save_to_storage=True)
+
+        logger.info("━" * 64)
+        logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline + RAG")
         logger.info("━" * 64)
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+#python collect.py -d test -m anthropic_claude-sonnet-4-6

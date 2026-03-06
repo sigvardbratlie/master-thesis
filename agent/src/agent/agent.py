@@ -32,7 +32,9 @@ from models import *
 from uuid import uuid4
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger(__name__)
 
 
@@ -247,7 +249,7 @@ class Agent:
         if project and isinstance(project, ProjectData) and isinstance(project.factsheet, FactSheet):
             content = project.shorten_factsheet()
             content += project.shorten_attachments(excluded_fields=["description"])
-            #content += project.shorten_emails(excluded_fields=["description"])
+            content += project.shorten_emails(excluded_fields=["description"])
             payload.append(HumanMessage(content=content))
 
         # ---- LONG CONVERSATION HANDLING ----
@@ -344,7 +346,7 @@ class Agent:
         tool_data_results = []
         enc = tiktoken.encoding_for_model("gpt-4o-mini")
         DATA_PROD_TOOLS = []
-        TOKEN_LIMIT = 1000
+        TOKEN_LIMIT = 10000
         
 
         if not tool_calls:
@@ -392,7 +394,7 @@ class Agent:
 
             else:
                 logger.warning(f'⚠️  Unknown tool: {tool["name"]} — available: {list(tools_dict.keys())}')
-                result = "Incorrect Tool Name, Please Retry and Select tool from list of avaible tools"
+                result = f"Incorrect Tool Name, Please Retry and Select tool from list of avaible tools {list(tools_dict.keys())}"
                 results.append(ToolMessage(tool_call_id=tool["id"], name=tool["name"], content=str(result)))
 
         logger.debug('✅ Tools execution complete')
