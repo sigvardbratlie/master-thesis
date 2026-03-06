@@ -25,6 +25,7 @@ from langchain.chat_models import init_chat_model
 from langchain_openai import ChatOpenAI
 
 from .agent_modules import Summarizer, ToolManager
+from .config import AgentConfig
 from .context_manager import ContextManager
 from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore
 from documents import DocumentProcessor, EmailHandler
@@ -32,9 +33,7 @@ from models import *
 from uuid import uuid4
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S')
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,7 +47,8 @@ class Agent:
                  checkpointer = None,
                  use_factsheet : bool = True,
                  embed_to_vectorstore : bool = True,
-                 save_to_storage : bool = True
+                 save_to_storage : bool = True,
+                 config: AgentConfig = None,
                  ):
         """
         Initializes the Agent with tools, prompt, LLMs, and checkpointer.
@@ -78,6 +78,10 @@ class Agent:
         self.use_factsheet = use_factsheet
         self.embed_to_vectorstore = embed_to_vectorstore
         self.save_to_storage = save_to_storage
+
+        self.config = config or AgentConfig()
+        self._semaphore = asyncio.Semaphore(self.config.max_concurrent)
+        logger.debug(f"⚙️  AgentConfig: max_concurrent={self.config.max_concurrent}, throttle_value={self.config.throttle_value}s")
     
     # =================================
     #         GRAPH ELEMENTS
@@ -293,8 +297,11 @@ class Agent:
             # the first streaming chunk in state. Using astream fixes this while still
             # forwarding all chunks (including reasoning) as on_chat_model_stream events.
             accumulated: AIMessageChunk | None = None
-            async for chunk in llm_with_tools.astream(payload, config=config):
-                accumulated = chunk if accumulated is None else accumulated + chunk
+            async with self._semaphore:
+                async for chunk in llm_with_tools.astream(payload, config=config):
+                    accumulated = chunk if accumulated is None else accumulated + chunk
+                if self.config.throttle_value > 0:
+                    await asyncio.sleep(self.config.throttle_value)
             if accumulated is None:
                 raise ValueError("LLM returned no response chunks")
 
@@ -692,7 +699,8 @@ class Agent:
                               "size": att.size,
                               "session_id": query.session_id,
                               "project_id": query.project_id,
-                              "embedding_model" : self.in_memory_store.embedding_model,},
+                              "embedding_model" : self.in_memory_store.embedding_model,
+                              },
                     file_type=att.file_type)
                 docs.extend(extracted_docs)
                 att.body = self.document_processor.to_plain_text(extracted_docs)
@@ -802,25 +810,29 @@ class Agent:
                                 config: RunnableConfig = None,
                                 ) -> list:
         """Route attachments to doc/email analysis tasks, batching emails by size/count."""
-        sem = asyncio.Semaphore(20)
 
         async def analyze_docs_with_limit(attatchments: list[AttachmentModel], input_,):
-            async with sem:
+            async with self._semaphore:
                 result = await self.context_manager.analyze_docs(
                     input_=input_,
                     attachments=attatchments,
                     config=config,
                 )
+                if self.config.throttle_value > 0:
+                    await asyncio.sleep(self.config.throttle_value)
                 result["_source_filenames"] = [a.filename for a in attatchments]
                 return result
 
         async def analyze_emails_with_limit(emails: list[EmailModel], input_):
-            async with sem:
-                return await self.context_manager.analyze_emails(
+            async with self._semaphore:
+                result = await self.context_manager.analyze_emails(
                     input_=input_,
                     emails=emails,
                     config=config,
                 )
+                if self.config.throttle_value > 0:
+                    await asyncio.sleep(self.config.throttle_value)
+                return result
 
         
         doc_tasks = []

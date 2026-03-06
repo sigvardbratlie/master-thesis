@@ -6,7 +6,6 @@ from langchain.chat_models import init_chat_model
 
 from models import *
 
-
 logger = logging.getLogger(__name__)
 
 class Summarizer:

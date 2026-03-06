@@ -5,10 +5,7 @@ import logging
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
-
-
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 logger = logging.getLogger(__name__)
 
