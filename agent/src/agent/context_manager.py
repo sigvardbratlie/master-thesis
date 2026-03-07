@@ -132,7 +132,7 @@ class ContextManager:
             attachments: List[AttachmentWithEvents]
 
         documents_formatted = "\n\n".join([
-            f"DOCUMENT #{idx+1} (file_id: {att.file_id}):\n{att.model_dump(include={'body','file_type',})}"
+            f"DOCUMENT #{idx+1}\nFILE_ID={att.file_id}  <-- copy this into attachment.file_id\n{att.model_dump(include={'body','file_type'})}"
             for idx, att in enumerate(attachments)
         ])
 
