@@ -236,9 +236,6 @@ class Agent:
                 file_id = att.get("file_id", "")
                 attachment_contents[file_id] = att.get("body", "")  if att.get("body", "") else "NO BODY CONTENT"
 
-        # ---- PROCESS ATTACHMENTS: Update factsheet ----
-        project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.use_factsheet else None
-
         # ---- BUILD ATTACHMENT CONTEXT FOR LLM ----
         attachment_context = self._build_attachment_context(
             attachments=attachments,
@@ -246,15 +243,19 @@ class Agent:
             user_input=user_input
         )
 
-        # ---- BUILD PAYLOAD ----
-        payload = [SystemMessage(content=self.prompt)]
-
-        # Add factsheet context
+        project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.use_factsheet else None
         if project and isinstance(project, ProjectData) and isinstance(project.factsheet, FactSheet):
+            #raise TypeError("THIS SHOULD BE INCLUDED")
             content = project.shorten_factsheet()
             content += project.shorten_attachments(excluded_fields=["description"])
             content += project.shorten_emails(excluded_fields=["description"])
-            payload.append(HumanMessage(content=content))
+            prompt = self.prompt + "\n\n" + content
+        else:
+            prompt = self.prompt
+
+        payload = [SystemMessage(content=prompt)]
+
+        
 
         # ---- LONG CONVERSATION HANDLING ----
         sum_rate = 8
