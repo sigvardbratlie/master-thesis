@@ -86,7 +86,8 @@ class Dataset:
         return data
 
     def save_results(self, data: GatheredResultPayload) -> None:
-        path = f"datasets/{data.dataset_name}/04_results/{data.llm_model.replace("/","-")}_{data.agent_type}_{data.eval_run_id}.json"
+        path = (f"datasets/{data.dataset_name}/04_results/"
+        f"{data.llm_model.replace("/","-")}_{data.agent_type.replace("/","-")}_{data.eval_run_id.replace("/","-")}.json")
         try:
             self.bucket.blob(path).upload_from_string(
                 json.dumps(data.model_dump(mode="json"), indent=4), content_type="application/json"
@@ -156,7 +157,8 @@ class Dataset:
             created_at=datetime.now().isoformat(),
             results=[r.model_dump() for r in results if isinstance(r, EvaluationResult)] if results else None,
         )
-        filepath = f'datasets/{data.dataset_name}/05_evals/llm-as-judge_{data.llm_model}_{data.agent_type}_{data.eval_run_id}.json'
+        filepath = (f'datasets/{data.dataset_name.replace("/","-")}/05_evals/'
+        f'llm-as-judge_{data.llm_model.replace("/","-")}_{data.agent_type.replace("/","-")}_{data.eval_run_id.replace("/","-")}.json')
         blob = self.bucket.blob(filepath)
         blob.upload_from_string(
             json.dumps(output.model_dump(), indent=4, ensure_ascii=False),
