@@ -181,9 +181,6 @@ def query_laws(query: str,
     if short_title:
         filter_dict["short_title"] = short_title
 
-    if paragraph:
-        filter_dict["paragraph_number"] = paragraph
-    
     res = ""
     if query or filter_dict:
         results = vectorstore.query(
