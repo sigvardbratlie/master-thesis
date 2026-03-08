@@ -137,7 +137,12 @@ class ContextManager:
         ])
 
         structured_llm = self.llm.with_structured_output(MultipleAttachmentsResult, method="function_calling")
-        init_prompt = f'{input_.shorten_factsheet()}\n\n' if isinstance(input_, FactSheet) else f'Case input: {input_.model_dump(mode = "json")}\n\n'
+        if isinstance(input_, FactSheet):
+            init_prompt = f'{input_.shorten_factsheet()}\n\n'
+        elif isinstance(input_, str):
+            init_prompt = f'Case input: {input_}\n\n'
+        else:
+            init_prompt = f'Case input: {input_.model_dump(mode="json")}\n\n'
         prompt = init_prompt + f'''Analyze the following {len(attachments)} documents.
 
                                 For EACH document, return an AttachmentWithEvents object containing:
@@ -282,7 +287,12 @@ class ContextManager:
         events = []
 
         structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
-        init_prompt = f'{input_.shorten_factsheet()}\n\n' if isinstance(input_, FactSheet) else f'Case input: {input_.model_dump(mode = "json")}\n\n'
+        if isinstance(input_, FactSheet):
+            init_prompt = f'{input_.shorten_factsheet()}\n\n'
+        elif isinstance(input_, str):
+            init_prompt = f'Case input: {input_}\n\n'
+        else:
+            init_prompt = f'Case input: {input_.model_dump(mode="json")}\n\n'
         
         # Format emails with clear ID separation
         emails_formatted = "\n\n".join([

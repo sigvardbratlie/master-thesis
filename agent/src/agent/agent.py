@@ -246,9 +246,9 @@ class Agent:
         project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.use_factsheet else None
         if project and isinstance(project, ProjectData) and isinstance(project.factsheet, FactSheet):
             #raise TypeError("THIS SHOULD BE INCLUDED")
-            content = project.shorten_factsheet()
-            content += project.shorten_attachments(excluded_fields=["description"])
-            content += project.shorten_emails(excluded_fields=["description"])
+            content = project.shorten_factsheet() + "\n\n"
+            content += project.shorten_attachments(excluded_fields=["description"]) + "\n\n"
+            content += project.shorten_emails(excluded_fields=["description"]) + "\n\n"
             prompt = self.prompt + "\n\n" + content
         else:
             prompt = self.prompt
@@ -1036,7 +1036,7 @@ class Agent:
         }
 
         # Run file storage + init_input analysis in parallel
-        initial_input = "No initial input extracted"
+        initial_input = InitialInput()
         parallel_tasks = [
             asyncio.create_task(self.context_manager.analyze_init_input(query.question, config=thread))
         ]
@@ -1067,6 +1067,8 @@ class Agent:
                         "query_id": query.query_id
                     }
             else:
+                if result is not None and not isinstance(result, bool):
+                    logger.warning(f"analyze_init_input returned unexpected type {type(result)} — using empty InitialInput fallback")
                 yield {
                         "type": "status",
                         "phase": ["storage"],
