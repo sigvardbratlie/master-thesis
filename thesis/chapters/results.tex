@@ -1,3 +1,36 @@
 \chapter{Results}
 
-In progress
+In evaluating the performance, it is important to note that the datasets used were 
+specifically developed and reverse-engineered for this study to simulate real-world cases. 
+A key uncertainty remains whether these synthetic datasets are sufficiently complex or 
+large enough to reach the "tipping point" where the custom architecture's 
+strengths truly manifest. Therefore, the evaluation should prioritize the performance 
+trends across sessions as a case progresses, rather than focusing solely on 
+aggregate performance metrics. \\
+
+The fundamental trade-off addressed in this research is cost versus accuracy. 
+While baseline models—which ingest the full context for every query—may offer 
+higher granular precision in smaller datasets, this "stateless agent" approach 
+is not scalable. In larger, multi-year cases, passing the entire history 
+becomes prohibitively expensive and computationally slow. The custom architecture 
+accepts a marginal risk in retrieval error to achieve sustainable 
+operational costs and long-term scalability. \\
+
+A human analogy is helpful to illustrate the architectural philosophy: 
+A legal professional working on a massive case does not re-read every 
+single document in the archive before answering a new question. 
+Instead, they rely on a structured "factsheet" or summary (the case state) 
+and perform targeted lookups when specific details are required. 
+While reading every page every time might provide the most detail, 
+it eventually leads to cognitive overload where one "mixes up the cards." 
+By utilizing a condensed case state, the custom architecture avoids 
+this "context confusion" while maintaining a manageable overhead. \\
+
+Consequently, for the smaller datasets created for these tests, the baseline 
+models often perform better because the room for retrieval error is eliminated 
+when everything fits in the prompt. However, as the volume of information 
+reaches realistic proportions, the necessity of the "factsheet" approach 
+becomes clear. The extraction process not only manages costs but also 
+yields a structured, machine-readable state that can be seamlessly 
+integrated into front-end systems for human oversight, bridging the 
+gap between raw data and actionable legal insights.
