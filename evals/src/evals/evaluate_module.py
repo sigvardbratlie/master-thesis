@@ -42,7 +42,7 @@ class Evaluater:
             logger.warning("Conversation turn is missing required fields. Skipping evaluation for this turn.")
             return None
         return LLMTestCase(
-            name=f"Turn {conversation_turn.order or 'unknown'} in session {session_name}",
+            name=f"Turn {conversation_turn.order} in session {session_name}",
             input=conversation_turn.input,
             actual_output=conversation_turn.model_response,
             expected_output=conversation_turn.answer,
