@@ -78,10 +78,9 @@ def read_attachments(
 ) -> str:
     """
     Reads and processes multiple attachments from Supabase storage based on the provided paths.
-    Use only when the attachment content is not provided in the conversation history.
 
     Args:
-        path (str): The path to the attachment in Supabase storage. Always in the form of "<user_id>/<session_id>/<file_id>.<ext>".
+        paths (str): The path to the attachments in Supabase storage. Always in the form of ["<user_id>/<session_id>/<file_id>.<ext>", etc...].
 
     Returns:
         str: Processed content of the attachment.
@@ -182,9 +181,6 @@ def query_laws(query: str,
     if short_title:
         filter_dict["short_title"] = short_title
 
-    if paragraph:
-        filter_dict["paragraph_number"] = paragraph
-    
     res = ""
     if query or filter_dict:
         results = vectorstore.query(
@@ -312,8 +308,10 @@ def create_project():
 
 
 @tool
-def list_project_files_emails(project_id: str):
-    """Use this function to retrieve a list of the projects files and emails."""
+def list_project_files_emails(project_id: str, session_id : str = None, ):
+    """Use this function to retrieve a list of the projects files and emails.
+    
+    """
     sm = SupabaseManager()
     project = sm.load_project(project_id=project_id)
     if not project:

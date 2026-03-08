@@ -2,6 +2,7 @@ import os
 import base64
 import json
 import logging
+from langchain_openai import ChatOpenAI
 import tiktoken
 from datetime import datetime
 import asyncio
@@ -21,8 +22,10 @@ from langchain_core.documents import Document
 from langgraph.graph import StateGraph, END
 
 from langchain.chat_models import init_chat_model
+from langchain_openai import ChatOpenAI
 
 from .agent_modules import Summarizer, ToolManager
+from .config import AgentConfig
 from .context_manager import ContextManager
 from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore
 from documents import DocumentProcessor, EmailHandler
@@ -44,7 +47,8 @@ class Agent:
                  checkpointer = None,
                  use_factsheet : bool = True,
                  embed_to_vectorstore : bool = True,
-                 save_to_storage : bool = True
+                 save_to_storage : bool = True,
+                 config: AgentConfig = None,
                  ):
         """
         Initializes the Agent with tools, prompt, LLMs, and checkpointer.
@@ -74,6 +78,10 @@ class Agent:
         self.use_factsheet = use_factsheet
         self.embed_to_vectorstore = embed_to_vectorstore
         self.save_to_storage = save_to_storage
+
+        self.config = config or AgentConfig()
+        self._semaphore = asyncio.Semaphore(self.config.max_concurrent)
+        logger.debug(f"⚙️  AgentConfig: max_concurrent={self.config.max_concurrent}, throttle_value={self.config.throttle_value}s")
     
     # =================================
     #         GRAPH ELEMENTS
@@ -133,6 +141,14 @@ class Agent:
             if isinstance(msg, SystemMessage):
                 sanitized.append(msg)
                 continue
+
+            # Drop empty AI messages with no tool calls — they confuse open-source models
+            if isinstance(msg, AIMessage):
+                has_content = bool(msg.content) if isinstance(msg.content, str) else bool(msg.content)
+                has_tool_calls = bool(getattr(msg, 'tool_calls', None))
+                if not has_content and not has_tool_calls:
+                    logger.debug("🧹 Dropping empty AIMessage from payload")
+                    continue
 
             # Normalize AI message content from list to string
             if isinstance(msg, AIMessage) and isinstance(msg.content, list):
@@ -220,9 +236,6 @@ class Agent:
                 file_id = att.get("file_id", "")
                 attachment_contents[file_id] = att.get("body", "")  if att.get("body", "") else "NO BODY CONTENT"
 
-        # ---- PROCESS ATTACHMENTS: Update factsheet ----
-        project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.use_factsheet else None
-
         # ---- BUILD ATTACHMENT CONTEXT FOR LLM ----
         attachment_context = self._build_attachment_context(
             attachments=attachments,
@@ -230,15 +243,19 @@ class Agent:
             user_input=user_input
         )
 
-        # ---- BUILD PAYLOAD ----
-        payload = [SystemMessage(content=self.prompt)]
-
-        # Add factsheet context
+        project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.use_factsheet else None
         if project and isinstance(project, ProjectData) and isinstance(project.factsheet, FactSheet):
-            content = project.shorten_factsheet()
-            content += project.shorten_attachments(excluded_fields=["description"])
-            #content += project.shorten_emails(excluded_fields=["description"])
-            payload.append(HumanMessage(content=content))
+            #raise TypeError("THIS SHOULD BE INCLUDED")
+            content = project.shorten_factsheet() + "\n\n"
+            content += project.shorten_attachments(excluded_fields=["description"]) + "\n\n"
+            content += project.shorten_emails(excluded_fields=["description"]) + "\n\n"
+            prompt = self.prompt + "\n\n" + content
+        else:
+            prompt = self.prompt
+
+        payload = [SystemMessage(content=prompt)]
+
+        
 
         # ---- LONG CONVERSATION HANDLING ----
         sum_rate = 8
@@ -281,8 +298,11 @@ class Agent:
             # the first streaming chunk in state. Using astream fixes this while still
             # forwarding all chunks (including reasoning) as on_chat_model_stream events.
             accumulated: AIMessageChunk | None = None
-            async for chunk in llm_with_tools.astream(payload, config=config):
-                accumulated = chunk if accumulated is None else accumulated + chunk
+            async with self._semaphore:
+                async for chunk in llm_with_tools.astream(payload, config=config):
+                    accumulated = chunk if accumulated is None else accumulated + chunk
+                if self.config.throttle_value > 0:
+                    await asyncio.sleep(self.config.throttle_value)
             if accumulated is None:
                 raise ValueError("LLM returned no response chunks")
 
@@ -334,7 +354,7 @@ class Agent:
         tool_data_results = []
         enc = tiktoken.encoding_for_model("gpt-4o-mini")
         DATA_PROD_TOOLS = []
-        TOKEN_LIMIT = 1000
+        TOKEN_LIMIT = 10000
         
 
         if not tool_calls:
@@ -382,7 +402,7 @@ class Agent:
 
             else:
                 logger.warning(f'⚠️  Unknown tool: {tool["name"]} — available: {list(tools_dict.keys())}')
-                result = "Incorrect Tool Name, Please Retry and Select tool from list of avaible tools"
+                result = f"Incorrect Tool Name, Please Retry and Select tool from list of avaible tools {list(tools_dict.keys())}"
                 results.append(ToolMessage(tool_call_id=tool["id"], name=tool["name"], content=str(result)))
 
         logger.debug('✅ Tools execution complete')
@@ -398,14 +418,13 @@ class Agent:
     PROVIDER_MAP = {
         "google": "google_genai",
         "openai": "openai",
-        # "claude": "anthropic",  # uncomment when Claude is added
+        "meta": "together",
+        "qwen": "together",
+        "zai" : "together",
+        "anthropic": "anthropic", 
     }
 
-    # Provider-specific kwargs to enable thinking token exposure.
-    # Keyed by (model_provider, model_name_substring).
-    # on_chat_model_stream handles type="thinking" blocks identically regardless of provider.
-    # Pro/full models from Google process thinking internally and never return blocks.
-    # OpenAI o-series reasoning is also hidden; no config needed there.
+    
     THINKING_KWARGS: dict[tuple[str, str], dict] = {
         ("google_genai", "flash"): {"include_thoughts": False},
         # Anthropic extended thinking — add when Claude is wired up:
@@ -425,6 +444,18 @@ class Agent:
                 kwargs.update(thinking_kwargs)
                 break
         logger.debug(f'🤖 LLM: provider={model_provider} model={model_name} thinking={bool(kwargs)}')
+        if model_provider in ["together"]:
+            is_qwen3 = "Qwen3" in model_name
+            return ChatOpenAI(
+                        base_url="https://api.together.xyz/v1",
+                        api_key=os.getenv("TOGETHER_API_KEY"),
+                        model=model_name,
+                        max_tokens=4096,
+                        stream_usage=False,  # Together AI doesn't support stream_options/include_usage
+                        stop=["<|im_end|>", "<|endoftext|>"] if is_qwen3 else None,
+                        extra_body={"enable_thinking": False} if is_qwen3 else {},
+                    )
+
         return init_chat_model(model_name, model_provider=model_provider, **kwargs)
 
     def _compile_agent(self,llm_model : str ,query_id : str,):
@@ -669,7 +700,8 @@ class Agent:
                               "size": att.size,
                               "session_id": query.session_id,
                               "project_id": query.project_id,
-                              "embedding_model" : self.in_memory_store.embedding_model,},
+                              "embedding_model" : self.in_memory_store.embedding_model,
+                              },
                     file_type=att.file_type)
                 docs.extend(extracted_docs)
                 att.body = self.document_processor.to_plain_text(extracted_docs)
@@ -779,25 +811,29 @@ class Agent:
                                 config: RunnableConfig = None,
                                 ) -> list:
         """Route attachments to doc/email analysis tasks, batching emails by size/count."""
-        sem = asyncio.Semaphore(20)
 
         async def analyze_docs_with_limit(attatchments: list[AttachmentModel], input_,):
-            async with sem:
+            async with self._semaphore:
                 result = await self.context_manager.analyze_docs(
                     input_=input_,
                     attachments=attatchments,
                     config=config,
                 )
+                if self.config.throttle_value > 0:
+                    await asyncio.sleep(self.config.throttle_value)
                 result["_source_filenames"] = [a.filename for a in attatchments]
                 return result
 
         async def analyze_emails_with_limit(emails: list[EmailModel], input_):
-            async with sem:
-                return await self.context_manager.analyze_emails(
+            async with self._semaphore:
+                result = await self.context_manager.analyze_emails(
                     input_=input_,
                     emails=emails,
                     config=config,
                 )
+                if self.config.throttle_value > 0:
+                    await asyncio.sleep(self.config.throttle_value)
+                return result
 
         
         doc_tasks = []
@@ -1000,7 +1036,7 @@ class Agent:
         }
 
         # Run file storage + init_input analysis in parallel
-        initial_input = "No initial input extracted"
+        initial_input = InitialInput()
         parallel_tasks = [
             asyncio.create_task(self.context_manager.analyze_init_input(query.question, config=thread))
         ]
@@ -1031,6 +1067,8 @@ class Agent:
                         "query_id": query.query_id
                     }
             else:
+                if result is not None and not isinstance(result, bool):
+                    logger.warning(f"analyze_init_input returned unexpected type {type(result)} — using empty InitialInput fallback")
                 yield {
                         "type": "status",
                         "phase": ["storage"],

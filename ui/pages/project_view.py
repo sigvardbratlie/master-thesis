@@ -43,7 +43,7 @@ if auth_service.is_logged_in():
     with st.sidebar:
         project_component.run_sidebar()
         st.divider()
-        sidebar_component.llm_model_options(default_choice=3,expanded=True)
+        sidebar_component.llm_model_options(expanded=True)
 
 
     if not st.session_state.project_id:

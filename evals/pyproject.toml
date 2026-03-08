@@ -75,11 +75,11 @@ dependencies = [
     "statsmodels>=0.14.6",
     "scikit-learn>=1.8.0",
     "sentence-transformers>=5.2.3",
-    "rouge-score>=0.1.2",
     "seaborn>=0.13.2",
     "matplotlib>=3.10.8",
     "plotly>=6.5.2",
     "nbformat>=5.10.4",
+    "bert-score>=0.3.13",
 ]
 
 [project.scripts]

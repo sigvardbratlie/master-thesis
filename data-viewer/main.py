@@ -197,6 +197,19 @@ _RESULT_RE = re.compile(r"^(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json$")
 _EVAL_RE = re.compile(r"^llm-as-judge_(.+)_(custom|baseline)_(.+)\.json$")
 
 
+@st.cache_data(ttl=120)
+def _load_matched_result(dataset: str, eval_run_id: str) -> dict:
+    """Find the result file matching eval_run_id and return its full data dict."""
+    for blob in list_result_blobs(dataset):
+        try:
+            data = json.loads(read_blob_bytes(blob.name).decode("utf-8"))
+            if data.get("eval_run_id") == eval_run_id:
+                return data
+        except Exception:
+            continue
+    return {}
+
+
 # ── LangSmith token counts ─────────────────────────────────────────────────────
 
 def _get_langsmith_client():
@@ -422,6 +435,25 @@ def text_height(
     lines = text.split("\n")
     total_lines = sum(max(1, math.ceil(len(line) / chars_per_line)) for line in lines)
     return max(min_height, min(max_height, total_lines * 22 + 50))
+
+
+def _render_token_metrics(token_counts: dict) -> None:
+    """Render token counts dict as Streamlit metric widgets."""
+    st.write("")
+    tc_cols = st.columns(len(token_counts))
+    for col, (k, v) in zip(tc_cols, token_counts.items()):
+        col.metric(k.replace("_", " ").title(), f"{v:,}" if isinstance(v, int) else v)
+
+
+def _render_time_inputs(time_usage: dict, key_prefix: str = "") -> None:
+    """Render time usage (starttime/endtime/duration_seconds) as disabled text inputs."""
+    duration = time_usage.get("duration_seconds")
+    start_time = time_usage.get("starttime")
+    end_time = time_usage.get("endtime")
+    t1, t2, t3, _ = st.columns(4)
+    t1.text_input("Duration", value=f"{duration:.1f}s" if duration else "—", disabled=True, key=f"{key_prefix}_dur" if key_prefix else None)
+    t2.text_input("Start Time", value=start_time or "—", disabled=True, key=f"{key_prefix}_start" if key_prefix else None)
+    t3.text_input("End Time", value=end_time or "—", disabled=True, key=f"{key_prefix}_end" if key_prefix else None)
 
 
 SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".eml", ".docx", ".xlsx"}
@@ -1035,6 +1067,22 @@ with tab_files:
                 "🗑️ Move to trash", key="btn_trash_file", use_container_width=True
             ):
                 st.session_state["_confirm_trash_file"] = selected_label
+            _cur_name = selected_label.split(" ", 1)[-1]
+            with st.expander("✏️ Rename"):
+                _new_name = st.text_input(
+                    "New filename",
+                    value=_cur_name,
+                    key=f"rename_{_cur_name}",
+                    label_visibility="collapsed",
+                )
+                if st.button("Rename", key="btn_rename_file", use_container_width=True):
+                    if _new_name and _new_name != _cur_name:
+                        move_blob(
+                            f"datasets/{dataset}/01_data/{_cur_name}",
+                            f"datasets/{dataset}/01_data/{_new_name}",
+                        )
+                        st.success(f"Renamed to `{_new_name}`")
+                        st.rerun()
 
         selected_idx = file_labels.index(selected_label)
         selected_blob = all_blobs[selected_idx]
@@ -1059,7 +1107,25 @@ with tab_files:
             st.divider()
             try:
                 content = read_blob_bytes(selected_blob.name)
-                render_file(selected_name, content)
+                if selected_ext == ".txt":
+                    _txt_content = content.decode("utf-8", errors="ignore")
+                    _edited_txt = st.text_area(
+                        "Edit content",
+                        value=_txt_content,
+                        height=text_height(_txt_content, min_height=300),
+                        key=f"txt_editor_{selected_blob.name}",
+                        label_visibility="collapsed",
+                    )
+                    if st.button("💾 Save", key="btn_save_txt"):
+                        upload_raw_blob(
+                            selected_blob.name,
+                            _edited_txt.encode("utf-8"),
+                            "text/plain; charset=utf-8",
+                        )
+                        st.success("Saved.")
+                        st.rerun()
+                else:
+                    render_file(selected_name, content)
             except Exception as e:
                 st.error(f"❌ Could not render file: {e}")
                 logger.error(f"Error rendering {selected_name}: {e}", exc_info=True)
@@ -1156,40 +1222,23 @@ with tab_results:
     # ── Metadata strip ────────────────────────────────────────────────────────
     with st.expander("ℹ️ Run metadata", expanded=False):
         m1, m2, m3, m4 = st.columns(4)
-        m1.text_input("Model", value=result_data.get("llm_model", "—"), disabled=True)
-        m2.text_input(
-            "Dataset", value=result_data.get("dataset_name", "—"), disabled=True
-        )
-        m3.text_input(
-            "Last updated", value=result_data.get("last_updated", "—"), disabled=True
-        )
-        m4.text_input(
-            "Custom agent",
-            value=str(result_data.get("custom_agent", "—")),
-            disabled=True,
-        )
+        m1.text_input("Model", value=result_data.get("llm_model", "—"), disabled=True, key="res_meta_model")
+        m2.text_input("Agent type", value=result_data.get("agent_type", "—"), disabled=True, key="res_meta_agent")
+        m3.text_input("Eval run ID", value=result_data.get("eval_run_id", "—"), disabled=True, key="res_meta_run_id")
+        m4.text_input("Dataset", value=result_data.get("dataset_name", "—"), disabled=True, key="res_meta_dataset")
+
+        n1, n2, n3, n4 = st.columns(4)
+        n1.text_input("Project ID", value=result_data.get("project_id", "—"), disabled=True, key="res_meta_proj")
+        n2.text_input("User ID", value=result_data.get("user_id", "—"), disabled=True, key="res_meta_user")
+        n3.text_input("Last updated", value=result_data.get("last_updated", "—"), disabled=True, key="res_meta_updated")
 
         time_usage = result_data.get("time_counts") or result_data.get("time_usage") or {}
-        start_time = time_usage.get("starttime")
-        end_time = time_usage.get("endtime")
-        duration = time_usage.get("duration_seconds")
-
-        m5, m6, m7, m8 = st.columns(4)
-        m5.text_input(
-            "Duration", value=f"{duration:.1f}s" if duration else "—", disabled=True
-        )
-        m6.text_input("Start Time", value=start_time or "—", disabled=True)
-        m7.text_input("End Time", value=end_time or "—", disabled=True)
-        # m8 empty for now
+        if time_usage:
+            _render_time_inputs(time_usage, key_prefix="res_meta")
 
         token_counts = result_data.get("token_counts")
         if token_counts and isinstance(token_counts, dict):
-            st.write("")
-            tc_cols = st.columns(len(token_counts))
-            for col, (k, v) in zip(tc_cols, token_counts.items()):
-                col.metric(
-                    k.replace("_", " ").title(), f"{v:,}" if isinstance(v, int) else v
-                )
+            _render_token_metrics(token_counts)
 
     st.divider()
 
@@ -1218,8 +1267,10 @@ with tab_results:
         with st.expander(label, expanded=True):
             conversation = session.get("conversation", [])
             res_cap_col, res_btn_col = st.columns([0.65, 0.35])
+            _runtime_sid = session.get("runtime_session_id", "")
             res_cap_col.caption(
                 f"🔢 {len(conversation)} {'query' if len(conversation) == 1 else 'queries'}"
+                + (f" · session_id: `{_runtime_sid}`" if _runtime_sid else "")
             )
             res_q_collapsed = st.session_state.get(f"_res_q_collapsed_{s_idx}", False)
             if res_btn_col.button(
@@ -1242,15 +1293,16 @@ with tab_results:
                         icon = FILE_ICONS.get(ext, "📎")
                         st.markdown(f"{icon} `{fname}`")
 
+            session_tokens = session.get("token_counts")
+            if session_tokens and isinstance(session_tokens, dict):
+                _render_token_metrics(session_tokens)
+
             if session.get("init_query"):
                 with st.expander("📝 Initial instruction", expanded=False):
                     st.text(session["init_query"])
                     init_tokens = session.get("init_query_token_count")
                     if init_tokens and isinstance(init_tokens, dict):
-                        st.write("")
-                        it_cols = st.columns(len(init_tokens))
-                        for col, (k, v) in zip(it_cols, init_tokens.items()):
-                            col.metric(k.replace("_", " ").title(), f"{v:,}" if isinstance(v, int) else v)
+                        _render_token_metrics(init_tokens)
 
             for q_idx, q in enumerate(conversation):
                 inp = q.get("input", "").strip()
@@ -1297,13 +1349,7 @@ with tab_results:
 
                     q_tokens = q.get("token_counts")
                     if q_tokens and isinstance(q_tokens, dict):
-                        st.write("")
-                        qt_cols = st.columns(len(q_tokens))
-                        for col, (k, v) in zip(qt_cols, q_tokens.items()):
-                            col.metric(
-                                k.replace("_", " ").title(),
-                                f"{v:,}" if isinstance(v, int) else v,
-                            )
+                        _render_token_metrics(q_tokens)
 
         st.write("")
 
@@ -1357,40 +1403,36 @@ with tab_evals:
         st.error(f"❌ Could not load eval file: {e}")
         st.stop()
 
+    # ── Join matching result file ──────────────────────────────────────────────
+    _eval_run_id = eval_data.get("eval_run_id", "")
+    _matched_result = _load_matched_result(dataset, _eval_run_id) if _eval_run_id else {}
+    _result_sessions = {
+        s["session_name"]: s
+        for s in _matched_result.get("sessions", [])
+        if s.get("session_name")
+    }
+
     # ── Metadata strip ─────────────────────────────────────────────────────────
     with st.expander("ℹ️ Run metadata", expanded=False):
         e1, e2, e3, e4 = st.columns(4)
-        e1.text_input(
-            "LLM model",
-            value=eval_data.get("llm_model", "—"),
-            disabled=True,
-            key="eval_meta_model",
-        )
-        e2.text_input(
-            "Agent type",
-            value="custom" if eval_data.get("custom_agent") else "baseline",
-            disabled=True,
-            key="eval_meta_agent",
-        )
-        e3.text_input(
-            "Eval run ID",
-            value=eval_data.get("eval_run_id", "—"),
-            disabled=True,
-            key="eval_meta_run",
-        )
-        e4.text_input(
-            "Created at",
-            value=eval_data.get("created_at", "—"),
-            disabled=True,
-            key="eval_meta_created",
-        )
+        e1.text_input("LLM model", value=eval_data.get("llm_model", "—"), disabled=True, key="eval_meta_model")
+        e2.text_input("Agent type", value=eval_data.get("agent_type", _matched_result.get("agent_type", "—")), disabled=True, key="eval_meta_agent")
+        e3.text_input("Eval run ID", value=_eval_run_id or "—", disabled=True, key="eval_meta_run")
+        e4.text_input("Created at", value=eval_data.get("created_at", "—"), disabled=True, key="eval_meta_created")
 
-        token_counts = eval_data.get("token_counts")
+        f1, f2, f3, f4 = st.columns(4)
+        f1.text_input("Dataset", value=eval_data.get("dataset_name", "—"), disabled=True, key="eval_meta_dataset")
+        f2.text_input("Project ID", value=eval_data.get("project_id", _matched_result.get("project_id", "—")), disabled=True, key="eval_meta_proj")
+        f3.text_input("User ID", value=eval_data.get("user_id", _matched_result.get("user_id", "—")), disabled=True, key="eval_meta_user")
+
+        # Time and tokens from matched result file (eval file doesn't store these)
+        time_usage = _matched_result.get("time_counts") or _matched_result.get("time_usage") or {}
+        if time_usage:
+            _render_time_inputs(time_usage, key_prefix="eval_meta")
+
+        token_counts = _matched_result.get("token_counts")
         if token_counts and isinstance(token_counts, dict):
-            st.write("")
-            tc_cols = st.columns(len(token_counts))
-            for col, (k, v) in zip(tc_cols, token_counts.items()):
-                col.metric(k.replace("_", " ").title(), v)
+            _render_token_metrics(token_counts)
 
     st.divider()
 
@@ -1402,15 +1444,6 @@ with tab_evals:
         if isinstance(session_result, dict):
             all_test_results.extend(session_result.get("test_results") or [])
 
-    def _turn_order_key(t: dict):
-        val = (t.get("additional_metadata") or {}).get("turn_order")
-        try:
-            return int(val)
-        except (TypeError, ValueError):
-            return float("inf")
-
-    all_test_results.sort(key=_turn_order_key)
-
     if not all_test_results:
         st.info("No test results found in this eval run.")
         st.stop()
@@ -1419,126 +1452,160 @@ with tab_evals:
     total_cases = len(all_test_results)
     passed_cases = sum(1 for t in all_test_results if t.get("success"))
 
-    # Aggregate per metric
     metric_scores: dict[str, list[float]] = {}
     metric_passes: dict[str, list[bool]] = {}
     for t in all_test_results:
         for m in t.get("metrics_data") or []:
-            name = m.get("name", "unknown")
+            mname = m.get("name", "unknown")
             score = m.get("score")
             success = m.get("success")
             if score is not None:
-                metric_scores.setdefault(name, []).append(score)
+                metric_scores.setdefault(mname, []).append(score)
             if success is not None:
-                metric_passes.setdefault(name, []).append(success)
+                metric_passes.setdefault(mname, []).append(success)
 
     sum_cols = st.columns(2 + len(metric_scores))
     sum_cols[0].metric("Test cases", total_cases)
-    sum_cols[1].metric(
-        "Overall pass rate", f"{passed_cases / total_cases:.0%}" if total_cases else "—"
-    )
+    sum_cols[1].metric("Overall pass rate", f"{passed_cases / total_cases:.0%}" if total_cases else "—")
     for i, metric_name in enumerate(metric_scores):
         scores = metric_scores[metric_name]
         passes = metric_passes.get(metric_name, [])
         avg_score = sum(scores) / len(scores) if scores else None
         pass_rate = sum(passes) / len(passes) if passes else None
-        label = f"{metric_name.title()} (avg)"
-        value = f"{avg_score:.2f}" if avg_score is not None else "—"
-        delta = f"{pass_rate:.0%} pass" if pass_rate is not None else None
-        sum_cols[2 + i].metric(label, value, delta=delta)
+        sum_cols[2 + i].metric(
+            f"{metric_name.title()} (avg)",
+            f"{avg_score:.2f}" if avg_score is not None else "—",
+            delta=f"{pass_rate:.0%} pass" if pass_rate is not None else None,
+        )
 
     st.divider()
 
-    # ── Test case details ──────────────────────────────────────────────────────
-    st.markdown(
-        f"#### Test cases &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({total_cases} total)</span>",
-        unsafe_allow_html=True,
-    )
-    st.write("")
+    # ── Group test results by session, ordered by session number ──────────────
+    sessions_map: dict[str, dict] = {}
+    for t in all_test_results:
+        meta = t.get("additional_metadata") or {}
+        sname = meta.get("session_name") or "Unknown session"
+        snum = meta.get("session") if meta.get("session") is not None else float("inf")
+        if sname not in sessions_map:
+            sessions_map[sname] = {"session": snum, "turns": []}
+        sessions_map[sname]["turns"].append(t)
 
-    for t_idx, test in enumerate(all_test_results):
-        success = test.get("success", False)
-        name = test.get("name") or f"Test case {t_idx + 1}"
-        metrics_data = test.get("metrics_data") or []
-
-        score_summary = ""
-        if metrics_data:
-            parts = []
-            for m in metrics_data:
-                s = m.get("score")
-                parts.append(
-                    f"{m.get('name', '?')}: {s:.2f}"
-                    if s is not None
-                    else m.get("name", "?")
-                )
-            score_summary = " · ".join(parts)
-
-        label = f"{'✅' if success else '❌'} {name}" + (
-            f" — {score_summary}" if score_summary else ""
+    # Sort sessions by session number, turns within each session by turn_order
+    sorted_sessions = sorted(sessions_map.items(), key=lambda x: x[1]["session"])
+    for _, sdata in sorted_sessions:
+        sdata["turns"].sort(
+            key=lambda t: int((t.get("additional_metadata") or {}).get("turn_order") or 0)
         )
 
-        with st.expander(label, expanded=False):
-            inp = test.get("input", "").strip()
-            actual = test.get("actual_output", "").strip()
-            expected = test.get("expected_output", "").strip()
+    n_eval_sessions = len(sorted_sessions)
+    total_turns = sum(len(s["turns"]) for _, s in sorted_sessions)
+    st.caption(f"**{n_eval_sessions}** sessions · **{total_turns}** turns")
+    st.write("")
 
-            st.markdown("**🧑‍💼 Input**")
-            st.markdown(inp or "_No input_")
-            st.write("")
+    # ── Sessions ───────────────────────────────────────────────────────────────
+    for s_idx, (sname, sdata) in enumerate(sorted_sessions):
+        turns = sdata["turns"]
+        label = f"📁 {sname}"
+        result_session = _result_sessions.get(sname, {})
 
-            col_exp, col_act = st.columns(2)
-            with col_exp:
-                st.markdown("**✍️ Expected output**")
-                st.text_area(
-                    "Expected",
-                    value=expected or "—",
-                    height=text_height(expected) if expected else 80,
-                    disabled=True,
-                    label_visibility="collapsed",
-                    key=f"eval_exp_{selected_eval_idx}_{t_idx}",
-                )
-            with col_act:
-                st.markdown("**🤖 Actual output**")
-                st.text_area(
-                    "Actual",
-                    value=actual or "—",
-                    height=text_height(actual) if actual else 80,
-                    disabled=True,
-                    label_visibility="collapsed",
-                    key=f"eval_act_{selected_eval_idx}_{t_idx}",
-                )
+        with st.expander(label, expanded=True):
+            ev_cap_col, ev_btn_col = st.columns([0.65, 0.35])
+            _ev_runtime_sid = result_session.get("runtime_session_id", "")
+            ev_cap_col.caption(
+                f"🔢 {len(turns)} {'turn' if len(turns) == 1 else 'turns'}"
+                + (f" · session_id: `{_ev_runtime_sid}`" if _ev_runtime_sid else "")
+            )
+            ev_q_collapsed = st.session_state.get(f"_ev_q_collapsed_{s_idx}", False)
+            if ev_btn_col.button(
+                "⬆️ Collapse turns" if not ev_q_collapsed else "⬇️ Expand turns",
+                key=f"toggle_ev_q_{s_idx}",
+                type="tertiary",
+                use_container_width=True,
+            ):
+                st.session_state[f"_ev_q_collapsed_{s_idx}"] = not ev_q_collapsed
+                st.rerun()
 
-            if metrics_data:
-                st.write("")
-                st.markdown("**📊 Metrics**")
+            attachments = result_session.get("attachments", [])
+            if attachments:
+                with st.expander(f"📎 Attachments ({len(attachments)})", expanded=False):
+                    for path in attachments:
+                        fname = path.split("/")[-1]
+                        ext = Path(fname).suffix.lower()
+                        st.markdown(f"{FILE_ICONS.get(ext, '📎')} `{fname}`")
+
+            session_tokens = result_session.get("token_counts")
+            if session_tokens and isinstance(session_tokens, dict):
+                _render_token_metrics(session_tokens)
+
+            for t_idx, test in enumerate(turns):
+                success = test.get("success", False)
+                meta = test.get("additional_metadata") or {}
+                turn_order = meta.get("turn_order", t_idx + 1)
+                metrics_data = test.get("metrics_data") or []
+
+                score_parts = []
                 for m in metrics_data:
-                    m_name = m.get("name", "unknown")
-                    m_score = m.get("score")
-                    m_pass = m.get("success")
-                    m_reason = m.get("reason", "")
-                    m_threshold = m.get("threshold")
-                    m_eval_model = m.get("evaluation_model", "")
+                    s = m.get("score")
+                    score_parts.append(f"{m.get('name', '?')}: {s:.2f}" if s is not None else m.get("name", "?"))
+                score_summary = " · ".join(score_parts)
 
-                    badge = "✅" if m_pass else "❌"
-                    score_str = f"{m_score:.3f}" if m_score is not None else "—"
-                    threshold_str = (
-                        f"(threshold: {m_threshold})" if m_threshold is not None else ""
-                    )
-                    model_str = (
-                        f" · evaluated by `{m_eval_model}`" if m_eval_model else ""
-                    )
+                turn_label = f"{'✅' if success else '❌'} Turn {turn_order}" + (f" — {score_summary}" if score_summary else "")
 
-                    st.markdown(
-                        f"{badge} **{m_name}** — score: `{score_str}` {threshold_str}{model_str}"
-                    )
-                    if m_reason:
-                        st.caption(m_reason)
+                with st.expander(turn_label, expanded=not ev_q_collapsed):
+                    inp = test.get("input", "").strip()
+                    actual = test.get("actual_output", "").strip()
+                    expected = test.get("expected_output", "").strip()
 
-            meta = test.get("additional_metadata")
-            if meta:
-                st.write("")
-                st.caption(
-                    f"query_id: `{meta.get('query_id', '—')}` · turn: `{meta.get('turn_order', '—')}`"
-                )
+                    st.markdown("**🧑‍💼 Query**")
+                    st.markdown(inp or "_No input_")
+                    st.write("")
+
+                    col_exp, col_act = st.columns(2)
+                    with col_exp:
+                        st.markdown("**✍️ Ground truth**")
+                        st.text_area(
+                            "Expected",
+                            value=expected or "—",
+                            height=text_height(expected) if expected else 80,
+                            disabled=True,
+                            label_visibility="collapsed",
+                            key=f"eval_exp_{selected_eval_idx}_{s_idx}_{t_idx}",
+                        )
+                    with col_act:
+                        st.markdown("**🤖 Model response**")
+                        st.text_area(
+                            "Actual",
+                            value=actual or "—",
+                            height=text_height(actual) if actual else 80,
+                            disabled=True,
+                            label_visibility="collapsed",
+                            key=f"eval_act_{selected_eval_idx}_{s_idx}_{t_idx}",
+                        )
+
+                    # Token counts for this turn (from joined result data if present)
+                    turn_tokens = test.get("token_counts")
+                    if turn_tokens and isinstance(turn_tokens, dict):
+                        _render_token_metrics(turn_tokens)
+
+                    if metrics_data:
+                        st.write("")
+                        st.markdown("**📊 Metrics**")
+                        for m in metrics_data:
+                            m_name = m.get("name", "unknown")
+                            m_score = m.get("score")
+                            m_pass = m.get("success")
+                            m_reason = m.get("reason", "")
+                            m_threshold = m.get("threshold")
+                            m_eval_model = m.get("evaluation_model", "")
+                            badge = "✅" if m_pass else "❌"
+                            score_str = f"{m_score:.3f}" if m_score is not None else "—"
+                            threshold_str = f"(threshold: {m_threshold})" if m_threshold is not None else ""
+                            model_str = f" · evaluated by `{m_eval_model}`" if m_eval_model else ""
+                            st.markdown(f"{badge} **{m_name}** — score: `{score_str}` {threshold_str}{model_str}")
+                            if m_reason:
+                                st.caption(m_reason)
+
+                    st.write("")
+                    st.caption(f"query_id: `{meta.get('query_id', '—')}` · turn: `{turn_order}`")
 
         st.write("")

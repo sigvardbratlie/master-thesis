@@ -11,6 +11,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
 from agent.agent import Agent
+from agent.config import AgentConfig
 from models import AskAgentRequest, AttachmentModel, CleanupElementsRequest
 from models.project_models import FactSheet
 from agent.utils import PROMPT, PROMPT_BASELINE, PROMPT_BASELINE_RAG
@@ -36,13 +37,20 @@ _PROMPT_MAP = {
 
 
 class CollectAgentResult:
-    def __init__(self, data: DatasetPayload, llm_model: str = "google_gemini-2.5-pro", agent_type: Literal["custom", "baseline", "baseline_rag"] = "custom"):
+    def __init__(self, data: DatasetPayload, llm_model: str = "google_gemini-2.5-pro", agent_type: Literal["custom", "baseline", "baseline_rag"] = "custom",
+                 async_config : AgentConfig = None):
         self.data = data
         self.llm_model = llm_model
         self.agent_type: Literal["custom", "baseline", "baseline_rag"] = agent_type
         self.dataclass = Dataset(name=data.dataset_name)
+        self.async_config = AgentConfig.for_model(self.llm_model) if not async_config else async_config
 
-    async def init_agent(self, use_factsheet: bool = True, save_to_storage: bool = True, embed_to_vectorstore: bool = True, tools=None, prompt: str = None):
+    async def init_agent(self, use_factsheet: bool = True, 
+                         save_to_storage: bool = True, 
+                         embed_to_vectorstore: bool = True, 
+                         tools=None, 
+                         prompt: str = None,
+                         async_config : AgentConfig = None):
         connection_string = os.getenv("SUPABASE_DB_URL")
         pool = AsyncConnectionPool(conninfo=connection_string, open=False, min_size=1, max_size=2)
         await pool.open()
@@ -54,6 +62,7 @@ class CollectAgentResult:
             tools=tools,
             prompt=prompt,
             checkpointer=checkpointer,
+            config=self.async_config,
         )
         logger.info("Agent initialized with AsyncPostgresSaver checkpointer")
         return agent
@@ -136,16 +145,17 @@ class CollectAgentResult:
 
         # Baseline agents never call initialize_project, so the project row is never created.
         # Create a minimal project entry now to satisfy the FK constraint in save_stream.
-        if not use_factsheet and save_to_storage:
+        if not use_factsheet and embed_to_vectorstore:
             await asyncio.to_thread(
                 agent_class.conversation_manager.save_project,
                 factsheet=FactSheet(events=[]),
                 attachments=[],
                 user_id=self.data.user_id,
                 project_id=eval_run_id,
-                session_id="",
-            )
-            logger.info(f"Baseline agent: created minimal project entry for {eval_run_id}")
+                query_id = str(uuid.uuid4()),
+                session_id=str(uuid.uuid4()),
+            ) #saving a empty project for BASELINE + RAG for the purpose of using vector store on project_id
+            logger.info(f"Baseline Rag agent: created minimal project entry for {eval_run_id}")
 
         starttime = datetime.now()
         with tracing_context(
@@ -177,7 +187,7 @@ class CollectAgentResult:
                     session_id=runtime_session_id,
                     llm_model=self.llm_model,
                     query_id=query_id,
-                    project_id=eval_run_id,
+                    project_id=eval_run_id if self.agent_type in ["custom", "baseline_rag"] else None,
                     attachments=attachments,
                 )
                 if use_factsheet:
@@ -207,20 +217,19 @@ class CollectAgentResult:
                     )
                     logger.debug(f"Session {idx} initialization completed in {session.init_query_time_count.duration_seconds:.2f} seconds")
                 else:
-                    if session.init_query.strip():
-                        conv_query_id = str(uuid.uuid4())
-                        with tracing_context(metadata={"query_id": conv_query_id}):
-                            await self.run_conv(
-                                conv=ConversationTurn(input=session.init_query, answer=""),
-                                agent_class=agent_class,
-                                project_id=eval_run_id,
-                                session_id=runtime_session_id,
-                                query_id=conv_query_id,
-                                user_id=self.data.user_id,
-                                attachments=attachments,
-                            )
-                    else:
-                        logger.info(f"Session {idx}: skipping empty init_query for baseline agent")
+                    conv_query_id = session.init_query_id or str(uuid.uuid4())
+                    init_query = session.init_query or f"{session.session_name}. Se vedlagte dokumenter"
+                    with tracing_context(metadata={"query_id": conv_query_id}):
+                        await self.run_conv(
+                            conv=ConversationTurn(input=init_query, answer=""),
+                            agent_class=agent_class,
+                            project_id=eval_run_id if self.agent_type in ["custom","baseline_rag"] else None,
+                            session_id=runtime_session_id,
+                            query_id=conv_query_id,
+                            user_id=self.data.user_id,
+                            attachments=attachments,
+                        )
+
 
                 for conv in session.conversation:
                     conv_query_id = conv.query_id or str(uuid.uuid4())
@@ -228,7 +237,7 @@ class CollectAgentResult:
                         await self.run_conv(
                             conv=conv,
                             agent_class=agent_class,
-                            project_id=eval_run_id,
+                            project_id=eval_run_id if self.agent_type in ["custom", "baseline_rag"] else None,
                             session_id=runtime_session_id,
                             query_id=conv_query_id,
                             user_id=self.data.user_id,

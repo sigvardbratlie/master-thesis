@@ -16,7 +16,6 @@ from langchain.chat_models import init_chat_model
 
 from models import *
 
-
 logger = logging.getLogger(__name__)
 
 class ContextManager:
@@ -133,12 +132,17 @@ class ContextManager:
             attachments: List[AttachmentWithEvents]
 
         documents_formatted = "\n\n".join([
-            f"DOCUMENT #{idx+1} (file_id: {att.file_id}):\n{att.model_dump(include={'body','file_type',})}"
+            f"DOCUMENT #{idx+1}\nFILE_ID={att.file_id}  <-- copy this into attachment.file_id\n{att.model_dump(include={'body','file_type'})}"
             for idx, att in enumerate(attachments)
         ])
 
         structured_llm = self.llm.with_structured_output(MultipleAttachmentsResult, method="function_calling")
-        init_prompt = f'{input_.shorten_factsheet()}\n\n' if isinstance(input_, FactSheet) else f'Case input: {input_.model_dump(mode = "json")}\n\n'
+        if isinstance(input_, FactSheet):
+            init_prompt = f'{input_.shorten_factsheet()}\n\n'
+        elif isinstance(input_, str):
+            init_prompt = f'Case input: {input_}\n\n'
+        else:
+            init_prompt = f'Case input: {input_.model_dump(mode="json")}\n\n'
         prompt = init_prompt + f'''Analyze the following {len(attachments)} documents.
 
                                 For EACH document, return an AttachmentWithEvents object containing:
@@ -283,7 +287,12 @@ class ContextManager:
         events = []
 
         structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
-        init_prompt = f'{input_.shorten_factsheet()}\n\n' if isinstance(input_, FactSheet) else f'Case input: {input_.model_dump(mode = "json")}\n\n'
+        if isinstance(input_, FactSheet):
+            init_prompt = f'{input_.shorten_factsheet()}\n\n'
+        elif isinstance(input_, str):
+            init_prompt = f'Case input: {input_}\n\n'
+        else:
+            init_prompt = f'Case input: {input_.model_dump(mode="json")}\n\n'
         
         # Format emails with clear ID separation
         emails_formatted = "\n\n".join([
