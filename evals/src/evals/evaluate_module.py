@@ -37,7 +37,7 @@ class Evaluater:
             raise TypeError(f'Only gpt and gemini are implemented')
 
     
-    def collect_single(self, conversation_turn: ConversationTurn, session_name: str = "unknown", session_id: str = "unknown") -> LLMTestCase | None:
+    def collect_single(self, conversation_turn: ConversationTurn, session_name: str = "unknown", session_id: str = "unknown", session: int = None) -> LLMTestCase | None:
         if not conversation_turn.input or not conversation_turn.model_response or not conversation_turn.answer:
             logger.warning("Conversation turn is missing required fields. Skipping evaluation for this turn.")
             return None
@@ -47,10 +47,11 @@ class Evaluater:
             actual_output=conversation_turn.model_response,
             expected_output=conversation_turn.answer,
             additional_metadata={
-                "turn_order": conversation_turn.order or "unknown",
-                "query_id": conversation_turn.query_id or "unknown",
+                "turn_order": conversation_turn.order,
+                "query_id": conversation_turn.query_id,
                 "session_name" : session_name,
                 "session_id": session_id,
+                "session": session,  
             },
         )
 
@@ -74,15 +75,12 @@ class Evaluater:
     def run_session_eval(self, session: Session):
         test_cases = [
             tc for conv in session.conversation
-            if (tc := self.collect_single(conversation_turn=conv, session_name=session.session_name, session_id=session.runtime_session_id)) is not None
+            if (tc := self.collect_single(conversation_turn=conv, 
+                                          session_name=session.session_name, 
+                                          session_id=session.runtime_session_id, 
+                                          session=session.session)) is not None
         ]
-        # correctness = GEval(
-        #                 name="correctness",
-        #                 criteria="Determine if actual_output is factually correct based on expected_output",
-        #                 evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
-        #                 model=self.model,
-        #                 threshold=self.threshold,
-        #             )
+
         
         completeness = GEval(
                         name="completeness",

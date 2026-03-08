@@ -51,7 +51,7 @@ if __name__ == "__main__":
     _run_id = uuid.uuid4().hex[:8]
     _log_dir = os.path.join(os.path.dirname(__file__), "logs")
     os.makedirs(_log_dir, exist_ok=True)
-    _log_file = os.path.join(_log_dir, f"evaluate_{_run_id}.log")
+    _log_file = os.path.join(_log_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_evaluate_{_run_id}.log")
     _file_handler = logging.FileHandler(_log_file)
     _file_handler.setLevel(logging.DEBUG)
     _file_handler.setFormatter(_log_fmt)

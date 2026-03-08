@@ -46,6 +46,7 @@ async def main():
                                                            "openai_gpt-5.3-chat-latest", "openai_gpt-5.4",
                                                              "anthropic_claude-haiku-4-5", "anthropic_claude-sonnet-4-6",
                                                              "qwen_Qwen/Qwen3-Next-80B-A3B-Instruct", "qwen_Qwen/Qwen3.5-397B-A17B",
+                                                             "zai_zai-org/GLM-5", 
                                                            ],
                         help="LLM model to use for evaluation")
     parser.add_argument("-a", "--agent-type", nargs="+", type=str, choices=["custom", "baseline", "baseline_rag"], default=["custom", "baseline", "baseline_rag"],help="Agent type to run (custom, baseline, or baseline_rag)")
@@ -67,7 +68,7 @@ async def main():
     _log_dir = os.path.join(os.path.dirname(__file__), "logs")
     os.makedirs(_log_dir, exist_ok=True)
     _model_slug = (llm_model or "unknown").replace("/", "-")
-    _log_file = os.path.join(_log_dir, f"collect_{_model_slug}_{dataset_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+    _log_file = os.path.join(_log_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_collect_{_model_slug}_{dataset_name}.log")
     _file_handler = logging.FileHandler(_log_file)
     _file_handler.setLevel(logging.DEBUG)
     _file_handler.setFormatter(_log_fmt)

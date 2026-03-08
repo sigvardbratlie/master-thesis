@@ -34,6 +34,7 @@ class ConversationTurn(BaseModel):
 class Session(BaseModel):
     """A single evaluation session with its conversation and attachments."""
     session_name: str
+    session : Optional[int] = None  # Added session number field
     date: str  # YYYY-MM-DD
     init_query: str
     init_query_id: Optional[str] = None
@@ -101,6 +102,8 @@ class BaseMetric(BaseModel):
     eval_run_id: str
     query_id: Optional[str] = None
     session_id: Optional[str] = None
+    session :  Optional[int] = None
+    session_name: Optional[str] = None
     llm_model: str
     agent_type: str
 
