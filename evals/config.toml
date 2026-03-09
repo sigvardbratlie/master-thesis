@@ -1,18 +1,25 @@
 [logging]
-# Globalt standardnivå for hele applikasjonen
 level = "info"
 
 [logging.file]
-# Bruk 'enabled' i stedet for 'LOG_TO_FILE' når du er inne i fil-blokken
 enabled = true
-level = "info"
-path = "/var/log/app.log"
+level = "debug"
+path = "log/app.log"
 
 [logging.console]
-enabled = true
 level = "info"
 
 [async]
-# Her fjerner vi bare store bokstaver, siden 'max' gir mening her
 max_concurrent_requests = 20
 throttle_value = 0.0
+
+[models.together]
+base_url = "https://api.together.xyz/v1"
+max_tokens = 4096
+
+[agent.stream]
+max_token_tool = 10000
+
+[agent.project]
+threshold = 5120000     # 500 * 1024
+max_attachments = 10

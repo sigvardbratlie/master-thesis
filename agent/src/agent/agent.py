@@ -25,7 +25,6 @@ from langchain.chat_models import init_chat_model
 from langchain_openai import ChatOpenAI
 
 from .agent_modules import Summarizer, ToolManager
-from .config import AgentConfig
 from .context_manager import ContextManager
 from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore
 from documents import DocumentProcessor, EmailHandler

@@ -11,13 +11,13 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
 from agent.agent import Agent
-from agent.config import AgentConfig
 from models import AskAgentRequest, AttachmentModel, CleanupElementsRequest
 from models.project_models import FactSheet
 from agent.utils import PROMPT, PROMPT_BASELINE, PROMPT_BASELINE_RAG
 from agent.tools import TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS
 from .dataset_module import Dataset
 from .models import ConversationTurn, DatasetPayload, GatheredResultPayload, TimeCount
+from utils import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -38,19 +38,18 @@ _PROMPT_MAP = {
 
 class CollectAgentResult:
     def __init__(self, data: DatasetPayload, llm_model: str = "google_gemini-2.5-pro", agent_type: Literal["custom", "baseline", "baseline_rag"] = "custom",
-                 async_config : AgentConfig = None):
+                 config : AppConfig = None):
         self.data = data
         self.llm_model = llm_model
         self.agent_type: Literal["custom", "baseline", "baseline_rag"] = agent_type
         self.dataclass = Dataset(name=data.dataset_name)
-        self.async_config = AgentConfig.for_model(self.llm_model) if not async_config else async_config
+        self.config = config or AppConfig()
 
     async def init_agent(self, use_factsheet: bool = True, 
                          save_to_storage: bool = True, 
                          embed_to_vectorstore: bool = True, 
                          tools=None, 
-                         prompt: str = None,
-                         async_config : AgentConfig = None):
+                         prompt: str = None,):
         connection_string = os.getenv("SUPABASE_DB_URL")
         pool = AsyncConnectionPool(conninfo=connection_string, open=False, min_size=1, max_size=2)
         await pool.open()
@@ -62,7 +61,7 @@ class CollectAgentResult:
             tools=tools,
             prompt=prompt,
             checkpointer=checkpointer,
-            config=self.async_config,
+            config=self.config,
         )
         logger.info("Agent initialized with AsyncPostgresSaver checkpointer")
         return agent
