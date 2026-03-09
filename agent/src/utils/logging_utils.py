@@ -11,13 +11,16 @@ def setup_logging(config : AppConfig):
     level_name = log_config.level.upper()
     log_level = getattr(logging, level_name, logging.INFO) 
 
-    logging.root.setLevel(logging.DEBUG) 
+    logging.root.setLevel(logging.DEBUG)
 
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(log_level)
-    console_fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-    console_handler.setFormatter(console_fmt)
-    logging.root.addHandler(console_handler)
+    if log_config.console.enabled:
+        console_level_name = log_config.console.level.upper()
+        console_level = getattr(logging, console_level_name, log_level)
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(console_level)
+        console_fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        console_handler.setFormatter(console_fmt)
+        logging.root.addHandler(console_handler)
 
     if file_config.enabled:
         file_level_name = file_config.level.upper()
