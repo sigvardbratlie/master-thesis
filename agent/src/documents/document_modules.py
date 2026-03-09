@@ -7,6 +7,7 @@ import base64
 from typing import List, Optional
 from datetime import datetime
 import uuid
+import re
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -15,8 +16,10 @@ from models import VectorStoreMetadata,FileType, AttachmentModel, EmailModel, Wr
 import ocrmypdf
 from email.message import Message
 import email
+from email.utils import parsedate_to_datetime
 from docx import Document as DocxDocument
 from pptx import Presentation
+
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +222,35 @@ class EmailHandler(BaseHandler):
             msg["Bcc"] = ", ".join(email_data.bcc)
         msg.set_content(email_data.body)
         return msg.as_bytes()
+
+    def shorten_raw_emails(emails : list[Message]) -> list[Message]:
+        '''Shortens a list of raw email Message objects to one per thread, keeping the most recent email in each thread.
+        
+        Args:
+            emails (list[Message]): A list of email Message objects to shorten.
+        Returns:
+            list[Message]: A shortened list of email Message objects, one per thread.
+        '''
+        emails.sort(key=lambda x: parsedate_to_datetime(x.get("Date")), reverse=True)
+        seen_threads = set()              
+        thread_latest = []
+
+        for email in emails:    
+            refs_str = email.get("References", '') or ''
+            ref_list = [r.strip() for r in re.split(r'\s+', refs_str) if r.strip('<> ')]
+
+            if ref_list:
+                root_id = ref_list[0] 
+            else:
+                root_id = email.get("Message-ID")
+
+            if root_id in seen_threads:
+                continue
+
+            thread_latest.append(email)
+            seen_threads.add(root_id)
+        return thread_latest
+    
 
 class PDFHandler(BaseHandler):
     def __init__(self):

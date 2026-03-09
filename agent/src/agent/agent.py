@@ -36,7 +36,7 @@ project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 
 logger = logging.getLogger(__name__)
 
-
+import email as python_email
 
 
 class Agent:
@@ -841,6 +841,7 @@ class Agent:
         max_attachments = 10
 
         eml = EmailHandler()
+        raw_emails = []
         email_attachments = []
         email_size_counter = 0
 
@@ -849,6 +850,7 @@ class Agent:
 
         logger.info(f"📎 Preparing analysis tasks for {len(attachments or [])} attachment(s)")
 
+        # =========== DOCUMENTS (PDF, WORD, ETC) ============= 
         for att in attachments or []:
             if att.file_type != "message/rfc822":
                 att_size = len(att.body.encode("utf-8")) if att.body else att.size or 0
@@ -861,37 +863,45 @@ class Agent:
                     doc_attachments = [att]
                     doc_size_counter = att_size
             elif att.file_type == "message/rfc822":
-                data = eml.parse_eml_to_obj(content=base64.b64decode(att.content),
+                obj = python_email.message_from_bytes(base64.b64decode(att.content))
+                raw_emails.append(obj)
+        
+        if doc_attachments:
+            logger.info(f"📦 Dispatching final doc batch: {len(doc_attachments)} file(s), {doc_size_counter / 1024:.1f}KB")
+            doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_))
+        
+        # ======== EMAILS ============
+        emails_to_handle = eml.shorten_raw_emails(raw_emails) if raw_emails else []
+        for email in emails_to_handle:
+            data = eml._extract_email_data(msg = email,
                                      user_id=user_id,
                                      query_id=query.query_id,
                                      session_id=query.session_id,
                                      file_id=att.file_id)
-                email = data.get("email", [])
-                current_email_attachments = data.get("attachments", [])
-                if current_email_attachments:
-                    logger.info(f"📎 Email '{att.filename}': {len(current_email_attachments)} nested attachment(s) → dispatching as doc batch")
-                    doc_tasks.append(analyze_docs_with_limit(current_email_attachments, input_=input_))
-                else:
-                    logger.debug(f"📭 Email '{att.filename}': no nested attachments")
+            email = data.get("email", [])
+            current_email_attachments = data.get("attachments", [])
+            if current_email_attachments:
+                logger.info(f"📎 Email '{att.filename}': {len(current_email_attachments)} nested attachment(s) → dispatching as doc batch")
+                doc_tasks.append(analyze_docs_with_limit(current_email_attachments, input_=input_))
+            else:
+                logger.debug(f"📭 Email '{att.filename}': no nested attachments")
 
-                email_size = len(att.body.encode("utf-8")) if att.body else att.size or 0
-                if email_size_counter + email_size <= threshold and len(email_attachments) < max_attachments:
-                    email_attachments.append(email)
-                    email_size_counter += email_size
-                    logger.debug(f"📧 Accumulated {len(email_attachments)} email(s) in batch ({email_size_counter / 1024:.1f}KB)")
-                else:
-                    logger.info(f"📦 Dispatching email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
-                    doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
-                    email_attachments = [email]
-                    email_size_counter = email_size
+            email_size = len(att.body.encode("utf-8")) if att.body else att.size or 0
+            if email_size_counter + email_size <= threshold and len(email_attachments) < max_attachments:
+                email_attachments.append(email)
+                email_size_counter += email_size
+                logger.debug(f"📧 Accumulated {len(email_attachments)} email(s) in batch ({email_size_counter / 1024:.1f}KB)")
+            else:
+                logger.info(f"📦 Dispatching email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
+                doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
+                email_attachments = [email]
+                email_size_counter = email_size
 
+        
+        
         if email_attachments:
             logger.info(f"📦 Dispatching final email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
             doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
-
-        if doc_attachments:
-            logger.info(f"📦 Dispatching final doc batch: {len(doc_attachments)} file(s), {doc_size_counter / 1024:.1f}KB")
-            doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_))
 
         return doc_tasks
 
