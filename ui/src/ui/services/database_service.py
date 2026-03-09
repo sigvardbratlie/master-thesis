@@ -63,7 +63,7 @@ class SupabaseManager:
                 project_deadlines(*),
                 project_damages(*),
                 project_claims(*),
-                project_emails(email_id, from_addr, to, cc, bcc, subject, body, date, created_at)
+                project_emails(email_id, from_addr, to, cc, bcc, subject, body, date, message_id,reference_paths ,created_at, path)
                 """
             
         project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
