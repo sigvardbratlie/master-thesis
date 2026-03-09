@@ -20,6 +20,23 @@ from models.api_request_models import AttachmentModel, EmailModel
 
 
 # ============================================
+#   HELPERS FOR shorten_raw_emails TESTS
+# ============================================
+
+def _make_msg(msg_id: str, refs: str = None, date: str = "Mon, 15 Jan 2024 10:00:00 +0100") -> email.message.Message:
+    """Build a minimal email.Message for thread tests."""
+    msg = MIMEText("body", "plain", "utf-8")
+    msg["Message-ID"] = msg_id
+    msg["Date"] = date
+    msg["Subject"] = "Test"
+    msg["From"] = "a@b.no"
+    msg["To"] = "c@d.no"
+    if refs:
+        msg["References"] = refs
+    return email.message_from_bytes(msg.as_bytes())
+
+
+# ============================================
 #           FIXTURES
 # ============================================
 
@@ -319,3 +336,97 @@ def test_attachment_path_format(parser):
         att = result["attachments"][0]
         assert att.path.startswith("user-123/sess-456/")
         assert att.path.endswith(".txt")
+
+
+# ============================================
+#   reference_paths FIELD TESTS
+# ============================================
+
+def test_email_model_reference_paths_defaults_to_none(parser):
+    """EmailModel.reference_paths should default to None when not set."""
+    result = parser.parse_eml_to_obj(
+        content=get_mock_eml_plain_text(),
+        user_id="u-001",
+        query_id="q-014",
+        session_id="s-001",
+        file_id="f-014",
+    )
+    email_data = result["email"]
+    assert email_data.reference_paths is None
+
+
+def test_email_model_reference_paths_accepts_list():
+    """EmailModel.reference_paths should accept a list of path strings."""
+    model = EmailModel(
+        file_id="f-015",
+        path="u/s/f-015.eml",
+        query_id="q-015",
+        subject="Test",
+        from_addr="a@b.no",
+        to=["c@d.no"],
+        body_text="body",
+        reference_paths=["u/s/attach-1.pdf", "u/s/attach-2.docx"],
+    )
+    assert model.reference_paths == ["u/s/attach-1.pdf", "u/s/attach-2.docx"]
+
+
+# ============================================
+#   shorten_raw_emails TESTS
+# ============================================
+
+def test_shorten_raw_emails_single_email(parser):
+    """Single email with no references should be returned as its own root."""
+    msg = _make_msg("<msg-001@test.no>")
+    result = parser.shorten_raw_emails({"uuid-001": msg})
+
+    assert "uuid-001" in result
+    root_msg, child_uuids = result["uuid-001"]
+    assert child_uuids == set()
+
+
+def test_shorten_raw_emails_thread_grouped(parser):
+    """Two emails in a thread should be grouped under one root entry."""
+    root = _make_msg("<root@test.no>", date="Mon, 15 Jan 2024 08:00:00 +0100")
+    reply = _make_msg("<reply@test.no>", refs="<root@test.no>", date="Mon, 15 Jan 2024 10:00:00 +0100")
+
+    result = parser.shorten_raw_emails({"uuid-root": root, "uuid-reply": reply})
+
+    assert len(result) == 1
+    root_uuid, (root_email, child_uuids) = next(iter(result.items()))
+    assert "uuid-reply" in child_uuids or root_uuid == "uuid-reply"
+
+
+def test_shorten_raw_emails_newest_is_root(parser):
+    """The newest email in a thread should be selected as root (it contains all quoted content)."""
+    old_msg = _make_msg("<old@test.no>", date="Mon, 15 Jan 2024 08:00:00 +0100")
+    new_msg = _make_msg("<new@test.no>", refs="<old@test.no>", date="Mon, 15 Jan 2024 12:00:00 +0100")
+
+    result = parser.shorten_raw_emails({"uuid-old": old_msg, "uuid-new": new_msg})
+
+    root_uuid = next(iter(result))
+    assert root_uuid == "uuid-new"
+    _, child_uuids = result[root_uuid]
+    assert "uuid-old" in child_uuids
+
+
+def test_shorten_raw_emails_independent_threads(parser):
+    """Two unrelated emails should produce two separate root entries."""
+    msg_a = _make_msg("<a@test.no>", date="Mon, 15 Jan 2024 08:00:00 +0100")
+    msg_b = _make_msg("<b@test.no>", date="Mon, 15 Jan 2024 09:00:00 +0100")
+
+    result = parser.shorten_raw_emails({"uuid-a": msg_a, "uuid-b": msg_b})
+
+    assert len(result) == 2
+    assert "uuid-a" in result
+    assert "uuid-b" in result
+
+
+def test_shorten_raw_emails_child_uuids_exclude_root(parser):
+    """Child UUID set must not include the root UUID itself."""
+    root = _make_msg("<root2@test.no>", date="Mon, 15 Jan 2024 08:00:00 +0100")
+    reply = _make_msg("<reply2@test.no>", refs="<root2@test.no>", date="Mon, 15 Jan 2024 10:00:00 +0100")
+
+    result = parser.shorten_raw_emails({"uuid-r": root, "uuid-c": reply})
+
+    root_uuid, (_, child_uuids) = next(iter(result.items()))
+    assert root_uuid not in child_uuids
