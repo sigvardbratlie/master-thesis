@@ -23,43 +23,24 @@ from auth import SupabaseAuth
 from models import AskAgentRequest, CleanupElementsRequest
 from datetime import datetime
 import tomllib
-with open("config.toml", "rb") as f:
-    config = tomllib.load(f)
+from utils.config_utils import AppConfig
+from utils.logging_utils import setup_logging
 
-logging_map = {"info": logging.INFO, "debug": logging.DEBUG, "warning": logging.WARNING, "error": logging.ERROR}
+config = AppConfig.from_toml("config.toml")
+setup_logging(config)
 
-logging.basicConfig(
-    level=logging_map.get(config.get("logging").get("LOG_LEVEL")),
-    format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
-    datefmt="%H:%M:%S",
-)
-
-# ── silence noisy third-party libraries ───────────────────────────────────────
-for _pkg in [
+noisy_packages =  [
     "httpx", "httpcore", "urllib3", "grpc",
     "google.cloud.firestore", "google.cloud.bigquery", "google.cloud.storage",
     "langchain", "langchain_core", "langchain_text_splitters",
     "langgraph", "langchain_google_genai", "langchain_google_community",
     "langchain_chroma", "psycopg", "psycopg_pool",
     "uvicorn.access",
-]:
-    logging.getLogger(_pkg).setLevel(logging.WARNING)
+]
+[logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
 
-# ── verbose debug for our own modules ─────────────────────────────────────────
-logging.getLogger("agent.agent").setLevel(logging.DEBUG)
-logging.getLogger("agent.agent_modules").setLevel(logging.DEBUG)
-logging.getLogger("agent.context_manager").setLevel(logging.DEBUG)
-logging.getLogger("database.database_modules").setLevel(logging.DEBUG)
-logging.getLogger("database.storage_modules").setLevel(logging.DEBUG)
-logging.getLogger("database.vectorstore_modules").setLevel(logging.DEBUG)
-logging.getLogger("documents.document_modules").setLevel(logging.DEBUG)
-
-if config.get("logging").get("LOG_TO_FILE"):
-    file_handler = logging.FileHandler(f"logs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_main_debug.log")
-    file_handler.setLevel(logging.DEBUG)
-    formatter = logging.Formatter("%(asctime)s  %(levelname)-8s  %(name)s — %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
-    file_handler.setFormatter(formatter)
-    logging.getLogger().addHandler(file_handler)
+debug_packages = ["agent", "database", "documents"]
+[logging.getLogger(_pkg).setLevel(logging.DEBUG) for _pkg in debug_packages]
 
 logger = logging.getLogger(__name__)
 
