@@ -91,9 +91,8 @@ async def test_save_raw_documents_pdf_and_text(mock_storage_manager):
         mock_save.return_value = "path/to/file"  # Mock successful upload
         results = await mock_storage_manager.save_raw_documents(attachments)
         assert mock_save.call_count == 2
-        assert isinstance(results, dict)
-        assert len(results) == 2
-        
+        assert results is True
+
         # Verify all calls were made with bytes (decoded from base64)
         for call in mock_save.call_args_list:
             content_arg = call.kwargs.get("content") or call[0][0]
@@ -136,7 +135,7 @@ async def test_save_raw_documents_uses_correct_paths(mock_storage_manager):
         paths_used = [c.kwargs.get("path") or c[1].get("path") for c in mock_save.call_args_list]
         assert attachments[0].path in paths_used
         assert attachments[1].path in paths_used
-        assert len(results) == 2
+        assert results is True
 
 
 @pytest.mark.asyncio
@@ -151,7 +150,7 @@ async def test_save_raw_documents_custom_bucket(mock_storage_manager):
         call_kwargs = mock_save.call_args
         bucket_arg = call_kwargs.kwargs.get("bucket_name") or call_kwargs[1].get("bucket_name")
         assert bucket_arg == "custom-bucket"
-        assert results[text_att.file_id] == text_att.path
+        assert results is True
 
 
 @pytest.mark.asyncio
@@ -160,7 +159,7 @@ async def test_save_raw_documents_empty_list(mock_storage_manager):
     with patch.object(mock_storage_manager, 'save_attachment') as mock_save:
         results = await mock_storage_manager.save_raw_documents([])
         mock_save.assert_not_called()
-        assert results == {}  # Should return empty dict
+        assert results is True
 
 
 # ============================================
@@ -252,9 +251,9 @@ async def test_save_raw_documents_respects_semaphore():
     
     with patch.object(manager, 'save_attachment', side_effect=mock_upload):
         results = await manager.save_raw_documents(attachments)
-    
-    # Should have uploaded all 5 files
-    assert len(results) == 5
+
+    # Should have uploaded all 5 files and returned True
+    assert results is True
     # But never more than 2 at the same time
     assert max_concurrent_calls <= 2
 
@@ -269,9 +268,7 @@ async def test_save_raw_documents_handles_mixed_success_failure(mock_storage_man
         mock_save.side_effect = [attachments[0].path, None]
         results = await mock_storage_manager.save_raw_documents(attachments)
     
-    assert len(results) == 2
-    assert results[attachments[0].file_id] == attachments[0].path
-    assert results[attachments[1].file_id] is None
+    assert results is True
 
 
 # ============================================

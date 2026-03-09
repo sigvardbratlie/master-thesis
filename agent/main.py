@@ -21,8 +21,6 @@ from psycopg_pool import AsyncConnectionPool
 
 from auth import SupabaseAuth
 from models import AskAgentRequest, CleanupElementsRequest
-from datetime import datetime
-import tomllib
 from utils.config_utils import AppConfig
 from utils.logging_utils import setup_logging
 

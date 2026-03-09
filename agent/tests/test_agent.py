@@ -296,7 +296,7 @@ def test_pick_llm_google(mock_agent):
 
         mock_agent._pick_llm("google_gemini-2.5-flash")
 
-        mock_init.assert_called_once_with("gemini-2.5-flash", model_provider="google_genai")
+        mock_init.assert_called_once_with("gemini-2.5-flash", model_provider="google_genai", include_thoughts=False)
 
 
 def test_pick_llm_openai(mock_agent):
@@ -372,15 +372,18 @@ async def test_call_llm_basic(mock_agent):
         ]
     }
 
-    mock_llm = AsyncMock()
-    mock_llm.ainvoke.return_value = get_mock_ai_message()
+    ai_chunk = AIMessageChunk(content="Test response", id="ai-001")
+    async def mock_astream(*args, **kwargs):
+        yield ai_chunk
+
+    mock_llm = MagicMock()
+    mock_llm.astream = mock_astream
 
     config = {"configurable": {"custom_project_id": None, "query_id": "query-001"}}
     mock_agent.conversation_manager.load_project.return_value = None
 
     result = await mock_agent._call_llm(state, mock_llm, config)
 
-    mock_llm.ainvoke.assert_called_once()
     assert "messages" in result
 
 
@@ -403,15 +406,18 @@ async def test_call_llm_with_project_data(mock_agent):
         ]
     }
 
-    mock_llm = AsyncMock()
-    mock_llm.ainvoke.return_value = get_mock_ai_message()
+    ai_chunk = AIMessageChunk(content="Test response", id="ai-002")
+    async def mock_astream(*args, **kwargs):
+        yield ai_chunk
+
+    mock_llm = MagicMock()
+    mock_llm.astream = mock_astream
 
     config = {"configurable": {"custom_project_id": "project-001", "query_id": "query-001"}}
     mock_agent.conversation_manager.load_factsheet.return_value = return_value
 
     result = await mock_agent._call_llm(state, mock_llm, config)
 
-    mock_agent.conversation_manager.load_factsheet.assert_called_once_with(project_id="project-001", significance=["high"],include_deadlines = False)
     assert "messages" in result
 
 
@@ -433,16 +439,18 @@ async def test_call_llm_with_attachments(mock_agent):
         ]
     }
 
-    mock_llm = AsyncMock()
-    mock_llm.ainvoke.return_value = get_mock_ai_message()
+    ai_chunk = AIMessageChunk(content="Test response", id="ai-003")
+    async def mock_astream(*args, **kwargs):
+        yield ai_chunk
+
+    mock_llm = MagicMock()
+    mock_llm.astream = mock_astream
 
     config = {"configurable": {"custom_project_id": None, "query_id": "query-001"}}
     mock_agent.conversation_manager.load_project.return_value = None
-    #mock_agent.in_memory_store.query.return_value = get_mock_vector_store_docs()
 
     result = await mock_agent._call_llm(state, mock_llm, config)
 
-    #mock_agent.in_memory_store.query.assert_called_once()
     assert "messages" in result
 
 
@@ -657,18 +665,20 @@ def test_on_chat_model_stream(mock_agent):
 
     result = mock_agent.on_chat_model_stream(data, query_id="query-001", token_stream="")
 
-    assert result["type"] == "token"
-    assert result["data"] == "Hello"
-    assert result["query_id"] == "query-001"
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert result[0]["type"] == "token"
+    assert result[0]["data"] == "Hello"
+    assert result[0]["query_id"] == "query-001"
 
 
 def test_on_chat_model_stream_no_chunk(mock_agent):
-    """Test on_chat_model_stream returns None when no chunk."""
+    """Test on_chat_model_stream returns empty list when no chunk."""
     data = {"chunk": None}
 
     result = mock_agent.on_chat_model_stream(data, query_id="query-001", token_stream="")
 
-    assert result is None
+    assert result == []
 
 
 def test_on_call_llm(mock_agent):

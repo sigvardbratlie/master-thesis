@@ -183,9 +183,10 @@ async def test_clean_element(mock_context_manager):
     party_id1 = parties.parties[1].party_id
     party_id2 = parties.parties[2].party_id
     factsheet = get_mock_factsheet()
+    project_data = ProjectData(factsheet=factsheet, attachments=[], emails=[])
 
     structured_llm.ainvoke.return_value = parties
-    result = await mock_context_manager.clean_element(content = parties, factsheet=factsheet,element_type="parties")
+    result = await mock_context_manager.clean_element(content=parties, project_data=project_data, element_type="parties")
 
     assert isinstance(result, list)
     assert len(result) == 4
