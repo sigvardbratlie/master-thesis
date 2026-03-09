@@ -1,20 +1,5 @@
 import logging
-
-_log_fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-_console_handler = logging.StreamHandler()
-_console_handler.setLevel(logging.INFO)
-_console_handler.setFormatter(_log_fmt)
-logging.root.setLevel(logging.DEBUG)
-logging.root.addHandler(_console_handler)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("hpack").setLevel(logging.WARNING)
-logging.getLogger("urllib3").setLevel(logging.WARNING)
-logging.getLogger("anthropic").setLevel(logging.WARNING)
-logging.getLogger("openai").setLevel(logging.WARNING)
-logging.getLogger("asyncio").setLevel(logging.WARNING)
-logging.getLogger("langsmith").setLevel(logging.WARNING)
-
+from utils import setup_logging, AppConfig
 from dotenv import load_dotenv
 import argparse
 from evals import Dataset
@@ -24,9 +9,14 @@ import asyncio
 from datetime import datetime
 from agent.config import AgentConfig
 
+config = AppConfig.load_from_toml("config.toml")
+setup_logging(config)
+noisy_packages = ["httpx", "httpcore", "hpack", "urllib3", "anthropic", "openai", "asyncio", "langsmith"]
+[logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
 
 logger = logging.getLogger(__name__)
 load_dotenv()
+
 
 
 async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_storage, async_config):
@@ -53,8 +43,6 @@ async def main():
     parser.add_argument("-n","--n-runs", type=int, default=1, help="Number of runs to execute for each agent")
     parser.add_argument("--skip-embedding", action="store_true", help="Skip embedding step for custom agent")
     parser.add_argument("--skip-storage", action="store_true", help="Skip saving results to storage for custom agent")
-    parser.add_argument("--max-concurrent", type = int, default = 15, help="Max concurrent requests")
-    parser.add_argument("--throttle-value", type = float, default = 0.0, help = "Throttle value")
     args = parser.parse_args()
     dataset_name = args.dataset
     llm_model = args.model
@@ -62,18 +50,9 @@ async def main():
     n_runs = args.n_runs
     embed_to_vectorstore = not args.skip_embedding
     save_to_storage = not args.skip_storage
-    max_conc = args.max_concurrent
-    throttle = args.throttle_value
+    max_conc = config.async_tasks.max_concurrent_requests
+    throttle = config.async_tasks.throttle_value
 
-    _log_dir = os.path.join(os.path.dirname(__file__), "logs")
-    os.makedirs(_log_dir, exist_ok=True)
-    _model_slug = (llm_model or "unknown").replace("/", "-")
-    _log_file = os.path.join(_log_dir, f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_collect_{_model_slug}_{dataset_name}.log")
-    _file_handler = logging.FileHandler(_log_file)
-    _file_handler.setLevel(logging.DEBUG)
-    _file_handler.setFormatter(_log_fmt)
-    logging.root.addHandler(_file_handler)
-    logger.info(f"Logging to {_log_file}")
 
     logger.info("━" * 64)
     logger.info(f"🚀  COLLECT  |  dataset: {dataset_name}  |  model: {llm_model}  |  n_runs: {n_runs}")

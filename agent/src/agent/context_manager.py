@@ -413,6 +413,7 @@ class ContextManager:
                 # Set email_id to the original file_id for consistency
                 "email_id": input_email.file_id,
                 "path": input_email.path,
+                "reference_paths" : input_email.reference_paths,
             })
             result_emails.append(Email(**email_data))
             logger.debug(f'✅ Email #{idx+1} done — email_id={input_email.file_id}')

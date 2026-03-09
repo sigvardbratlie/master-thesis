@@ -1,0 +1,14 @@
+[logging]
+level = "info"
+
+[logging.file]
+enabled = true
+level = "debug"
+path = "log/app.log"
+
+[logging.console]
+level = "info"
+
+[async]
+max_concurrent_requests = 20
+throttle_value = 0.0

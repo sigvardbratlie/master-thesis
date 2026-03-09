@@ -93,7 +93,7 @@ def test_needs_ocr_invalid_bytes(pdf_handler):
 
 def test_needs_ocr_with_text(pdf_handler):
     """PDF with sufficient text should not need OCR."""
-    with patch('documents.document_modules.PdfReader') as mock_reader_cls:
+    with patch('documents.pdf_module.PdfReader') as mock_reader_cls:
         mock_page = MagicMock()
         mock_page.extract_text.return_value = "A" * 600
         mock_reader = MagicMock()
@@ -106,7 +106,7 @@ def test_needs_ocr_with_text(pdf_handler):
 
 def test_needs_ocr_low_text_coverage(pdf_handler):
     """PDF where <50% of pages have text should need OCR."""
-    with patch('documents.document_modules.PdfReader') as mock_reader_cls:
+    with patch('documents.pdf_module.PdfReader') as mock_reader_cls:
         page_with_text = MagicMock()
         page_with_text.extract_text.return_value = "A" * 200
 
@@ -128,7 +128,7 @@ def test_ocr_bytes_success(pdf_handler):
     input_bytes = b"fake pdf input"
     expected_output = b"ocr processed output"
 
-    with patch('documents.document_modules.ocrmypdf') as mock_ocr:
+    with patch('documents.pdf_module.ocrmypdf') as mock_ocr:
         mock_ocr.ocr.return_value = None
         with patch('builtins.open', MagicMock()) as mock_open:
             mock_open.return_value.__enter__ = MagicMock(return_value=MagicMock(read=MagicMock(return_value=expected_output)))
@@ -144,7 +144,7 @@ def test_ocr_bytes_prior_ocr_returns_original(pdf_handler):
     import ocrmypdf
     input_bytes = b"already ocr'd pdf"
 
-    with patch('documents.document_modules.ocrmypdf') as mock_ocr_module:
+    with patch('documents.pdf_module.ocrmypdf') as mock_ocr_module:
         mock_ocr_module.ocr.side_effect = ocrmypdf.exceptions.PriorOcrFoundError()
         mock_ocr_module.exceptions = ocrmypdf.exceptions
 
@@ -157,7 +157,7 @@ def test_ocr_bytes_error_returns_original(pdf_handler):
     """Test OCR returns original PDF on general failure."""
     input_bytes = b"problematic pdf"
 
-    with patch('documents.document_modules.ocrmypdf') as mock_ocr_module:
+    with patch('documents.pdf_module.ocrmypdf') as mock_ocr_module:
         import ocrmypdf
         mock_ocr_module.ocr.side_effect = RuntimeError("OCR failed")
         mock_ocr_module.exceptions = ocrmypdf.exceptions
@@ -174,7 +174,7 @@ def test_parse_pdf_to_docs_with_text(pdf_handler):
     metadata = get_mock_metadata()
 
     with patch.object(pdf_handler, '_needs_ocr', return_value=False):
-        with patch('documents.document_modules.PdfReader') as mock_reader_cls:
+        with patch('documents.pdf_module.PdfReader') as mock_reader_cls:
             mock_page = MagicMock()
             mock_page.extract_text.return_value = "Innhold fra side 1 om eiendomstvist"
 
@@ -213,7 +213,7 @@ def test_parse_pdf_to_docs_empty_pages(pdf_handler):
     metadata = get_mock_metadata()
 
     with patch.object(pdf_handler, '_needs_ocr', return_value=False):
-        with patch('documents.document_modules.PdfReader') as mock_reader_cls:
+        with patch('documents.pdf_module.PdfReader') as mock_reader_cls:
             mock_page = MagicMock()
             mock_page.extract_text.return_value = ""
 
@@ -231,7 +231,7 @@ def test_parse_pdf_to_docs_skips_empty_pages(pdf_handler):
     metadata = get_mock_metadata()
 
     with patch.object(pdf_handler, '_needs_ocr', return_value=False):
-        with patch('documents.document_modules.PdfReader') as mock_reader_cls:
+        with patch('documents.pdf_module.PdfReader') as mock_reader_cls:
             page_with_text = MagicMock()
             page_with_text.extract_text.return_value = "Innhold om rettssaken"
 
@@ -255,7 +255,7 @@ def test_parse_pdf_to_docs_triggers_ocr_when_needed(pdf_handler):
 
     with patch.object(pdf_handler, '_needs_ocr', return_value=True):
         with patch.object(pdf_handler, '_ocr_bytes', return_value=b"ocr output") as mock_ocr:
-            with patch('documents.document_modules.PdfReader') as mock_reader_cls:
+            with patch('documents.pdf_module.PdfReader') as mock_reader_cls:
                 mock_page = MagicMock()
                 mock_page.extract_text.return_value = "OCR extracted text"
 
@@ -274,7 +274,7 @@ def test_parse_pdf_to_docs_invalid_pdf(pdf_handler):
     metadata = get_mock_metadata()
 
     with patch.object(pdf_handler, '_needs_ocr', return_value=False):
-        with patch('documents.document_modules.PdfReader', side_effect=Exception("Invalid PDF")):
+        with patch('documents.pdf_module.PdfReader', side_effect=Exception("Invalid PDF")):
             result = pdf_handler.parse_pdf_to_docs(b"invalid", metadata)
             assert result == []
 
@@ -437,7 +437,7 @@ def test_parse_docx_to_docs_empty_document(docx_handler):
     content = b"fake docx bytes"
     metadata = get_mock_metadata()
 
-    with patch('documents.document_modules.DocxDocument') as mock_docx:
+    with patch('documents.ms_modules.DocxDocument') as mock_docx:
         mock_doc = MagicMock()
 
         mock_props = MagicMock()
@@ -465,7 +465,7 @@ def test_parse_docx_to_docs_invalid_bytes(docx_handler):
     content = b"not a real docx file"
     metadata = get_mock_metadata()
 
-    with patch('documents.document_modules.DocxDocument', side_effect=Exception("Invalid DOCX")):
+    with patch('documents.ms_modules.DocxDocument', side_effect=Exception("Invalid DOCX")):
         result = docx_handler.parse_docx_to_docs(content, metadata)
         assert result == []
 
@@ -517,7 +517,7 @@ def test_parse_pptx_to_docs_empty_presentation(pptx_handler):
     content = b"fake pptx bytes"
     metadata = get_mock_metadata()
 
-    with patch('documents.document_modules.Presentation') as mock_pptx:
+    with patch('documents.ms_modules.Presentation') as mock_pptx:
         mock_pres = MagicMock()
 
         mock_props = MagicMock()
@@ -545,7 +545,7 @@ def test_parse_pptx_to_docs_invalid_bytes(pptx_handler):
     content = b"not a real pptx file"
     metadata = get_mock_metadata()
 
-    with patch('documents.document_modules.Presentation', side_effect=Exception("Invalid PPTX")):
+    with patch('documents.ms_modules.Presentation', side_effect=Exception("Invalid PPTX")):
         result = pptx_handler.parse_pptx_to_docs(content, metadata)
         assert result == []
 

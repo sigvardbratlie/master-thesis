@@ -121,7 +121,7 @@ class SupabaseStorageManager:
         return None
             
 
-    async def save_raw_documents(self, attachments: list[AttachmentModel], bucket_name: str = "attachments") -> dict[str, Optional[str]]:
+    async def save_raw_documents(self, attachments: list[AttachmentModel], bucket_name: str = "attachments") -> bool:
         """Save attachments with controlled concurrency using semaphore"""
         semaphore = asyncio.Semaphore(self.max_concurrent_uploads)
         results = {}
@@ -151,7 +151,7 @@ class SupabaseStorageManager:
         failed = len(results) - successful
         logger.info(f"💾 Upload complete: {successful}/{len(attachments)} succeeded, {failed} failed")
         
-        return results
+        return True
     
     def read_attachment(self, path : str, bucket_name: str = "attachments") -> bytes:
         response = self.supabase.storage.from_(bucket_name)\

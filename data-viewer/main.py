@@ -195,6 +195,7 @@ def trash_result_blob(dataset: str, blob_name: str) -> None:
 
 _RESULT_RE = re.compile(r"^(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json$")
 _EVAL_RE = re.compile(r"^llm-as-judge_(.+)_(custom|baseline)_(.+)\.json$")
+_DATE_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
 
 @st.cache_data(ttl=120)
@@ -705,6 +706,97 @@ def reset_to_original() -> None:
     del st.session_state["_loaded_dataset"]
 
 
+# ── Session attachment computation ────────────────────────────────────────────
+
+
+@st.cache_data(ttl=120)
+def _get_data_files_by_date(dataset: str) -> dict[str, list[str]]:
+    """Return {date_str: [blob_paths]} for all supported data files in 01_data/."""
+    from collections import defaultdict
+
+    date_to_files: dict[str, list[str]] = defaultdict(list)
+    for blob in list_data_blobs(dataset):
+        match = _DATE_PATTERN.search(blob.name)
+        if match:
+            date_to_files[match.group(1)].append(blob.name)
+    return dict(date_to_files)
+
+
+def compute_session_attachments(dataset: str, sessions: list[dict]) -> list[list[str]]:
+    """Compute attachment lists per session using the date-window logic.
+
+    Mirrors assign_session_attachments() in dataset_module.py:
+    each session gets files whose date falls in (prev_date, session_date].
+    """
+    date_to_files = _get_data_files_by_date(dataset)
+
+    def _parse(s: str | None):
+        try:
+            return datetime.strptime(s, "%Y-%m-%d").date() if s else None
+        except ValueError:
+            return None
+
+    date_to_files_dt = {_parse(d): files for d, files in date_to_files.items() if _parse(d)}
+    file_dates_sorted = sorted(date_to_files_dt.keys())
+
+    seen: set[str] = set()
+    prev_dt = None
+    result: list[list[str]] = []
+
+    for session in sessions:
+        current_dt = _parse(session.get("date"))
+        if current_dt is None:
+            result.append([])
+            continue
+
+        candidates = [
+            f
+            for fd in file_dates_sorted
+            if (prev_dt is None or fd > prev_dt) and fd <= current_dt
+            for f in date_to_files_dt[fd]
+        ]
+        new_files = [f for f in candidates if f not in seen]
+        seen.update(new_files)
+        result.append(new_files)
+        prev_dt = current_dt
+
+    return result
+
+
+# ── Attachment helpers ────────────────────────────────────────────────────────
+
+
+def render_attachment_popover(path: str) -> None:
+    """Render a popover button for a single attachment.
+
+    File bytes are loaded lazily into session state on first user request —
+    nothing is downloaded at render time.
+    """
+    fname = path.split("/")[-1]
+    ext = Path(fname).suffix.lower()
+    icon = FILE_ICONS.get(ext, "📎")
+    bytes_key = f"_att_{path}"
+
+    with st.popover(f"{icon} {fname}"):
+        if bytes_key not in st.session_state:
+            if st.button("📂 Load preview", key=f"load_{bytes_key}"):
+                try:
+                    st.session_state[bytes_key] = read_blob_bytes(path)
+                except Exception as e:
+                    st.error(f"Could not load: {e}")
+        if st.session_state.get(bytes_key):
+            render_file(fname, st.session_state[bytes_key])
+
+
+def render_attachments_section(attachments: list[str]) -> None:
+    """Render an attachments expander with a lazy popover preview per file."""
+    if not attachments:
+        return
+    with st.expander(f"📎 Attachments ({len(attachments)})", expanded=False):
+        for path in attachments:
+            render_attachment_popover(path)
+
+
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
 tab_dataset, tab_files, tab_results, tab_evals = st.tabs(
@@ -757,6 +849,7 @@ with tab_dataset:
 
     sessions = st.session_state["_raw"]["sessions"]
     n_sessions = len(sessions)
+    ds_session_attachments = compute_session_attachments(dataset, sessions)
 
     hdr_left, hdr_right = st.columns([0.7, 0.3])
     hdr_left.markdown(
@@ -848,6 +941,8 @@ with tab_dataset:
                     help="The opening instruction given to the agent for this session",
                 )
                 st.caption(f"🔑 `{session.get('init_query_id', '—')}`")
+
+            render_attachments_section(ds_session_attachments[s_idx])
 
             cap_col, btn_col = st.columns([0.65, 0.35])
             cap_col.caption(
@@ -1045,12 +1140,62 @@ with tab_files:
             f"No supported files in `01_data/` for **{dataset}**. Upload one above."
         )
     else:
-        st.caption("Select a file on the left to preview its contents.")
+        # ── Filter & sort controls ────────────────────────────────────────────
+        _fc1, _fc2, _fc3 = st.columns([0.4, 0.3, 0.3])
+
+        _available_types = sorted({Path(b.name).suffix.lower() for b in all_blobs})
+        _type_filter = _fc1.multiselect(
+            "File type",
+            options=_available_types,
+            default=_available_types,
+            format_func=lambda x: x.upper().lstrip("."),
+            label_visibility="collapsed",
+            placeholder="Filter by type…",
+        )
+        _sort_by = _fc2.selectbox(
+            "Sort by",
+            ["Name A→Z", "Name Z→A", "Date newest", "Date oldest", "Type"],
+            label_visibility="collapsed",
+            key="files_sort_by",
+        )
+        _search = _fc3.text_input(
+            "Search",
+            placeholder="Search filename…",
+            label_visibility="collapsed",
+            key="files_search",
+        )
+
+        # Apply type filter and search
+        filtered_blobs = [
+            b for b in all_blobs
+            if Path(b.name).suffix.lower() in (_type_filter or _available_types)
+            and _search.lower() in b.name.split("/")[-1].lower()
+        ]
+
+        # Apply sort
+        def _blob_date(b):
+            m = _DATE_PATTERN.search(b.name)
+            return m.group(1) if m else ""
+
+        if _sort_by == "Name A→Z":
+            filtered_blobs.sort(key=lambda b: b.name.split("/")[-1].lower())
+        elif _sort_by == "Name Z→A":
+            filtered_blobs.sort(key=lambda b: b.name.split("/")[-1].lower(), reverse=True)
+        elif _sort_by == "Date newest":
+            filtered_blobs.sort(key=_blob_date, reverse=True)
+        elif _sort_by == "Date oldest":
+            filtered_blobs.sort(key=_blob_date)
+        elif _sort_by == "Type":
+            filtered_blobs.sort(key=lambda b: (Path(b.name).suffix.lower(), b.name.split("/")[-1].lower()))
+
+        st.caption(
+            f"{len(filtered_blobs)} of {len(all_blobs)} files · select a file on the left to preview"
+        )
         st.write("")
 
         col_list, col_preview = st.columns([0.28, 0.72])
 
-        filenames = [b.name.split("/")[-1] for b in all_blobs]
+        filenames = [b.name.split("/")[-1] for b in filtered_blobs]
         file_labels = [
             f"{FILE_ICONS.get(Path(name).suffix.lower(), '📎')} {name}"
             for name in filenames
@@ -1085,7 +1230,7 @@ with tab_files:
                         st.rerun()
 
         selected_idx = file_labels.index(selected_label)
-        selected_blob = all_blobs[selected_idx]
+        selected_blob = filtered_blobs[selected_idx]
         selected_name = filenames[selected_idx]
         selected_ext = Path(selected_name).suffix.lower()
 
@@ -1282,16 +1427,7 @@ with tab_results:
                 st.session_state[f"_res_q_collapsed_{s_idx}"] = not res_q_collapsed
                 st.rerun()
 
-            attachments = session.get("attachments", [])
-            if attachments:
-                with st.expander(
-                    f"📎 Attachments ({len(attachments)})", expanded=False
-                ):
-                    for path in attachments:
-                        fname = path.split("/")[-1]
-                        ext = Path(fname).suffix.lower()
-                        icon = FILE_ICONS.get(ext, "📎")
-                        st.markdown(f"{icon} `{fname}`")
+            render_attachments_section(session.get("attachments", []))
 
             session_tokens = session.get("token_counts")
             if session_tokens and isinstance(session_tokens, dict):
@@ -1525,13 +1661,7 @@ with tab_evals:
                 st.session_state[f"_ev_q_collapsed_{s_idx}"] = not ev_q_collapsed
                 st.rerun()
 
-            attachments = result_session.get("attachments", [])
-            if attachments:
-                with st.expander(f"📎 Attachments ({len(attachments)})", expanded=False):
-                    for path in attachments:
-                        fname = path.split("/")[-1]
-                        ext = Path(fname).suffix.lower()
-                        st.markdown(f"{FILE_ICONS.get(ext, '📎')} `{fname}`")
+            render_attachments_section(result_session.get("attachments", []))
 
             session_tokens = result_session.get("token_counts")
             if session_tokens and isinstance(session_tokens, dict):

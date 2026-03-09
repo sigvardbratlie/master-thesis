@@ -36,7 +36,7 @@ project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 
 logger = logging.getLogger(__name__)
 
-
+import email as python_email
 
 
 class Agent:
@@ -809,6 +809,7 @@ class Agent:
                                 query: AskAgentRequest,
                                 input_: FactSheet | InitialInput,
                                 config: RunnableConfig = None,
+                                shortened_emails: dict | None = None,
                                 ) -> list:
         """Route attachments to doc/email analysis tasks, batching emails by size/count."""
 
@@ -849,6 +850,7 @@ class Agent:
 
         logger.info(f"📎 Preparing analysis tasks for {len(attachments or [])} attachment(s)")
 
+        # =========== DOCUMENTS (PDF, WORD, ETC) =============
         for att in attachments or []:
             if att.file_type != "message/rfc822":
                 att_size = len(att.body.encode("utf-8")) if att.body else att.size or 0
@@ -860,42 +862,47 @@ class Agent:
                     doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_=input_))
                     doc_attachments = [att]
                     doc_size_counter = att_size
-            elif att.file_type == "message/rfc822":
-                data = eml.parse_eml_to_obj(content=base64.b64decode(att.content),
-                                     user_id=user_id,
-                                     query_id=query.query_id,
-                                     session_id=query.session_id,
-                                     file_id=att.file_id)
-                email = data.get("email", [])
-                current_email_attachments = data.get("attachments", [])
-                if current_email_attachments:
-                    logger.info(f"📎 Email '{att.filename}': {len(current_email_attachments)} nested attachment(s) → dispatching as doc batch")
-                    doc_tasks.append(analyze_docs_with_limit(current_email_attachments, input_=input_))
-                else:
-                    logger.debug(f"📭 Email '{att.filename}': no nested attachments")
-
-                email_size = len(att.body.encode("utf-8")) if att.body else att.size or 0
-                if email_size_counter + email_size <= threshold and len(email_attachments) < max_attachments:
-                    email_attachments.append(email)
-                    email_size_counter += email_size
-                    logger.debug(f"📧 Accumulated {len(email_attachments)} email(s) in batch ({email_size_counter / 1024:.1f}KB)")
-                else:
-                    logger.info(f"📦 Dispatching email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
-                    doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
-                    email_attachments = [email]
-                    email_size_counter = email_size
-
-        if email_attachments:
-            logger.info(f"📦 Dispatching final email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
-            doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
 
         if doc_attachments:
             logger.info(f"📦 Dispatching final doc batch: {len(doc_attachments)} file(s), {doc_size_counter / 1024:.1f}KB")
             doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_))
 
+        # ======== EMAILS ============
+        emails_to_handle = shortened_emails or {}
+        logger.info(f'ℹ️ Processing {len(emails_to_handle)} email(s) for analysis')
+        for id_, contents in emails_to_handle.items():
+            data = eml._extract_email_data(msg=contents[0],
+                                           user_id=user_id,
+                                           query_id=query.query_id,
+                                           session_id=query.session_id,
+                                           file_id=id_)
+            email = data.get("email", [])
+            email.reference_paths = [f"{user_id}/{query.session_id}/{e_id}.eml" for e_id in contents[1]] if contents[1] else None
+            current_email_attachments = data.get("attachments", [])
+            if current_email_attachments:
+                logger.info(f"📎 Email '{email.subject}': {len(current_email_attachments)} nested attachment(s) → dispatching as doc batch")
+                doc_tasks.append(analyze_docs_with_limit(current_email_attachments, input_=input_))
+            else:
+                logger.debug(f"📭 Email '{email.subject}': no nested attachments")
+
+            email_size = email.size or 0
+            if email_size_counter + email_size <= threshold and len(email_attachments) < max_attachments:
+                email_attachments.append(email)
+                email_size_counter += email_size
+                logger.debug(f"📧 Accumulated {len(email_attachments)} email(s) in batch ({email_size_counter / 1024:.1f}KB)")
+            else:
+                logger.info(f"📦 Dispatching email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
+                doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
+                email_attachments = [email]
+                email_size_counter = email_size
+        
+        if email_attachments:
+            logger.info(f"📦 Dispatching final email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
+            doc_tasks.append(analyze_emails_with_limit(email_attachments, input_))
+
         return doc_tasks
 
-    def _parse_docs_with_progress(self, attachments: list, query_id: str, session_id: str, user_id : str, project_id : str):
+    def _parse_docs_with_progress(self, attachments: list, query_id: str, session_id: str, user_id : str, project_id : str, shortened_email_ids: set[str] | None = None):
         """
         Parse documents and yield progress events + return parsed results.
         Returns docs
@@ -910,10 +917,10 @@ class Agent:
             "timestamp": datetime.now().isoformat(),
             "query_id": query_id
         }
-        
+
         docs = []
         completed_text_extraction = 0
-        
+
         for att in attachments:
             yield {
                 "type": "status",
@@ -928,7 +935,8 @@ class Agent:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query_id
             }
-            
+            if att.file_type == "message/rfc822" and shortened_email_ids is not None and att.file_id not in shortened_email_ids:
+                continue
             extracted_docs = self.document_processor.parse(
                 content=base64.b64decode(att.content),
                 file_type=att.file_type,
@@ -1001,13 +1009,22 @@ class Agent:
 
         
         docs = []
+        eml_handler = EmailHandler()
+        shortened_emails: dict = {}
         if query.attachments:
+            raw_emails = {att.file_id: python_email.message_from_bytes(base64.b64decode(att.content))
+                          for att in query.attachments if att.file_type == "message/rfc822"}
+            if raw_emails:
+                shortened_emails = eml_handler.shorten_raw_emails(raw_emails)
+                logger.info(f'ℹ️ Shortened {len(raw_emails)} raw email(s) to {len(shortened_emails)} for analysis')
+
             # Parse documents with streaming progress
             for event in self._parse_docs_with_progress(attachments=query.attachments,
                                                         query_id = query.query_id,
                                                         session_id=query.session_id,
                                                         project_id=query.project_id,
-                                                        user_id=user_id):
+                                                        user_id=user_id,
+                                                        shortened_email_ids=set(shortened_emails.keys())):
                 yield event
             # Retrieve parsed results from instance variable
             docs = self._last_parse_results
@@ -1126,6 +1143,7 @@ class Agent:
             user_id=user_id, query=query,
             input_=initial_input,
             config=thread,
+            shortened_emails=shortened_emails,
         )
         
         yield {
@@ -1302,16 +1320,25 @@ class Agent:
             logger.error(f"❌ update_project: {error_msg}", exc_info=True)
             raise TypeError(error_msg)
 
-        # Save attachments to vector store and storage
+        # Compute email shortening once
         docs = []
         docs_by_file = {}
+        eml_handler = EmailHandler()
+        shortened_emails: dict = {}
         if query.attachments:
+            raw_emails = {att.file_id: python_email.message_from_bytes(base64.b64decode(att.content))
+                          for att in query.attachments if att.file_type == "message/rfc822"}
+            if raw_emails:
+                shortened_emails = eml_handler.shorten_raw_emails(raw_emails)
+                logger.info(f'ℹ️ Shortened {len(raw_emails)} raw email(s) to {len(shortened_emails)} for analysis')
+
             # Parse documents with streaming progress
             for event in self._parse_docs_with_progress(attachments=query.attachments,
-                                                        query_id =  query.query_id,
-                                                        session_id = query.session_id,
+                                                        query_id=query.query_id,
+                                                        session_id=query.session_id,
                                                         project_id=query.project_id,
-                                                        user_id=user_id):
+                                                        user_id=user_id,
+                                                        shortened_email_ids=set(shortened_emails.keys())):
                 yield event
             # Retrieve parsed results from instance variable
             docs = self._last_parse_results
@@ -1335,6 +1362,7 @@ class Agent:
             user_id=user_id, query=query,
             input_=factsheet,
             config=thread,
+            shortened_emails=shortened_emails,
         )
 
         # ============= PHASE 1 =================

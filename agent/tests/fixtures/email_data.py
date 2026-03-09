@@ -223,7 +223,6 @@ def get_mock_email_extracted() -> EmailExtracted:
         damages=None,
         claims=None,
         key_points=["Befaring planlagt", "Rapport vedlagt"],
-        privilege_status="attorney-client",
         email_id="test-email-extracted-001",
     )
 

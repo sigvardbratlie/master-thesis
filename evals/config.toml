@@ -1,0 +1,18 @@
+[logging]
+# Globalt standardnivå for hele applikasjonen
+level = "info"
+
+[logging.file]
+# Bruk 'enabled' i stedet for 'LOG_TO_FILE' når du er inne i fil-blokken
+enabled = true
+level = "info"
+path = "/var/log/app.log"
+
+[logging.console]
+enabled = true
+level = "info"
+
+[async]
+# Her fjerner vi bare store bokstaver, siden 'max' gir mening her
+max_concurrent_requests = 20
+throttle_value = 0.0

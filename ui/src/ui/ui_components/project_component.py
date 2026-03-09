@@ -485,6 +485,7 @@ class ProjectComponent:
                     "to": file.get("to", []),
                     "subject": file.get("subject", ""),
                     "date": str(file.get("date", "")),
+                    "reference_paths" : file.get("reference_paths", "")
                 }
                 self.attachment_component.view_attachment(email_att, key=f"{key_prefix}proj_email_{file.get('email_id', '')}", sig_icon=sig_icon)
 
@@ -599,6 +600,7 @@ class ProjectComponent:
                     if project_data:
                         st.session_state.factsheet = project_data.get('factsheet')
                         st.session_state.attachments = project_data.get('attachments', [])
+                        st.session_state.emails = project_data.get('emails', [])
                         st.session_state.update_project_view = True
                         st.session_state.clear_input_counter += 1
                         st.rerun()
@@ -611,6 +613,7 @@ class ProjectComponent:
                     if project_data:
                         st.session_state.factsheet = project_data.get('factsheet')
                         st.session_state.attachments = project_data.get('attachments', [])
+                        st.session_state.emails = project_data.get('emails', [])
                         st.session_state.update_project_view = True
                         st.session_state.clear_input_counter += 1
                         st.rerun()

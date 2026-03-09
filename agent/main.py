@@ -21,32 +21,24 @@ from psycopg_pool import AsyncConnectionPool
 
 from auth import SupabaseAuth
 from models import AskAgentRequest, CleanupElementsRequest
+from utils.config_utils import AppConfig
+from utils.logging_utils import setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
-    datefmt="%H:%M:%S",
-)
+config = AppConfig.from_toml("config.toml")
+setup_logging(config)
 
-# ── silence noisy third-party libraries ───────────────────────────────────────
-for _pkg in [
+noisy_packages =  [
     "httpx", "httpcore", "urllib3", "grpc",
     "google.cloud.firestore", "google.cloud.bigquery", "google.cloud.storage",
     "langchain", "langchain_core", "langchain_text_splitters",
     "langgraph", "langchain_google_genai", "langchain_google_community",
     "langchain_chroma", "psycopg", "psycopg_pool",
     "uvicorn.access",
-]:
-    logging.getLogger(_pkg).setLevel(logging.WARNING)
+]
+[logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
 
-# ── verbose debug for our own modules ─────────────────────────────────────────
-logging.getLogger("agent.agent").setLevel(logging.DEBUG)
-logging.getLogger("agent.agent_modules").setLevel(logging.DEBUG)
-logging.getLogger("agent.context_manager").setLevel(logging.DEBUG)
-logging.getLogger("database.database_modules").setLevel(logging.DEBUG)
-logging.getLogger("database.storage_modules").setLevel(logging.DEBUG)
-logging.getLogger("database.vectorstore_modules").setLevel(logging.DEBUG)
-logging.getLogger("documents.document_modules").setLevel(logging.DEBUG)
+debug_packages = ["agent", "database", "documents"]
+[logging.getLogger(_pkg).setLevel(logging.DEBUG) for _pkg in debug_packages]
 
 logger = logging.getLogger(__name__)
 

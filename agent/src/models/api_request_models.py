@@ -59,6 +59,8 @@ class EmailModel(BaseModel):
     
     attachments: Optional[list] = None #file ids
 
+    reference_paths : Optional[list[str]] = None 
+
 class AskAgentRequest(BaseModel):
     """POST /ask-agent request"""
     question: str

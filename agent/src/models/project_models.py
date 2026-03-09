@@ -324,6 +324,8 @@ class Email(EmailExtracted):
     #attachments: list[str] = Field(default_factory=list)
     size: Optional[int] = None
     path : Optional[str] = None
+
+    reference_paths: Optional[list[str]] = Field(None, description="File paths of attachments referenced in the email thread, separated by newlines")
     
     class Config:
         populate_by_name = True  # Accept both 'from_addr' and 'from'

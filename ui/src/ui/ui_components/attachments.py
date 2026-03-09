@@ -119,11 +119,16 @@ class AttachmentComponent:
             filename = attachment.get("filename", "")
 
             if file_type == "message/rfc822" and not content_bytes:
+                references = attachment.get('reference_paths', '')
+                st.info(f'This view shows in total {len(references)} uploaded' + (' emails' if len(references) > 1 else ' email'))
+                #if st.button("show email", )
+
                 # Render email from DB data directly
                 st.markdown(f"**From:** {attachment.get('from_addr', '')}")
                 st.markdown(f"**To:** {', '.join(attachment.get('to', [])) if isinstance(attachment.get('to'), list) else attachment.get('to', '')}")
                 st.markdown(f"**Subject:** {attachment.get('subject', '')}")
                 st.markdown(f"**Date:** {attachment.get('date', '')}")
+                
                 st.divider()
                 st.text(attachment.get("body", ""))
             elif content_bytes:
@@ -157,7 +162,7 @@ class AttachmentComponent:
             logger.warning("view_attachment called with None attachment")
             return
 
-        file_id = attachment.get('file_id', str(uuid.uuid4()))
+        file_id = attachment.get('file_id', "unknown_id")
         filename = attachment.get('filename', 'Ukjent fil')
 
         # Use stable key based on file_id, not random uuid
