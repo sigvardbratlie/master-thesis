@@ -1,0 +1,7 @@
+[logging]
+LOG_TO_FILE = true
+LOG_LEVEL = "info"
+
+[async]
+MAX_CONCURRENT_REQUESTS = 20
+THROTTLE_VALUE = 0.0
