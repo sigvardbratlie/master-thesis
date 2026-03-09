@@ -1,0 +1,3 @@
+[logging]
+LOG_TO_FILE = true
+LOG_LEVEL = "info"

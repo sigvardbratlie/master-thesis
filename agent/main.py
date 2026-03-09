@@ -21,9 +21,15 @@ from psycopg_pool import AsyncConnectionPool
 
 from auth import SupabaseAuth
 from models import AskAgentRequest, CleanupElementsRequest
+from datetime import datetime
+import tomllib
+with open("config.toml", "rb") as f:
+    config = tomllib.load(f)
+
+logging_map = {"info": logging.INFO, "debug": logging.DEBUG, "warning": logging.WARNING, "error": logging.ERROR}
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging_map.get(config.get("logging").get("LOG_LEVEL")),
     format="%(asctime)s  %(levelname)-8s  %(name)s — %(message)s",
     datefmt="%H:%M:%S",
 )
@@ -47,6 +53,13 @@ logging.getLogger("database.database_modules").setLevel(logging.DEBUG)
 logging.getLogger("database.storage_modules").setLevel(logging.DEBUG)
 logging.getLogger("database.vectorstore_modules").setLevel(logging.DEBUG)
 logging.getLogger("documents.document_modules").setLevel(logging.DEBUG)
+
+if config.get("logging").get("LOG_TO_FILE"):
+    file_handler = logging.FileHandler(f"logs/{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_main_debug.log")
+    file_handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter("%(asctime)s  %(levelname)-8s  %(name)s — %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    file_handler.setFormatter(formatter)
+    logging.getLogger().addHandler(file_handler)
 
 logger = logging.getLogger(__name__)
 
