@@ -128,10 +128,13 @@ class SupabaseManager:
             #logger.debug(f' ========= ATTACHEMNT CONTENTS TO SAVE ======== \n {attachment_dicts} \n')
         
         if emails:
+            seen_email_ids = set()
             for email in emails:
                 email_dict = email.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
                 email_dict["project_id"] = project_id
-                email_dicts.append(email_dict)
+                if email_dict["email_id"] not in seen_email_ids:
+                    seen_email_ids.add(email_dict["email_id"])
+                    email_dicts.append(email_dict)
         
         factsheet_dict = factsheet.model_dump(mode='json')
         claims = factsheet_dict.pop("claims", [])
@@ -153,13 +156,6 @@ class SupabaseManager:
             except Exception as e:
                 logger.error(f'❌ Upsert failed for project {project_id}: {e} — stopping', exc_info=True)
                 return
-            if email_dicts:
-                try:
-                    # ========== PROJECT EMAILS ==========
-                    self.supabase.table("project_emails").upsert(email_dicts).execute()
-                    logger.debug(f'Upserted {len(emails)} emails for project {project_id} in Supabase.')
-                except Exception as e:
-                    logger.error(f'Error upserting emails for project {project_id} in Supabase: {e}', exc_info=True)
 
         if attachment_dicts:
             try:
@@ -168,6 +164,14 @@ class SupabaseManager:
                 logger.debug(f'Upserted {len(attachments)} attachments for project {project_id} in Supabase.')
             except Exception as e:
                 logger.error(f'Error upserting attachments for project {project_id} in Supabase: {e}', exc_info=True)
+        if email_dicts:
+            try:
+                # ========== PROJECT EMAILS ==========
+                self.supabase.table("project_emails").upsert(email_dicts).execute()
+                logger.debug(f'Upserted {len(emails)} emails for project {project_id} in Supabase.')
+            except Exception as e:
+                logger.error(f'Error upserting emails for project {project_id} in Supabase: {e}', exc_info=True)
+                logger.error(f'\n\nEmail dicts DEBUG:\n {email_dicts}\n\n')
 
         if parties:
             # ========== PROJECT PARTIES ==========
