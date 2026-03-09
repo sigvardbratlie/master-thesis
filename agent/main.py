@@ -76,6 +76,7 @@ async def lifespan(app: FastAPI):
         tools=TOOLS,
         prompt=PROMPT,
         checkpointer=checkpointer,
+        config = config
     )
     logger.info("🚀 Agent ready — AsyncPostgresSaver checkpointer attached")
 

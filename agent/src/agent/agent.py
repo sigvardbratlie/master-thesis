@@ -31,9 +31,9 @@ from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, Chro
 from documents import DocumentProcessor, EmailHandler
 from models import *  
 from uuid import uuid4
-load_dotenv()
-project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+from utils import AppConfig
 
+project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 logger = logging.getLogger(__name__)
 
 import email as python_email
@@ -48,7 +48,7 @@ class Agent:
                  use_factsheet : bool = True,
                  embed_to_vectorstore : bool = True,
                  save_to_storage : bool = True,
-                 config: AgentConfig = None,
+                 config: AppConfig = None,
                  ):
         """
         Initializes the Agent with tools, prompt, LLMs, and checkpointer.
@@ -79,9 +79,9 @@ class Agent:
         self.embed_to_vectorstore = embed_to_vectorstore
         self.save_to_storage = save_to_storage
 
-        self.config = config or AgentConfig()
-        self._semaphore = asyncio.Semaphore(self.config.max_concurrent)
-        logger.debug(f"⚙️  AgentConfig: max_concurrent={self.config.max_concurrent}, throttle_value={self.config.throttle_value}s")
+        self.config = config or AppConfig()
+        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
+        logger.debug(f"⚙️  AgentConfig: max_concurrent={self.config.async_tasks.max_concurrent_requests}, throttle_value={self.config.async_tasks.throttle_value}s")
     
     # =================================
     #         GRAPH ELEMENTS
@@ -354,7 +354,7 @@ class Agent:
         tool_data_results = []
         enc = tiktoken.encoding_for_model("gpt-4o-mini")
         DATA_PROD_TOOLS = []
-        TOKEN_LIMIT = 10000
+        TOKEN_LIMIT = self.config.agent.max_token_tool
         
 
         if not tool_calls:
@@ -424,7 +424,6 @@ class Agent:
         "anthropic": "anthropic", 
     }
 
-    
     THINKING_KWARGS: dict[tuple[str, str], dict] = {
         ("google_genai", "flash"): {"include_thoughts": False},
         # Anthropic extended thinking — add when Claude is wired up:
@@ -447,10 +446,10 @@ class Agent:
         if model_provider in ["together"]:
             is_qwen3 = "Qwen3" in model_name
             return ChatOpenAI(
-                        base_url="https://api.together.xyz/v1",
+                        base_url=self.config.models.together.base_url,
                         api_key=os.getenv("TOGETHER_API_KEY"),
                         model=model_name,
-                        max_tokens=4096,
+                        max_tokens=self.config.models.together.max_tokens,
                         stream_usage=False,  # Together AI doesn't support stream_options/include_usage
                         stop=["<|im_end|>", "<|endoftext|>"] if is_qwen3 else None,
                         extra_body={"enable_thinking": False} if is_qwen3 else {},
@@ -836,17 +835,17 @@ class Agent:
                     await asyncio.sleep(self.config.throttle_value)
                 return result
 
+        threshold = self.config.project.threshold
+        max_attachments = self.config.project.max_attachments
         
-        doc_tasks = []
-        threshold = 500 * 1024  # 500KB extracted text — sized for LLM context window
-        max_attachments = 10
-
         eml = EmailHandler()
         email_attachments = []
         email_size_counter = 0
 
-        doc_size_counter = 0
         doc_attachments = []
+        doc_size_counter = 0
+
+        doc_tasks = []
 
         logger.info(f"📎 Preparing analysis tasks for {len(attachments or [])} attachment(s)")
 
@@ -1255,9 +1254,6 @@ class Agent:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id
             }
-                
-
-        
         
         result = FactSheet(
             events=events,

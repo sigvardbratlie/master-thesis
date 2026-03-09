@@ -22,11 +22,34 @@ class AsyncConfig(BaseModel):
     max_concurrent_requests: int = 20
     throttle_value: float = 0.0
 
+
+
+class ModelProviderConfig(BaseModel):
+    base_url: str
+    max_tokens: int = 4096
+
+class ModelsConfig(BaseModel):
+    together: ModelProviderConfig = Field(default_factory=ModelProviderConfig)
+
+class AgentStream(BaseModel):
+    max_token_tool: int = 10000
+
+class AgentProject(BaseModel):
+    threshold: int = 500 * 1024  # 500KB extracted text — sized for LLM context window
+    max_attachments: int = 10
+
+class AgentConfig(BaseModel):
+    stream: AgentStream = Field(default_factory=AgentStream)
+    project: AgentProject = Field(default_factory=AgentProject)
+
 # 2. Definer hovedkonfigurasjonen som BaseSettings
 class AppConfig(BaseSettings):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     async_tasks: AsyncConfig = Field(default_factory=AsyncConfig, alias="async") 
-    
+    agent: AgentConfig = Field(default_factory=AgentConfig)
+    models: ModelsConfig = Field(default_factory=ModelsConfig)
+
+
     @classmethod
     def from_toml(cls, path: str | Path) -> "AppConfig":
         """Loads and validates config from a TOML file."""
