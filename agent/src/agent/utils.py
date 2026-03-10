@@ -1,13 +1,34 @@
 import os
 from dotenv import load_dotenv
 import logging
-
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
+from models import AskAgentRequest, InitialInput, FactSheet
+from langchain_core.runnables import RunnableConfig
+from typing_extensions import Annotated
+import operator
+from pydantic import BaseModel, Field
 
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 logger = logging.getLogger(__name__)
+
+class PipelineState(BaseModel):
+    # Inputs
+    query: AskAgentRequest
+    thread: RunnableConfig = Field(default_factory=dict)
+
+    # Intermediate
+    docs_by_file: dict = Field(default_factory=dict)
+    collapsed_emails: dict = Field(default_factory=dict)
+    input_: InitialInput | FactSheet | None = None
+    element_type : str | None = None
+
+    # Collected results — reducer-syntaks fungerer med Annotated også på Pydantic
+    events:      Annotated[list, operator.add] = Field(default_factory=list)
+    damages:     Annotated[list, operator.add] = Field(default_factory=list)
+    claims:      Annotated[list, operator.add] = Field(default_factory=list)
+    deadlines:   Annotated[list, operator.add] = Field(default_factory=list)
+    attachments: Annotated[list, operator.add] = Field(default_factory=list)
+    emails:      Annotated[list, operator.add] = Field(default_factory=list)
 
 
 PROMPT = """**Role:**
