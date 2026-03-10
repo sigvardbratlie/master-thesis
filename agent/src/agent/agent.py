@@ -1138,7 +1138,8 @@ class Agent:
     
         doc_tasks = self._prepare_analysis_tasks(
             attachments=query.attachments,
-            user_id=user_id, query=query,
+            user_id=user_id, 
+            query=query,
             input_=initial_input,
             config=thread,
             shortened_emails=shortened_emails,
