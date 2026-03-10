@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Literal
-from typing import TypedDict, Annotated, Sequence
+from typing import Literal, TypedDict, Annotated, Sequence
 from langchain_core.messages import BaseMessage
 from datetime import datetime,date
 import uuid
@@ -63,8 +62,8 @@ significance_levels = Literal["high", "medium", "low"]
 # === #Custom fields === 
 class GoverningLaw(BaseModel):
     primary_jurisdiction: str = Field(default = "norwegian_law" , description="Which law governs (e.g., Norwegian law)")
-    key_areas: Optional[list[str]] = Field(default_factory=list, description="Relevant legal areas (contract law, tort, etc)")
-    international_elements: Optional[str] = Field(
+    key_areas: list[str] | None = Field(default_factory=list, description="Relevant legal areas (contract law, tort, etc)")
+    international_elements: str | None = Field(
         None, description="Cross-border or conflicts of law issues"
     )
     procedural_law: Literal[
@@ -73,36 +72,36 @@ class GoverningLaw(BaseModel):
     ] = Field(default="tvisteloven",description="Applicable procedural law, if relevant")
 
 class FactualFacts(BaseModel):
-    disputed_facts: Optional[list[str]] = Field(None, description="Key facts that are in dispute between the parties")
-    undisputed_facts: Optional[list[str]] = Field(None, description="Key facts that are undisputed between the parties")
+    disputed_facts: list[str] | None = Field(None, description="Key facts that are in dispute between the parties")
+    undisputed_facts: list[str] | None = Field(None, description="Key facts that are undisputed between the parties")
 
 class Claim(BaseModel):
-    claim_id : Optional[str] = None
+    claim_id : str | None = None
     legal_basis: str = Field(description="Statutory basis (e.g., avtaleloven §36)")
     factual_basis: str = Field(description="Key facts supporting this claim")
     relief_sought: str = Field(description="What is being claimed (damages, injunction, etc)")
     strength_assessment: Literal["strong", "moderate", "weak"] = Field(
         description="Assessment of claim strength"
     )
-    defense: Optional[str] = Field(None, description="Defense strategy if defending")
-    file_id: Optional[str] = None  # For claims from attachments
-    email_id: Optional[str] = None  # For claims from emails
-    party_role : Optional[PartyRole] = None
+    defense: str | None = Field(None, description="Defense strategy if defending")
+    file_id: str | None = None  # For claims from attachments
+    email_id: str | None = None  # For claims from emails
+    party_role : PartyRole | None = None
     significance : significance_levels = Field(default="medium", description="Significance of the claim to the case")
 
 class Claims(BaseModel):
     claims: list[Claim] = Field(description="Legal claims made by the parties, including legal and factual basis, relief sought, and strength assessment")
 
 class Damage(BaseModel):
-    damage_id: Optional[str] = None
+    damage_id: str | None = None
     category: Literal["direct_losses", "interest", "consequential", "punitive"]
-    amount: Optional[int | float] = Field(None, description="Monetary amount if amount is known and mentioned, else None")
-    currency: Optional[str] = Field(None, description="Currency of the amount, e.g., 'NOK', 'USD', etc.")
+    amount: int | float | None = Field(None, description="Monetary amount if amount is known and mentioned, else None")
+    currency: str | None = Field(None, description="Currency of the amount, e.g., 'NOK', 'USD', etc.")
     basis: str
     supporting_evidence: list[str] = Field(description="File_IDs supporting the damage claim")
-    file_id: Optional[str] = None  # For damages from attachments
-    email_id: Optional[str] = None  # For damages from emails
-    party_role: Optional[PartyRole] = None
+    file_id: str | None = None  # For damages from attachments
+    email_id: str | None = None  # For damages from emails
+    party_role: PartyRole | None = None
     significance : significance_levels = Field(default="medium", description="Significance of the damage claim to the case")
 
     
@@ -111,12 +110,12 @@ class Damages(BaseModel):
     damages: list[Damage] = Field(description="Information about damages claimed or incurred in the case, including type, amount if mentioned, evidentiary basis, and associated party roles")
 
 class Deadline(BaseModel):
-    deadline_id: Optional[str] = None
+    deadline_id: str | None = None
     deadline_date: date |datetime
     description: str
-    file_id: Optional[str] = Field(None, description="Related attachment reference")
-    email_id: Optional[str] = None  # For deadlines from emails
-    party_role : Optional[PartyRole] = None
+    file_id: str | None = Field(None, description="Related attachment reference")
+    email_id: str | None = None  # For deadlines from emails
+    party_role : PartyRole | None = None
     significance : significance_levels = Field(default="medium", description="Significance of the deadline to the case")
 
 class Deadlines(BaseModel):
@@ -125,19 +124,19 @@ class Deadlines(BaseModel):
 # ====== BASIC FIELDS =====
 class Contact(BaseModel):
     name: str = Field(description="Full name of contact person")
-    title: Optional[str] = None
-    phone: Optional[str] = None
-    email: Optional[str] = None
+    title: str | None = None
+    phone: str | None = None
+    email: str | None = None
 
 class Party(BaseModel):
     legal_name: str
-    party_id : Optional[str] = None
+    party_id : str | None = None
     role: PartyRole = Field(
         default="other",
         description="Role of the party in the case, e.g., plaintiff, defendant, witness, legal representative, etc.")
     entity_type: entity_types
-    key_contact: Optional[Contact] = Field(None, description="Primary contact person for this party")
-    role_description: Optional[str] = Field(None, description="Additional details about the party's role or involvement in the case")
+    key_contact: Contact | None = Field(None, description="Primary contact person for this party")
+    role_description: str | None = Field(None, description="Additional details about the party's role or involvement in the case")
     significance : significance_levels = Field(default="medium", description="Significance of the party to the case")
 
 
@@ -145,15 +144,15 @@ class Parties(BaseModel):
     parties: list[Party] = Field(description="List of parties involved in the case, i.e., plaintiff, defendant, witnesses, plaintiffs legal representatives, etc.")
 
 class Event(BaseModel):
-    event_id: Optional[str] = None
-    file_id: Optional[str] = None  # For events from attachments
-    email_id: Optional[str] = None  # For events from emails
+    event_id: str | None = None
+    file_id: str | None = None  # For events from attachments
+    email_id: str | None = None  # For events from emails
     event_name: str
     event_start_date: date | datetime
-    event_end_date: Optional[date | datetime] = None
+    event_end_date: date | datetime | None = None
     description: str
     category: str = Field(description="Categorization of the event, e.g., 'court_filing', 'evidence_submission', 'contract_signing', 'communication', etc.")
-    parties: Optional[list[str]] = Field(None, description="Roles of parties involved in the event")
+    parties: list[str] | None = Field(None, description="Roles of parties involved in the event")
     significance: significance_levels = Field(default="medium", description="Significance of the event to the case")
     disputed: bool
 
@@ -162,24 +161,24 @@ class Events(BaseModel):
 
 class InitialInput(BaseModel):
     # Factual background
-    parties: Optional[list[Party]] = Field([], description="List of parties involved in the case, i.e., plaintiff, defendant, witnesses, plaintiffs legal representatives, etc.")
-    background: Optional[str] = Field("", description="Brief factual background of the case, including key events, timeline, and context")
-    title : Optional[str] = Field("", description="Title of the case or matter")
+    parties: list[Party] | None = Field([], description="List of parties involved in the case, i.e., plaintiff, defendant, witnesses, plaintiffs legal representatives, etc.")
+    background: str | None = Field("", description="Brief factual background of the case, including key events, timeline, and context")
+    title : str | None = Field("", description="Title of the case or matter")
 
 class BaseExtracted(BaseModel):
     """Common extraction fields for all document types and emails"""
     description: str = Field(description="Concise summary of the content")
     significance: significance_levels = Field(default="medium", description="Importance level")
-    party_roles: Optional[list[str]] = Field(None, description="Party roles mentioned")
-    deadlines: Optional[list[Deadline]] = Field(None, description="Relevant deadlines if any")
-    damages: Optional[list[Damage]] = Field(None, description="Damage information if applicable")
-    claims: Optional[list[Claim]] = Field(None, description="Claim information if applicable")
+    party_roles: list[str] | None = Field(None, description="Party roles mentioned")
+    deadlines: list[Deadline] | None = Field(None, description="Relevant deadlines if any")
+    damages: list[Damage] | None = Field(None, description="Damage information if applicable")
+    claims: list[Claim] | None = Field(None, description="Claim information if applicable")
 
 class AttachmentExtracted(BaseExtracted):
     """Document-specific extraction fields"""
-    file_id: Optional[str] = None
-    key_provisions: Optional[list[str]] = Field(None, description="Important clauses or sections (for agreements)")
-    file_date: Optional[date | datetime] = Field(None, description="Date of the document (when it was created/sent, not when it was received). Must be a valid date or datetime (e.g., '2023-05-01' or '2023-05-01T14:30:00')")
+    file_id: str | None = None
+    key_provisions: list[str] | None = Field(None, description="Important clauses or sections (for agreements)")
+    file_date: date | datetime | None = Field(None, description="Date of the document (when it was created/sent, not when it was received). Must be a valid date or datetime (e.g., '2023-05-01' or '2023-05-01T14:30:00')")
     category: Literal[
         "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
         "court_order", "invoice", "expert_report", "witness_statement", "internal_memo",
@@ -190,26 +189,26 @@ class AttachmentExtracted(BaseExtracted):
     )
 
 class Attachment(AttachmentExtracted):
-    file_id: Optional[str] = None
+    file_id: str | None = None
     filename: str
     path: str 
     file_type: FileType #system generated
-    body : Optional[str] = None
+    body : str | None = None
     size: int #system generated
-    #events: Optional[list[str]] = Field(None, description="event IDs mentioned in the document")
-    email_id: Optional[str] = Field(None, description="If this attachment was extracted from an email, reference the email_id here")
+    #events: list[str] | None = Field(None, description="event IDs mentioned in the document")
+    email_id: str | None = Field(None, description="If this attachment was extracted from an email, reference the email_id here")
 
 
 class FactSheet(InitialInput,
                 #FactualFacts
                 ):
     """Structured representation of case facts for legal analysis."""
-    project_id: Optional[str] = None
+    project_id: str | None = None
     events: list[Event] #prior variable name: timeline 
-    #governing_law: Optional[GoverningLaw] = None
-    claims: Optional[list[Claim]] = None
-    damages: Optional[list[Damage]] = None
-    deadlines: Optional[list[Deadline]] = None
+    #governing_law: GoverningLaw | None = None
+    claims: list[Claim] | None = None
+    damages: list[Damage] | None = None
+    deadlines: list[Deadline] | None = None
 
     def shorten_events(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
         if not self.events:
@@ -285,47 +284,47 @@ class RelevanceCheck(BaseModel):
 
 class EmailExtracted(BaseExtracted):
     """Email-specific extraction fields - what LLM extracts from email content"""
-    key_points: Optional[list[str]] = Field(None, description="Important points, decisions, or action items from the email")
+    key_points: list[str] | None = Field(None, description="Important points, decisions, or action items from the email")
     # Legal metadata
-    #privilege_status: Optional[Literal["attorney-client", "work_product", "none"]] = Field(
+    #privilege_status: Literal["attorney-client", "work_product", "none"] | None = Field(
     #     None, description="Privilege classification"
     # )
-    email_id : Optional[str] = None 
+    email_id : str | None = None 
 
 class Email(EmailExtracted):
     """Email model - Python-friendly names with RFC aliases"""
     
     # IDs
-    #email_id: Optional[str] = None
-    project_id: Optional[str] = None
+    #email_id: str | None = None
+    project_id: str | None = None
     
     # Core RFC 5322 headers - lowercase Python names
     from_addr: str = Field(alias="from")  # ✅ Python-friendly
     to: list[str] = Field(default_factory=list)
-    cc: Optional[list[str]] = Field(default_factory=list)
-    bcc: Optional[list[str]] = Field(default_factory=list)
+    cc: list[str] | None = Field(default_factory=list)
+    bcc: list[str] | None = Field(default_factory=list)
     subject: str
     date: datetime
     
     # Threading
     message_id: str = Field(alias="message-id")
-    in_reply_to: Optional[str] = Field(None, alias="in-reply-to")
-    references: Optional[str] = None
-    thread_topic: Optional[str] = Field(None, alias="thread-topic")
-    thread_index: Optional[str] = Field(None, alias="thread-index")
-    thread_id: Optional[str] = None
+    in_reply_to: str | None = Field(None, alias="in-reply-to")
+    references: str | None = None
+    thread_topic: str | None = Field(None, alias="thread-topic")
+    thread_index: str | None = Field(None, alias="thread-index")
+    thread_id: str | None = None
     
     # Content
     body: str
-    html: Optional[str] = None
+    html: str | None = None
     
     # Metadata
     headers: dict = Field(default_factory=dict)
     #attachments: list[str] = Field(default_factory=list)
-    size: Optional[int] = None
-    path : Optional[str] = None
+    size: int | None = None
+    path : str | None = None
 
-    reference_paths: Optional[list[str]] = Field(None, description="File paths of attachments referenced in the email thread, separated by newlines")
+    reference_paths: list[str] | None = Field(None, description="File paths of attachments referenced in the email thread, separated by newlines")
     
     class Config:
         populate_by_name = True  # Accept both 'from_addr' and 'from'

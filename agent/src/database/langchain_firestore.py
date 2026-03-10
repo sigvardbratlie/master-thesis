@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from typing import Any, Iterator, List, Optional, Tuple, AsyncIterator
+from typing import Any, Iterator, AsyncIterator
 import asyncio
 import base64
 
@@ -42,7 +42,7 @@ class FirestoreSerializer:
         data = base64.b64decode(data_str) if isinstance(data_str, str) else data_str
         return self._inner_serde.loads_typed((type_, data))
 
-    def dumps_typed(self, obj: Any) -> Tuple[str, str]:
+    def dumps_typed(self, obj: Any) -> tuple[str, str]:
         # Bruk inner_serde.dumps_typed direkte
         type_, data = self._inner_serde.dumps_typed(obj)
         # data er binære bytes, konverter til base64 string for Firestore
@@ -50,7 +50,7 @@ class FirestoreSerializer:
             return type_, base64.b64encode(data).decode('ascii')
         return type_, data
 
-    def loads_typed(self, typed_obj: Tuple[str, str]) -> Any:
+    def loads_typed(self, typed_obj: tuple[str, str]) -> Any:
         type_str, data_str = typed_obj
         # Konverter base64 string tilbake til bytes for inner_serde
         data = base64.b64decode(data_str) if isinstance(data_str, str) else data_str
@@ -161,7 +161,7 @@ class FirestoreSaver(BaseCheckpointSaver):
         }
 
     def put_writes(
-            self, config: RunnableConfig, writes: List[Tuple[str, Any]], task_id: str
+            self, config: RunnableConfig, writes: list[tuple[str, Any]], task_id: str
     ) -> None:
         thread_id = config["configurable"]["thread_id"]
         checkpoint_id = config["configurable"]["checkpoint_id"]
@@ -194,7 +194,7 @@ class FirestoreSaver(BaseCheckpointSaver):
             batch.set(doc_ref, data)
         batch.commit()
 
-    def get_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
+    def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         thread_id = config["configurable"]["thread_id"]
         user_id = config["configurable"]["user_id"]
         #custom_project_id = config["configurable"]["custom_project_id"]
@@ -228,9 +228,9 @@ class FirestoreSaver(BaseCheckpointSaver):
             self,
             config: RunnableConfig,
             *,
-            filter: Optional[dict[str, Any]] = None,
-            before: Optional[RunnableConfig] = None,
-            limit: Optional[int] = None,
+            filter: dict[str, Any] | None = None,
+            before: RunnableConfig | None = None,
+            limit: int | None = None,
     ) -> Iterator[CheckpointTuple]:
         thread_id = config["configurable"]["thread_id"]
         user_id = config["configurable"]["user_id"]
@@ -266,7 +266,7 @@ class FirestoreSaver(BaseCheckpointSaver):
             if checkpoint_tuple:
                 yield checkpoint_tuple
 
-    def _get_latest_checkpoint_id(self, user_id : str, thread_id: str) -> Optional[str]:
+    def _get_latest_checkpoint_id(self, user_id : str, thread_id: str) -> str | None:
         collections = self.checkpoints_collection_ref.document(user_id).collection("checkpoints").document(thread_id).collections()
         collection_ids = [c.id for c in collections]
 
@@ -275,7 +275,7 @@ class FirestoreSaver(BaseCheckpointSaver):
             return None
         return sorted(collection_ids, reverse=True)[0]
 
-    def _load_pending_writes(self, user_id: str, thread_id: str, checkpoint_id: str) -> List[PendingWrite]:
+    def _load_pending_writes(self, user_id: str, thread_id: str, checkpoint_id: str) -> list[PendingWrite]:
         writes_query = (
             self.writes_collection_ref.document(user_id)
             .collection("writes")
@@ -310,8 +310,8 @@ class FirestoreSaver(BaseCheckpointSaver):
             thread_id: str,
             checkpoint_id: str,
             data: dict,
-            pending_writes: Optional[List[PendingWrite]] = None,
-    ) -> Optional[CheckpointTuple]:
+            pending_writes: list[PendingWrite] | None = None,
+    ) -> CheckpointTuple | None:
         if not data:
             return None
 
@@ -362,16 +362,16 @@ class FirestoreSaver(BaseCheckpointSaver):
 
     # --- Asynkrone metoder (wrappers) ---
 
-    async def aget_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
+    async def aget_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
         return await asyncio.get_running_loop().run_in_executor(None, self.get_tuple, config)
 
     async def alist(
             self,
             config: RunnableConfig,
             *,
-            filter: Optional[dict[str, Any]] = None,
-            before: Optional[RunnableConfig] = None,
-            limit: Optional[int] = None,
+            filter: dict[str, Any] | None = None,
+            before: RunnableConfig | None = None,
+            limit: int | None = None,
     ) -> AsyncIterator[CheckpointTuple]:
         # Note: This is not a true async implementation, but wraps the sync iterator.
         sync_iterator = self.list(config, filter=filter, before=before, limit=limit)
@@ -393,7 +393,7 @@ class FirestoreSaver(BaseCheckpointSaver):
             None, self.put, config, checkpoint, metadata, new_versions
         )
 
-    async def aput_writes(self, config: RunnableConfig, writes: List[Tuple[str, Any]], task_id: str) -> None:
+    async def aput_writes(self, config: RunnableConfig, writes: list[tuple[str, Any]], task_id: str) -> None:
         await asyncio.get_running_loop().run_in_executor(
             None, self.put_writes, config, writes, task_id
         )

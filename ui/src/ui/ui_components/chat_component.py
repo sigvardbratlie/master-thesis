@@ -1,5 +1,4 @@
 import streamlit as st
-from typing import Optional
 from uuid import uuid4
 from ui.utils import init_state
 import logging
@@ -83,7 +82,7 @@ class ChatComponent:
 
         return question
 
-    def render_first_question(self) -> Optional[str]:
+    def render_first_question(self) -> str | None:
         """
         Renders welcome screen with example questions.
 

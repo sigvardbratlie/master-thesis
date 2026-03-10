@@ -1,7 +1,6 @@
 import os
 import logging
 from datetime import datetime
-from typing import List, Dict
 from langchain_core.documents import Document
 
 from langchain_chroma import Chroma
@@ -13,7 +12,6 @@ from google.cloud import bigquery
 logger = logging.getLogger(__name__)
 
 from abc import ABC, abstractmethod
-from typing import List, Dict
 # ============================================
 #           ABSTRACT BASE CLASS
 # ============================================
@@ -21,12 +19,12 @@ class VectorStoreInterface(ABC):
     """Clean interface - ALL vector stores implement this."""
     
     @abstractmethod
-    def add_documents(self, documents: List[Document]) -> None:
+    def add_documents(self, documents: list[Document]) -> None:
         """Add documents to store."""
         pass
     
     @abstractmethod
-    def query(self, query: str, filters: Dict = None, k: int = 3) -> List[Document]:
+    def query(self, query: str, filters: Dict = None, k: int = 3) -> list[Document]:
         """Query documents."""
         pass
     
@@ -52,7 +50,7 @@ class ChromaVectorStore(VectorStoreInterface):
             embedding = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
 
         self.embedding = embedding
-        self._collections: Dict[str, Chroma] = {}  # Cache per session
+        self._collections: dict[str, Chroma] = {}  # Cache per session
     
     def _get_collection(self, collection_id: str) -> Chroma:
         """Get or create collection."""
@@ -63,7 +61,7 @@ class ChromaVectorStore(VectorStoreInterface):
             )
         return self._collections[collection_id]
     
-    def add_documents(self, documents: List[Document], collection_id: str) -> None:
+    def add_documents(self, documents: list[Document], collection_id: str) -> None:
         collection = self._get_collection(collection_id)
         try:
             collection.add_documents(documents)
@@ -79,7 +77,7 @@ class ChromaVectorStore(VectorStoreInterface):
         })
         document.metadata = metadata
     
-    def query(self, query: str, collection_id: str, k: int = 3) -> List[Document]:
+    def query(self, query: str, collection_id: str, k: int = 3) -> list[Document]:
         collection = self._get_collection(collection_id)
         retriever = collection.as_retriever(search_kwargs={"k": k})
         return retriever.invoke(query)
@@ -132,7 +130,7 @@ class BQVectorStore(VectorStoreInterface):
             embedding = GoogleGenerativeAIEmbeddings(model="gemini-embedding-001")
 
         self.embedding = embedding
-        self._stores: Dict[str, BigQueryVectorStore] = {}
+        self._stores: dict[str, BigQueryVectorStore] = {}
     
     def _get_store(self, collection_id: str) -> BigQueryVectorStore:
         if collection_id not in self._stores:
@@ -145,7 +143,7 @@ class BQVectorStore(VectorStoreInterface):
             )
         return self._stores[collection_id]
     
-    def add_documents(self, documents: List[Document], collection_id: str = "attachments", add_embeddings_meta = True) -> None:
+    def add_documents(self, documents: list[Document], collection_id: str = "attachments", add_embeddings_meta = True) -> None:
         if add_embeddings_meta:
             for doc in documents:
                 self.add_embeddings_meta(doc)
@@ -161,7 +159,7 @@ class BQVectorStore(VectorStoreInterface):
         })
         document.metadata = metadata
     
-    def query(self, query: str, collection_id: str = "attachments", k: int = 3, filter= {}) -> List[Document]:
+    def query(self, query: str, collection_id: str = "attachments", k: int = 3, filter= {}) -> list[Document]:
         store = self._get_store(collection_id)
         retriever = store.as_retriever(search_kwargs={"k": k},
                                        filter = filter)

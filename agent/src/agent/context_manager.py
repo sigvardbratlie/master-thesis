@@ -1,6 +1,5 @@
 
 import json
-from typing import List,Optional
 import tiktoken
 import logging
 from uuid import uuid4
@@ -126,10 +125,10 @@ class ContextManager:
 
         class AttachmentWithEvents(BaseModel):
             attachment: AttachmentExtracted
-            events: Optional[List[Event]] = []
+            events: list[Event] | None = []
 
         class MultipleAttachmentsResult(BaseModel):
-            attachments: List[AttachmentWithEvents]
+            attachments: list[AttachmentWithEvents]
 
         documents_formatted = "\n\n".join([
             f"DOCUMENT #{idx+1}\nFILE_ID={att.file_id}  <-- copy this into attachment.file_id\n{att.model_dump(include={'body','file_type'})}"
@@ -147,7 +146,7 @@ class ContextManager:
 
                                 For EACH document, return an AttachmentWithEvents object containing:
                                 1. attachment: AttachmentExtracted - metadata from that document (MUST set file_id to the file_id shown for each document)
-                                2. events: List[Event] or null - timeline events mentioned in that document
+                                2. events: list[Event] or null - timeline events mentioned in that document
 
                                 IMPORTANT: Return exactly {len(attachments)} AttachmentWithEvents objects in the attachments array.
                                 CRITICAL: Set file_id in AttachmentExtracted to match the file_id from the input document.
@@ -266,11 +265,11 @@ class ContextManager:
         class EmailAnalysisResult(BaseModel):
             """Result for ONE email analysis"""
             email: EmailExtracted = Field(description="Extracted metadata and content from this specific email")
-            events: Optional[List[Event]] = Field(default=None, description="Timeline events mentioned in this email (can be empty list or null if no events found)")
+            events: list[Event] | None = Field(default=None, description="Timeline events mentioned in this email (can be empty list or null if no events found)")
         
         class EmailsAnalysisResult(BaseModel):
             """Result containing ALL email analyses"""
-            emails: List[EmailAnalysisResult] = Field(description="List of email analysis results - one EmailAnalysisResult object per input email")
+            emails: list[EmailAnalysisResult] = Field(description="List of email analysis results - one EmailAnalysisResult object per input email")
 
         # Build set of original IDs for validation
         org_ids = set()
@@ -304,7 +303,7 @@ class ContextManager:
         
                                 For EACH email, return an EmailAnalysisResult object containing:
                                 1. email: EmailExtracted - metadata from that email (MUST set email_id to the file_id shown for each email)
-                                2. events: List[Event] or null - timeline events mentioned in that email
+                                2. events: list[Event] or null - timeline events mentioned in that email
 
                                 IMPORTANT: Return exactly {len(emails)} EmailAnalysisResult objects in the emails array.
                                 CRITICAL: Set email_id in EmailExtracted to match the file_id from the input email.
@@ -657,13 +656,13 @@ class ContextManager:
     #     '''Clean/fill a simple attribute (e.g. case title) with LLM.
         
     #     Returns:
-    #         - List[str] for "disputed_facts" and "undisputed_facts"
+    #         - list[str] for "disputed_facts" and "undisputed_facts"
     #         - dict for "governing_law"
     #     '''
     #     # Define which types need structured output
     #     structured_types = {
-    #         "disputed_facts": List[str],
-    #         "undisputed_facts": List[str],
+    #         "disputed_facts": list[str],
+    #         "undisputed_facts": list[str],
     #         "governing_law": GoverningLaw,
     #     }
     #     if element_type not in structured_types:
@@ -684,7 +683,7 @@ class ContextManager:
     #     # Return based on type
     #     if hasattr(response, 'model_dump'):  # Pydantic model (GoverningLaw)
     #         return response.model_dump()
-    #     else:  # List[str]
+    #     else:  # list[str]
     #         return response
     
     # async def analyze_governing_law(self, events : list[Event], rag_content_law : str, config: RunnableConfig = None) -> GoverningLaw:

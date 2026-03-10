@@ -2,7 +2,7 @@ import json
 import requests
 import streamlit as st
 import logging
-from typing import Generator, Callable, Optional
+from typing import Generator, Callable
 from ui.models import *
 
 logger = logging.getLogger(__name__)
@@ -23,11 +23,11 @@ class StreamingService:
     def stream_response(
         self,
         request: AskAgentRequest,
-        on_token: Optional[Callable[[str], None]] = None,
-        on_ai_message: Optional[Callable[[StreamEvent], None]] = None,
-        on_tool_result: Optional[Callable[[StreamEvent], None]] = None,
-        on_reasoning: Optional[Callable[[str], None]] = None,
-        status_callback: Optional[Callable[[str, str], None]] = None
+        on_token: Callable[[str], None] | None = None,
+        on_ai_message: Callable[[StreamEvent], None] | None = None,
+        on_tool_result: Callable[[StreamEvent], None] | None = None,
+        on_reasoning: Callable[[str], None] | None = None,
+        status_callback: Callable[[str, str], None] | None = None
     ) -> Generator[str, None, None]:
         """
         Stream response from backend and invoke callbacks.

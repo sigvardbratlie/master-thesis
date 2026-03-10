@@ -6,7 +6,6 @@ from langchain_openai import ChatOpenAI
 import tiktoken
 from datetime import datetime
 import asyncio
-from typing import List, Optional
 
 import pandas as pd
 from dotenv import load_dotenv
@@ -41,7 +40,7 @@ import email as python_email
 class Agent:
     '''Main Agent class handling the agent operations'''
     def __init__(self,
-                 tools : List[tool],
+                 tools : list[tool],
                  prompt : str,
                  checkpointer = None,
                  use_factsheet : bool = True,
@@ -52,7 +51,7 @@ class Agent:
         """
         Initializes the Agent with tools, prompt, LLMs, and checkpointer.
         Args:
-            tools (List[tool]): List of tools available to the agent.
+            tools (list[tool]): List of tools available to the agent.
             prompt (str): The system prompt guiding the agent's behavior.
             llms (dict): Dictionary of LLMs available for the agent.
             checkpointer: Optional checkpointer for saving agent state.
@@ -209,7 +208,7 @@ class Agent:
 
         return sanitized
 
-    async def _call_llm(self, state: AgentState, llm_with_tools: BaseChatModel,config: RunnableConfig) -> AgentState:
+    async def _call_llm(self, state: AgentState, llm_with_tools: BaseChatModel, thread: RunnableConfig) -> AgentState:
         """
         Calls the LLM with RAG from BigQuery Vector Store for attachments.
 
@@ -220,12 +219,12 @@ class Agent:
         Returns:
             AgentState: The updated state with the LLM's response.
         """
-        msg = state["messages"][-1] if isinstance(state["messages"][-1], HumanMessage) else None
+        msg = state.messages[-1] if isinstance(state.messages[-1], HumanMessage) else None
         query_id = msg.additional_kwargs.get("query_id", "") if msg else ""
         session_id = msg.additional_kwargs.get("session_id", "") if msg else ""
         attachments = msg.additional_kwargs.get("attachments", []) if msg else []
         user_input = msg.content if msg else ""
-        project_id = config.get("configurable").get("custom_project_id",None)
+        project_id = thread.get("configurable").get("custom_project_id", None)
 
         attachment_contents = {}
 
@@ -258,9 +257,9 @@ class Agent:
 
         # ---- LONG CONVERSATION HANDLING ----
         sum_rate = 8
-        messages = state["messages"][1:]  # All messages except SystemMessage
+        messages = state.messages[1:]  # All messages except SystemMessage
 
-        if len(state["messages"]) > sum_rate:
+        if len(state.messages) > sum_rate:
             if len(messages) % sum_rate == 0:
                 msgs_to_sum = ["Previous summary: " + self.summary] if self.summary else []
                 msgs_to_sum.extend(messages[-sum_rate - 1:])
@@ -286,7 +285,7 @@ class Agent:
         payload = self._sanitize_payload(payload)
 
         # === PAYLOAD TRACE ===
-        logger.debug(f"─── LLM payload | query={config.get('configurable', {}).get('query_id', '')} session={session_id} project={config.get('configurable', {}).get('custom_project_id', '')} ───")
+        logger.debug(f"─── LLM payload | query={thread.get('configurable', {}).get('query_id', '')} session={session_id} project={thread.get('configurable', {}).get('custom_project_id', '')} ───")
         for m in payload:
             content_preview = str(m.content)[:100] if m.content else ""
             logger.debug(f"  {m.type}: {content_preview}")
@@ -298,7 +297,7 @@ class Agent:
             # forwarding all chunks (including reasoning) as on_chat_model_stream events.
             accumulated: AIMessageChunk | None = None
             async with self._semaphore:
-                async for chunk in llm_with_tools.astream(payload, config=config):
+                async for chunk in llm_with_tools.astream(payload, config=thread):
                     accumulated = chunk if accumulated is None else accumulated + chunk
                 if self.config.throttle_value > 0:
                     await asyncio.sleep(self.config.throttle_value)
@@ -306,7 +305,7 @@ class Agent:
                 raise ValueError("LLM returned no response chunks")
 
             # Extract full text from accumulated content.
-            # LangChain content type is Union[str, List[Union[str, Dict]]], so after
+            # LangChain content type is str | list[str | Dict], so after
             # accumulating streaming chunks the result can be any combination:
             #   - plain str (OpenAI, some Gemini chunks)
             #   - list of dicts only (Anthropic, Gemini 3.x)
@@ -343,11 +342,10 @@ class Agent:
     async def _call_tool(self,state: AgentState,query_id : str) -> AgentState:
         """Executes tool calls from the LLM's response"""
 
-        if not isinstance(state["messages"][-1], AIMessage):
+        if not isinstance(state.messages[-1], AIMessage):
             raise TypeError(f'The last message is not an AI message and has not attr "tool_calls"')
-                
 
-        tool_calls = state["messages"][-1].tool_calls
+        tool_calls = state.messages[-1].tool_calls
         tools_dict = {our_tool.name: our_tool for our_tool in self.tools}
         results = []
         tool_data_results = []
@@ -410,7 +408,7 @@ class Agent:
     
     def _should_continue(self,state: AgentState) -> bool:
         """Determine if we should continue or end the conversation"""
-        result = state["messages"][-1]
+        result = state.messages[-1]
         return hasattr(result, "tool_calls") and len(result.tool_calls) > 0
 
     # Maps UI provider names to init_chat_model provider identifiers
@@ -466,8 +464,8 @@ class Agent:
 
         llm = selected_llm.bind_tools(self.tools)
 
-        async def call_llm_node(state, config : RunnableConfig):
-            return await self._call_llm(state, llm_with_tools=llm, config=config)
+        async def call_llm_node(state, thread: RunnableConfig):
+            return await self._call_llm(state, llm_with_tools=llm, thread=thread)
 
         async def call_tool_node(state):
             return await self._call_tool(state, query_id=query_id)
@@ -806,7 +804,7 @@ class Agent:
                                 user_id: str,
                                 query: AskAgentRequest,
                                 input_: FactSheet | InitialInput,
-                                config: RunnableConfig = None,
+                                thread: RunnableConfig = None,
                                 shortened_emails: dict | None = None,
                                 ) -> list:
         """Route attachments to doc/email analysis tasks, batching emails by size/count."""
@@ -816,7 +814,7 @@ class Agent:
                 result = await self.context_manager.analyze_docs(
                     input_=input_,
                     attachments=attatchments,
-                    config=config,
+                    config=thread,
                 )
                 if self.config.throttle_value > 0:
                     await asyncio.sleep(self.config.throttle_value)
@@ -828,7 +826,7 @@ class Agent:
                 result = await self.context_manager.analyze_emails(
                     input_=input_,
                     emails=emails,
-                    config=config,
+                    config=thread,
                 )
                 if self.config.throttle_value > 0:
                     await asyncio.sleep(self.config.throttle_value)

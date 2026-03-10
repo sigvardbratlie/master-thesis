@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from pydantic import BaseModel, Field
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 from deepeval.evaluate.types import EvaluationResult
 
 
@@ -23,28 +23,28 @@ class ConversationTurn(BaseModel):
     """A single Q&A turn within a session."""
     input: str
     answer: str
-    order: Optional[int] = None
-    query_id: Optional[str] = None
-    model_response: Optional[str] = None  # Populated after agent run
-    time_counts: Optional[TimeCount] = None  
-    token_counts : Optional[TokenCount] = None
+    order: int | None = None
+    query_id: str | None = None
+    model_response: str | None = None  # Populated after agent run
+    time_counts: TimeCount | None = None  
+    token_counts : TokenCount | None = None
 
 # ── Session ────────────────────────────────────────────────────────────────────
 
 class Session(BaseModel):
     """A single evaluation session with its conversation and attachments."""
     session_name: str
-    session : Optional[int] = None  # Added session number field
+    session : int | None = None  # Added session number field
     date: str  # YYYY-MM-DD
     init_query: str
-    init_query_id: Optional[str] = None
-    init_query_token_count : Optional[TokenCount] = None
-    init_query_time_count : Optional[TimeCount] = None
+    init_query_id: str | None = None
+    init_query_token_count : TokenCount | None = None
+    init_query_time_count : TimeCount | None = None
     conversation: list[ConversationTurn]
     attachments: list[str] = Field(default_factory=list)  # GCS blob paths
-    runtime_session_id: Optional[str] = None  # Populated after agent run
-    time_counts : Optional[TimeCount] = None  # Duration in seconds, populated after agent run
-    token_counts : Optional[TokenCount] = None  # Populated after agent run
+    runtime_session_id: str | None = None  # Populated after agent run
+    time_counts : TimeCount | None = None  # Duration in seconds, populated after agent run
+    token_counts : TokenCount | None = None  # Populated after agent run
 
 
 # ── Dataset payload ────────────────────────────────────────────────────────────
@@ -72,8 +72,8 @@ class GatheredResultPayload(DatasetPayload):
     eval_run_id: str
     llm_model: str
     agent_type: Literal["custom", "baseline", "baseline_rag"]
-    token_counts: Optional[TokenCount] = None
-    time_counts: Optional[TimeCount] = None
+    token_counts: TokenCount | None = None
+    time_counts: TimeCount | None = None
 
 
 # ── Eval output payload ────────────────────────────────────────────────────────
@@ -81,17 +81,17 @@ class GatheredResultPayload(DatasetPayload):
 class EvalOutput(BaseModel):
     """Output written to GCS by Evaluater.save_evaluation_results().
     token_counts and time_usage are not stored — they are joined from 04_results at load time."""
-    dataset_name: Optional[str] = None
-    project_id: Optional[str] = None
-    user_id: Optional[str] = None
-    eval_run_id: Optional[str] = None
-    llm_model: Optional[str] = None
+    dataset_name: str | None = None
+    project_id: str | None = None
+    user_id: str | None = None
+    eval_run_id: str | None = None
+    llm_model: str | None = None
     agent_type: str = "unknown"
     created_at: str
-    results: Optional[list[EvaluationResult]] = None
+    results: list[EvaluationResult] | None = None
     # # Populated at load time by joining 04_results on eval_run_id
-    # token_counts: Optional[TokenCount] = None
-    # time_counts: Optional[TimeCount] = None
+    # token_counts: TokenCount | None = None
+    # time_counts: TimeCount | None = None
 
 
 # ── Base metric ────────────────────────────────────────────────────────────────
@@ -100,10 +100,10 @@ class BaseMetric(BaseModel):
     """Shared identity fields for all observation-level metric models."""
     dataset_name: str
     eval_run_id: str
-    query_id: Optional[str] = None
-    session_id: Optional[str] = None
-    session :  Optional[int] = None
-    session_name: Optional[str] = None
+    query_id: str | None = None
+    session_id: str | None = None
+    session :  int | None = None
+    session_name: str | None = None
     llm_model: str
     agent_type: str
 
@@ -112,7 +112,7 @@ class BaseMetric(BaseModel):
 
 class DeepEvalObservation(BaseMetric):
     """One observation per query × eval_run from LLM-as-judge evaluation."""
-    name: Optional[str] = None
+    name: str | None = None
     correctness: float
     relevancy: float
     completeness: float
@@ -121,7 +121,7 @@ class DeepEvalObservation(BaseMetric):
 
 class ReferenceObservation(BaseMetric):
     """One observation per query × eval_run for reference-based metrics."""
-    name: Optional[str] = None
+    name: str | None = None
     bert_precision: float
     bert_recall: float
     bert_f1: float
@@ -130,7 +130,7 @@ class ReferenceObservation(BaseMetric):
 
 class RougeObservation(BaseMetric):
     """One observation per query × eval_run for ROUGE-based metrics."""
-    name: Optional[str] = None
+    name: str | None = None
     rouge_precision: float
     rouge_recall: float
     rouge_fmeasure: float

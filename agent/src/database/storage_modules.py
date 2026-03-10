@@ -4,7 +4,6 @@ import logging
 import base64
 import tempfile
 import time
-from typing import Optional
 
 from google.cloud import storage
 
@@ -55,7 +54,7 @@ class SupabaseStorageManager:
         self.supabase = create_client(self.url, self.key)
         self.max_concurrent_uploads = max_concurrent_uploads
 
-    def save_attachment(self, content: bytes, path : str, bucket_name: str = "attachments", max_retries: int = 3) -> Optional[str]:
+    def save_attachment(self, content: bytes, path : str, bucket_name: str = "attachments", max_retries: int = 3) -> str | None:
         """Save attachment with retry logic for transient errors
         
         Args:
@@ -157,7 +156,7 @@ class SupabaseStorageManager:
         response = self.supabase.storage.from_(bucket_name)\
             .download(path)
         return response
-    def read_attachments(self, paths: list[str], bucket_name: str = "attachments") -> dict[str, Optional[bytes]]:
+    def read_attachments(self, paths: list[str], bucket_name: str = "attachments") -> dict[str, bytes | None]:
         results = {}
         for path in paths:
             try:

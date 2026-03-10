@@ -10,7 +10,6 @@ from tests.fixtures.supabase_data import get_mock_load_project_data
 from tests.fixtures.email_data import get_mock_email_model_list, get_mock_email_extracted, load_real_test_email
 import tiktoken
 from models import *
-from typing import List
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -205,10 +204,10 @@ async def test_analyze_docs_returns_dict(mock_context_manager):
 
     class AttachmentWithEvents(BaseModel):
         attachment: AttachmentExtracted
-        events: List[Event]
+        events: list[Event]
 
     class MultipleAttachmentsResult(BaseModel):
-        attachments: List[AttachmentWithEvents]
+        attachments: list[AttachmentWithEvents]
 
     att1 = AttachmentExtracted(
         file_id="att-file-id-001",
@@ -307,10 +306,10 @@ async def test_analyze_docs_file_id_mismatch_fallback(mock_context_manager):
 
     class AttachmentWithEvents(BaseModel):
         attachment: AttachmentExtracted
-        events: List[Event]
+        events: list[Event]
 
     class MultipleAttachmentsResult(BaseModel):
-        attachments: List[AttachmentWithEvents]
+        attachments: list[AttachmentWithEvents]
 
     # LLM returns wrong file_ids (hallucinated)
     att1 = AttachmentExtracted(
@@ -364,9 +363,9 @@ async def test_analyze_emails_returns_dict(mock_context_manager):
     # Build the expected LLM response structure
     class EmailAnalysisResult(BaseModel):
         email: EmailExtracted
-        events: List[Event]
+        events: list[Event]
     class EmailsAnalysisResult(BaseModel):
-        emails: List[EmailAnalysisResult]
+        emails: list[EmailAnalysisResult]
 
     event = Event(
         event_start_date=datetime(2024, 1, 15),
@@ -423,9 +422,9 @@ async def test_analyze_emails_empty_list(mock_context_manager):
 
     class EmailAnalysisResult(BaseModel):
         email: EmailExtracted
-        events: List[Event]
+        events: list[Event]
     class EmailsAnalysisResult(BaseModel):
-        emails: List[EmailAnalysisResult]
+        emails: list[EmailAnalysisResult]
 
     structured_llm = AsyncMock()
     mock_context_manager.llm.with_structured_output.return_value = structured_llm

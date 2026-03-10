@@ -193,7 +193,7 @@ class EmailHandler(BaseHandler):
         msg.set_content(email_data.body)
         return msg.as_bytes()
 
-    def shorten_raw_emails(self, emails: dict[str, Message]) -> dict[str, tuple[Message, set[str]]]:
+    def collapse_threads(self, emails: dict[str, Message]) -> dict[str, tuple[Message, set[str]]]:
         """Extracts the root email from a thread and lists all related file_uuids.
         
         Args:

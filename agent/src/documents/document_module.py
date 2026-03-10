@@ -1,6 +1,5 @@
 import logging
 from langchain_core.documents import Document
-from typing import List
 
 from models import FileType
 
@@ -37,7 +36,7 @@ class DocumentProcessor(BaseHandler):
     def parse(self, content: bytes,
               file_type: FileType,
               metadata: dict = None,
-              force_metadata_model: bool = True) -> List[Document]:
+              force_metadata_model: bool = True) -> list[Document]:
         '''Main entry point for parsing attachments. Handles different file types and routes to appropriate parsers.
         Args:
             content (bytes): The raw binary content of the attachment.
@@ -45,7 +44,7 @@ class DocumentProcessor(BaseHandler):
             metadata (dict): Additional metadata to attach to each Document, such as file_id and session_id.
             force_metadata_model (bool): Validate and serialize metadata through VectorStoreMetadata. Defaults to True.
         Returns:
-            List[Document]: A list of Document objects extracted from the attachment, ready for embedding and storage.
+            list[Document]: A list of Document objects extracted from the attachment, ready for embedding and storage.
         '''
 
         # if "file_id" not in metadata or "session_id" not in metadata or "embedding_model" not in metadata:

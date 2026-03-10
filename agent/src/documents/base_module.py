@@ -1,7 +1,6 @@
 import logging
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from typing import List
 
 
 logger = logging.getLogger(__name__)
@@ -19,11 +18,11 @@ class BaseHandler:
        
     
     @staticmethod
-    def to_plain_text(docs: List[Document]) -> str:
+    def to_plain_text(docs: list[Document]) -> str:
         """Extract concatenated text from documents."""
         return "\n\n".join([d.page_content for d in docs])
     
     @staticmethod
-    def to_dict(docs: List[Document]) -> List[dict]:
+    def to_dict(docs: list[Document]) -> list[dict]:
         """Convert to dict for JSON/BigQuery."""
         return [{"content": d.page_content, "metadata": d.metadata} for d in docs]

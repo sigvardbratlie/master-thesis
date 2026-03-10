@@ -4,7 +4,6 @@ import uuid
 import base64
 import os
 import logging
-from typing import Optional
 from io import StringIO, BytesIO
 from google.cloud import storage
 from google.oauth2 import service_account
@@ -28,7 +27,7 @@ class AttachmentComponent:
         if 'view_attachment_data' not in st.session_state:
             st.session_state.view_attachment_data = None
 
-    def read_attachment(self, path: str) -> Optional[bytes]:
+    def read_attachment(self, path: str) -> bytes | None:
         """Hent vedleggsinnhold fra cache eller database"""
         cache_key = f"{st.session_state.session_id}_{path}"
         
@@ -156,7 +155,7 @@ class AttachmentComponent:
 
         show_attachment()
 
-    def view_attachment(self, attachment: dict, content_bytes: Optional[bytes] = None, key: str = None, sig_icon: str = None):
+    def view_attachment(self, attachment: dict, content_bytes: bytes | None = None, key: str = None, sig_icon: str = None):
         """Display attachments from session history"""
         if not attachment:
             logger.warning("view_attachment called with None attachment")
@@ -175,7 +174,7 @@ class AttachmentComponent:
 class RenderDocBytes:
     """Hjelpeklasse for å parse bytes til forskjellige formater"""
     @staticmethod
-    def parse_csv(content: bytes, metadata: dict = None) -> Optional[pd.DataFrame]:
+    def parse_csv(content: bytes, metadata: dict = None) -> pd.DataFrame | None:
         try:
             df = pd.read_csv(StringIO(content.decode('utf-8', errors='ignore')))
             st.dataframe(df)
@@ -184,7 +183,7 @@ class RenderDocBytes:
             st.error(f'Error parsing CSV: {e}')
 
     @staticmethod
-    def parse_excel(content: bytes, metadata: dict = None) -> Optional[pd.DataFrame]:
+    def parse_excel(content: bytes, metadata: dict = None) -> pd.DataFrame | None:
         try:
             df = pd.read_excel(BytesIO(content))
             st.dataframe(df)
@@ -193,7 +192,7 @@ class RenderDocBytes:
             st.error(f'Error parsing Excel: {e}')
         
     @staticmethod
-    def parse_pdf(content: bytes, metadata: dict = None) -> Optional[bytes]:
+    def parse_pdf(content: bytes, metadata: dict = None) -> bytes | None:
         try:
             st.pdf(BytesIO(content))
         except Exception as e:
@@ -201,7 +200,7 @@ class RenderDocBytes:
             st.error(f'Error displaying PDF: {e}')
     
     @staticmethod
-    def parse_txt(content: bytes, metadata: dict = None) -> Optional[str]:
+    def parse_txt(content: bytes, metadata: dict = None) -> str | None:
         try:
             st.text(content.decode('utf-8', errors='ignore'))
         except Exception as e:
@@ -209,7 +208,7 @@ class RenderDocBytes:
             st.error(f'Error parsing text file: {e}')
     
     @staticmethod
-    def parse_docx(content: bytes, metadata: dict = None) -> Optional[str]:
+    def parse_docx(content: bytes, metadata: dict = None) -> str | None:
         try:
             document = Document(BytesIO(content))
         except Exception as e:
@@ -229,7 +228,7 @@ class RenderDocBytes:
             st.error(f'Error parsing DOCX file: {e}')
 
     @staticmethod
-    def parse_pptx(content: bytes, metadata: dict = None) -> Optional[str]:
+    def parse_pptx(content: bytes, metadata: dict = None) -> str | None:
         try:
             presentation = Presentation(BytesIO(content))
         except Exception as e:
@@ -251,7 +250,7 @@ class RenderDocBytes:
             st.error(f'Error parsing PPTX file: {e}')
     
     @staticmethod
-    def parse_email(content: bytes, metadata: dict = None) -> Optional[str]:
+    def parse_email(content: bytes, metadata: dict = None) -> str | None:
         try:
             msg = email.message_from_bytes(content)
             st.markdown(f"**From:** {msg.get('From')}")
@@ -270,7 +269,7 @@ class RenderDocBytes:
 
 
     @staticmethod
-    def parse_generic(content: bytes, metadata: dict = None) -> Optional[str]:
+    def parse_generic(content: bytes, metadata: dict = None) -> str | None:
         try:
             st.text(content.decode('utf-8', errors='ignore'))
         except Exception as e:

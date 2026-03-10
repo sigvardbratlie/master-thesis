@@ -4,7 +4,7 @@ import logging
 import json
 import os
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import Any
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class TestSession(BaseModel):
     session_id: str
     session_name: str
     init_query: str
-    conversation: List[ConversationEntry]
+    conversation: list[ConversationEntry]
 
 class LangSmithMetadata(BaseModel):
     session: int  # Changed from str to int
