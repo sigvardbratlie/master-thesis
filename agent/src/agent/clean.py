@@ -21,9 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectClean:
-    def __init__(self, name: str, config: AppConfig, llm: BaseChatModel):
+    def __init__(self, name: str, config: AppConfig):
         self.name = name
-        self.llm = llm
         self.config = config or AppConfig()
         self.context_manager = ContextManager()
         self.document_processor = DocumentProcessor()
@@ -36,7 +35,7 @@ class ProjectClean:
 
     # ======== COMPILE METHODS =========
     
-    def compile_clean_elements(self,) -> str:
+    def compile_clean_elements(self,):
         """
         Compiles the cleanup results into a human-readable summary.
         """
@@ -51,7 +50,7 @@ class ProjectClean:
         workflow.add_edge("save_results", END)
         return workflow.compile()
     
-    def compile_clean_metadata(self,) -> str:
+    def compile_clean_metadata(self,):
         """
         Compiles the cleanup results into a human-readable summary.
         """
@@ -92,7 +91,7 @@ class ProjectClean:
             "query_id": query.query_id,
         })
         for et, cleaned in results.items():
-            project_data.factsheet.model_dump()[et] = cleaned
+            setattr(project_data.factsheet, et, cleaned)
         return {"input_":  project_data}
 
     async def _clean_metadata_node(self, state : PipelineState):
@@ -122,7 +121,7 @@ class ProjectClean:
         
     async def _load_project_node(self, state : PipelineState, ):
         query = state.query
-        element_types = query.element_types
+        element_types = getattr(query, "element_types", [])
         writer = get_stream_writer()
         writer({
             "type": "status",
@@ -137,24 +136,27 @@ class ProjectClean:
             self.conversation_manager.load_project,
             project_id=query.project_id
         )
-        if project_data and not isinstance(project_data, ProjectData):
+        if not project_data:
+            raise ValueError(f"No project found for project_id={query.project_id}")
+        if not isinstance(project_data, ProjectData):
             error_msg = f"load_project returned {type(project_data).__name__} instead of ProjectData."
             logger.error(error_msg)
             raise TypeError(error_msg)
 
-        original_counts = {
-            et: len(project_data.factsheet.model_dump().get(et, []))
-            for et in element_types
-        }
-        writer({
-            "type": "status",
-            "phase": ["cleanup_elements"],
-            "status": "starting",
-            "data": {"element_types": element_types, "original_counts": original_counts},
-            "timestamp": datetime.now().isoformat(),
-            "query_id": query.query_id,
-        })
-        {"input_" : project_data}
+        if element_types:
+            original_counts = {
+                et: len(project_data.factsheet.model_dump().get(et, []))
+                for et in element_types
+            }
+            writer({
+                "type": "status",
+                "phase": ["cleanup_elements"],
+                "status": "starting",
+                "data": {"element_types": element_types, "original_counts": original_counts},
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            })
+        return {"input_" : project_data}
 
     async def _save_elements_node(self, state : PipelineState, ):
         writer = get_stream_writer()
@@ -173,11 +175,11 @@ class ProjectClean:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id,
             })
-            await asyncio.to_thread(self.conversation_manager.replace_project_element(
+            await asyncio.to_thread(self.conversation_manager.replace_project_element,
                 data=cleaned,
                 project_id=query.project_id,
                 table_name=f"project_{et}",
-            ))
+            )
             writer({
                 "type": "status",
                 "phase": ["storage"],
