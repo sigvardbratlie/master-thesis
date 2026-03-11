@@ -48,7 +48,7 @@ class StreamingService:
 
         try:
             with requests.post(
-                f'{self.backend_url}/ask-agent',
+                f'{self.backend_url}/chat',
                 json=request.model_dump(),
                 stream=True,
                 headers=self.headers
@@ -159,7 +159,7 @@ class StreamingService:
         """
         try:
             with requests.post(
-                url=f"{self.backend_url}/init-project",
+                url=f"{self.backend_url}/project/init-project",
                 json=payload.model_dump(),
                 headers=self.headers,
                 stream=True,
@@ -189,7 +189,7 @@ class StreamingService:
         """
         try:
             with requests.post(
-                url=f"{self.backend_url}/update-project",
+                url=f"{self.backend_url}/project/update-project",
                 json=payload.model_dump(),
                 headers=self.headers,
                 stream=True,
@@ -219,7 +219,7 @@ class StreamingService:
         """
         try:
             with requests.post(
-                url=f"{self.backend_url}/update-project-from-session",
+                url=f"{self.backend_url}/project/update-project-from-session",
                 json=payload.model_dump(),
                 headers=self.headers,
                 stream=True,
@@ -271,19 +271,6 @@ class StreamingService:
             logger.error(f"Error in cleanup_project_element stream: {e}", exc_info=True)
             raise
 
-    # def cleanup_factsheet(self, payload : AskAgentRequest):
-    #     try:
-    #         response = requests.post(
-    #         url=f"{self.backend_url}/cleanup-factsheet/",
-    #         json=payload.model_dump(),
-    #         headers=self.headers,
-    #         )
-    #         response.raise_for_status()
-    #         return response
-    #     except requests.exceptions.RequestException as e:
-    #         logger.error(f"Error cleaning up factsheet: {e}", exc_info=True)
-    #         raise
-
     def cleanup_attr_stream(self, payload : AskAgentRequest, element_type : str) -> Generator[dict, None, None]:
         try:
             with requests.post(
@@ -312,7 +299,7 @@ class StreamingService:
     def cleanup_all_metadata_stream(self, payload: AskAgentRequest) -> Generator[dict, None, None]:
         try:
             with requests.post(
-                url=f"{self.backend_url}/cleanup-all-metadata",
+                url=f"{self.backend_url}/project/cleanup-all-metadata",
                 json=payload.model_dump(),
                 headers=self.headers,
                 stream=True,
@@ -337,7 +324,7 @@ class StreamingService:
     def cleanup_elements_stream(self, payload: CleanupElementsRequest) -> Generator[dict, None, None]:
         try:
             with requests.post(
-                url=f"{self.backend_url}/cleanup-project-elements",
+                url=f"{self.backend_url}/project/cleanup-project-elements",
                 json=payload.model_dump(),
                 headers=self.headers,
                 stream=True,
@@ -363,7 +350,7 @@ class StreamingService:
         """Delete project from BigQuery vector store."""
         try:
             response = requests.delete(
-                f'{self.backend_url}/delete-vectorstore-project/{project_id}',
+                f'{self.backend_url}/vectorstore/delete-project/{project_id}',
                 headers=self.headers
             )
             response.raise_for_status()
@@ -376,7 +363,7 @@ class StreamingService:
         """Delete file from BigQuery vector store."""
         try:
             response = requests.delete(
-                f'{self.backend_url}/delete-vectorstore-file/{file_id}',
+                f'{self.backend_url}/vectorstore/delete-file/{file_id}',
                 headers=self.headers
             )
             response.raise_for_status()
