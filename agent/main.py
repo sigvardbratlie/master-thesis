@@ -23,6 +23,9 @@ from auth import SupabaseAuth
 from models import AskAgentRequest, CleanupElementsRequest
 from utils.config_utils import AppConfig
 from utils.logging_utils import setup_logging
+from langchain_core.runnables import RunnableConfig
+
+from agent import ProjectPipeline
 
 config = AppConfig.from_toml("config.toml")
 setup_logging(config)
@@ -51,6 +54,7 @@ pool: AsyncConnectionPool = None
 
 conversation_manager = SupabaseManager()
 auth = SupabaseAuth()
+pm = ProjectPipeline()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -150,16 +154,21 @@ async def init_project_endpoint(query: AskAgentRequest, user_id: str = Depends(a
     """
     Endpoint to initialize scanning and processing of attachments.
     """
-    #attachments = [att.model_dump() for att in query.attachments] if query.attachments else None
     
     async def init_stream_generator():
+        thread: RunnableConfig = {
+            "configurable": {"thread_id": query.session_id, "user_id": user_id, "custom_project_id": query.project_id},
+            "metadata": {"query_id": query.query_id},
+        }
+        init_graph = pm.compile_init_pipeline()
         try:
-            async for chunk in agent.initialize_project(query=query, user_id=user_id):
+            async for chunk in init_graph.astream({"query": query}, config=thread, stream_mode="custom"):
                 yield f'data: {json.dumps(chunk)}\n\n'
                 await asyncio.sleep(0.01)
         except Exception as e:
             logger.error(f"Error in init_stream_generator: {e}", exc_info=True)
             yield f'data: {json.dumps({"error": str(e)})}\n\n'
+
     return StreamingResponse(init_stream_generator(), media_type="text/event-stream")
 
 @app.post("/update-project")
@@ -168,8 +177,13 @@ async def update_project_endpoint(query: AskAgentRequest, user_id: str = Depends
     Endpoint to update the project with new input and attachments.
     """
     async def update_stream_generator():
+        thread: RunnableConfig = {
+            "configurable": {"thread_id": query.session_id, "user_id": user_id, "custom_project_id": query.project_id},
+            "metadata": {"query_id": query.query_id},
+        }
+        update_graph = pm.compile_update_pipeline()
         try:
-            async for chunk in agent.update_project(query=query, user_id=user_id):
+            async for chunk in update_graph.astream({"query": query}, config=thread, stream_mode="custom"):
                 yield f'data: {json.dumps(chunk)}\n\n'
                 await asyncio.sleep(0.01)
         except Exception as e:
@@ -180,15 +194,22 @@ async def update_project_endpoint(query: AskAgentRequest, user_id: str = Depends
 
 @app.post("/update-project-from-session")
 async def update_project_from_session_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
-    async def update_from_session_stream_generator():
+    updated_query = await asyncio.to_thread(pm.mk_update_query_from_session, query=query)
+
+    async def update_stream_generator():
+        thread: RunnableConfig = {
+            "configurable": {"thread_id": updated_query.session_id, "user_id": user_id, "custom_project_id": updated_query.project_id},
+            "metadata": {"query_id": updated_query.query_id},
+        }
+        update_graph = pm.compile_update_pipeline()
         try:
-            async for chunk in agent.update_project_from_session(query=query, user_id=user_id):
+            async for chunk in update_graph.astream({"query": updated_query}, config=thread, stream_mode="custom"):
                 yield f'data: {json.dumps(chunk)}\n\n'
                 await asyncio.sleep(0.01)
         except Exception as e:
-            logger.error(f"Error in update_from_session_stream_generator: {e}", exc_info=True)
+            logger.error(f"Error in update_stream_generator: {e}", exc_info=True)
             yield f'data: {json.dumps({"error": str(e)})}\n\n'
-    return StreamingResponse(update_from_session_stream_generator(), media_type="text/event-stream")
+    return StreamingResponse(update_stream_generator(), media_type="text/event-stream")
 
 
 @app.post("/cleanup-project-element/{element_type}")
