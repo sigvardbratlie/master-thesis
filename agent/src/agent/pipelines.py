@@ -16,14 +16,13 @@ from database import SupabaseStorageManager, SupabaseManager, BQVectorStore
 from langchain_core.language_models.chat_models import BaseChatModel
 from models import PipelineState, AskAgentRequest, ProjectData
 
-
+from agent.utils import pick_llm
 logger = logging.getLogger(__name__)
 
 
 class ProjectPipeline:
     def __init__(self, name: str, config: AppConfig,):
         self.name = name
-        self.llm = llm
         self.config = config or AppConfig()
         self.context_manager = ContextManager()
         self.document_processor = DocumentProcessor()
@@ -390,6 +389,7 @@ class ProjectPipeline:
         writer = get_stream_writer()
         query = state.query
         thread = get_config()
+        self.context_manager.llm = pick_llm(thread.get("configurable", {}).get("llm_model"), self.config)
 
         writer({
             "type": "status",
@@ -447,6 +447,8 @@ class ProjectPipeline:
     async def _analyze_node(self, state: PipelineState):
         writer = get_stream_writer()
         query = state.query
+        thread = get_config()
+        self.context_manager.llm = pick_llm(thread.get("configurable", {}).get("llm_model"), self.config)
 
         doc_tasks = self._prepare_analysis_tasks(state)
 

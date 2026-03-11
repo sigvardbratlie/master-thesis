@@ -3,19 +3,17 @@ from typing_extensions import Annotated
 from models import AskAgentRequest, InitialInput, FactSheet, AttachmentModel, EmailModel
 import operator
 from langchain_core.runnables import RunnableConfig
-from langgraph.config import get_stream_writer
+from langgraph.config import get_stream_writer,get_config
 from documents import DocumentProcessor, EmailHandler
 import logging
 import asyncio
 from utils import AppConfig
 from .context_manager import ContextManager
 from datetime import datetime
-import base64
-import email as python_email
 from database import SupabaseStorageManager, SupabaseManager, BQVectorStore
-from pydantic import BaseModel, Field
-from langchain_core.language_models.chat_models import BaseChatModel
 from models import PipelineState, ProjectData
+
+from agent.utils import pick_llm
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +75,8 @@ class ProjectClean:
         query = state.query
         element_types = query.element_types
         project_data = state.input_
+        thread = get_config()
+        self.context_manager.llm = pick_llm(thread.get("configurable", {}).get("llm_model"), self.config)
 
         results = await self.context_manager.clean_elements(element_types, project_data)
         writer({
@@ -123,6 +123,9 @@ class ProjectClean:
         query = state.query
         element_types = getattr(query, "element_types", [])
         writer = get_stream_writer()
+        thread = get_config()
+        self.context_manager.llm = pick_llm(thread.get("configurable", {}).get("llm_model"), self.config)
+        
         writer({
             "type": "status",
             "phase": ["loading-data"],
