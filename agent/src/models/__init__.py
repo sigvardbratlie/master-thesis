@@ -1,7 +1,7 @@
 from .api_request_models import *
 from .project_models import *
 from .document_models import *
-from .agent_models import AgentState
+from .agent_models import AgentState, PipelineState
 from .response_models import SessionHistory, ProjectData, ProjectSummary, SessionSummary
 
 __all__ = [
@@ -48,6 +48,7 @@ __all__ = [
     
     # AGENT MODELS
     "AgentState",
+    "PipelineState",
 
     # RESPONSE MODELS
     "SessionHistory",

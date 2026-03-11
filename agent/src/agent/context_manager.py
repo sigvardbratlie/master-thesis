@@ -102,12 +102,12 @@ class ContextManager:
         return await structured_llm.ainvoke(prompt, config=config)
     
     async def analyze_docs(self,
-                input_ : InitialInput | FactSheet,
+                input_ : InitialInput | ProjectData,
                 attachments : list[AttachmentModel],
                 config: RunnableConfig = None,
                 ) -> dict:
         '''Function to analyze multiple documents and extract structured data as Attachments.'''
-        
+                
         result_attachments = []
         deadlines = []
         damages = []
@@ -136,8 +136,8 @@ class ContextManager:
         ])
 
         structured_llm = self.llm.with_structured_output(MultipleAttachmentsResult, method="function_calling")
-        if isinstance(input_, FactSheet):
-            init_prompt = f'{input_.shorten_factsheet()}\n\n'
+        if isinstance(input_, ProjectData):
+            init_prompt = f'{input_.factsheet.shorten_factsheet()}\n\n'
         elif isinstance(input_, str):
             init_prompt = f'Case input: {input_}\n\n'
         else:
@@ -256,7 +256,7 @@ class ContextManager:
                 }
         
     async def analyze_emails(self,
-                input_ : InitialInput | FactSheet,
+                input_ : InitialInput | ProjectData,
                 emails : list[EmailModel],
                 config: RunnableConfig = None,
                 ) -> dict:
@@ -285,8 +285,8 @@ class ContextManager:
         events = []
 
         structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
-        if isinstance(input_, FactSheet):
-            init_prompt = f'{input_.shorten_factsheet()}\n\n'
+        if isinstance(input_, ProjectData):
+            init_prompt = f'{input_.factsheet.shorten_factsheet()}\n\n'
         elif isinstance(input_, str):
             init_prompt = f'Case input: {input_}\n\n'
         else:

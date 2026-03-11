@@ -1,34 +1,34 @@
 import os
 from dotenv import load_dotenv
 import logging
-from models import AskAgentRequest, InitialInput, FactSheet
+from models import AskAgentRequest
 from langchain_core.runnables import RunnableConfig
-from typing_extensions import Annotated
-import operator
-from pydantic import BaseModel, Field
 
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 logger = logging.getLogger(__name__)
 
-class PipelineState(BaseModel):
-    # Inputs
-    query: AskAgentRequest
-    thread: RunnableConfig = Field(default_factory=dict)
 
-    # Intermediate
-    docs_by_file: dict = Field(default_factory=dict)
-    collapsed_emails: dict = Field(default_factory=dict)
-    input_: InitialInput | FactSheet | None = None
-    element_type : str | None = None
-
-    # Collected results — reducer-syntaks fungerer med Annotated også på Pydantic
-    events:      Annotated[list, operator.add] = Field(default_factory=list)
-    damages:     Annotated[list, operator.add] = Field(default_factory=list)
-    claims:      Annotated[list, operator.add] = Field(default_factory=list)
-    deadlines:   Annotated[list, operator.add] = Field(default_factory=list)
-    attachments: Annotated[list, operator.add] = Field(default_factory=list)
-    emails:      Annotated[list, operator.add] = Field(default_factory=list)
+def to_thread_config(query: AskAgentRequest, user_id: str) -> RunnableConfig:
+    """Extract request metadata into LangGraph RunnableConfig."""
+    return {
+        "configurable": {
+            "thread_id": query.session_id,
+            "user_id": user_id,
+            "custom_project_id": query.project_id,
+            "query_id": query.query_id,
+            "llm_model": query.llm_model,
+        },
+        "metadata": {"query_id": query.query_id},
+    }
+def strip_attachment_content(query: AskAgentRequest) -> AskAgentRequest:
+    """Remove base64 content from attachments, keeping metadata and body."""
+    return query.model_copy(update={
+        "attachments": [
+            a.model_copy(update={"content": None}) 
+            for a in query.attachments or []
+        ]
+    })
 
 
 PROMPT = """**Role:**
