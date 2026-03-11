@@ -26,7 +26,7 @@ async def cleanup_all_metadata_endpoint(query: AskAgentRequest,
     clean_meta = clean.compile_clean_metadata()
     async def gen():    
         try:
-            async for chunk in clean_meta.astream_events(query=query, config=thread):
+            async for chunk in clean_meta.astream_events({"query" : query}, config=thread):
                 yield f'data: {json.dumps(chunk)}\n\n'
                 await asyncio.sleep(0.01)
         except Exception as e:
@@ -43,7 +43,7 @@ async def cleanup_project_elements_endpoint(query: CleanupElementsRequest,
     clean_element = clean.compile_clean_elements()
     async def gen():
         try:
-            async for chunk in clean_element.astream_events(query=query, config=thread):
+            async for chunk in clean_element.astream_events({"query" : query}, config=thread):
                 yield f'data: {json.dumps(chunk)}\n\n'
                 await asyncio.sleep(0.01)
         except Exception as e:
