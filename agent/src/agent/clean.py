@@ -76,16 +76,28 @@ class ProjectClean:
         element_types = query.element_types
         project_data = state.input_
         thread = get_config()
-        self.context_manager.llm = pick_llm(thread.get("configurable", {}).get("llm_model"), self.config)
+        llm_model = thread.get("configurable", {}).get("llm_model")
+        self.context_manager.llm = pick_llm(llm_model, self.config)
+        original_counts = {
+            et: len(project_data.factsheet.model_dump().get(et, []))
+            for et in element_types
+        }
+        logger.info(f'🧹 Starting clean for {element_types} | project={query.project_id} | model={llm_model}')
+        logger.debug(f'Original counts: {original_counts}')
 
         results = await self.context_manager.clean_elements(element_types, project_data)
+
+        cleaned_counts = {et: len(items) for et, items in results.items()}
+        logger.info(f'✅ Clean complete | original={original_counts} → cleaned={cleaned_counts}')
+
         writer({
             "type": "status",
             "phase": ["cleanup_elements"],
             "status": "complete",
             "data": {
                 "element_types": element_types,
-                "cleaned_counts": {et: len(items) for et, items in results.items()},
+                "original_counts": original_counts,
+                "cleaned_counts": cleaned_counts,
             },
             "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id,
@@ -98,6 +110,7 @@ class ProjectClean:
         writer = get_stream_writer()
         query = state.query
         project_data = state.input_
+        logger.info(f'🧹 Starting metadata clean | project={query.project_id}')
         writer({
             "type": "status",
             "phase": ["cleanup_metadata"],
@@ -107,6 +120,9 @@ class ProjectClean:
             "query_id": query.query_id,
         })
         result = await self.context_manager.clean_all_metadata(project_data=project_data)
+        if not result:
+            logger.warning(f'clean_all_metadata returned empty result for project={query.project_id}')
+        logger.info(f'✅ Metadata clean complete | title={bool(result.get("title"))} background={bool(result.get("background"))}')
         writer({
             "type": "status",
             "phase": ["cleanup_metadata"],
@@ -118,14 +134,16 @@ class ProjectClean:
         project_data.factsheet.title = result.get("title", project_data.factsheet.title)
         project_data.factsheet.background = result.get("background", project_data.factsheet.background)
         return {"input_":  project_data}
-        
+
     async def _load_project_node(self, state : PipelineState, ):
         query = state.query
         element_types = getattr(query, "element_types", [])
         writer = get_stream_writer()
         thread = get_config()
-        self.context_manager.llm = pick_llm(thread.get("configurable", {}).get("llm_model"), self.config)
-        
+        llm_model = thread.get("configurable", {}).get("llm_model")
+        self.context_manager.llm = pick_llm(llm_model, self.config)
+        logger.info(f'📂 Loading project={query.project_id} | element_types={element_types} | model={llm_model}')
+
         writer({
             "type": "status",
             "phase": ["loading-data"],
@@ -140,22 +158,26 @@ class ProjectClean:
             project_id=query.project_id
         )
         if not project_data:
+            logger.error(f'No project found for project_id={query.project_id}')
             raise ValueError(f"No project found for project_id={query.project_id}")
         if not isinstance(project_data, ProjectData):
             error_msg = f"load_project returned {type(project_data).__name__} instead of ProjectData."
             logger.error(error_msg)
             raise TypeError(error_msg)
 
+        logger.debug(f'Project loaded: attachments={len(project_data.attachments or [])}, emails={len(project_data.emails or [])}')
+
         if element_types:
             original_counts = {
                 et: len(project_data.factsheet.model_dump().get(et, []))
                 for et in element_types
             }
+            logger.debug(f'Pre-clean counts: {original_counts}')
             writer({
                 "type": "status",
                 "phase": ["cleanup_elements"],
                 "status": "starting",
-                "data": {"element_types": element_types, 
+                "data": {"element_types": element_types,
                          "original_counts": original_counts},
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id,
@@ -164,13 +186,13 @@ class ProjectClean:
 
     async def _save_elements_node(self, state : PipelineState, ):
         writer = get_stream_writer()
-        
         query = state.query
         element_types = query.element_types
-        results = state.input_.factsheet.model_dump(include = set(element_types))
-        
-        # Save each element type to DB
+        results = state.input_.factsheet.model_dump(include=set(element_types))
+        logger.info(f'💾 Saving {element_types} to DB | project={query.project_id}')
+
         for et, cleaned in results.items():
+            logger.debug(f'  Replacing {et}: {len(cleaned)} items')
             writer({
                 "type": "status",
                 "phase": ["storage"],
@@ -193,13 +215,15 @@ class ProjectClean:
                 "query_id": query.query_id,
             })
 
+        logger.info(f'✅ Save complete for {element_types} | project={query.project_id}')
         writer({"type": "result", "data": {"success": True, "element_types": element_types}})
 
-    async def _save_metadata_node(self,state):
+    async def _save_metadata_node(self, state):
         query = state.query
         project_data = state.input_
         writer = get_stream_writer()
         result = project_data.factsheet.model_dump(include={"title", "background"})
+        logger.info(f'💾 Saving metadata | project={query.project_id}')
 
         writer({
             "type": "status",
@@ -211,6 +235,7 @@ class ProjectClean:
         })
         self.conversation_manager.upsert_project(result["title"], element_type="title", project_id=query.project_id)
         self.conversation_manager.upsert_project(result["background"], element_type="background", project_id=query.project_id)
+        logger.debug(f'Metadata saved: title={bool(result.get("title"))}, background={bool(result.get("background"))}')
         writer({
             "type": "status",
             "phase": ["storage"],
@@ -219,5 +244,6 @@ class ProjectClean:
             "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id,
         })
+        logger.info(f'✅ Metadata save complete | project={query.project_id}')
         writer({"type": "result", "data": {"success": True, "element_types": ["title", "background"]}})
 
