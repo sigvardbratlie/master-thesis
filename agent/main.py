@@ -1,4 +1,3 @@
-from api.routers import vectorstore
 from dotenv import load_dotenv
 import logging
 import os
@@ -25,12 +24,24 @@ load_dotenv()
 
 def silence_loggers():
     noisy_packages =  [
-        "httpx", "httpcore", "urllib3", "grpc",
-        "google.cloud.firestore", "google.cloud.bigquery", "google.cloud.storage",
-        "langchain", "langchain_core", "langchain_text_splitters",
-        "langgraph", "langchain_google_genai", "langchain_google_community",
-        "langchain_chroma", "psycopg", "psycopg_pool",
+        "httpx", "httpcore", 
+        "urllib3", 
+        "grpc",
+        "hpack", 
+        "google.cloud.firestore", 
+        "google.cloud.bigquery", 
+        "google.cloud.storage",
+        "langchain", 
+        "langchain_core", 
+        "langchain_text_splitters",
+        "langgraph", 
+        "langchain_google_genai", 
+        "langchain_google_community",
+        "langchain_chroma", 
+        "psycopg", 
+        "psycopg_pool",
         "uvicorn.access",
+        "langsmith"
     ]
     [logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
 
@@ -42,13 +53,6 @@ config = AppConfig.from_toml("config.toml")
 setup_logging(config)
 silence_loggers()
 logger = logging.getLogger(__name__)
-
-# agent: Agent = None
-# pm = ProjectPipeline(name = "ProjectPipeline", config=config,)
-# clean = ProjectClean(name="ProjectClean", config=config,)
-# pool: AsyncConnectionPool = None
-# conversation_manager = SupabaseManager()
-# auth = SupabaseAuth()
 
 
 @asynccontextmanager
@@ -86,6 +90,8 @@ async def lifespan(app: FastAPI):
     app.state.auth = SupabaseAuth()
     app.state.conversation_manager = SupabaseManager()
     app.state.vectorstore = BQVectorStore()
+
+    silence_loggers()
 
     yield
 
