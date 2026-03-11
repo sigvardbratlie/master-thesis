@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectPipeline:
-    def __init__(self, name: str, config: AppConfig, llm: BaseChatModel):
+    def __init__(self, name: str, config: AppConfig,):
         self.name = name
         self.llm = llm
         self.config = config or AppConfig()

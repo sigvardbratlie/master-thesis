@@ -20,7 +20,7 @@ from models import PipelineState, ProjectData
 logger = logging.getLogger(__name__)
 
 
-class ProjectCleanUp:
+class ProjectClean:
     def __init__(self, name: str, config: AppConfig, llm: BaseChatModel):
         self.name = name
         self.llm = llm

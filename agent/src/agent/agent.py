@@ -36,8 +36,6 @@ from .pipelines import ProjectPipeline
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 logger = logging.getLogger(__name__)
 
-import email as python_email
-
 
 class Agent:
     '''Main Agent class handling the agent operations'''
@@ -492,15 +490,15 @@ class Agent:
     # =================================
     #         HELPERS
     # ================================
-    def delete_project_vectorstore(self, project_id: str):
-        """Delete project documents from BigQuery vector store."""
-        try:
-            self.vs.delete_project(project_id)
-            logger.info(f"🗑️  Deleted project {project_id} from vector store")
-            return {"success": True, "project_id": project_id}
-        except Exception as e:
-            logger.error(f"❌ Error deleting project {project_id} from vector store: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
+    # def delete_project_vectorstore(self, project_id: str):
+    #     """Delete project documents from BigQuery vector store."""
+    #     try:
+    #         self.vs.delete_project(project_id)
+    #         logger.info(f"🗑️  Deleted project {project_id} from vector store")
+    #         return {"success": True, "project_id": project_id}
+    #     except Exception as e:
+    #         logger.error(f"❌ Error deleting project {project_id} from vector store: {e}", exc_info=True)
+    #         return {"success": False, "error": str(e)}
     
     async def load_or_create_conversation(self, agent_instance, thread: dict, session_id: str): 
         try:
