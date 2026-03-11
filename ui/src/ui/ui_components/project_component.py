@@ -162,7 +162,7 @@ class ProjectComponent:
                         element_types=element_types,
                     )
                     success = self._stream_cleanup_progress(
-                        streaming_service.cleanup_elements_stream, elements_payload
+                        streaming_service.clean_elements_stream, elements_payload
                     )
                     if success:
                         for field in element_types:
@@ -175,7 +175,7 @@ class ProjectComponent:
                 if selected_metadata != "—":
                     if selected_metadata == "All Metadata":
                         success = self._stream_cleanup_progress(
-                            streaming_service.cleanup_all_metadata_stream, payload
+                            streaming_service.clean_metadata_stream, payload
                         )
                         if success:
                             for field in ["title", "background"]:
@@ -263,25 +263,25 @@ class ProjectComponent:
                 logger.error(f"Error during cleanup progress: {e}", exc_info=True)
                 return False
 
-    def clean_factsheet(self,):
-        streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
-                                                  access_token=st.session_state.access_token)
-        if st.button("Clean Factsheet", icon="🧹"):
-            response = streaming_service.cleanup_factsheet(
-                AskAgentRequest(
-                    project_id=st.session_state.project_id,
-                    session_id=st.session_state.session_id,
-                    attachments=[],
-                    question="",
-                    query_id=str(uuid4()),
-                    llm_model=st.session_state.llm_model,
-                ),
-            )
-            if response.status_code == 200 and response.json().get("success") == True:
-                response_json = response.json()
-                st.session_state.factsheet = response_json.get('data')
-                st.success(f"{response_json.get('message')}")
-                st.rerun()
+    # def clean_factsheet(self,):
+    #     streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
+    #                                               access_token=st.session_state.access_token)
+    #     if st.button("Clean Factsheet", icon="🧹"):
+    #         response = streaming_service.cleanup_factsheet(
+    #             AskAgentRequest(
+    #                 project_id=st.session_state.project_id,
+    #                 session_id=st.session_state.session_id,
+    #                 attachments=[],
+    #                 question="",
+    #                 query_id=str(uuid4()),
+    #                 llm_model=st.session_state.llm_model,
+    #             ),
+    #         )
+    #         if response.status_code == 200 and response.json().get("success") == True:
+    #             response_json = response.json()
+    #             st.session_state.factsheet = response_json.get('data')
+    #             st.success(f"{response_json.get('message')}")
+    #             st.rerun()
 
 
     def display_field(self, label,value, icon,factsheet):

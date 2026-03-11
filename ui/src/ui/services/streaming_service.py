@@ -241,62 +241,62 @@ class StreamingService:
             logger.error(f"Error in update_project_from_session stream: {e}", exc_info=True)
             raise
 
-    def cleanup_project_element_stream(self, payload : AskAgentRequest, element_type : str) -> Generator[dict, None, None]:
-        """
-        Stream status updates from the /cleanup-project-element endpoint.
+    # def cleanup_project_element_stream(self, payload : AskAgentRequest, element_type : str) -> Generator[dict, None, None]:
+    #     """
+    #     Stream status updates from the /cleanup-project-element endpoint.
 
-        Yields parsed status event dicts as they arrive from the backend SSE stream.
-        """
-        try:
-            with requests.post(
-                url=f"{self.backend_url}/cleanup-project-element/{element_type}",
-                json=payload.model_dump(),
-                headers=self.headers,
-                stream=True,
-            ) as response:
-                response.raise_for_status()
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    decoded_line = line.decode('utf-8')
-                    if not decoded_line.startswith('data:'):
-                        continue
-                    try:
-                        data = json.loads(decoded_line[5:])
-                        logger.debug(f"Cleanup element stream data: {data}")
-                        yield data
-                    except json.JSONDecodeError as e:
-                        logger.error(f"JSON decode error in cleanup_project_element_stream: {e}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error in cleanup_project_element stream: {e}", exc_info=True)
-            raise
+    #     Yields parsed status event dicts as they arrive from the backend SSE stream.
+    #     """
+    #     try:
+    #         with requests.post(
+    #             url=f"{self.backend_url}/cleanup-project-element/{element_type}",
+    #             json=payload.model_dump(),
+    #             headers=self.headers,
+    #             stream=True,
+    #         ) as response:
+    #             response.raise_for_status()
+    #             for line in response.iter_lines():
+    #                 if not line:
+    #                     continue
+    #                 decoded_line = line.decode('utf-8')
+    #                 if not decoded_line.startswith('data:'):
+    #                     continue
+    #                 try:
+    #                     data = json.loads(decoded_line[5:])
+    #                     logger.debug(f"Cleanup element stream data: {data}")
+    #                     yield data
+    #                 except json.JSONDecodeError as e:
+    #                     logger.error(f"JSON decode error in cleanup_project_element_stream: {e}")
+    #     except requests.exceptions.RequestException as e:
+    #         logger.error(f"Error in cleanup_project_element stream: {e}", exc_info=True)
+    #         raise
 
-    def cleanup_attr_stream(self, payload : AskAgentRequest, element_type : str) -> Generator[dict, None, None]:
-        try:
-            with requests.post(
-                url=f"{self.backend_url}/cleanup-project-attr/{element_type}",
-                json=payload.model_dump(),
-                headers=self.headers,
-                stream=True,
-            ) as response:
-                response.raise_for_status()
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    decoded_line = line.decode('utf-8')
-                    if not decoded_line.startswith('data:'):
-                        continue
-                    try:
-                        data = json.loads(decoded_line[5:])
-                        logger.debug(f"Cleanup attr stream data: {data}")
-                        yield data
-                    except json.JSONDecodeError as e:
-                        logger.error(f"JSON decode error in cleanup_project_attr_stream: {e}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error in cleanup_project_attr stream: {e}", exc_info=True)
-            raise
+    # def cleanup_attr_stream(self, payload : AskAgentRequest, element_type : str) -> Generator[dict, None, None]:
+    #     try:
+    #         with requests.post(
+    #             url=f"{self.backend_url}/cleanup-project-attr/{element_type}",
+    #             json=payload.model_dump(),
+    #             headers=self.headers,
+    #             stream=True,
+    #         ) as response:
+    #             response.raise_for_status()
+    #             for line in response.iter_lines():
+    #                 if not line:
+    #                     continue
+    #                 decoded_line = line.decode('utf-8')
+    #                 if not decoded_line.startswith('data:'):
+    #                     continue
+    #                 try:
+    #                     data = json.loads(decoded_line[5:])
+    #                     logger.debug(f"Cleanup attr stream data: {data}")
+    #                     yield data
+    #                 except json.JSONDecodeError as e:
+    #                     logger.error(f"JSON decode error in cleanup_project_attr_stream: {e}")
+    #     except requests.exceptions.RequestException as e:
+    #         logger.error(f"Error in cleanup_project_attr stream: {e}", exc_info=True)
+    #         raise
     
-    def cleanup_all_metadata_stream(self, payload: AskAgentRequest) -> Generator[dict, None, None]:
+    def clean_all_metadata_stream(self, payload: AskAgentRequest) -> Generator[dict, None, None]:
         try:
             with requests.post(
                 url=f"{self.backend_url}/project/cleanup-all-metadata",
@@ -321,10 +321,10 @@ class StreamingService:
             logger.error(f"Error in cleanup_all_metadata_stream: {e}", exc_info=True)
             raise
 
-    def cleanup_elements_stream(self, payload: CleanupElementsRequest) -> Generator[dict, None, None]:
+    def clean_elements_stream(self, payload: CleanupElementsRequest) -> Generator[dict, None, None]:
         try:
             with requests.post(
-                url=f"{self.backend_url}/project/cleanup-project-elements",
+                url=f"{self.backend_url}/project/clean-project-elements",
                 json=payload.model_dump(),
                 headers=self.headers,
                 stream=True,
