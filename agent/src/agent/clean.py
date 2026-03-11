@@ -24,12 +24,12 @@ class ProjectClean:
         self.config = config or AppConfig()
         self.context_manager = ContextManager()
         self.document_processor = DocumentProcessor()
-        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_tasks)
+        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
         self.storage = SupabaseStorageManager()
         self.vs = BQVectorStore()
         self.conversation_manager = SupabaseManager()
-        self.embed_to_vectorstore = self.config.pipeline.embed_to_vectorstore
-        self.save_to_storage = self.config.pipeline.save_to_storage
+        self.embed_to_vectorstore = self.config.project.embed_to_vectorstore
+        self.save_to_storage = self.config.project.save_to_storage
 
     # ======== COMPILE METHODS =========
     
@@ -155,7 +155,8 @@ class ProjectClean:
                 "type": "status",
                 "phase": ["cleanup_elements"],
                 "status": "starting",
-                "data": {"element_types": element_types, "original_counts": original_counts},
+                "data": {"element_types": element_types, 
+                         "original_counts": original_counts},
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id,
             })

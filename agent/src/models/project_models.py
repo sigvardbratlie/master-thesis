@@ -163,7 +163,7 @@ class InitialInput(BaseModel):
     # Factual background
     parties: list[Party] | None = Field([], description="List of parties involved in the case, i.e., plaintiff, defendant, witnesses, plaintiffs legal representatives, etc.")
     background: str | None = Field("", description="Brief factual background of the case, including key events, timeline, and context")
-    title : str | None = Field("", description="Title of the case or matter")
+    title : str | None = Field("", description="Title of the case or matter (MAX 10 words)")
 
 class BaseExtracted(BaseModel):
     """Common extraction fields for all document types and emails"""

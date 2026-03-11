@@ -99,7 +99,11 @@ class ContextManager:
     async def analyze_init_input(self, init_input : str, config: RunnableConfig = None) -> InitialInput:
         structured_llm = self.llm.with_structured_output(InitialInput, method="function_calling")
         prompt = f'Analyze the following case introduction and extract key information into the InitialInput structure. If not sufficient information, leave blank:\n\n{init_input}. '
-        return await structured_llm.ainvoke(prompt, config=config)
+        init_input = await structured_llm.ainvoke(prompt, config=config)
+        for party in init_input.parties or []:
+            party.party_id = str(uuid4())
+        logger.debug('\n\n' + "="*5 + f' Analyzed Initial Input: {str(init_input.model_dump(mode = "json"))[:500]} ' + '='*5 + '\n\n')
+        return init_input
     
     async def analyze_docs(self,
                 input_ : InitialInput | ProjectData,

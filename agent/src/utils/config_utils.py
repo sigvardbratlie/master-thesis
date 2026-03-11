@@ -34,20 +34,21 @@ class ModelsConfig(BaseModel):
 class AgentStream(BaseModel):
     max_token_tool: int = 10000
 
-class AgentProject(BaseModel):
-    threshold: int = 500 * 1024  # 500KB extracted text — sized for LLM context window
-    max_attachments: int = 10
 
-class AgentConfig(BaseModel):
-    stream: AgentStream = Field(default_factory=AgentStream)
-    project: AgentProject = Field(default_factory=AgentProject)
+class ProjectConfig(BaseModel):
+    threshold: int = 5120000     # 500 * 1024
+    max_attachments: int = 10
+    max_emails: int = 15
+    embed_to_vectorstore: bool = True
+    save_to_storage: bool = True
 
 # 2. Definer hovedkonfigurasjonen som BaseSettings
 class AppConfig(BaseSettings):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     async_tasks: AsyncConfig = Field(default_factory=AsyncConfig, alias="async") 
-    agent: AgentConfig = Field(default_factory=AgentConfig)
+    agent: AgentStream = Field(default_factory=AgentStream)
     models: ModelsConfig = Field(default_factory=ModelsConfig)
+    project : ProjectConfig = Field(default_factory=ProjectConfig)
 
 
     @classmethod

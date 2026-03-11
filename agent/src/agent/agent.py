@@ -215,11 +215,11 @@ class Agent:
             AgentState: The updated state with the LLM's response.
         """
         thread = get_config()
-        writer = get_stream_writer()
+        #writer = get_stream_writer()
         llm_with_tools = self.llm
 
         msg = state.messages[-1] if isinstance(state.messages[-1], HumanMessage) else None
-        query_id = msg.additional_kwargs.get("query_id", "") if msg else ""
+        #query_id = msg.additional_kwargs.get("query_id", "") if msg else ""
         session_id = msg.additional_kwargs.get("session_id", "") if msg else ""
         attachments = msg.additional_kwargs.get("attachments", []) if msg else []
         user_input = msg.content if msg else ""
@@ -255,7 +255,7 @@ class Agent:
 
         # ---- LONG CONVERSATION HANDLING ----
         sum_rate = 8
-        messages = state.messages[1:]  # All messages except SystemMessage
+        messages = [m for m in state.messages if not isinstance(m, SystemMessage)]
 
         if len(state.messages) > sum_rate:
             if len(messages) % sum_rate == 0:

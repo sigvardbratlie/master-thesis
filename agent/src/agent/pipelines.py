@@ -16,6 +16,8 @@ from database import SupabaseStorageManager, SupabaseManager, BQVectorStore
 from langchain_core.language_models.chat_models import BaseChatModel
 from models import PipelineState, AskAgentRequest, ProjectData
 
+from uuid import uuid4
+
 from agent.utils import pick_llm
 logger = logging.getLogger(__name__)
 
@@ -26,12 +28,12 @@ class ProjectPipeline:
         self.config = config or AppConfig()
         self.context_manager = ContextManager()
         self.document_processor = DocumentProcessor()
-        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_tasks)
+        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
         self.storage = SupabaseStorageManager()
         self.vs = BQVectorStore()
         self.conversation_manager = SupabaseManager()
-        self.embed_to_vectorstore = self.config.pipeline.embed_to_vectorstore
-        self.save_to_storage = self.config.pipeline.save_to_storage
+        self.embed_to_vectorstore = self.config.project.embed_to_vectorstore
+        self.save_to_storage = self.config.project.save_to_storage
 
     # =========== PIPELINE COMPILATION ===========
     def compile_init_pipeline(self):
@@ -95,8 +97,8 @@ class ProjectPipeline:
                     attachments=attachments,
                     config=thread,
                 )
-                if self.config.throttle_value > 0:
-                    await asyncio.sleep(self.config.throttle_value)
+                if self.config.async_tasks.throttle_value > 0:
+                    await asyncio.sleep(self.config.async_tasks.throttle_value)
                 result["_source_filenames"] = [a.filename for a in attachments]
                 return result
 
@@ -107,8 +109,8 @@ class ProjectPipeline:
                     emails=emails,
                     config=thread,
                 )
-                if self.config.throttle_value > 0:
-                    await asyncio.sleep(self.config.throttle_value)
+                if self.config.async_tasks.throttle_value > 0:
+                    await asyncio.sleep(self.config.async_tasks.throttle_value)
                 return result
 
         attachments = state.query.attachments
@@ -120,6 +122,7 @@ class ProjectPipeline:
 
         threshold = self.config.project.threshold
         max_attachments = self.config.project.max_attachments
+        max_emails = self.config.project.max_emails
 
         eml = EmailHandler()
         email_attachments = []
@@ -170,7 +173,7 @@ class ProjectPipeline:
                 logger.debug(f"📭 Email '{email.subject}': no nested attachments")
 
             email_size = email.size or 0
-            if email_size_counter + email_size <= threshold and len(email_attachments) < max_attachments:
+            if email_size_counter + email_size <= threshold and len(email_attachments) < max_emails:
                 email_attachments.append(email)
                 email_size_counter += email_size
                 logger.debug(f"📧 Accumulated {len(email_attachments)} email(s) in batch ({email_size_counter / 1024:.1f}KB)")
@@ -400,6 +403,9 @@ class ProjectPipeline:
             "query_id": query.query_id,
         })
         initial_input = await self.context_manager.analyze_init_input(query.question, config=thread)
+        
+        
+        
         writer({
             "type": "status",
             "phase": ["init_input"],
@@ -429,7 +435,7 @@ class ProjectPipeline:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id,
             })
-            await self.vs.add_documents(all_docs, collection_id="attachments")
+            await asyncio.to_thread(self.vs.add_documents, all_docs, collection_id="attachments")
             writer({
                 "type": "status",
                 "phase": ["storage"],

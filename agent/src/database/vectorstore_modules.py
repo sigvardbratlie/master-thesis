@@ -24,7 +24,7 @@ class VectorStoreInterface(ABC):
         pass
     
     @abstractmethod
-    def query(self, query: str, filters: Dict = None, k: int = 3) -> list[Document]:
+    def query(self, query: str, filters: dict = None, k: int = 3) -> list[Document]:
         """Query documents."""
         pass
     
