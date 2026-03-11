@@ -1,29 +1,20 @@
 import os
 import base64
-import json
 import logging
-from langchain_openai import ChatOpenAI
 import tiktoken
 from datetime import datetime
 import asyncio
 from langgraph.config import get_stream_writer, get_config
 
-
 import pandas as pd
-from dotenv import load_dotenv
 
 from langchain_core.messages import (
     HumanMessage, AIMessage, SystemMessage, BaseMessage,
     ToolMessage, AIMessageChunk, message_to_dict, messages_to_dict
 )
 from langchain_core.tools import tool
-from langchain_core.runnables import RunnableConfig
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.documents import Document
 from langgraph.graph import StateGraph, END, START
-
-from langchain.chat_models import init_chat_model
-from langchain_openai import ChatOpenAI
 
 from .agent_modules import Summarizer, ToolManager
 from .context_manager import ContextManager
@@ -32,7 +23,6 @@ from documents import DocumentProcessor, EmailHandler
 from models import *  
 from uuid import uuid4
 from utils import AppConfig
-from .pipelines import ProjectPipeline
 from .utils import pick_llm
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -252,7 +242,6 @@ class Agent:
 
         project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.use_factsheet else None
         if project and isinstance(project, ProjectData) and isinstance(project.factsheet, FactSheet):
-            #raise TypeError("THIS SHOULD BE INCLUDED")
             content = project.shorten_factsheet() + "\n\n"
             content += project.shorten_attachments(excluded_fields=["description"]) + "\n\n"
             content += project.shorten_emails(excluded_fields=["description"]) + "\n\n"
@@ -304,8 +293,8 @@ class Agent:
             async with self._semaphore:
                 async for chunk in llm_with_tools.astream(payload, config=thread):
                     accumulated = chunk if accumulated is None else accumulated + chunk
-                if self.config.throttle_value > 0:
-                    await asyncio.sleep(self.config.throttle_value)
+                if self.config.async_tasks.throttle_value > 0:
+                    await asyncio.sleep(self.config.async_tasks.throttle_value)
             if accumulated is None:
                 raise ValueError("LLM returned no response chunks")
 
@@ -404,8 +393,10 @@ class Agent:
                 results.append(ToolMessage(tool_call_id=tool["id"], name=tool["name"], content=str(result)))
 
         logger.debug('✅ Tools execution complete')
-        return {"messages": results,
-                "tool_results": tool_data_results}
+        if tool_data_results:
+            writer = get_stream_writer()
+            writer({"type": "tool_data", "results": tool_data_results, "query_id": query_id})
+        return {"messages": results}
     
     def _should_continue(self,state: AgentState) -> bool:
         """Determine if we should continue or end the conversation"""
@@ -525,14 +516,12 @@ class Agent:
                 event_counter += 1
                 return event_model.model_dump(mode="json")
 
-    def on_call_tool(self, data : dict, 
-                     query_id : str, 
-                     session_id : str, 
-                     events : list, 
+    def on_call_tool(self, data : dict,
+                     query_id : str,
+                     session_id : str,
+                     events : list,
                      event_counter : int,):
-        output = data.get("output")
-        msg = output.get("messages",[])[-1] if output.get("messages",[]) else None
-        tool_results = output.get("tool_results", [])
+        tool_results = data.get("results", [])
         for tool_result in tool_results:
             payload = {"type": "tool_result",
                     "tool_name": tool_result.get("tool_name"),
@@ -549,7 +538,7 @@ class Agent:
                                                        query_id = query_id,
                                                        event_id = str(uuid4()),
                                                        session_id = session_id,
-                                                       langchain_id= msg.get("data").get("id", None))
+                                                       langchain_id= None)
             events.append(event_model)
             event_counter += 1
             return event_model.model_dump(mode="json")
@@ -574,9 +563,6 @@ class Agent:
             "metadata": {"query_id": query.query_id},
         }
         agent_instance = self._compile_agent(llm_model=query.llm_model)
-        
-        # NEW OR EXISTING CONVERSATION
-        await self.load_or_create_conversation(agent_instance, thread, query.session_id)
                                                             
         #HANDLE USER QUERY
         events = []
@@ -655,9 +641,7 @@ class Agent:
                                                    "query_id": query.query_id
                                                    })
         try:
-            async for chunk in agent_instance.astream_events({"messages": [user_msg],
-                                                                      "tool_results": [],
-                                                                      }, 
+            async for chunk in agent_instance.astream_events({"messages": [user_msg]},
                                                              config=thread):
                 ev = chunk.get("event")
                 data = chunk.get("data")
@@ -685,12 +669,12 @@ class Agent:
                         yield result
                         token_stream = ""
                         reasoning_stream = ""
-                #direct tool results
-                if name == "call_tool" and ev == "on_chain_end":
-                    result = self.on_call_tool(data, 
-                                               query_id=query.query_id, 
+                #direct tool results (written via get_stream_writer, bypasses checkpointer)
+                if ev == "on_custom_event" and isinstance(data, dict) and data.get("type") == "tool_data":
+                    result = self.on_call_tool(data,
+                                               query_id=query.query_id,
                                                session_id=query.session_id,
-                                               events=events, 
+                                               events=events,
                                                event_counter=event_counter)
                     if result:
                         yield result
