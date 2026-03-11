@@ -2,7 +2,7 @@ from langgraph.graph import StateGraph, END, START
 from models import FactSheet, AttachmentModel, EmailModel
 
 from langchain_core.runnables import RunnableConfig
-from langgraph.config import get_stream_writer
+from langgraph.config import get_stream_writer, get_config
 from documents import DocumentProcessor, EmailHandler
 import logging
 import asyncio
@@ -14,11 +14,10 @@ import email as python_email
 from database import SupabaseStorageManager, SupabaseManager, BQVectorStore
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from .utils import PipelineState
+from models import PipelineState, AskAgentRequest, ProjectData
 
 
 logger = logging.getLogger(__name__)
-
 
 
 class ProjectPipeline:
@@ -36,7 +35,7 @@ class ProjectPipeline:
         self.save_to_storage = self.config.pipeline.save_to_storage
 
     # =========== PIPELINE COMPILATION ===========
-    def _compile_init_pipeline(self):
+    def compile_init_pipeline(self):
         workflow = StateGraph(PipelineState)
 
         workflow.add_node("collapse_emails", self._collapse_emails_node)
@@ -61,7 +60,7 @@ class ProjectPipeline:
         workflow.add_edge("storage", END)
         return workflow.compile()
 
-    def _compile_update_pipeline(self):
+    def compile_update_pipeline(self):
         workflow = StateGraph(PipelineState)
 
         workflow.add_node("load_project_data", self._load_project_data)
@@ -116,7 +115,7 @@ class ProjectPipeline:
         attachments = state.query.attachments
         shortened_emails = state.collapsed_emails
         input_ = state.input_
-        thread = state.thread
+        thread = get_config()
         user_id = thread.get("configurable", {}).get("user_id")
         query = state.query
 
@@ -188,13 +187,42 @@ class ProjectPipeline:
 
         return doc_tasks
 
+    def mk_update_query_from_session(self,
+                                        query : AskAgentRequest,
+                                        ) -> AskAgentRequest:
+        '''Update the project with new input and attachments, using session data as context'''
+        input_attachments = query.attachments or []
+        new_input = ""
+        session_conv = self.conversation_manager.load_session_history(session_id=query.session_id)
+        if session_conv.attachments:
+            for att in session_conv.attachments:
+                content = self.storage.read_attachment(att.path) if att.path else None
+                if content:
+                    att.content = base64.b64encode(content.encode() if isinstance(content, str) else content).decode()
+                    input_attachments.append(att)
+        if session_conv.events:
+            new_input += "Session messages\n"
+            for event in session_conv.events:
+                if event.type == "human" and event.content:
+                    new_input += f"- {event.content}\n"
+
+        updated_query = AskAgentRequest(
+            project_id=query.project_id,
+            session_id=query.session_id,
+            llm_model=query.llm_model,
+            query_id=query.query_id,
+            attachments=input_attachments,
+            question=new_input or query.question,
+        )
+        return updated_query
+
     # =========== NODES ===========
     async def _parsing_node(self, state: PipelineState):
         """Parse documents and return parsed results."""
         writer = get_stream_writer()
         attachments = state.query.attachments
         query_id = state.query.query_id
-        user_id = state.thread.get("configurable", {}).get("user_id")
+        user_id = get_config().get("configurable", {}).get("user_id")
         session_id = state.query.session_id
         project_id = state.query.project_id
         shortened_emails = state.collapsed_emails
@@ -280,7 +308,15 @@ class ProjectPipeline:
         for doc in docs:
             fid = doc.metadata.get("file_id", "unknown")
             docs_by_file.setdefault(fid, []).append(doc)
-        return {"docs_by_file": docs_by_file}
+
+        #strip attachment for contents
+        stripped_query = state.query.model_copy(update={
+                            "attachments": [
+                                att.model_copy(update={"content": None})
+                                for att in state.query.attachments or []
+                            ]
+                        })
+        return {"docs_by_file": docs_by_file, "query": stripped_query}
 
     def _collapse_emails_node(self, state: PipelineState):
         eml_handler = EmailHandler()
@@ -353,7 +389,7 @@ class ProjectPipeline:
     async def _initialize_input_node(self, state: PipelineState):
         writer = get_stream_writer()
         query = state.query
-        thread = state.thread
+        thread = get_config()
 
         writer({
             "type": "status",
@@ -486,7 +522,7 @@ class ProjectPipeline:
 
     async def _save_init_node(self, state: PipelineState):
         query = state.query
-        user_id = state.thread.get("configurable", {}).get("user_id")
+        user_id = get_config().get("configurable", {}).get("user_id")
         attachments = state.attachments
         events = state.events
         damages = state.damages
@@ -556,7 +592,7 @@ class ProjectPipeline:
     async def _save_update_node(self, state: PipelineState):
         writer = get_stream_writer()
         query = state.query
-        user_id = state.thread.get("configurable", {}).get("user_id")
+        user_id = get_config().get("configurable", {}).get("user_id")
         attachments = state.attachments
         events = state.events
         damages = state.damages
@@ -693,13 +729,13 @@ class ProjectPipeline:
             "query_id": query.query_id,
         })
 
-        factsheet = await asyncio.to_thread(
-            self.conversation_manager.load_factsheet,
+        project_data = await asyncio.to_thread(
+            self.conversation_manager.load_project,
             project_id=query.project_id,
         )
 
-        if factsheet and not isinstance(factsheet, FactSheet):
-            error_msg = f"load_factsheet returned {type(factsheet).__name__} instead of FactSheet. Value: {factsheet}"
+        if project_data and not isinstance(project_data, ProjectData):
+            error_msg = f"load_project returned {type(project_data).__name__} instead of ProjectData. Value: {project_data}"
             logger.error(f"❌ update_project: {error_msg}", exc_info=True)
             raise TypeError(error_msg)
 
@@ -712,4 +748,4 @@ class ProjectPipeline:
             "query_id": query.query_id,
         })
 
-        return {"input_": factsheet}
+        return {"input_": project_data}
