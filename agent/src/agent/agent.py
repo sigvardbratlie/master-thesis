@@ -20,7 +20,7 @@ from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.documents import Document
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, END, START
 
 from langchain.chat_models import init_chat_model
 from langchain_openai import ChatOpenAI
@@ -213,7 +213,7 @@ class Agent:
 
         return sanitized
 
-    async def _call_llm(self, state: AgentState,) -> AgentState:
+    async def _call_llm(self, state: AgentState,):
         """
         Calls the LLM with RAG from BigQuery Vector Store for attachments.
 
@@ -337,7 +337,7 @@ class Agent:
             logger.error(f"❌ LLM invocation failed: {e}", exc_info=True)
             raise e
     
-    async def _call_tool(self,state: AgentState,) -> AgentState:
+    async def _call_tool(self,state: AgentState,):
         """Executes tool calls from the LLM's response"""
 
         thread = get_config()
@@ -412,20 +412,30 @@ class Agent:
         result = state.messages[-1]
         return hasattr(result, "tool_calls") and len(result.tool_calls) > 0
 
+    def _init_node(self, state: AgentState):
+        if not state.messages:                                                                                                                                                                            
+            logger.info("💬 New conversation — injecting system prompt")                                                                                                                                
+            return {"messages": [SystemMessage(content=self.prompt)]}
+        logger.info("💬 Resuming conversation")
+        return {}
+
     def _compile_agent(self,llm_model : str):
         """
         Compiles the agent graph with the selected LLM.
         """
 
         logger.debug(f"🤖 Compiling agent | model={llm_model}")
-        selected_llm = pick_llm(llm_model)
-
+        selected_llm = pick_llm(llm_model, config=self.config,)
         self.llm = selected_llm.bind_tools(self.tools)
 
         graph = StateGraph(AgentState)
-        graph.add_node("call_llm", self.call_llm)
-        graph.add_node("call_tool", self.call_tool)
-        graph.set_entry_point("call_llm")
+        graph.add_node("init", self._init_node)
+        graph.add_node("call_llm", self._call_llm)
+        graph.add_node("call_tool", self._call_tool)
+
+
+        graph.add_edge(START, "init")
+        graph.add_edge("init", "call_llm")
         graph.add_edge("call_tool", "call_llm")
         graph.add_conditional_edges("call_llm",
                                     self._should_continue,
@@ -440,22 +450,6 @@ class Agent:
     # =================================
     #         HELPERS
     # ================================
-
-    async def load_or_create_conversation(self, agent_instance, thread: dict, session_id: str): 
-        try:
-            current_state = await agent_instance.aget_state(thread)
-            is_new_conv = not current_state.values.get("messages", [])
-        except Exception:
-            is_new_conv = True
-
-        if is_new_conv: #load system prompt
-            logger.info(f'💬 New conversation | thread={thread}')
-            system_message = SystemMessage(content=self.prompt)
-            await agent_instance.aupdate_state(thread, {"messages": [system_message], 
-                                                        "factsheet": None, #FYLL INN HER!
-                                                        "tool_results": []})
-        else:
-            logger.info(f'💬 Resuming conversation | thread={session_id}')
 
     # =================================
     #       STREAM RESPONSE
