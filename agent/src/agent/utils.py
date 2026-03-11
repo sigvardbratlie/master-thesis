@@ -15,7 +15,10 @@ logger = logging.getLogger(__name__)
 def to_thread_config(query: AskAgentRequest | CleanupElementsRequest, user_id: str) -> RunnableConfig:
     """Extract request metadata into LangGraph RunnableConfig."""
     return {
-            "configurable": {"thread_id": query.session_id, "user_id": user_id, "custom_project_id": query.project_id},
+            "configurable": {"thread_id": query.session_id, 
+                             "user_id": user_id, 
+                            "custom_project_id": query.project_id,
+                            "llm_model" : query.llm_model},
             "metadata": {"query_id": query.query_id},
         }
 
