@@ -1,15 +1,11 @@
+from api.routers import vectorstore
 from dotenv import load_dotenv
 import logging
 import os
-import asyncio
-import json
 import uvicorn
 from contextlib import asynccontextmanager
 
-load_dotenv()
-
-from fastapi import FastAPI,HTTPException,Depends
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent.utils import PROMPT
@@ -20,13 +16,12 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
 from auth import SupabaseAuth
-from models import AskAgentRequest, CleanupElementsRequest
 from utils.config_utils import AppConfig
 from utils.logging_utils import setup_logging
-from langchain_core.runnables import RunnableConfig
-from agent.utils import to_thread_config, pick_llm
 from database import BQVectorStore
 from agent import ProjectPipeline, ProjectClean
+
+load_dotenv()
 
 def silence_loggers():
     noisy_packages =  [
@@ -121,10 +116,10 @@ def setup_app():
 
 app = setup_app()
 def include_routers(app: FastAPI):
-    from api.routers import agent, clean, database, project
+    from api.routers import agent, clean, project, vectorstore
     app.include_router(agent.router)
     app.include_router(clean.router)
-    app.include_router(database.router)
+    app.include_router(vectorstore.router)
     app.include_router(project.router)
     return app
 
@@ -133,6 +128,12 @@ app = include_routers(app)
 @app.get("/", include_in_schema=False)
 def root():
     return {"message": "Welcome to the CompanyAgent API, developed by Sibr AS."}
+
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT",8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
+
 
 
 # # ================== API ENDPOINTS ==================
@@ -289,9 +290,3 @@ def root():
 # @app.get("/load-project-sessions/{project_id}")
 # async def load_project_sessions(project_id: str): 
 #     return conversation_manager.load_project_sessions(project_id=project_id)
-
-
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT",8080))
-    uvicorn.run(app, host="0.0.0.0", port=port)
