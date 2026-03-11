@@ -133,85 +133,99 @@ class ProjectComponent:
     def clean_element(self,):
         streaming_service = get_streaming_service(backend_url=st.session_state.backend_url,
                                                   access_token=st.session_state.access_token)
+
+        # Popover only collects selections and stores them — streaming happens outside
         with st.popover("Clean and update project element"):
             relational_options = ["Events", "Parties", "Claims", "Damages", "Deadlines"]
             metadata_options = ["Title", "Background", "All Metadata"]
             custom_law_options = ["Governing Law", "Disputed Facts", "Undisputed Facts"]
 
-            selected_relational = st.multiselect("Relational elements", options=relational_options)
-            selected_metadata = st.selectbox("Metadata", options=["—"] + metadata_options)
-            selected_law = st.selectbox("Legal attributes", options=["—"] + custom_law_options)
+            selected_relational = st.multiselect("Relational elements", options=relational_options, key="ce_relational")
+            selected_metadata = st.selectbox("Metadata", options=["—"] + metadata_options, key="ce_metadata")
+            selected_law = st.selectbox("Legal attributes", options=["—"] + custom_law_options, key="ce_law")
 
             if st.button("Clean selected", icon="🧹"):
-                payload = AskAgentRequest(
-                    project_id=st.session_state.project_id,
-                    session_id=st.session_state.session_id,
-                    attachments=[],
-                    question="",
-                    query_id=str(uuid4()),
-                    llm_model=st.session_state.llm_model,
+                # Save selections before popover closes and resets widget state
+                st.session_state["ce_trigger"] = {
+                    "relational": list(selected_relational),
+                    "metadata": selected_metadata,
+                    "law": selected_law,
+                }
+                st.rerun()
+
+        # Process OUTSIDE the popover so st.status is visible
+        trigger = st.session_state.pop("ce_trigger", None)
+        if not trigger:
+            return
+
+        payload = AskAgentRequest(
+            project_id=st.session_state.project_id,
+            session_id=st.session_state.session_id,
+            attachments=[],
+            question="",
+            query_id=str(uuid4()),
+            llm_model=st.session_state.llm_model,
+        )
+        rerun_needed = False
+
+        # --- Relational elements (any subset) ---
+        if trigger["relational"]:
+            element_types = [e.lower() for e in trigger["relational"]]
+            elements_payload = CleanupElementsRequest(
+                **payload.model_dump(),
+                element_types=element_types,
+            )
+            success = self._stream_cleanup_progress(
+                streaming_service.clean_elements_stream, elements_payload
+            )
+            if success:
+                for field in element_types:
+                    st.session_state.factsheet[field] = self.backend_service.load_project_element(
+                        project_id=st.session_state.project_id, element_type=field
+                    )
+                rerun_needed = True
+
+        # --- Metadata ---
+        if trigger["metadata"] != "—":
+            if trigger["metadata"] == "All Metadata":
+                success = self._stream_cleanup_progress(
+                    streaming_service.clean_metadata_stream, payload
                 )
-
-                rerun_needed = False
-
-                # --- Relational elements (any subset) ---
-                if selected_relational:
-                    element_types = [e.lower() for e in selected_relational]
-                    elements_payload = CleanupElementsRequest(
-                        **payload.model_dump(),
-                        element_types=element_types,
-                    )
-                    success = self._stream_cleanup_progress(
-                        streaming_service.clean_elements_stream, elements_payload
-                    )
-                    if success:
-                        for field in element_types:
-                            st.session_state.factsheet[field] = self.backend_service.load_project_element(
-                                project_id=st.session_state.project_id, element_type=field
-                            )
-                        rerun_needed = True
-
-                # --- Metadata ---
-                if selected_metadata != "—":
-                    if selected_metadata == "All Metadata":
-                        success = self._stream_cleanup_progress(
-                            streaming_service.clean_metadata_stream, payload
+                if success:
+                    for field in ["title", "background"]:
+                        st.session_state.factsheet[field] = self.backend_service.load_project_element(
+                            project_id=st.session_state.project_id, element_type=field
                         )
-                        if success:
-                            for field in ["title", "background"]:
-                                st.session_state.factsheet[field] = self.backend_service.load_project_element(
-                                    project_id=st.session_state.project_id, element_type=field
-                                )
-                            rerun_needed = True
-                    else:
-                        element_key = selected_metadata.lower()
-                        success = self._stream_cleanup_progress(
-                            streaming_service.cleanup_attr_stream, payload, element_key
-                        )
-                        if success:
-                            st.session_state.factsheet[element_key] = self.backend_service.load_project_element(
-                                project_id=st.session_state.project_id, element_type=element_key
-                            )
-                            rerun_needed = True
-
-                # --- Legal attributes ---
-                if selected_law != "—":
-                    element_key_map = {
-                        "Disputed Facts": "disputed_facts",
-                        "Undisputed Facts": "undisputed_facts",
-                    }
-                    element_key = element_key_map.get(selected_law, selected_law.lower().replace(" ", "_"))
-                    success = self._stream_cleanup_progress(
-                        streaming_service.cleanup_attr_stream, payload, element_key
+                    rerun_needed = True
+            else:
+                element_key = trigger["metadata"].lower()
+                success = self._stream_cleanup_progress(
+                    streaming_service.cleanup_attr_stream, payload, element_key
+                )
+                if success:
+                    st.session_state.factsheet[element_key] = self.backend_service.load_project_element(
+                        project_id=st.session_state.project_id, element_type=element_key
                     )
-                    if success:
-                        st.session_state.factsheet[element_key] = self.backend_service.load_project_element(
-                            project_id=st.session_state.project_id, element_type=element_key
-                        )
-                        rerun_needed = True
+                    rerun_needed = True
 
-                if rerun_needed:
-                    st.rerun()
+        # --- Legal attributes ---
+        if trigger["law"] != "—":
+            element_key_map = {
+                "Disputed Facts": "disputed_facts",
+                "Undisputed Facts": "undisputed_facts",
+            }
+            element_key = element_key_map.get(trigger["law"], trigger["law"].lower().replace(" ", "_"))
+            success = self._stream_cleanup_progress(
+                streaming_service.cleanup_attr_stream, payload, element_key
+            )
+            if success:
+                st.session_state.factsheet[element_key] = self.backend_service.load_project_element(
+                    project_id=st.session_state.project_id, element_type=element_key
+                )
+                rerun_needed = True
+
+        if rerun_needed:
+            st.rerun()
 
     def _stream_cleanup_progress(self, streaming_function: callable, payload, element_type: str = None):
         """Display live streaming progress for cleanup operation."""
