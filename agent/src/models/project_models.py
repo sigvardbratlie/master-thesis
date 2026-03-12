@@ -133,7 +133,7 @@ class Party(BaseModel):
     party_id : str | None = None
     role: PartyRole = Field(
         default="other",
-        description="Role of the party in the case, e.g., plaintiff, defendant, witness, legal representative, etc.")
+        description="Functional role of the party. Use 'legal_rep_*' roles ONLY for qualified legal counsel (lawyers/attorneys). For professional service providers (architects, consultants, engineers, etc.) use 'contractor' or 'party_representative'. Assign based on the party's actual function, not assumed litigation framing.")
     entity_type: entity_types
     key_contact: Contact | None = Field(None, description="Primary contact person for this party")
     role_description: str | None = Field(None, description="Additional details about the party's role or involvement in the case")
@@ -161,7 +161,7 @@ class Events(BaseModel):
 
 class InitialInput(BaseModel):
     # Factual background
-    parties: list[Party] | None = Field([], description="List of parties involved in the case, i.e., plaintiff, defendant, witnesses, plaintiffs legal representatives, etc.")
+    parties: list[Party] | None = Field([], description="List of parties involved in the case.")
     background: str | None = Field("", description="Brief factual background of the case, including key events, timeline, and context")
     title : str | None = Field("", description="Title of the case or matter (MAX 10 words)")
 
