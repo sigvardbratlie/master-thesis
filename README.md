@@ -158,12 +158,12 @@ Results and metrics are stored in GCS and scored with DeepEval (legal accuracy, 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/agent/ask-agent` | Chat with agent (SSE stream) |
+| POST | `/chat` | Chat with agent (SSE stream) |
 | POST | `/project/init-project` | Initialize project from attachments (SSE stream) |
 | POST | `/project/update-project` | Add new attachments to existing project (SSE stream) |
 | POST | `/project/update-project-from-session` | Update project based on session conversation (SSE stream) |
-| POST | `/clean/cleanup-project-elements` | Clean/deduplicate multiple factsheet element types (SSE stream) |
-| POST | `/clean/cleanup-all-metadata` | Clean title and background fields (SSE stream) |
+| POST | `/project/clean-project-elements` | Clean/deduplicate multiple factsheet element types (SSE stream) |
+| POST | `/project/clean-metadata` | Clean title and background fields (SSE stream) |
 | DELETE | `/vectorstore/delete-vectorstore-project/{project_id}` | Delete project from BigQuery vector store |
 | DELETE | `/vectorstore/delete-vectorstore-file/{file_id}` | Delete single file from vector store |
 

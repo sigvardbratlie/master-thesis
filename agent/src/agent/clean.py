@@ -119,7 +119,7 @@ class ProjectClean:
             "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id,
         })
-        result = await self.context_manager.clean_all_metadata(project_data=project_data)
+        result = await self.context_manager.clean_metadata(project_data=project_data)
         if not result:
             logger.warning(f'clean_all_metadata returned empty result for project={query.project_id}')
         logger.info(f'✅ Metadata clean complete | title={bool(result.get("title"))} background={bool(result.get("background"))}')

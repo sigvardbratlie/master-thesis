@@ -493,7 +493,7 @@ class ContextManager:
 
         return results
 
-    async def clean_all_metadata(self, 
+    async def clean_metadata(self, 
                              project_data : ProjectData,
                              ) -> str:
         """Clean metadata fields (title, background) using structured output to avoid LLM wrapper text."""

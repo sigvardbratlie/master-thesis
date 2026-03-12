@@ -43,6 +43,7 @@ agent/
         ├── api_request_models.py  # AskAgentRequest, AttachmentModel, CleanupElementsRequest
         ├── response_models.py     # Response structures
         └── document_models.py     # Document metadata models
+
 ```
 
 ## API Endpoints
@@ -51,7 +52,7 @@ agent/
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/agent/ask-agent` | Chat with agent (question + optional attachments) |
+| POST | `/chat` | Chat with agent (question + optional attachments) |
 
 ### Project (SSE)
 
@@ -65,8 +66,8 @@ agent/
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/clean/cleanup-project-elements` | Clean/deduplicate multiple element types |
-| POST | `/clean/cleanup-all-metadata` | Clean title and background fields |
+| POST | `/project/clean-project-elements` | Clean/deduplicate multiple element types |
+| POST | `/project/clean-all-metadata` | Clean title and background fields |
 
 ### Vector Store
 
