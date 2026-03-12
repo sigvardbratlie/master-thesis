@@ -92,10 +92,10 @@ class CollectAgentResult:
             query_id=query_id,
         )
 
-    async def run_conv(self, conv: ConversationTurn, agent_class, project_id, session_id, query_id, user_id, attachments=[]):
+    async def run_conv(self, conv: ConversationTurn, agent_class, project_id, session_id, query_id, user_id, attachments=[], session_date=None):
         turn_starttime = datetime.now() 
         input_obj = AskAgentRequest(
-            question=conv.input,
+            question= f"Dato : {session_date}" + conv.input,
             session_id=session_id,
             llm_model=self.llm_model,
             query_id=query_id,
@@ -227,6 +227,7 @@ class CollectAgentResult:
                             query_id=conv_query_id,
                             user_id=self.data.user_id,
                             attachments=attachments,
+                            session_date=session.date,
                         )
 
 
@@ -240,6 +241,7 @@ class CollectAgentResult:
                             session_id=runtime_session_id,
                             query_id=conv_query_id,
                             user_id=self.data.user_id,
+                            session_date=session.date,
                         )
                 session_endtime = datetime.now()
                 session.time_counts = TimeCount(
