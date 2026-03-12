@@ -10,14 +10,22 @@ The agent processes legal documents, extracts structured case data (FactSheet), 
 
 ```
 agent/
-├── main.py                        # FastAPI app, all endpoints, SSE streaming
+├── main.py                        # FastAPI app, lifespan, router registration
 └── src/
     ├── agent/
-    │   ├── agent.py               # Agent class (LangGraph StateGraph orchestrator)
+    │   ├── agent.py               # Agent class — conversational LangGraph StateGraph
+    │   ├── pipelines.py           # ProjectPipeline — init/update project LangGraph pipelines
+    │   ├── clean.py               # ProjectClean — cleanup/dedup LangGraph pipelines
     │   ├── agent_modules.py       # Summarizer, ToolManager
     │   ├── context_manager.py     # ContextManager (document analysis, extraction, cleanup)
     │   ├── tools.py               # LangChain tools (TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS)
-    │   └── utils.py               # System prompts (PROMPT, PROMPT_BASELINE, PROMPT_BASELINE_RAG)
+    │   └── utils.py               # System prompts, LLM factory (pick_llm), to_thread_config
+    ├── api/
+    │   └── routers/
+    │       ├── agent.py           # /ask-agent endpoint
+    │       ├── project.py         # /init-project, /update-project endpoints
+    │       ├── clean.py           # /cleanup-* endpoints
+    │       └── vectorstore.py     # /delete-vectorstore-* endpoints
     ├── auth/
     │   ├── supabase_auth.py       # JWT auth via Supabase (primary)
     │   └── google_auth.py         # Google OAuth (legacy, unused)
@@ -39,53 +47,63 @@ agent/
 
 ## API Endpoints
 
-### Streaming (SSE)
+### Agent (SSE)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/ask-agent` | Chat with agent (question + optional attachments) |
-| POST | `/init-project` | Initialize project from attachments (multi-phase pipeline) |
-| POST | `/update-project` | Add new attachments to existing project |
-| POST | `/update-project-from-session` | Update project from current session context |
+| POST | `/agent/ask-agent` | Chat with agent (question + optional attachments) |
+
+### Project (SSE)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/project/init-project` | Initialize project from attachments (parallel pipeline) |
+| POST | `/project/update-project` | Add new attachments to existing project |
+| POST | `/project/update-project-from-session` | Update project from current session context |
 
 ### Cleanup (SSE)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/cleanup-project-element/{type}` | Clean/deduplicate a single element type |
-| POST | `/cleanup-project-elements` | Clean multiple element types in one LLM call |
-| POST | `/cleanup-project-attr/{type}` | Clean a factsheet text attribute |
-| POST | `/cleanup-all-metadata` | Clean title and background fields |
+| POST | `/clean/cleanup-project-elements` | Clean/deduplicate multiple element types |
+| POST | `/clean/cleanup-all-metadata` | Clean title and background fields |
 
 ### Vector Store
 
 | Method | Path | Description |
 |--------|------|-------------|
-| DELETE | `/delete-vectorstore-project/{project_id}` | Remove all project documents from BigQuery |
-| DELETE | `/delete-vectorstore-file/{file_id}` | Remove a single file from the vector store |
-
-### Data Retrieval
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/load-session-history/{session_id}` | Load conversation history for a session |
-| GET | `/load-user-sessions` | List all sessions for the authenticated user |
-| GET | `/load-project/{project_id}` | Load full project data (FactSheet + attachments) |
-| GET | `/load-projects` | List all projects for the authenticated user |
-| GET | `/load-project-sessions/{project_id}` | List all sessions for a project |
+| DELETE | `/vectorstore/delete-vectorstore-project/{project_id}` | Remove all project documents from BigQuery |
+| DELETE | `/vectorstore/delete-vectorstore-file/{file_id}` | Remove a single file from the vector store |
 
 ## Agent Architecture
 
-### LangGraph StateGraph
+The system is split into three separate LangGraph components:
 
-The `Agent` class uses a two-node graph:
+### `Agent` (conversational)
 
-1. **`call_llm`** — Builds the payload (system prompt + FactSheet context + conversation history + RAG results) and calls the LLM.
-2. **`call_tool`** — Executes tool calls returned by the LLM.
+`agent.py` — two-node graph for conversation:
 
-Conditional edge: if LLM returns tool calls → `call_tool` → back to `call_llm`, else → END.
+1. **`init`** — Injects system prompt on first turn.
+2. **`call_llm`** — Builds payload (system prompt + FactSheet context + conversation history) and calls LLM.
+3. **`call_tool`** — Executes tool calls returned by the LLM.
 
-Rolling summarization triggers every 8 messages to manage context window.
+Conditional edge: if LLM returns tool calls → `call_tool` → back to `call_llm`, else → END. Rolling summarization triggers every 8 messages.
+
+### `ProjectPipeline` (project init/update)
+
+`pipelines.py` — parallel LangGraph pipelines for document processing:
+
+**Init pipeline** (`compile_init_pipeline`): `collapse_emails` + `initialize_input` + `storage` (parallel) → `parsing` → `embedding` + `analyze` → `update_metadata` → `save`
+
+**Update pipeline** (`compile_update_pipeline`): `load_project_data` + `collapse_emails` + `storage` (parallel) → `parsing` → `embedding` + `analyze` → `update_metadata` → `save`
+
+### `ProjectClean` (cleanup/dedup)
+
+`clean.py` — pipelines for factsheet cleanup:
+
+**Elements pipeline** (`compile_clean_elements`): load → clean (LLM dedup per element type) → save
+
+**Metadata pipeline** (`compile_clean_metadata`): load → clean (LLM rewrites title/background) → save
 
 ### Tools (`tools.py`)
 
@@ -111,13 +129,15 @@ Rolling summarization triggers every 8 messages to manage context window.
 
 ### Project Initialization Pipeline
 
-`POST /init-project` runs a three-phase async pipeline:
+`POST /project/init-project` runs a parallel LangGraph pipeline:
 
-1. **Phase 1** — Parse documents (PDF/DOCX/PPTX/EML with OCR), store in vector store and file storage, analyze initial input
-2. **Phase 2** — Analyze documents and emails in parallel (extract events, claims, damages, deadlines, attachment metadata)
-3. **Phase 3** — Analyze factual facts and governing law
+- **Parallel start**: email thread collapsing, initial input extraction (LLM), file storage upload
+- **Parsing**: text extraction from PDF/DOCX/PPTX/EML (with OCR)
+- **Parallel**: vector store embedding + document/email analysis (LLM, batched)
+- **Metadata update**: update title, background, parties from extracted events
+- **Save**: persist FactSheet and all elements to Supabase
 
-All phases stream status events back via SSE.
+All stages stream `status` events via SSE. The final `save` node streams a `result` event with the full FactSheet.
 
 ## Database Schema
 
