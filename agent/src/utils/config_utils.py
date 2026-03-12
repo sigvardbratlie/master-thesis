@@ -25,7 +25,7 @@ class AsyncConfig(BaseModel):
 
 
 class ModelProviderConfig(BaseModel):
-    base_url: str
+    base_url: str = ""
     max_tokens: int = 4096
 
 class ModelsConfig(BaseModel):

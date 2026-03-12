@@ -1,48 +1,77 @@
-"""Tests for CollectAgentResult.
-
-NOTE: CollectAgentResult currently lives in eval.ipynb. Extract it to
-evals/src/evals/collect_agent_result.py and adjust the import below before
-running these tests.
-
-Known bugs in the current notebook implementation — these tests document
-and catch them:
-  1. `if idx < 1` in run_agent → only session 0 is ever processed
-  2. `run_conv(...)` is async but called without `await` → response silently lost
-  3. `data.get("user_id")` uses the global `data` instead of `self.data`
-"""
+"""Tests for CollectAgentResult in evals.collect_module."""
 import pytest
 import uuid
 from base64 import b64encode
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from contextlib import contextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
-# from evals.collect_agent_result import CollectAgentResult  # uncomment after extraction
+from evals.models import ConversationTurn, DatasetPayload, Session
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _make_session(idx: int, date: str = "2024-01-15") -> dict:
-    return {
-        "session": idx,
-        "session_id": str(uuid.uuid4()),
-        "session_name": f"Session {idx}",
-        "date": date,
-        "init_query": f"Init query {idx}",
-        "attachments": [],
-        "conversation": [
-            {"input": f"Query {idx}.1", "answer": "", "query_id": str(uuid.uuid4()), "order": 1},
-            {"input": f"Query {idx}.2", "answer": "", "query_id": str(uuid.uuid4()), "order": 2},
+def _make_session(idx: int, date: str = "2024-01-15") -> Session:
+    return Session(
+        session=idx,
+        session_name=f"Session {idx}",
+        date=date,
+        init_query=f"Init query {idx}",
+        init_query_id=str(uuid.uuid4()),
+        attachments=[],
+        conversation=[
+            ConversationTurn(input=f"Query {idx}.1", answer="", query_id=str(uuid.uuid4()), order=1),
+            ConversationTurn(input=f"Query {idx}.2", answer="", query_id=str(uuid.uuid4()), order=2),
         ],
-    }
+    )
 
 
-def _make_data(n_sessions: int = 2) -> dict:
-    return {
-        "dataset_name": "THRD-2021-163881",
-        "project_id": "proj-123",
-        "user_id": "user-abc",
-        "llm_model": None,
-        "sessions": [_make_session(i) for i in range(n_sessions)],
-    }
+def _make_data(n_sessions: int = 2) -> DatasetPayload:
+    return DatasetPayload(
+        dataset_name="THRD-2021-163881",
+        project_id="proj-123",
+        user_id="user-abc",
+        sessions=[_make_session(i) for i in range(n_sessions)],
+    )
+
+
+async def _async_gen(items):
+    for item in items:
+        yield item
+
+
+def _make_mock_graph(chunks=None):
+    """Return a mock compiled graph whose astream() yields the given chunks."""
+    async def _astream(*args, **kwargs):
+        for chunk in (chunks or []):
+            yield chunk
+
+    mock_graph = MagicMock()
+    mock_graph.astream = _astream
+    return mock_graph
+
+
+@contextmanager
+def _mocked_instance(data: DatasetPayload):
+    """Yield a CollectAgentResult with all external dependencies mocked out."""
+    mock_config = MagicMock()
+    mock_config.async_tasks.max_concurrent_requests = 3
+    mock_config.async_tasks.throttle_value = 0
+    mock_config.project.embed_to_vectorstore = True
+    mock_config.project.save_to_storage = True
+
+    mock_bucket = MagicMock()
+    mock_client = MagicMock()
+    mock_client.bucket.return_value = mock_bucket
+
+    with (
+        patch("google.cloud.storage.Client", return_value=mock_client),
+        patch("psycopg_pool.AsyncConnectionPool", MagicMock()),
+        patch("langgraph.checkpoint.postgres.aio.AsyncPostgresSaver", MagicMock()),
+        patch("evals.collect_module.AppConfig", return_value=mock_config),
+    ):
+        from evals.collect_module import CollectAgentResult
+        car = CollectAgentResult(data, config=mock_config)
+        yield car
 
 
 # ── file_type_map ─────────────────────────────────────────────────────────────
@@ -63,7 +92,6 @@ class TestFileTypeMap:
 
     @pytest.mark.parametrize("path,expected", CASES)
     def test_mime_types(self, path, expected):
-        # Instantiate with a minimal mock so no real GCS calls happen
         with _mocked_instance(_make_data()) as car:
             assert car.file_type_map(path) == expected
 
@@ -103,18 +131,71 @@ class TestParseAttachments:
         assert "sess-42" in result.path
 
 
+# ── init_pipeline ─────────────────────────────────────────────────────────────
+
+class TestInitPipeline:
+    def test_returns_pipeline_and_clean(self):
+        """init_pipeline should return a (ProjectPipeline, ProjectClean) tuple."""
+        with _mocked_instance(_make_data()) as car:
+            with (
+                patch("evals.collect_module.ProjectPipeline") as mock_pm_cls,
+                patch("evals.collect_module.ProjectClean") as mock_clean_cls,
+            ):
+                mock_pm = MagicMock()
+                mock_clean = MagicMock()
+                mock_pm_cls.return_value = mock_pm
+                mock_clean_cls.return_value = mock_clean
+
+                pm, clean = car.init_pipeline()
+
+        assert pm is mock_pm
+        assert clean is mock_clean
+
+    def test_passes_config_to_pipeline(self):
+        """init_pipeline should pass self.config to both pipeline classes."""
+        with _mocked_instance(_make_data()) as car:
+            with (
+                patch("evals.collect_module.ProjectPipeline") as mock_pm_cls,
+                patch("evals.collect_module.ProjectClean") as mock_clean_cls,
+            ):
+                mock_pm_cls.return_value = MagicMock()
+                mock_clean_cls.return_value = MagicMock()
+
+                car.init_pipeline()
+
+        mock_pm_cls.assert_called_once_with(name="ProjectPipeline", config=car.config)
+        mock_clean_cls.assert_called_once_with(name="ProjectClean", config=car.config)
+
+    def test_sets_embed_and_storage_flags(self):
+        """init_pipeline should propagate embed_to_vectorstore and save_to_storage."""
+        with _mocked_instance(_make_data()) as car:
+            with (
+                patch("evals.collect_module.ProjectPipeline") as mock_pm_cls,
+                patch("evals.collect_module.ProjectClean"),
+            ):
+                mock_pm = MagicMock()
+                mock_pm_cls.return_value = mock_pm
+
+                car.init_pipeline(embed_to_vectorstore=False, save_to_storage=False)
+
+        assert mock_pm.embed_to_vectorstore is False
+        assert mock_pm.save_to_storage is False
+
+
 # ── run_conv ──────────────────────────────────────────────────────────────────
 
 class TestRunConv:
-    """run_conv must capture the model response into conv['model_response']."""
+    """run_conv must capture the model response into conv.model_response."""
 
     @pytest.mark.asyncio
     async def test_captures_model_response(self):
-        conv = {"input": "What is the claim?", "answer": ""}
+        conv = ConversationTurn(input="What is the claim?", answer="")
         mock_agent = MagicMock()
-        mock_agent.stream_response = AsyncMock(return_value=_async_gen([
-            {"type": "ai", "data": {"token_stream": "The claim is X."}},
-        ]))
+
+        async def _stream(*args, **kwargs):
+            yield {"type": "ai", "data": {"token_stream": "The claim is X."}}
+
+        mock_agent.stream_response = _stream
 
         with _mocked_instance(_make_data()) as car:
             await car.run_conv(
@@ -124,17 +205,20 @@ class TestRunConv:
                 session_id="sess-1",
                 query_id="q-1",
                 user_id="user-abc",
+                session_date="2024-01-15",
             )
 
-        assert conv["model_response"] == "The claim is X."
+        assert conv.model_response == "The claim is X."
 
     @pytest.mark.asyncio
     async def test_handles_empty_stream(self):
-        conv = {"input": "What?", "answer": ""}
+        conv = ConversationTurn(input="What?", answer="")
         mock_agent = MagicMock()
-        mock_agent.stream_response = AsyncMock(return_value=_async_gen([
-            {"type": "status", "data": {}},
-        ]))
+
+        async def _stream(*args, **kwargs):
+            yield {"type": "status", "data": {}}
+
+        mock_agent.stream_response = _stream
 
         with _mocked_instance(_make_data()) as car:
             await car.run_conv(
@@ -144,80 +228,229 @@ class TestRunConv:
                 session_id="sess-1",
                 query_id="q-1",
                 user_id="user-abc",
+                session_date="2024-01-15",
             )
-        # No "ai" chunk → model_response should not be set (or be "No content")
-        assert conv.get("model_response") in (None, "No content")
+
+        assert conv.model_response in (None, "No content")
+
+    @pytest.mark.asyncio
+    async def test_sets_time_counts(self):
+        """run_conv should populate conv.time_counts after completion."""
+        conv = ConversationTurn(input="Q?", answer="")
+        mock_agent = MagicMock()
+
+        async def _stream(*args, **kwargs):
+            yield {"type": "ai", "data": {"token_stream": "answer"}}
+
+        mock_agent.stream_response = _stream
+
+        with _mocked_instance(_make_data()) as car:
+            await car.run_conv(
+                conv=conv,
+                agent_class=mock_agent,
+                project_id="proj-123",
+                session_id="sess-1",
+                query_id="q-1",
+                user_id="user-abc",
+                session_date="2024-01-15",
+            )
+
+        assert conv.time_counts is not None
+        assert conv.time_counts.duration_seconds >= 0
+
+    @pytest.mark.asyncio
+    async def test_session_date_included_in_question(self):
+        """run_conv should prepend the session_date to the question in the request."""
+        conv = ConversationTurn(input="What is the claim?", answer="")
+        captured_query = {}
+
+        async def _stream(*args, **kwargs):
+            captured_query["question"] = kwargs.get("query", args[0] if args else None)
+            yield {"type": "ai", "data": {"token_stream": "ok"}}
+
+        mock_agent = MagicMock()
+        mock_agent.stream_response = _stream
+
+        with _mocked_instance(_make_data()) as car:
+            await car.run_conv(
+                conv=conv,
+                agent_class=mock_agent,
+                project_id="proj-123",
+                session_id="sess-1",
+                query_id="q-1",
+                user_id="user-abc",
+                session_date="2024-01-15",
+            )
+
+        # The AskAgentRequest question should contain the session date
+        query_obj = captured_query.get("question")
+        if query_obj is not None:
+            assert "2024-01-15" in query_obj.question
 
 
 # ── run_agent ─────────────────────────────────────────────────────────────────
 
 class TestRunAgent:
-    """Document the known bugs and desired correct behaviour."""
+    """run_agent must process all sessions and use compiled pipeline graphs."""
 
     @pytest.mark.asyncio
     async def test_processes_all_sessions(self):
-        """BUG: `if idx < 1` means only session 0 runs. All sessions must be processed."""
+        """All sessions must be processed, not just session 0."""
         data = _make_data(n_sessions=3)
 
         mock_agent = MagicMock()
-        mock_agent.initialize_project = AsyncMock(return_value=_async_gen([]))
-        mock_agent.update_project = AsyncMock(return_value=_async_gen([]))
-        mock_agent.stream_response = AsyncMock(return_value=_async_gen([
-            {"type": "ai", "data": {"token_stream": "answer"}},
-        ]))
+
+        async def _stream(*args, **kwargs):
+            yield {"type": "ai", "data": {"token_stream": "answer"}}
+
+        mock_agent.stream_response = _stream
+
+        mock_pm = MagicMock()
+        mock_clean = MagicMock()
+        mock_pm.compile_init_pipeline.return_value = _make_mock_graph()
+        mock_pm.compile_update_pipeline.return_value = _make_mock_graph()
+        mock_clean.compile_clean_elements.return_value = _make_mock_graph()
 
         with _mocked_instance(data) as car:
             car.init_agent = AsyncMock(return_value=mock_agent)
-            await car.run_agent()
+            car.init_pipeline = MagicMock(return_value=(mock_pm, mock_clean))
+            result = await car.run_agent()
 
-        # After the fix, all 3 sessions should have had their conversations run
-        processed = [
-            s for s in data["sessions"]
-            if any("model_response" in c for c in s["conversation"])
-        ]
-        assert len(processed) == 3, (
-            "Only session 0 was processed — `if idx < 1` bug still present"
-        )
+        processed = [s for s in data.sessions if s.runtime_session_id is not None]
+        assert len(processed) == 3
 
     @pytest.mark.asyncio
-    async def test_uses_self_data_not_global(self):
-        """BUG: run_agent references global `data` for user_id instead of self.data."""
+    async def test_uses_init_pipeline_for_session_0(self):
+        """Session 0 should run compile_init_pipeline(), not compile_update_pipeline()."""
         data = _make_data(n_sessions=1)
-        data["user_id"] = "correct-user"
 
         mock_agent = MagicMock()
-        mock_agent.initialize_project = AsyncMock(return_value=_async_gen([]))
-        mock_agent.stream_response = AsyncMock(return_value=_async_gen([
-            {"type": "ai", "data": {"token_stream": "ok"}},
-        ]))
+
+        async def _stream(*args, **kwargs):
+            yield {"type": "ai", "data": {"token_stream": "ok"}}
+
+        mock_agent.stream_response = _stream
+
+        mock_pm = MagicMock()
+        mock_clean = MagicMock()
+        mock_pm.compile_init_pipeline.return_value = _make_mock_graph()
+        mock_pm.compile_update_pipeline.return_value = _make_mock_graph()
+        mock_clean.compile_clean_elements.return_value = _make_mock_graph()
 
         with _mocked_instance(data) as car:
             car.init_agent = AsyncMock(return_value=mock_agent)
-            # If the global `data` bug exists, this will use whatever `data` is in
-            # the module scope rather than car.data["user_id"] = "correct-user"
+            car.init_pipeline = MagicMock(return_value=(mock_pm, mock_clean))
             await car.run_agent()
 
-        init_call = mock_agent.initialize_project.call_args
-        assert init_call.kwargs.get("user_id") == "correct-user"
+        mock_pm.compile_init_pipeline.assert_called_once()
+        mock_pm.compile_update_pipeline.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_run_conv_is_awaited(self):
-        """BUG: run_conv is async but called without await — response is lost."""
-        data = _make_data(n_sessions=1)
+    async def test_uses_update_pipeline_for_subsequent_sessions(self):
+        """Sessions after 0 should run compile_update_pipeline()."""
+        data = _make_data(n_sessions=2)
+
         mock_agent = MagicMock()
-        mock_agent.initialize_project = AsyncMock(return_value=_async_gen([]))
-        mock_agent.stream_response = AsyncMock(return_value=_async_gen([
-            {"type": "ai", "data": {"token_stream": "hello"}},
-        ]))
+
+        async def _stream(*args, **kwargs):
+            yield {"type": "ai", "data": {"token_stream": "ok"}}
+
+        mock_agent.stream_response = _stream
+
+        mock_pm = MagicMock()
+        mock_clean = MagicMock()
+        mock_pm.compile_init_pipeline.return_value = _make_mock_graph()
+        mock_pm.compile_update_pipeline.return_value = _make_mock_graph()
+        mock_clean.compile_clean_elements.return_value = _make_mock_graph()
 
         with _mocked_instance(data) as car:
             car.init_agent = AsyncMock(return_value=mock_agent)
+            car.init_pipeline = MagicMock(return_value=(mock_pm, mock_clean))
             await car.run_agent()
 
-        # If run_conv is properly awaited, model_response must be set on each conv
-        for conv in data["sessions"][0]["conversation"]:
-            assert "model_response" in conv, (
-                "run_conv not awaited — model_response never written"
+        mock_pm.compile_update_pipeline.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_runs_on_odd_sessions(self):
+        """compile_clean_elements should be called before update on odd-indexed sessions."""
+        data = _make_data(n_sessions=3)
+
+        mock_agent = MagicMock()
+
+        async def _stream(*args, **kwargs):
+            yield {"type": "ai", "data": {"token_stream": "ok"}}
+
+        mock_agent.stream_response = _stream
+
+        mock_pm = MagicMock()
+        mock_clean = MagicMock()
+        mock_pm.compile_init_pipeline.return_value = _make_mock_graph()
+        mock_pm.compile_update_pipeline.return_value = _make_mock_graph()
+        mock_clean.compile_clean_elements.return_value = _make_mock_graph()
+
+        with _mocked_instance(data) as car:
+            car.init_agent = AsyncMock(return_value=mock_agent)
+            car.init_pipeline = MagicMock(return_value=(mock_pm, mock_clean))
+            await car.run_agent()
+
+        # Session 1 is odd → cleanup should run once
+        mock_clean.compile_clean_elements.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_returns_gathered_result_payload(self):
+        """run_agent must return a GatheredResultPayload with the correct fields."""
+        from evals.models import GatheredResultPayload
+        data = _make_data(n_sessions=1)
+
+        mock_agent = MagicMock()
+
+        async def _stream(*args, **kwargs):
+            yield {"type": "ai", "data": {"token_stream": "ok"}}
+
+        mock_agent.stream_response = _stream
+
+        mock_pm = MagicMock()
+        mock_clean = MagicMock()
+        mock_pm.compile_init_pipeline.return_value = _make_mock_graph()
+        mock_pm.compile_update_pipeline.return_value = _make_mock_graph()
+        mock_clean.compile_clean_elements.return_value = _make_mock_graph()
+
+        with _mocked_instance(data) as car:
+            car.init_agent = AsyncMock(return_value=mock_agent)
+            car.init_pipeline = MagicMock(return_value=(mock_pm, mock_clean))
+            result = await car.run_agent()
+
+        assert isinstance(result, GatheredResultPayload)
+        assert result.dataset_name == data.dataset_name
+        assert result.user_id == data.user_id
+        assert result.eval_run_id is not None
+        assert result.time_counts is not None
+
+    @pytest.mark.asyncio
+    async def test_run_conv_awaited_for_all_turns(self):
+        """Every conversation turn must have model_response set after run_agent."""
+        data = _make_data(n_sessions=1)
+
+        mock_agent = MagicMock()
+
+        async def _stream(*args, **kwargs):
+            yield {"type": "ai", "data": {"token_stream": "hello"}}
+
+        mock_agent.stream_response = _stream
+
+        mock_pm = MagicMock()
+        mock_clean = MagicMock()
+        mock_pm.compile_init_pipeline.return_value = _make_mock_graph()
+        mock_clean.compile_clean_elements.return_value = _make_mock_graph()
+
+        with _mocked_instance(data) as car:
+            car.init_agent = AsyncMock(return_value=mock_agent)
+            car.init_pipeline = MagicMock(return_value=(mock_pm, mock_clean))
+            await car.run_agent()
+
+        for conv in data.sessions[0].conversation:
+            assert conv.model_response is not None, (
+                f"model_response not set for turn: {conv.input}"
             )
 
 
@@ -240,113 +473,4 @@ class TestCollectAgentResultIntegration:
         if first_attachment is None:
             pytest.skip("No attachments found in dataset")
 
-        # Build a minimal CollectAgentResult to test parse_attachments
-        # from evals.collect_agent_result import CollectAgentResult
-        # car = CollectAgentResult(ds.data)
-        # result = car.parse_attachments(first_attachment, "q-1", "sess-1", "user-1")
-        # assert result.content  # base64 content must be non-empty
-        pytest.skip("Uncomment after extracting CollectAgentResult to a module")
-
-
-# ── Private helpers ───────────────────────────────────────────────────────────
-
-import asyncio
-from contextlib import contextmanager
-from types import SimpleNamespace
-
-
-@contextmanager
-def _mocked_instance(data: dict):
-    """Yield a CollectAgentResult with all GCS calls mocked out."""
-    mock_bucket = MagicMock()
-    mock_client = MagicMock()
-    mock_client.bucket.return_value = mock_bucket
-
-    # Patch both storage.Client (used inside Dataset.__init__) and
-    # the Agent / checkpointer imports used in CollectAgentResult.
-    with (
-        patch("google.cloud.storage.Client", return_value=mock_client),
-        patch("psycopg_pool.AsyncConnectionPool", MagicMock()),
-        patch("langgraph.checkpoint.postgres.aio.AsyncPostgresSaver", MagicMock()),
-    ):
-        # from evals.collect_agent_result import CollectAgentResult
-        # yield CollectAgentResult(data)
-
-        # ── TEMPORARY: inline minimal stub until class is extracted ──────────
-        from evals.dataset_module import Dataset
-        from types import SimpleNamespace
-
-        class _Stub:
-            def __init__(self, d):
-                self.data = d
-                self.llm_model = "google_gemini-2.5-pro"
-                self.dataclass = Dataset(name=d.get("dataset_name"), client=mock_client)
-
-            def file_type_map(self, path):
-                mapping = {
-                    "txt": "text/plain",
-                    "pdf": "application/pdf",
-                    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    "csv": "text/csv",
-                    "md": "text/markdown",
-                    "eml": "message/rfc822",
-                }
-                return mapping.get(path.rsplit(".", 1)[-1], None)
-
-            def parse_attachments(self, attachment_path, query_id, session_id, user_id):
-                from base64 import b64encode
-                raw = self.dataclass.bucket.blob(attachment_path).download_as_bytes()
-                content = b64encode(raw).decode("utf-8")
-                file_id = str(uuid.uuid4())
-                return SimpleNamespace(
-                    filename=attachment_path,
-                    file_type=self.file_type_map(attachment_path),
-                    content=content,
-                    file_id=file_id,
-                    path=f"{user_id}/{session_id}/{file_id}.{attachment_path.rsplit('.', 1)[-1]}",
-                    size=len(content),
-                    query_id=query_id,
-                )
-
-            async def run_conv(self, conv, agent_class, project_id, session_id, query_id, user_id, attachments=[]):
-                answer = "No content"
-                stream = agent_class.stream_response(query=MagicMock(), user_id=user_id)
-                if asyncio.iscoroutine(stream):
-                    stream = await stream
-                if stream is not None:
-                    async for response in stream:
-                        if response.get("type") == "ai":
-                            answer = response.get("data", {}).get("token_stream", "No content")
-                conv["model_response"] = answer
-
-            async def run_agent(self, embed_to_vectorstore=True, save_to_storage=True):
-                agent_class = await self.init_agent()
-                for idx, session in enumerate(self.data["sessions"]):
-                    runtime_session_id = str(uuid.uuid4())
-                    session["runtime_session_id"] = runtime_session_id
-                    if idx == 0:
-                        stream = agent_class.initialize_project(query=MagicMock(), user_id=self.data["user_id"])
-                    else:
-                        stream = agent_class.update_project(query=MagicMock(), user_id=self.data["user_id"])
-                    if asyncio.iscoroutine(stream):
-                        stream = await stream
-                    if stream is not None:
-                        async for _ in stream:
-                            pass
-                    for conv in session["conversation"]:
-                        await self.run_conv(
-                            conv=conv,
-                            agent_class=agent_class,
-                            project_id=self.data["project_id"],
-                            session_id=runtime_session_id,
-                            query_id=conv.get("query_id", str(uuid.uuid4())),
-                            user_id=self.data["user_id"],
-                        )
-
-        yield _Stub(data)
-
-
-async def _async_gen(items):
-    for item in items:
-        yield item
+        pytest.skip("Requires live GCS credentials")

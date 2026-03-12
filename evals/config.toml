@@ -17,9 +17,12 @@ throttle_value = 0.0
 base_url = "https://api.together.xyz/v1"
 max_tokens = 4096
 
-[agent.stream]
+[agent]
 max_token_tool = 10000
 
-[agent.project]
+[project]
 threshold = 5120000     # 500 * 1024
 max_attachments = 10
+max_emails = 15
+embed_to_vectorstore = true
+save_to_storage = true
