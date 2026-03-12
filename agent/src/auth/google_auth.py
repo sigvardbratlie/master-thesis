@@ -1,14 +1,13 @@
 from google.cloud import firestore
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from typing import Optional
 from datetime import datetime, timedelta
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
 class TokenData(BaseModel):
-    user_id: Optional[str] = None
+    user_id: str | None = None
 
 class GoogleToken(BaseModel):
         token: str
@@ -24,7 +23,7 @@ class BaseAuth:
         self.access_token_expire_minutes = access_token_expire_minutes
 
     def create_access_token(self, data: dict,
-                            expires_delta: Optional[timedelta] = None,
+                            expires_delta: timedelta | None = None,
                             ) -> str:
         """Lager en ny JWT-token."""
         to_encode = data.copy()

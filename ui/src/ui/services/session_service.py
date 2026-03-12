@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import logging
-from typing import Optional
 from ui.models import SessionHistoryResponse, SessionInfo
 
 logger = logging.getLogger(__name__)
@@ -22,7 +21,7 @@ class SessionService:
 
     # ================== SESSION METHODS ==================
     
-    def load_session_history(_self, session_id: str) -> Optional[SessionHistoryResponse]:
+    def load_session_history(_self, session_id: str) -> SessionHistoryResponse | None:
         """
         Load session history from backend.
 
@@ -81,7 +80,7 @@ class SessionService:
     # ================== PROJECT METHODS ==================
 
     #@st.cache_data(show_spinner=False)
-    def load_projects(_self, ) -> Optional[SessionHistoryResponse]:
+    def load_projects(_self, ) -> SessionHistoryResponse | None:
         """
         Load session history from backend.
         """
@@ -131,7 +130,7 @@ class SessionService:
             logger.error(f"Failed to load project sessions: {e}")
             return []
     
-    def load_project(_self,) -> Optional[dict]:
+    def load_project(_self,) -> dict | None:
         """
         Load factsheet for a given project.
         """

@@ -1,6 +1,5 @@
 
 import json
-from typing import List,Optional
 import tiktoken
 import logging
 from uuid import uuid4
@@ -31,7 +30,7 @@ class ContextManager:
     def llm(self, value: BaseChatModel):
         self._llm = value
     
-    # ===== TRUNCATION HELPERS =====
+    # ===== HELPERS =====
     def truncate_tokens(self, messages, max_tokens=7000):
         """Truncate messages to fit within max_tokens while preserving tool-call structure."""
         if not isinstance(messages, list):
@@ -99,16 +98,20 @@ class ContextManager:
     # ===== FUNCTIONS FOR INITIAL FACTSHEET CREATION =====
     async def analyze_init_input(self, init_input : str, config: RunnableConfig = None) -> InitialInput:
         structured_llm = self.llm.with_structured_output(InitialInput, method="function_calling")
-        prompt = f'Analyze the following case introduction and extract key information into the InitialInput structure. If not sufficient information, leave blank:\n\n{init_input}. '
-        return await structured_llm.ainvoke(prompt, config=config)
+        prompt = f'Analyze the following project description and extract key information into the InitialInput structure. If not sufficient information, leave blank:\n\n{init_input}.'
+        init_input = await structured_llm.ainvoke(prompt, config=config)
+        for party in init_input.parties or []:
+            party.party_id = str(uuid4())
+        logger.debug('\n\n' + "="*5 + f' Analyzed Initial Input: {str(init_input.model_dump(mode = "json"))[:500]} ' + '='*5 + '\n\n')
+        return init_input
     
     async def analyze_docs(self,
-                input_ : InitialInput | FactSheet,
+                input_ : InitialInput | ProjectData,
                 attachments : list[AttachmentModel],
                 config: RunnableConfig = None,
                 ) -> dict:
         '''Function to analyze multiple documents and extract structured data as Attachments.'''
-        
+                
         result_attachments = []
         deadlines = []
         damages = []
@@ -126,10 +129,10 @@ class ContextManager:
 
         class AttachmentWithEvents(BaseModel):
             attachment: AttachmentExtracted
-            events: Optional[List[Event]] = []
+            events: list[Event] | None = []
 
         class MultipleAttachmentsResult(BaseModel):
-            attachments: List[AttachmentWithEvents]
+            attachments: list[AttachmentWithEvents]
 
         documents_formatted = "\n\n".join([
             f"DOCUMENT #{idx+1}\nFILE_ID={att.file_id}  <-- copy this into attachment.file_id\n{att.model_dump(include={'body','file_type'})}"
@@ -137,8 +140,8 @@ class ContextManager:
         ])
 
         structured_llm = self.llm.with_structured_output(MultipleAttachmentsResult, method="function_calling")
-        if isinstance(input_, FactSheet):
-            init_prompt = f'{input_.shorten_factsheet()}\n\n'
+        if isinstance(input_, ProjectData):
+            init_prompt = f'{input_.factsheet.shorten_factsheet()}\n\n'
         elif isinstance(input_, str):
             init_prompt = f'Case input: {input_}\n\n'
         else:
@@ -147,7 +150,7 @@ class ContextManager:
 
                                 For EACH document, return an AttachmentWithEvents object containing:
                                 1. attachment: AttachmentExtracted - metadata from that document (MUST set file_id to the file_id shown for each document)
-                                2. events: List[Event] or null - timeline events mentioned in that document
+                                2. events: list[Event] or null - timeline events mentioned in that document
 
                                 IMPORTANT: Return exactly {len(attachments)} AttachmentWithEvents objects in the attachments array.
                                 CRITICAL: Set file_id in AttachmentExtracted to match the file_id from the input document.
@@ -244,7 +247,6 @@ class ContextManager:
                 "body": input_att.body,
                 "file_type": input_att.file_type,
                 "size": input_att.size,
-                # Set file_id to the original file_id for consistency
                 "file_id": input_att.file_id,
             })
             result_attachments.append(Attachment(**attachment_data))
@@ -258,7 +260,7 @@ class ContextManager:
                 }
         
     async def analyze_emails(self,
-                input_ : InitialInput | FactSheet,
+                input_ : InitialInput | ProjectData,
                 emails : list[EmailModel],
                 config: RunnableConfig = None,
                 ) -> dict:
@@ -267,11 +269,11 @@ class ContextManager:
         class EmailAnalysisResult(BaseModel):
             """Result for ONE email analysis"""
             email: EmailExtracted = Field(description="Extracted metadata and content from this specific email")
-            events: Optional[List[Event]] = Field(default=None, description="Timeline events mentioned in this email (can be empty list or null if no events found)")
+            events: list[Event] | None = Field(default=None, description="Timeline events mentioned in this email (can be empty list or null if no events found)")
         
         class EmailsAnalysisResult(BaseModel):
             """Result containing ALL email analyses"""
-            emails: List[EmailAnalysisResult] = Field(description="List of email analysis results - one EmailAnalysisResult object per input email")
+            emails: list[EmailAnalysisResult] = Field(description="List of email analysis results - one EmailAnalysisResult object per input email")
 
         # Build set of original IDs for validation
         org_ids = set()
@@ -287,8 +289,8 @@ class ContextManager:
         events = []
 
         structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
-        if isinstance(input_, FactSheet):
-            init_prompt = f'{input_.shorten_factsheet()}\n\n'
+        if isinstance(input_, ProjectData):
+            init_prompt = f'{input_.factsheet.shorten_factsheet()}\n\n'
         elif isinstance(input_, str):
             init_prompt = f'Case input: {input_}\n\n'
         else:
@@ -305,7 +307,7 @@ class ContextManager:
         
                                 For EACH email, return an EmailAnalysisResult object containing:
                                 1. email: EmailExtracted - metadata from that email (MUST set email_id to the file_id shown for each email)
-                                2. events: List[Event] or null - timeline events mentioned in that email
+                                2. events: list[Event] or null - timeline events mentioned in that email
 
                                 IMPORTANT: Return exactly {len(emails)} EmailAnalysisResult objects in the emails array.
                                 CRITICAL: Set email_id in EmailExtracted to match the file_id from the input email.
@@ -424,166 +426,7 @@ class ContextManager:
                 "deadlines" : deadlines,
                 "claims" : claims}
 
-
-    async def analyze_governing_law(self, events : list[Event], rag_content_law : str, config: RunnableConfig = None) -> GoverningLaw:
-        '''Function to analyze case events and extract governing law information.
-        
-        Args:
-            events (list[Event]): The list of case events.
-            rag_content_law (str): Relevant legal context retrieved via RAG.
-            
-        Returns:
-            GoverningLaw : The structured GoverningLaw object with extracted information.
-        '''
-        if not events:
-            logger.warning('No events provided for governing law analysis. Returning empty GoverningLaw.')
-            return
-        if not rag_content_law:
-            logger.warning('No RAG content provided for governing law analysis. Proceeding with events only.')
-        
-            if not isinstance(rag_content_law, str):
-                logger.warning(f'RAG content for governing law is not a string: Instance {type(rag_content_law)}. ')
-                if isinstance(rag_content_law, dict):
-                    logger.debug('RAG content is a dict. Converting to JSON string for analysis.')
-                    rag_content_law = json.dumps(rag_content_law)
-                elif isinstance(rag_content_law, list):
-                    if all(isinstance(item, dict) for item in rag_content_law):
-                        logger.debug('RAG content is a list of dicts. Converting to JSON string for analysis.')
-                        rag_content_law = json.dumps(rag_content_law)
-                    elif isinstance(rag_content_law[0], Document):
-                        logger.debug('RAG content is a list of Documents. Concatenating page content for analysis.')
-                        rag_content_law = "\n\n".join([doc.page_content for doc in rag_content_law])
-                    else:
-                        logger.warning('RAG content is a list but not of dicts or Documents. Converting each item to string and concatenating.')
-                        rag_content_law = " ".join(str(item) for item in rag_content_law)
-                else:
-                    logger.warning('RAG content is of an unexpected type. Converting to string for analysis.')
-                    rag_content_law = str(rag_content_law)
-        
-        structured_llm = self.llm.with_structured_output(GoverningLaw, method="function_calling")
-        law_context = f'Extracted legal context:\n\n{rag_content_law}\n\n' if rag_content_law else ''
-        prompt = law_context + f'Based on the following case events, analyze and extract governing law information:\n\n{events}'
-        return await structured_llm.ainvoke(prompt, config=config)
-
-    async def analyze_factual_facts(self,
-                              initial_input : InitialInput,
-                              events : list[Event],
-                              config: RunnableConfig = None,
-                              ) -> FactualFacts:
-        '''Function to analyze case events and extract disputed and undisputed facts.
-        
-        Args:
-            initial_input (InitialInput): The initial case input data.
-            events (list[Event]): The list of case events.
-        
-        Returns: 
-            FactualFacts : The structured FactualFacts object with disputed and undisputed facts.
-        '''
-        structured_llm = self.llm.with_structured_output(FactualFacts, method="function_calling")
-        init = f'Initial case input: {initial_input.model_dump()}\n\n'
-        prompt = init + f'Based on the following case events, extract disputed and undisputed facts:\n\n{events}'
-        return await structured_llm.ainvoke(prompt, config=config)
-    
-
-    async def clean_element(self, 
-                            content: BaseModel, 
-                            element_type : str,
-                            project_data : ProjectData,
-                            ) -> list[dict]:   
-        '''Clean/merge items with LLM, then deduplicate with Python and assign UUIDs.'''
-        
-        if not content:
-            logger.warning('No content provided for cleaning. Filling in empty list.')
-            content = []
-
-        model_map  = {"events" : Events, "damages" : Damages, "claims" : Claims,
-                      "deadlines" : Deadlines, "parties" : Parties}
-        id_map = {"events" : "event_id", "damages" : "damage_id", "claims" : "claim_id",
-                  "deadlines" : "deadline_id", "parties" : "party_id"}
-        
-        name = element_type[:-1].capitalize()  # e.g. "events" -> "Event"
-        ContentList = model_map.get(element_type)
-        if not ContentList:
-            logger.error(f'❌ Unknown content type: {name}')
-            return []
-        
-        id_field = id_map.get(element_type, f"{name.lower()}_id")
-        
-        # Step 1: LLM cleans/merges/fills missing info (but may create duplicates)
-        structured_llm = self.llm.with_structured_output(ContentList, method="function_calling")
-        if content:
-            data = content.model_dump(mode="json").get(element_type, []) if hasattr(content, 'model_dump') else content.get(element_type, [])
-        else:
-            data = []
-        prompt = (
-            f'{project_data.shorten_factsheet(excluded_fields=[element_type])}\n'
-            f'{project_data.shorten_attachments()}\n'
-            f'{project_data.shorten_emails()}\n'
-            f'Use the context of the given above to clean, fill in missing information, if content is empty -> fill the content!'
-            f'If content is filled, merge similar entries for the following {name} items if they are refering to the same entity.'
-            "I.e for party, fill in all relevant roles such as plaintiff, defendant, witness, legal representative, etc. For events, fill in event dates and categorize the type of event.n\n'"
-            f":\n\n{data}"
-        )
-        logger.debug(f"─── Cleaning prompt for {name.upper()} ───\n{prompt}")
-        
-        response = await structured_llm.ainvoke(prompt)
-        if not response:
-            logger.warning('No response from LLM during cleaning.')
-            return []
-        
-        llm_cleaned = response.model_dump(mode="json").get(element_type, [])
-        
-        # Build map of original UUIDs from input data
-        original_uuids = {}
-        for item in data:
-            for key, value in item.items():
-                if key.endswith('_id') and value and self.is_valid_uuid(value):
-                    original_uuids[value] = key
-        
-        def post_process(llm_cleaned, element_type, id_field, ):
-            logger.debug(f"─── Post-processing {len(llm_cleaned)} {name} items ───")
-            logger.debug(f"llm_cleaned: {llm_cleaned}")
-            # Step 2: Python deduplicates based on identity fields
-            identity_fields = {
-                "events": ["event_date", "category", "event_name"],
-                "damages": ["category", "file_id", "party_role"],
-                "claims": ["relief_sought", "file_id", "party_role"],
-                "deadlines": ["file_id", "deadline_date", "party_role"],
-                "parties": ["legal_name", "role"],
-            }.get(element_type, [])
-            
-            logger.debug(f"Identity fields for {element_type}: {identity_fields}")
-            
-            seen = {}
-            result = []
-            
-            for idx, item in enumerate(llm_cleaned):
-                sig_values = tuple(item.get(field) for field in identity_fields)
-                logger.debug(f"Item {idx}: sig={sig_values} id={item.get(id_field)}")
-                
-                if sig_values in seen:
-                    logger.warning(f'⚠️  Duplicate {name} #{idx} — skipping: {sig_values}')
-                    continue
-                
-                seen[sig_values] = item[id_field]
-                result.append(item)
-                logger.debug(f"  → added (total: {len(result)})")
-            
-            logger.debug(f"─── Post-processing done: {len(result)} unique items ───")
-            return result
-        
-        for item in llm_cleaned:
-            if not item.get(id_field):
-                logger.warning(f'Missing {id_field} in LLM output item: {item}. Assigning new UUID.')
-                item[id_field] = str(uuid.uuid4())
-            elif not self.is_valid_uuid(item[id_field]):
-                logger.warning(f'Invalid UUID in LLM output for {id_field}: "{item[id_field]}". Assigning new UUID.')
-                item[id_field] = str(uuid.uuid4())
-        
-        result = post_process(llm_cleaned, element_type=element_type, id_field=id_field)
-        
-        logger.info(f'✅ Cleaned {name}: {len(data) if data else 0} → {len(llm_cleaned) if llm_cleaned else 0} (LLM) → {len(result) if result else 0} (deduplicated)')
-        return result
+    # =========== FUNCTIONS TO CLEAN AND REVISE EXISTING ELEMENTS
 
     async def clean_elements(self,
                              element_types: list[str],
@@ -650,52 +493,17 @@ class ContextManager:
 
         return results
 
-    async def clean_metadata(self, content : str,
-                             element_type : str,
+    async def clean_metadata(self, 
                              project_data : ProjectData,
                              ) -> str:
         """Clean metadata fields (title, background) using structured output to avoid LLM wrapper text."""
-        
-        if element_type not in ["title", "background"]:
-            logger.error(f'❌ Unknown element type for metadata cleaning: {element_type}')
-            return content
-        
-        # Create a generic single-field model dynamically
-        CleanedText = create_model(
-            'CleanedText',
-            cleaned_text=(str, Field(description=f"The cleaned and revised {element_type}, without any preamble or explanation"))
-        )
-        
-        prompt = (
-            f'{project_data.shorten_factsheet(excluded_fields=[element_type])}\n'
-            f'{project_data.shorten_attachments()}\n'
-            f'{project_data.shorten_emails()}\n'
-            f'Task: Clean and/or rewrite the following {element_type} according to the context. '
-            f'Return ONLY the cleaned {element_type} itself, no explanation or preamble.\n\n'
-            f'Original {element_type}:\n{content}'
-        )
-        #logger.debug(f" ====== PROMPT FOR CLEANING {element_type.upper()} ====== \n{prompt}\n\n")
-        
-        structured_llm = self.llm.with_structured_output(CleanedText, method="function_calling")
-        response = await structured_llm.ainvoke(prompt)
-        
-        return response.cleaned_text if hasattr(response, 'cleaned_text') else str(response)
-    
-    async def clean_all_metadata(self, 
-                             project_data : ProjectData,
-                             ) -> str:
-        """Clean metadata fields (title, background) using structured output to avoid LLM wrapper text."""
-        
-        
         
         class ProjectMetadata(BaseModel):
             title: str = Field(description="The cleaned and revised title, without any preamble or explanation")
             background: str = Field(description="The cleaned and revised background, without any preamble or explanation")
         
         prompt = (
-            f'{project_data.shorten_factsheet(excluded_fields=["title", "background"])}\n'
-            #f'{project_data.shorten_attachments()}\n'
-            #f'{project_data.shorten_emails()}\n'
+            f'{project_data.factsheet.shorten_events()}\n'
             f'Task: Clean and/or rewrite the metadata (title & background) according to the context. '
             f'Return ONLY the cleaned metadata content itself, no explanation or preamble.\n\n'
             f'Original metadata content:\nCurrent Title: {project_data.factsheet.title}\nCurrent Background: {project_data.factsheet.background}'
@@ -708,43 +516,55 @@ class ContextManager:
             "background": response.background if hasattr(response, 'background') else str(response)
         }
     
-    async def clean_legal_attr(self, 
-                               content : BaseModel, 
-                               element_type : str,
-                               project_data : ProjectData
-                               ) -> dict:
-        '''Clean/fill a simple attribute (e.g. case title) with LLM.
-        
-        Returns:
-            - List[str] for "disputed_facts" and "undisputed_facts"
-            - dict for "governing_law"
-        '''
-        # Define which types need structured output
-        structured_types = {
-            "disputed_facts": List[str],
-            "undisputed_facts": List[str],
-            "governing_law": GoverningLaw,
-        }
-        if element_type not in structured_types:
-            raise ValueError(f'Unknown element type for cleaning: {element_type}')
-        
+    async def update_initial_input(self, events : list[Event],existing_initial_input : InitialInput) -> InitialInput:
+        """Update the initial input string based on the cleaned title and background."""
+        view_events = "Current Events"
+        view_events += "\t* Format: event_start_date | event_name | file_id | description" + "(Disputed)"  + "\n"
+        if isinstance(events, list):
+            events.sort(key=lambda e: str(e.event_start_date))
+        else:
+            raise ValueError(f'Events should be of type list, but actual type is {type(events)}')
+        for e in events:
+            view_events += f"\t* {e.event_start_date} | {e.event_name} | {e.file_id or 'No file ID'} | {e.description or ''}"
+            if e.disputed:
+                view_events += " | Disputed"
+            view_events += "\n"
+
+        view_existing_init_input = "Existing Initial Input:\n"
+        view_existing_init_input += f"Title: {existing_initial_input.title}\n"
+        view_existing_init_input += f"Background: {existing_initial_input.background}\n"
+        for party in existing_initial_input.parties or []:
+            view_existing_init_input += f"Party: {party.legal_name} | {party.party_id} | Role: {party.role} | Description: {party.role_description or ''}\n"
+
         prompt = (
-            f'Context from factsheet:\n{project_data.shorten_factsheet(excluded_fields=[element_type])}\n\n'
-            f'Context from attachments:\n{project_data.shorten_attachments()}\n\n'
-            f'Context from emails:\n{project_data.shorten_emails()}\n\n'
-            f'Task: Clean and revise the following {element_type}. '
-            f'Return ONLY the cleaned {element_type} itself, no explanation or preamble.\n\n'
-            f'Original {element_type}:\n{content}'
+            view_existing_init_input +
+            view_events +
+            f'Extract initial input (All parties and updated title and background) based on the project events'
+            f'**IMPORTANT**: Keep all party_ids for existing parties, and update the additional information if nececcary (i.e role, role_description, key_contact, etc)'
         )
+        structured_llm = self.llm.with_structured_output(InitialInput, method="function_calling")
+        updated_input = await structured_llm.ainvoke(prompt)
+        org_ids = set(p.party_id for p in existing_initial_input.parties or [] if p.party_id)
+
+        for party in updated_input.parties:
+            if not party.party_id or not self.is_valid_uuid(party.party_id):
+                party.party_id = str(uuid.uuid4())
+
+        seen = set()
+        deduped = []
+        for party in updated_input.parties:
+            if party.party_id not in seen:
+                deduped.append(party)
+                seen.add(party.party_id)
+        for party_id in org_ids:
+            if party_id not in seen:
+                original_party = next((p for p in existing_initial_input.parties if p.party_id == party_id), None)
+                if original_party:
+                    deduped.append(original_party)
+                    seen.add(party_id)
+
+        logger.info(f'✅ Updated Parties: {len(existing_initial_input.parties)} → {len(updated_input.parties)} (LLM) → {len(deduped)} (deduplicated)')
+        updated_input.parties = deduped
         
-        structured_llm = self.llm.with_structured_output(structured_types[element_type], method="function_calling")
-        response = await structured_llm.ainvoke(prompt)
-        
-        # Return based on type
-        if hasattr(response, 'model_dump'):  # Pydantic model (GoverningLaw)
-            return response.model_dump()
-        else:  # List[str]
-            return response
+        return updated_input
     
-    # async def update_project_from_session(self, ):
-    #     pass

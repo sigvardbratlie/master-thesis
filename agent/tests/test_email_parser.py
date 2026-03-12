@@ -377,7 +377,7 @@ def test_email_model_reference_paths_accepts_list():
 def test_shorten_raw_emails_single_email(parser):
     """Single email with no references should be returned as its own root."""
     msg = _make_msg("<msg-001@test.no>")
-    result = parser.shorten_raw_emails({"uuid-001": msg})
+    result = parser.collapse_threads({"uuid-001": msg})
 
     assert "uuid-001" in result
     root_msg, child_uuids = result["uuid-001"]
@@ -389,7 +389,7 @@ def test_shorten_raw_emails_thread_grouped(parser):
     root = _make_msg("<root@test.no>", date="Mon, 15 Jan 2024 08:00:00 +0100")
     reply = _make_msg("<reply@test.no>", refs="<root@test.no>", date="Mon, 15 Jan 2024 10:00:00 +0100")
 
-    result = parser.shorten_raw_emails({"uuid-root": root, "uuid-reply": reply})
+    result = parser.collapse_threads({"uuid-root": root, "uuid-reply": reply})
 
     assert len(result) == 1
     root_uuid, (root_email, child_uuids) = next(iter(result.items()))
@@ -401,7 +401,7 @@ def test_shorten_raw_emails_newest_is_root(parser):
     old_msg = _make_msg("<old@test.no>", date="Mon, 15 Jan 2024 08:00:00 +0100")
     new_msg = _make_msg("<new@test.no>", refs="<old@test.no>", date="Mon, 15 Jan 2024 12:00:00 +0100")
 
-    result = parser.shorten_raw_emails({"uuid-old": old_msg, "uuid-new": new_msg})
+    result = parser.collapse_threads({"uuid-old": old_msg, "uuid-new": new_msg})
 
     root_uuid = next(iter(result))
     assert root_uuid == "uuid-new"
@@ -414,7 +414,7 @@ def test_shorten_raw_emails_independent_threads(parser):
     msg_a = _make_msg("<a@test.no>", date="Mon, 15 Jan 2024 08:00:00 +0100")
     msg_b = _make_msg("<b@test.no>", date="Mon, 15 Jan 2024 09:00:00 +0100")
 
-    result = parser.shorten_raw_emails({"uuid-a": msg_a, "uuid-b": msg_b})
+    result = parser.collapse_threads({"uuid-a": msg_a, "uuid-b": msg_b})
 
     assert len(result) == 2
     assert "uuid-a" in result
@@ -426,7 +426,7 @@ def test_shorten_raw_emails_child_uuids_exclude_root(parser):
     root = _make_msg("<root2@test.no>", date="Mon, 15 Jan 2024 08:00:00 +0100")
     reply = _make_msg("<reply2@test.no>", refs="<root2@test.no>", date="Mon, 15 Jan 2024 10:00:00 +0100")
 
-    result = parser.shorten_raw_emails({"uuid-r": root, "uuid-c": reply})
+    result = parser.collapse_threads({"uuid-r": root, "uuid-c": reply})
 
     root_uuid, (_, child_uuids) = next(iter(result.items()))
     assert root_uuid not in child_uuids

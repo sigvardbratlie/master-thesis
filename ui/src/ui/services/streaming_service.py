@@ -2,7 +2,7 @@ import json
 import requests
 import streamlit as st
 import logging
-from typing import Generator, Callable, Optional
+from typing import Generator, Callable
 from ui.models import *
 
 logger = logging.getLogger(__name__)
@@ -23,11 +23,11 @@ class StreamingService:
     def stream_response(
         self,
         request: AskAgentRequest,
-        on_token: Optional[Callable[[str], None]] = None,
-        on_ai_message: Optional[Callable[[StreamEvent], None]] = None,
-        on_tool_result: Optional[Callable[[StreamEvent], None]] = None,
-        on_reasoning: Optional[Callable[[str], None]] = None,
-        status_callback: Optional[Callable[[str, str], None]] = None
+        on_token: Callable[[str], None] | None = None,
+        on_ai_message: Callable[[StreamEvent], None] | None = None,
+        on_tool_result: Callable[[StreamEvent], None] | None = None,
+        on_reasoning: Callable[[str], None] | None = None,
+        status_callback: Callable[[str, str], None] | None = None
     ) -> Generator[str, None, None]:
         """
         Stream response from backend and invoke callbacks.
@@ -48,7 +48,7 @@ class StreamingService:
 
         try:
             with requests.post(
-                f'{self.backend_url}/ask-agent',
+                f'{self.backend_url}/chat',
                 json=request.model_dump(),
                 stream=True,
                 headers=self.headers
@@ -159,7 +159,7 @@ class StreamingService:
         """
         try:
             with requests.post(
-                url=f"{self.backend_url}/init-project",
+                url=f"{self.backend_url}/project/init-project",
                 json=payload.model_dump(),
                 headers=self.headers,
                 stream=True,
@@ -189,7 +189,7 @@ class StreamingService:
         """
         try:
             with requests.post(
-                url=f"{self.backend_url}/update-project",
+                url=f"{self.backend_url}/project/update-project",
                 json=payload.model_dump(),
                 headers=self.headers,
                 stream=True,
@@ -219,7 +219,7 @@ class StreamingService:
         """
         try:
             with requests.post(
-                url=f"{self.backend_url}/update-project-from-session",
+                url=f"{self.backend_url}/project/update-project-from-session",
                 json=payload.model_dump(),
                 headers=self.headers,
                 stream=True,
@@ -241,78 +241,65 @@ class StreamingService:
             logger.error(f"Error in update_project_from_session stream: {e}", exc_info=True)
             raise
 
-    def cleanup_project_element_stream(self, payload : AskAgentRequest, element_type : str) -> Generator[dict, None, None]:
-        """
-        Stream status updates from the /cleanup-project-element endpoint.
+    # def cleanup_project_element_stream(self, payload : AskAgentRequest, element_type : str) -> Generator[dict, None, None]:
+    #     """
+    #     Stream status updates from the /cleanup-project-element endpoint.
 
-        Yields parsed status event dicts as they arrive from the backend SSE stream.
-        """
-        try:
-            with requests.post(
-                url=f"{self.backend_url}/cleanup-project-element/{element_type}",
-                json=payload.model_dump(),
-                headers=self.headers,
-                stream=True,
-            ) as response:
-                response.raise_for_status()
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    decoded_line = line.decode('utf-8')
-                    if not decoded_line.startswith('data:'):
-                        continue
-                    try:
-                        data = json.loads(decoded_line[5:])
-                        logger.debug(f"Cleanup element stream data: {data}")
-                        yield data
-                    except json.JSONDecodeError as e:
-                        logger.error(f"JSON decode error in cleanup_project_element_stream: {e}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error in cleanup_project_element stream: {e}", exc_info=True)
-            raise
-
-    # def cleanup_factsheet(self, payload : AskAgentRequest):
+    #     Yields parsed status event dicts as they arrive from the backend SSE stream.
+    #     """
     #     try:
-    #         response = requests.post(
-    #         url=f"{self.backend_url}/cleanup-factsheet/",
-    #         json=payload.model_dump(),
-    #         headers=self.headers,
-    #         )
-    #         response.raise_for_status()
-    #         return response
+    #         with requests.post(
+    #             url=f"{self.backend_url}/cleanup-project-element/{element_type}",
+    #             json=payload.model_dump(),
+    #             headers=self.headers,
+    #             stream=True,
+    #         ) as response:
+    #             response.raise_for_status()
+    #             for line in response.iter_lines():
+    #                 if not line:
+    #                     continue
+    #                 decoded_line = line.decode('utf-8')
+    #                 if not decoded_line.startswith('data:'):
+    #                     continue
+    #                 try:
+    #                     data = json.loads(decoded_line[5:])
+    #                     logger.debug(f"Cleanup element stream data: {data}")
+    #                     yield data
+    #                 except json.JSONDecodeError as e:
+    #                     logger.error(f"JSON decode error in cleanup_project_element_stream: {e}")
     #     except requests.exceptions.RequestException as e:
-    #         logger.error(f"Error cleaning up factsheet: {e}", exc_info=True)
+    #         logger.error(f"Error in cleanup_project_element stream: {e}", exc_info=True)
     #         raise
 
-    def cleanup_attr_stream(self, payload : AskAgentRequest, element_type : str) -> Generator[dict, None, None]:
-        try:
-            with requests.post(
-                url=f"{self.backend_url}/cleanup-project-attr/{element_type}",
-                json=payload.model_dump(),
-                headers=self.headers,
-                stream=True,
-            ) as response:
-                response.raise_for_status()
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    decoded_line = line.decode('utf-8')
-                    if not decoded_line.startswith('data:'):
-                        continue
-                    try:
-                        data = json.loads(decoded_line[5:])
-                        logger.debug(f"Cleanup attr stream data: {data}")
-                        yield data
-                    except json.JSONDecodeError as e:
-                        logger.error(f"JSON decode error in cleanup_project_attr_stream: {e}")
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error in cleanup_project_attr stream: {e}", exc_info=True)
-            raise
+    # def cleanup_attr_stream(self, payload : AskAgentRequest, element_type : str) -> Generator[dict, None, None]:
+    #     try:
+    #         with requests.post(
+    #             url=f"{self.backend_url}/cleanup-project-attr/{element_type}",
+    #             json=payload.model_dump(),
+    #             headers=self.headers,
+    #             stream=True,
+    #         ) as response:
+    #             response.raise_for_status()
+    #             for line in response.iter_lines():
+    #                 if not line:
+    #                     continue
+    #                 decoded_line = line.decode('utf-8')
+    #                 if not decoded_line.startswith('data:'):
+    #                     continue
+    #                 try:
+    #                     data = json.loads(decoded_line[5:])
+    #                     logger.debug(f"Cleanup attr stream data: {data}")
+    #                     yield data
+    #                 except json.JSONDecodeError as e:
+    #                     logger.error(f"JSON decode error in cleanup_project_attr_stream: {e}")
+    #     except requests.exceptions.RequestException as e:
+    #         logger.error(f"Error in cleanup_project_attr stream: {e}", exc_info=True)
+    #         raise
     
-    def cleanup_all_metadata_stream(self, payload: AskAgentRequest) -> Generator[dict, None, None]:
+    def clean_all_metadata_stream(self, payload: AskAgentRequest) -> Generator[dict, None, None]:
         try:
             with requests.post(
-                url=f"{self.backend_url}/cleanup-all-metadata",
+                url=f"{self.backend_url}/project/cleanup-all-metadata",
                 json=payload.model_dump(),
                 headers=self.headers,
                 stream=True,
@@ -334,10 +321,10 @@ class StreamingService:
             logger.error(f"Error in cleanup_all_metadata_stream: {e}", exc_info=True)
             raise
 
-    def cleanup_elements_stream(self, payload: CleanupElementsRequest) -> Generator[dict, None, None]:
+    def clean_elements_stream(self, payload: CleanupElementsRequest) -> Generator[dict, None, None]:
         try:
             with requests.post(
-                url=f"{self.backend_url}/cleanup-project-elements",
+                url=f"{self.backend_url}/project/clean-project-elements",
                 json=payload.model_dump(),
                 headers=self.headers,
                 stream=True,
@@ -363,7 +350,7 @@ class StreamingService:
         """Delete project from BigQuery vector store."""
         try:
             response = requests.delete(
-                f'{self.backend_url}/delete-vectorstore-project/{project_id}',
+                f'{self.backend_url}/vectorstore/delete-project/{project_id}',
                 headers=self.headers
             )
             response.raise_for_status()
@@ -376,7 +363,7 @@ class StreamingService:
         """Delete file from BigQuery vector store."""
         try:
             response = requests.delete(
-                f'{self.backend_url}/delete-vectorstore-file/{file_id}',
+                f'{self.backend_url}/vectorstore/delete-file/{file_id}',
                 headers=self.headers
             )
             response.raise_for_status()

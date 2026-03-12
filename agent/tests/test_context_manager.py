@@ -10,7 +10,6 @@ from tests.fixtures.supabase_data import get_mock_load_project_data
 from tests.fixtures.email_data import get_mock_email_model_list, get_mock_email_extracted, load_real_test_email
 import tiktoken
 from models import *
-from typing import List
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -152,21 +151,6 @@ async def test_analyze_init_input(mock_context_manager):
     assert isinstance(result.background, str)
     assert result.title == "Property Dispute - Granveien 15B (Defects after purchase)"
 
-async def test_analyze_governing_law(mock_context_manager):
-    from tests.fixtures.context_manager_data import rag, governing_law
-    events = get_mock_load_project_data().get("data").get("project_events")
-    structured_llm = AsyncMock()
-    mock_context_manager.llm.with_structured_output.return_value = structured_llm
-    structured_llm.ainvoke.return_value = governing_law
-    result = await mock_context_manager.analyze_governing_law(rag_content_law=rag, events=events)
-
-    mock_context_manager.llm.with_structured_output.assert_called_once()
-    structured_llm.ainvoke.assert_called_once()
-    assert isinstance(result, GoverningLaw)
-    assert result.primary_jurisdiction == "Norwegian law"
-    assert result.procedural_law == "forvaltningsloven"
-    assert "Contract Law" in result.key_areas
-
 def test_is_valid_uuid(mock_context_manager):
     valid = "123e4567-e89b-12d3-a456-426614174000"
     invalid = "not-a-uuid"
@@ -175,23 +159,26 @@ def test_is_valid_uuid(mock_context_manager):
     assert mock_context_manager.is_valid_uuid(invalid) == False
     assert mock_context_manager.is_valid_uuid(almost_valid) == False
 
-async def test_clean_element(mock_context_manager):
+async def test_clean_elements(mock_context_manager):
+    """clean_elements should return dict mapping element_type to cleaned list."""
     from tests.fixtures.context_manager_data import get_mock_clean_parties, get_mock_factsheet
+    from pydantic import create_model, Field
     structured_llm = AsyncMock()
     mock_context_manager.llm.with_structured_output.return_value = structured_llm
-    parties = Parties(parties = get_mock_clean_parties())
-    party_id1 = parties.parties[1].party_id
-    party_id2 = parties.parties[2].party_id
     factsheet = get_mock_factsheet()
     project_data = ProjectData(factsheet=factsheet, attachments=[], emails=[])
 
-    structured_llm.ainvoke.return_value = parties
-    result = await mock_context_manager.clean_element(content=parties, project_data=project_data, element_type="parties")
+    CombinedModel = create_model("CombinedElements", parties=(list[Party], Field(default_factory=list)))
+    mock_response = CombinedModel(parties=get_mock_clean_parties())
+    structured_llm.ainvoke.return_value = mock_response
 
-    assert isinstance(result, list)
-    assert len(result) == 4
-    assert isinstance(result[0], dict)
-    assert result[-1].get("party_id") is not None
+    result = await mock_context_manager.clean_elements(element_types=["parties"], project_data=project_data)
+
+    mock_context_manager.llm.with_structured_output.assert_called_once()
+    structured_llm.ainvoke.assert_called_once()
+    assert isinstance(result, dict)
+    assert "parties" in result
+    assert isinstance(result["parties"], list)
 
 
 # ============================================
@@ -205,10 +192,10 @@ async def test_analyze_docs_returns_dict(mock_context_manager):
 
     class AttachmentWithEvents(BaseModel):
         attachment: AttachmentExtracted
-        events: List[Event]
+        events: list[Event]
 
     class MultipleAttachmentsResult(BaseModel):
-        attachments: List[AttachmentWithEvents]
+        attachments: list[AttachmentWithEvents]
 
     att1 = AttachmentExtracted(
         file_id="att-file-id-001",
@@ -307,10 +294,10 @@ async def test_analyze_docs_file_id_mismatch_fallback(mock_context_manager):
 
     class AttachmentWithEvents(BaseModel):
         attachment: AttachmentExtracted
-        events: List[Event]
+        events: list[Event]
 
     class MultipleAttachmentsResult(BaseModel):
-        attachments: List[AttachmentWithEvents]
+        attachments: list[AttachmentWithEvents]
 
     # LLM returns wrong file_ids (hallucinated)
     att1 = AttachmentExtracted(
@@ -364,9 +351,9 @@ async def test_analyze_emails_returns_dict(mock_context_manager):
     # Build the expected LLM response structure
     class EmailAnalysisResult(BaseModel):
         email: EmailExtracted
-        events: List[Event]
+        events: list[Event]
     class EmailsAnalysisResult(BaseModel):
-        emails: List[EmailAnalysisResult]
+        emails: list[EmailAnalysisResult]
 
     event = Event(
         event_start_date=datetime(2024, 1, 15),
@@ -423,9 +410,9 @@ async def test_analyze_emails_empty_list(mock_context_manager):
 
     class EmailAnalysisResult(BaseModel):
         email: EmailExtracted
-        events: List[Event]
+        events: list[Event]
     class EmailsAnalysisResult(BaseModel):
-        emails: List[EmailAnalysisResult]
+        emails: list[EmailAnalysisResult]
 
     structured_llm = AsyncMock()
     mock_context_manager.llm.with_structured_output.return_value = structured_llm
@@ -439,42 +426,6 @@ async def test_analyze_emails_empty_list(mock_context_manager):
     assert isinstance(result, dict)
     assert result["emails"] == []
     assert result["events"] == []
-
-
-async def test_analyze_factual_facts(mock_context_manager):
-    """analyze_factual_facts should return FactualFacts object."""
-    init_input = get_mock_init_input()
-    events = [
-        Event(
-            event_start_date=datetime(2024, 1, 15),
-            description="Property dispute initiated",
-            event_name="DisputeStart",
-            parties=["plaintiff", "defendant"],
-            significance="high",
-            disputed=True,
-            category="court_filing"
-        )
-    ]
-
-    mock_facts = FactualFacts(
-        disputed_facts=["Claim about defects disputed"],
-        undisputed_facts=["Property was purchased in 2023"]
-    )
-
-    structured_llm = AsyncMock()
-    mock_context_manager.llm.with_structured_output.return_value = structured_llm
-    structured_llm.ainvoke.return_value = mock_facts
-
-    result = await mock_context_manager.analyze_factual_facts(
-        initial_input=init_input,
-        events=events,
-    )
-
-    mock_context_manager.llm.with_structured_output.assert_called_once()
-    structured_llm.ainvoke.assert_called_once()
-    assert isinstance(result, FactualFacts)
-    assert len(result.disputed_facts) == 1
-    assert len(result.undisputed_facts) == 1
 
 
 # ============================================

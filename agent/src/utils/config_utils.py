@@ -22,11 +22,35 @@ class AsyncConfig(BaseModel):
     max_concurrent_requests: int = 20
     throttle_value: float = 0.0
 
+
+
+class ModelProviderConfig(BaseModel):
+    base_url: str = ""
+    max_tokens: int = 4096
+
+class ModelsConfig(BaseModel):
+    together: ModelProviderConfig = Field(default_factory=ModelProviderConfig)
+
+class AgentStream(BaseModel):
+    max_token_tool: int = 10000
+
+
+class ProjectConfig(BaseModel):
+    threshold: int = 5120000     # 500 * 1024
+    max_attachments: int = 10
+    max_emails: int = 15
+    embed_to_vectorstore: bool = True
+    save_to_storage: bool = True
+
 # 2. Definer hovedkonfigurasjonen som BaseSettings
 class AppConfig(BaseSettings):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     async_tasks: AsyncConfig = Field(default_factory=AsyncConfig, alias="async") 
-    
+    agent: AgentStream = Field(default_factory=AgentStream)
+    models: ModelsConfig = Field(default_factory=ModelsConfig)
+    project : ProjectConfig = Field(default_factory=ProjectConfig)
+
+
     @classmethod
     def from_toml(cls, path: str | Path) -> "AppConfig":
         """Loads and validates config from a TOML file."""

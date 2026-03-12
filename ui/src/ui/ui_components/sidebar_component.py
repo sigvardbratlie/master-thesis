@@ -20,14 +20,14 @@ class SidebarComponent:
 
     def llm_model_options(self, default_choice = None,expanded = False):
         llm_options = {
+                    "google": {
+                                "fast": "gemini-2.5-flash", 
+                                "expert": "gemini-2.5-pro"
+                            },
                     "openai": {
                             "fast": "gpt-5.3-chat-latest",      
                             "expert": "gpt-5.4",
                         },
-                    "google": {
-                        "fast": "gemini-2.5-flash", 
-                        "expert": "gemini-2.5-pro"
-                    },
                     "anthropic" : {
                         "fast"   : "claude-haiku-4-5",    
                                     "expert" : "claude-sonnet-4-6"

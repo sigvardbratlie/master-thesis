@@ -1,0 +1,842 @@
+from langgraph.graph import StateGraph, END, START
+from models import FactSheet, AttachmentModel, EmailModel
+
+from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer, get_config
+from documents import DocumentProcessor, EmailHandler
+import logging
+import asyncio
+from utils import AppConfig
+from .context_manager import ContextManager
+from datetime import datetime
+import base64
+import email as python_email
+from database import SupabaseStorageManager, SupabaseManager, BQVectorStore
+
+from langchain_core.language_models.chat_models import BaseChatModel
+from models import PipelineState, AskAgentRequest, ProjectData, InitialInput
+
+from uuid import uuid4
+
+from agent.utils import pick_llm
+logger = logging.getLogger(__name__)
+
+
+class ProjectPipeline:
+    def __init__(self, name: str, config: AppConfig,):
+        self.name = name
+        self.config = config or AppConfig()
+        self.context_manager = ContextManager()
+        self.document_processor = DocumentProcessor()
+        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
+        self.storage = SupabaseStorageManager()
+        self.vs = BQVectorStore()
+        self.conversation_manager = SupabaseManager()
+        self.embed_to_vectorstore = self.config.project.embed_to_vectorstore
+        self.save_to_storage = self.config.project.save_to_storage
+
+    # =========== PIPELINE COMPILATION ===========
+    def compile_init_pipeline(self):
+        logger.info(f'\n\n ================ COMPILING INIT PIPELINE ================ \n\n')
+        workflow = StateGraph(PipelineState)
+
+        workflow.add_node("collapse_emails", self._collapse_emails_node)
+        workflow.add_node("initialize_input", self._initialize_input_node)
+        workflow.add_node("storage", self._storage_node)
+        workflow.add_node("parsing", self._parsing_node)
+        workflow.add_node("embedding", self._embedding_node)
+        workflow.add_node("analyze", self._analyze_node)
+        workflow.add_node("update_metadata", self._update_metadata_node)
+        workflow.add_node("save", self._save_init_node)
+
+        workflow.add_edge(START, "collapse_emails")
+        workflow.add_edge(START, "initialize_input")
+        workflow.add_edge(START, "storage")
+        workflow.add_edge("collapse_emails", "parsing")
+        workflow.add_edge("parsing", "embedding")
+        workflow.add_edge(["parsing", "initialize_input"], "analyze")
+        workflow.add_edge("analyze", "update_metadata")
+        workflow.add_edge("update_metadata", "save")
+
+        workflow.add_edge("embedding", END)
+        workflow.add_edge("save", END)
+        workflow.add_edge("storage", END)
+        return workflow.compile()
+
+    def compile_update_pipeline(self):
+        logger.info(f'\n\n ================ COMPILING UPDATE PIPELINE ================ \n\n')
+        workflow = StateGraph(PipelineState)
+
+        workflow.add_node("load_project_data", self._load_project_data)
+        workflow.add_node("collapse_emails", self._collapse_emails_node)
+        workflow.add_node("storage", self._storage_node)
+        workflow.add_node("parsing", self._parsing_node)
+        workflow.add_node("embedding", self._embedding_node)
+        workflow.add_node("analyze", self._analyze_node)
+        workflow.add_node("update_metadata", self._update_metadata_node)
+        workflow.add_node("save", self._save_update_node)
+
+        workflow.add_edge(START, "load_project_data")
+        workflow.add_edge(START, "collapse_emails")
+        workflow.add_edge(START, "storage")
+        workflow.add_edge("collapse_emails", "parsing")
+        workflow.add_edge("parsing", "embedding")
+        workflow.add_edge(["load_project_data", "parsing"], "analyze")
+        #workflow.add_edge("parsing", "analyze")
+        workflow.add_edge("analyze", "update_metadata")
+        workflow.add_edge("update_metadata", "save")
+
+        workflow.add_edge("embedding", END)
+        workflow.add_edge("save", END)
+        workflow.add_edge("storage", END)
+        return workflow.compile()
+
+    # =========== HELPER METHODS ===========
+    def _prepare_analysis_tasks(self, state: PipelineState) -> list:
+        """Route attachments to doc/email analysis tasks, batching emails by size/count."""
+
+        async def analyze_docs_with_limit(attachments: list[AttachmentModel], input_, thread: RunnableConfig):
+            async with self._semaphore:
+                _writer = get_stream_writer()
+                filenames = [a.filename for a in attachments if a.filename]
+                _writer({
+                    "type": "status",
+                    "phase": ["analyze_docs"],
+                    "status": "starting",
+                    "data": {"specs": ", ".join(filenames), "count": len(attachments)},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": state.query.query_id,
+                })
+                result = await self.context_manager.analyze_docs(
+                    input_=input_,
+                    attachments=attachments,
+                    config=thread,
+                )
+                if self.config.async_tasks.throttle_value > 0:
+                    await asyncio.sleep(self.config.async_tasks.throttle_value)
+                result["_source_filenames"] = filenames
+                return result
+
+        async def analyze_emails_with_limit(emails: list[EmailModel], input_, thread: RunnableConfig):
+            async with self._semaphore:
+                _writer = get_stream_writer()
+                subjects = [e.subject for e in emails if e.subject]
+                _writer({
+                    "type": "status",
+                    "phase": ["analyze_emails"],
+                    "status": "starting",
+                    "data": {"specs": ", ".join(subjects), "count": len(emails)},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": state.query.query_id,
+                })
+                result = await self.context_manager.analyze_emails(
+                    input_=input_,
+                    emails=emails,
+                    config=thread,
+                )
+                if self.config.async_tasks.throttle_value > 0:
+                    await asyncio.sleep(self.config.async_tasks.throttle_value)
+                return result
+
+        attachments = state.query.attachments
+        shortened_emails = state.collapsed_emails
+        input_ = state.input_
+        thread = get_config()
+        user_id = thread.get("configurable", {}).get("user_id")
+        query = state.query
+
+        threshold = self.config.project.threshold
+        max_attachments = self.config.project.max_attachments
+        max_emails = self.config.project.max_emails
+
+        eml = EmailHandler()
+        email_attachments = []
+        email_size_counter = 0
+
+        doc_attachments = []
+        doc_size_counter = 0
+
+        doc_tasks = []
+
+        logger.info(f"📎 Preparing analysis tasks for {len(attachments or [])} attachment(s)")
+
+        # =========== DOCUMENTS (PDF, WORD, ETC) =============
+        for att in attachments or []:
+            if att.file_type != "message/rfc822":
+                att_size = len(att.body.encode("utf-8")) if att.body else att.size or 0
+                if doc_size_counter + att_size <= threshold and len(doc_attachments) < max_attachments:
+                    doc_attachments.append(att)
+                    doc_size_counter += att_size
+                else:
+                    logger.info(f"📦 Dispatching doc batch: {len(doc_attachments)} file(s), {doc_size_counter / 1024:.1f}KB")
+                    doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_, thread))
+                    doc_attachments = [att]
+                    doc_size_counter = att_size
+
+        if doc_attachments:
+            logger.info(f"📦 Dispatching final doc batch: {len(doc_attachments)} file(s), {doc_size_counter / 1024:.1f}KB")
+            doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_, thread))
+
+        # ======== EMAILS (EML) ============
+        emails_to_handle = shortened_emails or {}
+        logger.info(f'ℹ️ Processing {len(emails_to_handle)} email(s) for analysis')
+        for id_, contents in emails_to_handle.items():
+            data = eml._extract_email_data(
+                msg=contents[0],
+                user_id=user_id,
+                query_id=query.query_id,
+                session_id=query.session_id,
+                file_id=id_,
+            )
+            email = data.get("email", [])
+            email.reference_paths = [f"{user_id}/{query.session_id}/{e_id}.eml" for e_id in contents[1]] if contents[1] else None
+            current_email_attachments = data.get("attachments", [])
+            if current_email_attachments:
+                logger.info(f"📎 Email '{email.subject}': {len(current_email_attachments)} nested attachment(s) → dispatching as doc batch")
+                doc_tasks.append(analyze_docs_with_limit(current_email_attachments, input_, thread))
+            else:
+                logger.debug(f"📭 Email '{email.subject}': no nested attachments")
+
+            email_size = email.size or 0
+            if email_size_counter + email_size <= threshold and len(email_attachments) < max_emails:
+                email_attachments.append(email)
+                email_size_counter += email_size
+                logger.debug(f"📧 Accumulated {len(email_attachments)} email(s) in batch ({email_size_counter / 1024:.1f}KB)")
+            else:
+                logger.info(f"📦 Dispatching email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
+                doc_tasks.append(analyze_emails_with_limit(email_attachments, input_, thread))
+                email_attachments = [email]
+                email_size_counter = email_size
+
+        if email_attachments:
+            logger.info(f"📦 Dispatching final email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
+            doc_tasks.append(analyze_emails_with_limit(email_attachments, input_, thread))
+
+        return doc_tasks
+
+    def mk_update_query_from_session(self,
+                                        query : AskAgentRequest,
+                                        ) -> AskAgentRequest:
+        '''Update the project with new input and attachments, using session data as context'''
+        input_attachments = query.attachments or []
+        new_input = ""
+        session_conv = self.conversation_manager.load_session_history(session_id=query.session_id)
+        if session_conv.attachments:
+            for att in session_conv.attachments:
+                content = self.storage.read_attachment(att.path) if att.path else None
+                if content:
+                    att.content = base64.b64encode(content.encode() if isinstance(content, str) else content).decode()
+                    input_attachments.append(att)
+        if session_conv.events:
+            new_input += "Session messages\n"
+            for event in session_conv.events:
+                if event.type == "human" and event.content:
+                    new_input += f"- {event.content}\n"
+
+        updated_query = AskAgentRequest(
+            project_id=query.project_id,
+            session_id=query.session_id,
+            llm_model=query.llm_model,
+            query_id=query.query_id,
+            attachments=input_attachments,
+            question=new_input or query.question,
+        )
+        return updated_query
+
+    # =========== NODES ===========
+    async def _parsing_node(self, state: PipelineState):
+        """Parse documents and return parsed results."""
+        writer = get_stream_writer()
+        attachments = state.query.attachments
+        query_id = state.query.query_id
+        user_id = get_config().get("configurable", {}).get("user_id")
+        session_id = state.query.session_id
+        project_id = state.query.project_id
+        shortened_emails = state.collapsed_emails
+        shortened_email_ids = set(shortened_emails.keys()) if shortened_emails else None
+
+        docs_by_file = {}
+        if not attachments:
+            return {"docs_by_file": docs_by_file}
+
+        writer({
+            "type": "status",
+            "phase": ["parse_documents"],
+            "status": "starting",
+            "data": {"total": len(attachments)},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query_id,
+        })
+
+        docs = []
+        completed_text_extraction = 0
+
+        for att in attachments:
+            writer({
+                "type": "status",
+                "phase": ["parse_doc"],
+                "status": "starting",
+                "data": {
+                    "filename": att.filename,
+                    "file_id": att.file_id,
+                    "progress": completed_text_extraction,
+                    "total": len(attachments),
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query_id,
+            })
+            if att.file_type == "message/rfc822" and shortened_email_ids is not None and att.file_id not in shortened_email_ids:
+                continue
+            extracted_docs = await asyncio.to_thread(
+                self.document_processor.parse,
+                content=base64.b64decode(att.content),
+                file_type=att.file_type,
+                metadata={
+                    "file_id": att.file_id,
+                    "filename": att.filename,
+                    "user_id": user_id,
+                    "query_id": query_id,
+                    "path": att.path,
+                    "file_type": att.file_type,
+                    "project_id": project_id,
+                    "size": att.size,
+                    "session_id": session_id,
+                    "embedding_model": self.vs.embedding_model,
+                },
+            )
+            completed_text_extraction += 1
+
+            writer({
+                "type": "status",
+                "phase": ["parse_doc"],
+                "status": "complete",
+                "data": {
+                    "filename": att.filename,
+                    "file_id": att.file_id,
+                    "progress": completed_text_extraction,
+                    "total": len(attachments),
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query_id,
+            })
+
+            docs.extend(extracted_docs)
+            att.body = self.document_processor.to_plain_text(extracted_docs)
+
+        writer({
+            "type": "status",
+            "phase": ["parse_documents"],
+            "status": "complete",
+            "data": {"total": len(attachments)},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query_id,
+        })
+
+        for doc in docs:
+            fid = doc.metadata.get("file_id", "unknown")
+            docs_by_file.setdefault(fid, []).append(doc)
+
+        #strip attachment for contents
+        stripped_query = state.query.model_copy(update={
+                            "attachments": [
+                                att.model_copy(update={"content": None})
+                                for att in state.query.attachments or []
+                            ]
+                        })
+        return {"docs_by_file": docs_by_file, "query": stripped_query}
+
+    def _collapse_emails_node(self, state: PipelineState):
+        eml_handler = EmailHandler()
+        collapsed_emails: dict = {}
+        writer = get_stream_writer()
+        query = state.query
+
+        writer({
+            "type": "status",
+            "phase": ["collapse_emails"],
+            "status": "starting",
+            "data": {"total": sum(1 for att in (query.attachments or []) if att.file_type == "message/rfc822")},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+
+        if query.attachments:
+            raw_emails = {att.file_id: python_email.message_from_bytes(base64.b64decode(att.content))
+                          for att in query.attachments if att.file_type == "message/rfc822"}
+            if raw_emails:
+                collapsed_emails = eml_handler.collapse_threads(raw_emails)
+                logger.info(f'ℹ️ Collapsed {len(raw_emails)} raw email(s) to {len(collapsed_emails)} for analysis')
+
+        writer({
+            "type": "status",
+            "phase": ["collapse_emails"],
+            "status": "complete",
+            "data": {
+                "n_input": len(collapsed_emails),
+                "n_collapsed": len(collapsed_emails),
+            },
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+        return {"collapsed_emails": collapsed_emails}
+
+    async def _storage_node(self, state: PipelineState):
+        query = state.query
+        writer = get_stream_writer()
+
+        writer({
+            "type": "status",
+            "phase": ["storage"],
+            "status": "starting",
+            "data": {
+                "total": len(query.attachments or []),
+                "storage_type": ["file_storage"],
+            },
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+        result = await self.storage.save_raw_documents(attachments=query.attachments)
+
+        if result is not None and not isinstance(result, bool):
+            logger.warning(f"⚠️ Storage node returned non-boolean result: {result}")
+            return
+        writer({
+            "type": "status",
+            "phase": ["storage"],
+            "status": "complete",
+            "data": {
+                "total": len(query.attachments or []),
+                "storage_type": ["file_storage"],
+            },
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+        logger.debug(f'File storage operation completed')
+
+    async def _initialize_input_node(self, state: PipelineState):
+        writer = get_stream_writer()
+        query = state.query
+        thread = get_config()
+        self.context_manager.llm = pick_llm(thread.get("configurable", {}).get("llm_model"), self.config)
+
+        writer({
+            "type": "status",
+            "phase": ["init_input"],
+            "status": "starting",
+            "data": {},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+        initial_input = await self.context_manager.analyze_init_input(query.question, config=thread)
+        
+        
+        
+        writer({
+            "type": "status",
+            "phase": ["init_input"],
+            "status": "complete",
+            "data": {"parties_found": len(initial_input.parties or [])},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+        return {"input_": initial_input}
+
+    async def _embedding_node(self, state: PipelineState):
+        writer = get_stream_writer()
+        query = state.query
+        docs_by_file = state.docs_by_file
+
+        if docs_by_file and self.embed_to_vectorstore:
+            all_docs = [doc for file_docs in docs_by_file.values() for doc in file_docs]
+            writer({
+                "type": "status",
+                "phase": ["storage"],
+                "status": "starting",
+                "data": {
+                    "file_count": len(docs_by_file),
+                    "doc_count": len(all_docs),
+                    "storage_type": ["vector_store"],
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            })
+            await asyncio.to_thread(self.vs.add_documents, all_docs, collection_id="attachments")
+            writer({
+                "type": "status",
+                "phase": ["storage"],
+                "status": "complete",
+                "data": {
+                    "file_count": len(docs_by_file),
+                    "doc_count": len(all_docs),
+                    "storage_type": ["vector_store"],
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            })
+            logger.debug(f'Vector store batch save completed: {len(all_docs)} docs across {len(docs_by_file)} files')
+
+    async def _analyze_node(self, state: PipelineState):
+        writer = get_stream_writer()
+        query = state.query
+        thread = get_config()
+        self.context_manager.llm = pick_llm(thread.get("configurable", {}).get("llm_model"), self.config)
+
+        doc_tasks = self._prepare_analysis_tasks(state)
+
+        attachments = []
+        events = []
+        damages = []
+        claims = []
+        deadlines = []
+        emails = []
+
+        writer({
+            "type": "status",
+            "phase": ["analyze_docs", "analyze_emails"],
+            "status": "starting",
+            "data": {"total": len(doc_tasks)},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+
+        completed = 0
+        for coro in asyncio.as_completed(doc_tasks):
+            result = await coro
+            completed += 1
+            phase = "analyze_emails" if "emails" in result else "analyze_docs"
+
+            specs = ""
+            if isinstance(result, dict) and "attachments" in result:
+                attachments.extend(result.get("attachments", []))
+                filenames = [a.filename for a in result.get("attachments", []) if hasattr(a, "filename") and a.filename]
+                specs = ", ".join(filenames) if filenames else ""
+            elif isinstance(result, dict) and "emails" in result:
+                emails.extend(result.get("emails", []))
+                email_subjects = [e.subject for e in result.get("emails", []) if hasattr(e, "subject") and e.subject]
+                specs = ", ".join(email_subjects) if email_subjects else ""
+
+            events.extend(result.get("events", []))
+            damages.extend(result.get("damages", []))
+            claims.extend(result.get("claims", []))
+            deadlines.extend(result.get("deadlines", []))
+
+            count = len(result.get("emails", [])) if "emails" in result else len(result.get("attachments", []))
+            writer({
+                "type": "status",
+                "phase": [phase],
+                "status": "complete",
+                "data": {
+                    "count": count,
+                    "specs": specs,
+                    "progress": completed,
+                    "total": len(doc_tasks),
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            })
+
+        writer({
+            "type": "status",
+            "phase": ["analyze_docs", "analyze_emails"],
+            "status": "complete",
+            "data": {"total": len(doc_tasks)},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+
+        return {
+            "attachments": attachments,
+            "events": events,
+            "damages": damages,
+            "claims": claims,
+            "deadlines": deadlines,
+            "emails": emails,
+        }
+
+    async def _save_init_node(self, state: PipelineState):
+        query = state.query
+        user_id = get_config().get("configurable", {}).get("user_id")
+        attachments = state.attachments
+        events = state.events
+        damages = state.damages
+        claims = state.claims
+        deadlines = state.deadlines
+        emails = state.emails
+        initial_input = state.input_
+
+        writer = get_stream_writer()
+
+        writer({
+            "type": "status",
+            "phase": ["save_project"],
+            "status": "starting",
+            "data": {},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+
+        result = FactSheet(
+            events=events,
+            damages=damages if damages else None,
+            claims=claims if claims else None,
+            deadlines=deadlines if deadlines else None,
+            **initial_input.model_dump(),
+        )
+        logger.debug(f"About to save project {query.project_id} to Supabase...")
+        await asyncio.to_thread(
+            self.conversation_manager.save_project,
+            factsheet=result,
+            attachments=attachments,
+            emails=emails,
+            user_id=user_id,
+            session_id=query.session_id,
+            query_id=query.query_id,
+            project_id=query.project_id,
+        )
+
+        writer({
+            "type": "status",
+            "phase": ["save_project"],
+            "status": "complete",
+            "data": {},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+
+        logger.debug(f"Project saved successfully. About to yield final result...")
+        try:
+            factsheet_dict = result.model_dump(mode="json")
+            attachments_dict = [file.model_dump(mode="json") for file in attachments]
+            emails_dict = [email.model_dump(mode="json") for email in emails]
+            logger.debug(f"Successfully serialized factsheet and attachments. Yielding result...")
+            writer({
+                "type": "result",
+                "data": {
+                    "factsheet": factsheet_dict,
+                    "attachments": attachments_dict,
+                    "emails": emails_dict,
+                },
+            })
+            logger.debug(f"Final result yielded successfully.")
+        except Exception as e:
+            logger.error(f"❌ Failed to serialize/yield final result: {e}", exc_info=True)
+            raise
+
+    async def _save_update_node(self, state: PipelineState):
+        writer = get_stream_writer()
+        query = state.query
+        user_id = get_config().get("configurable", {}).get("user_id")
+        attachments = state.attachments
+        events = state.events
+        damages = state.damages
+        claims = state.claims
+        deadlines = state.deadlines
+        emails = state.emails
+        init_input = state.input_
+
+        writer({
+            "type": "status",
+            "phase": ["update_project"],
+            "status": "starting",
+            "data": {},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+
+        # ============= PHASE 2 =================
+        # Insert new documents to database (must be inserted first to avoid foreign key constraint issues)
+        # ========================================
+        key_constraint_elements = {
+            "project_attachments": attachments,
+            "project_emails": emails,
+        }
+        for table_name, elements in key_constraint_elements.items():
+            if not elements:
+                logger.info(f"No new elements to save for {table_name}, skipping.")
+                continue
+            if not hasattr(elements[0], "model_dump"):
+                logger.warning(f"Elements for {table_name} are missing model_dump method. Unexpected type {type(elements[0])}. Skipping storage for this table.")
+                continue
+            writer({
+                "type": "status",
+                "phase": ["storage"],
+                "status": "starting",
+                "data": {
+                    "total": len(elements),
+                    "storage_type": ["database"],
+                    "table_name": table_name,
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            })
+            await asyncio.to_thread(
+                self.conversation_manager.insert_project_element,
+                data=[element.model_dump(mode="json", exclude={"claims", "damages", "deadlines", "events"}) for element in elements],
+                project_id=query.project_id,
+                table_name=table_name,
+            )
+            writer({
+                "type": "status",
+                "phase": ["storage"],
+                "status": "complete",
+                "data": {
+                    "total": len(elements),
+                    "storage_type": ["database"],
+                    "table_name": table_name,
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            })
+
+        # ============= PHASE 3 =================
+        # Insert new data to database
+        # ========================================
+        to_insert = {
+            "project_events": events,
+            "project_damages": damages,
+            "project_claims": claims,
+            "project_deadlines": deadlines,
+        }
+        to_replace = {
+            "project_parties": init_input.parties or [],
+        }
+
+        for table_name, items in {**to_insert, **to_replace}.items():
+            if not items:
+                logger.warning(f"No valid items to save for {table_name}. Skipping storage for this table.")
+                continue
+            if not hasattr(items[0], "model_dump"):
+                logger.warning(f"Items for {table_name} are missing model_dump method. Unexpected type {type(items[0])}.")
+                continue
+            writer({
+                "type": "status",
+                "phase": ["storage"],
+                "status": "starting",
+                "data": {
+                    "total": len(items),
+                    "storage_type": ["database"],
+                    "table_name": table_name,
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            })
+            if table_name in to_replace:
+                await asyncio.to_thread(
+                    self.conversation_manager.replace_project_element,
+                    data=items,
+                    project_id=query.project_id,
+                    table_name=table_name,
+                )
+            else:
+                await asyncio.to_thread(
+                    self.conversation_manager.insert_project_element,
+                    data=[item.model_dump(mode="json") for item in items],
+                    project_id=query.project_id,
+                    table_name=table_name,
+                )
+            writer({
+                "type": "status",
+                "phase": ["storage"],
+                "status": "complete",
+                "data": {
+                    "total": len(items),
+                    "storage_type": ["database"],
+                    "table_name": table_name,
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            })
+
+        #save metadata (background & title)
+        await asyncio.to_thread(
+            self.conversation_manager.upsert_project,
+            data={"background": init_input.background, "title": init_input.title},
+            element_type="metadata",
+            project_id=query.project_id,
+        )
+
+        writer({
+            "type": "status",
+            "phase": ["update_project"],
+            "status": "complete",
+            "data": {},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+
+    async def _load_project_data(self, state: PipelineState):
+        writer = get_stream_writer()
+        query = state.query
+
+        writer({
+            "type": "status",
+            "phase": ["load_project_data"],
+            "status": "starting",
+            "data": {"project_id": query.project_id},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+
+        project_data = await asyncio.to_thread(
+            self.conversation_manager.load_project,
+            project_id=query.project_id,
+        )
+
+        if project_data and not isinstance(project_data, ProjectData):
+            error_msg = f"load_project returned {type(project_data).__name__} instead of ProjectData. Value: {project_data}"
+            logger.error(f"❌ update_project: {error_msg}", exc_info=True)
+            raise TypeError(error_msg)
+
+        writer({
+            "type": "status",
+            "phase": ["load_project_data"],
+            "status": "complete",
+            "data": {"project_id": query.project_id},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+
+        return {"input_": project_data}
+
+    async def _update_metadata_node(self, state: PipelineState):
+        logger.info("🏷️ Running metadata update node")
+        writer = get_stream_writer()
+        
+        project_data = state.input_
+        existing_events = []
+        existing_init_input = InitialInput()
+
+        if isinstance(project_data, ProjectData) and project_data.factsheet:
+            logger.debug(f"Loaded project data with factsheet containing {len(project_data.factsheet.events or [])} events")
+            existing_events = project_data.factsheet.events or []
+            existing_init_input = InitialInput(
+                parties=project_data.factsheet.parties,
+                title=project_data.factsheet.title,
+                background=project_data.factsheet.background,
+            )
+        elif isinstance(project_data, InitialInput):
+            existing_init_input = project_data
+
+        events = existing_events + (state.events or [])
+
+        writer({
+            "type": "status",
+            "phase": ["update_metadata"],
+            "status": "starting",
+            "data": {},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": state.query.query_id,
+        })
+
+        initial_input = await self.context_manager.update_initial_input(events=events, existing_initial_input=existing_init_input)
+        writer({
+            "type": "status",
+            "phase": ["update_metadata"],
+            "status": "complete",
+            "data": {},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": state.query.query_id,
+        })
+        logger.info(f'🏷️ Metadata update complete.')
+        return {"input_": initial_input}
+

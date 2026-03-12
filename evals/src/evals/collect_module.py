@@ -11,13 +11,14 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 
 from agent.agent import Agent
-from agent.config import AgentConfig
+from agent import ProjectPipeline, ProjectClean
 from models import AskAgentRequest, AttachmentModel, CleanupElementsRequest
 from models.project_models import FactSheet
-from agent.utils import PROMPT, PROMPT_BASELINE, PROMPT_BASELINE_RAG
+from agent.utils import PROMPT, PROMPT_BASELINE, PROMPT_BASELINE_RAG, to_thread_config
 from agent.tools import TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS
 from .dataset_module import Dataset
 from .models import ConversationTurn, DatasetPayload, GatheredResultPayload, TimeCount
+from utils import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -38,19 +39,18 @@ _PROMPT_MAP = {
 
 class CollectAgentResult:
     def __init__(self, data: DatasetPayload, llm_model: str = "google_gemini-2.5-pro", agent_type: Literal["custom", "baseline", "baseline_rag"] = "custom",
-                 async_config : AgentConfig = None):
+                 config : AppConfig = None):
         self.data = data
         self.llm_model = llm_model
         self.agent_type: Literal["custom", "baseline", "baseline_rag"] = agent_type
         self.dataclass = Dataset(name=data.dataset_name)
-        self.async_config = AgentConfig.for_model(self.llm_model) if not async_config else async_config
+        self.config = config or AppConfig()
 
-    async def init_agent(self, use_factsheet: bool = True, 
-                         save_to_storage: bool = True, 
-                         embed_to_vectorstore: bool = True, 
-                         tools=None, 
-                         prompt: str = None,
-                         async_config : AgentConfig = None):
+    async def init_agent(self, use_factsheet: bool = True,
+                         save_to_storage: bool = True,
+                         embed_to_vectorstore: bool = True,
+                         tools=None,
+                         prompt: str = None):
         connection_string = os.getenv("SUPABASE_DB_URL")
         pool = AsyncConnectionPool(conninfo=connection_string, open=False, min_size=1, max_size=2)
         await pool.open()
@@ -62,10 +62,17 @@ class CollectAgentResult:
             tools=tools,
             prompt=prompt,
             checkpointer=checkpointer,
-            config=self.async_config,
+            config=self.config,
         )
         logger.info("Agent initialized with AsyncPostgresSaver checkpointer")
         return agent
+
+    def init_pipeline(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True):
+        pm = ProjectPipeline(name="ProjectPipeline", config=self.config)
+        pm.embed_to_vectorstore = embed_to_vectorstore
+        pm.save_to_storage = save_to_storage
+        clean = ProjectClean(name="ProjectClean", config=self.config)
+        return pm, clean
 
     def file_type_map(self, blob_path: str):
         mapping = {
@@ -93,10 +100,10 @@ class CollectAgentResult:
             query_id=query_id,
         )
 
-    async def run_conv(self, conv: ConversationTurn, agent_class, project_id, session_id, query_id, user_id, attachments=[]):
+    async def run_conv(self, conv: ConversationTurn, agent_class, project_id, session_id, query_id, user_id, attachments=[], session_date=None):
         turn_starttime = datetime.now() 
         input_obj = AskAgentRequest(
-            question=conv.input,
+            question= f"Dato : {session_date}" + conv.input,
             session_id=session_id,
             llm_model=self.llm_model,
             query_id=query_id,
@@ -132,6 +139,10 @@ class CollectAgentResult:
             embed_to_vectorstore=embed_to_vectorstore,
             tools=tools,
             prompt=prompt,
+        )
+        pm, clean = self.init_pipeline(
+            embed_to_vectorstore=embed_to_vectorstore,
+            save_to_storage=save_to_storage,
         )
         logger.info("=========== Running agent ===========")
         logger.info(
@@ -192,23 +203,24 @@ class CollectAgentResult:
                 )
                 if use_factsheet:
                     if idx == 0:
-                        async for response in agent_class.initialize_project(
-                            query=input_obj, user_id=self.data.user_id
-                        ):
-                            logger.debug(f"Init response: {response}")
+                        thread = to_thread_config(query=input_obj, user_id=self.data.user_id)
+                        init_graph = pm.compile_init_pipeline()
+                        async for chunk in init_graph.astream({"query": input_obj}, config=thread, stream_mode="custom"):
+                            logger.debug(f"Init response: {chunk}")
                     else:
                         if idx % 2 != 0: #cleanup project every odd session to prevent fact overload, keeping only parties, events and damages
                             cleanup_query = CleanupElementsRequest(
                                 **input_obj.model_dump(),
-                                element_types = ["parties", "events", "damages"])
-                            async for response in agent_class.cleanup_elements(
-                                query = cleanup_query):
-                                logger.debug(f"Cleanup response: {response}")
+                                element_types=["parties", "events", "damages"])
+                            clean_thread = to_thread_config(query=cleanup_query, user_id=self.data.user_id)
+                            clean_graph = clean.compile_clean_elements()
+                            async for chunk in clean_graph.astream({"query": cleanup_query}, config=clean_thread, stream_mode="custom"):
+                                logger.debug(f"Cleanup response: {chunk}")
 
-                        async for response in agent_class.update_project(
-                            query=input_obj, user_id=self.data.user_id
-                        ):
-                            logger.debug(f"Update response: {response}")
+                        thread = to_thread_config(query=input_obj, user_id=self.data.user_id)
+                        update_graph = pm.compile_update_pipeline()
+                        async for chunk in update_graph.astream({"query": input_obj}, config=thread, stream_mode="custom"):
+                            logger.debug(f"Update response: {chunk}")
                     endtime_init = datetime.now()
                     session.init_query_time_count = TimeCount(
                         starttime=session_starttime,
@@ -228,6 +240,7 @@ class CollectAgentResult:
                             query_id=conv_query_id,
                             user_id=self.data.user_id,
                             attachments=attachments,
+                            session_date=session.date,
                         )
 
 
@@ -241,6 +254,7 @@ class CollectAgentResult:
                             session_id=runtime_session_id,
                             query_id=conv_query_id,
                             user_id=self.data.user_id,
+                            session_date=session.date,
                         )
                 session_endtime = datetime.now()
                 session.time_counts = TimeCount(

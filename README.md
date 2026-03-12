@@ -9,14 +9,16 @@ The project is a **uv workspace** with four packages: `agent`, `ui`, `evals`, an
 ```
 master-thesis/
 ├── agent/                         # FastAPI backend + LangGraph agent
-│   ├── main.py                    # FastAPI app, endpoints, SSE streaming
+│   ├── main.py                    # FastAPI app, lifespan, router registration
 │   └── src/
 │       ├── agent/
-│       │   ├── agent.py           # Main Agent class (LangGraph StateGraph)
+│       │   ├── agent.py           # Agent class — conversational LangGraph StateGraph
+│       │   ├── pipelines.py       # ProjectPipeline — init/update project pipelines
+│       │   ├── clean.py           # ProjectClean — cleanup/dedup pipelines
 │       │   ├── agent_modules.py   # Summarizer, ToolManager
 │       │   ├── context_manager.py # ContextManager (extraction, cleanup)
 │       │   ├── tools.py           # Agent tools (TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS)
-│       │   └── utils.py           # PROMPT constants, LLM initialization
+│       │   └── utils.py           # PROMPT constants, LLM factory, to_thread_config
 │       ├── auth/
 │       │   ├── supabase_auth.py   # Supabase JWT auth (primary)
 │       │   └── google_auth.py     # Google OAuth (legacy, unused)
@@ -55,7 +57,8 @@ master-thesis/
 │   ├── collect.py                 # CLI: run agent against test datasets, collect results
 │   ├── evaluate.py                # CLI: run DeepEval metrics on collected results
 │   └── src/evals/
-│       ├── dataset_module.py      # Dataset, CollectAgentResult (GCS operations)
+│       ├── collect_module.py      # CollectAgentResult (runs agent/pipeline against datasets)
+│       ├── dataset_module.py      # Dataset (GCS dataset operations)
 │       ├── evaluate_module.py     # Evaluater (DeepEval metrics)
 │       ├── models.py              # ConversationTurn, Session, GatheredResultPayload, EvalOutput
 │       ├── langsmith_module.py    # LangSmith tracing integration
@@ -108,21 +111,24 @@ Structured Pydantic model (`FactSheet`) representing a legal case summary. Conta
 - **Deadlines** (dates, descriptions)
 
 ### Agent Flow (LangGraph)
-The agent uses a `StateGraph` with two nodes:
-1. `call_llm` - Builds payload (system prompt + factsheet context + conversation history + attachment RAG), calls LLM
-2. `call_tool` - Executes tool calls from LLM response
 
-Conditional edge: if LLM returns tool calls -> `call_tool` -> back to `call_llm`, else -> END.
+The system uses three separate LangGraph components:
 
-Long conversations are handled with rolling summarization (every 8 messages).
+**`Agent`** (conversation, `agent.py`):
+- `init` → `call_llm` → conditional → `call_tool` → back to `call_llm`, else END
+- Loads FactSheet context into system prompt on each turn
+- Rolling summarization every 8 messages
+
+**`ProjectPipeline`** (project init/update, `pipelines.py`):
+- Init: email collapsing + input extraction + file storage (parallel) → parsing → embedding + document analysis → metadata update → save
+- Update: load project + email collapsing + file storage (parallel) → parsing → embedding + analysis → metadata update → save
+
+**`ProjectClean`** (cleanup, `clean.py`):
+- Elements: load project → LLM dedup per element type → save
+- Metadata: load project → LLM rewrite title/background → save
 
 ### Project Initialization Pipeline
-`POST /init-project` triggers a multi-phase async pipeline:
-1. **Phase 1**: Parse documents (PDF/DOCX/PPTX/EML with OCR), store in vector store + file storage, analyze initial input
-2. **Phase 2**: Analyze documents and emails in parallel (extract events, claims, damages, deadlines, attachment metadata)
-3. **Phase 3**: Analyze factual facts and governing law
-
-All phases stream status events back to the frontend via SSE.
+`POST /project/init-project` runs `ProjectPipeline.compile_init_pipeline()`. All stages stream `status` events via SSE; the final save node emits a `result` event with the full FactSheet.
 
 ### Tools
 The agent has access to these tools (`agent/src/agent/tools.py`):
@@ -152,21 +158,14 @@ Results and metrics are stored in GCS and scored with DeepEval (legal accuracy, 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/ask-agent` | Chat with agent (SSE stream) |
-| POST | `/init-project` | Initialize project from attachments (SSE stream) |
-| POST | `/update-project` | Add new attachments to existing project (SSE stream) |
-| POST | `/update-project-from-session` | Update project based on session conversation (SSE stream) |
-| POST | `/cleanup-project-element/{type}` | Clean/deduplicate a single factsheet element type (SSE stream) |
-| POST | `/cleanup-project-elements` | Clean multiple factsheet element types in one LLM call (SSE stream) |
-| POST | `/cleanup-project-attr/{type}` | Clean factsheet text attribute (SSE stream) |
-| POST | `/cleanup-all-metadata` | Clean title and background fields (SSE stream) |
-| DELETE | `/delete-vectorstore-project/{project_id}` | Delete project from BigQuery vector store |
-| DELETE | `/delete-vectorstore-file/{file_id}` | Delete single file from vector store |
-| GET | `/load-session-history/{id}` | Load chat history |
-| GET | `/load-user-sessions` | List user sessions |
-| GET | `/load-project/{id}` | Load project data |
-| GET | `/load-projects` | List user projects |
-| GET | `/load-project-sessions/{id}` | List sessions for a project |
+| POST | `/chat` | Chat with agent (SSE stream) |
+| POST | `/project/init-project` | Initialize project from attachments (SSE stream) |
+| POST | `/project/update-project` | Add new attachments to existing project (SSE stream) |
+| POST | `/project/update-project-from-session` | Update project based on session conversation (SSE stream) |
+| POST | `/project/clean-project-elements` | Clean/deduplicate multiple factsheet element types (SSE stream) |
+| POST | `/project/clean-metadata` | Clean title and background fields (SSE stream) |
+| DELETE | `/vectorstore/delete-vectorstore-project/{project_id}` | Delete project from BigQuery vector store |
+| DELETE | `/vectorstore/delete-vectorstore-file/{file_id}` | Delete single file from vector store |
 
 ## Running Locally
 

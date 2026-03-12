@@ -1,4 +1,4 @@
-from typing import TypedDict, Optional, Literal, Any
+from typing import TypedDict, Literal, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -20,18 +20,18 @@ FileExt = [".pdf", ".txt",  ".eml", ".csv", ".xlsx",".pptx",".docx",
 class UserDetails(BaseModel):
     """User details stored in Supabase user_details table"""
     user_id: str
-    created_at: Optional[str] = None
-    user_role: Optional[str] = None
-    user_first_name: Optional[str] = None
-    user_last_name: Optional[str] = None
-    company_id: Optional[str] = None
+    created_at: str | None = None
+    user_role: str | None = None
+    user_first_name: str | None = None
+    user_last_name: str | None = None
+    company_id: str | None = None
 
 
 class CompanyDetails(BaseModel):
     """Company details stored in Supabase company_details table"""
     company_id: str
-    company_vat_nr: Optional[str] = None
-    company_name: Optional[str] = None
+    company_vat_nr: str | None = None
+    company_name: str | None = None
 
 # ===== Backend Request Models =====
 
@@ -44,7 +44,7 @@ class AttachmentModel(BaseModel):
     file_type: FileType = Field(description="MIME type of the file, e.g., 'application/pdf', 'text/plain', 'message/rfc822', etc.")
     size: int = Field(description="Size of the file in bytes")
     query_id: str = Field(description="ID (uuid) of the query this attachment is associated with")
-    event_id: Optional[str] = Field(None, description="ID of the event this attachment is associated with, if applicable")
+    event_id: str | None = Field(None, description="ID of the event this attachment is associated with, if applicable")
 
 # class EmailModel(BaseModel):
 #     """Email sent to backend API"""
@@ -52,25 +52,25 @@ class AttachmentModel(BaseModel):
 #     subject: str
 #     sender: str
 #     recipients: list[str]
-#     cc: Optional[list[str]] = None
-#     bcc: Optional[list[str]] = None
-#     email_date: Optional[datetime] = None
+#     cc: list[str] | None = None
+#     bcc: list[str] | None = None
+#     email_date: datetime | None = None
 #     body_text: str
-#     body_html: Optional[str] = None
-#     headers: Optional[dict] = None
-#     attachments: Optional[list[str]] = Field(default=None, description="List of attachment file_ids")
+#     body_html: str | None = None
+#     headers: dict | None = None
+#     attachments: list[str] | None = Field(default=None, description="List of attachment file_ids")
 #     query_id: str
-#     event_id : Optional[str] = None
+#     event_id : str | None = None
 
 class AskAgentRequest(BaseModel):
     """POST /ask-agent request"""
     question: str
-    attachments: Optional[list[AttachmentModel]] = []
+    attachments: list[AttachmentModel] | None = []
     session_id: str
     llm_model: str
     query_id: str
-    project_id: Optional[str] = None
-    focus_context: Optional[str] = None
+    project_id: str | None = None
+    focus_context: str | None = None
 
 
 class CleanupElementsRequest(AskAgentRequest):
@@ -83,7 +83,7 @@ class StreamlitUserInfo(BaseModel):
     sub: str
     email: str
     name: str
-    picture: Optional[str] = None
+    picture: str | None = None
 
 
 # ===== Backend Response Models =====
@@ -99,18 +99,18 @@ class TokenResponse(BaseModel):
 class SessionInfo(BaseModel):
     """Single session in user sessions list"""
     session_id: str
-    title: Optional[Optional[str]] = None
-    llm_model: Optional[str] = None
+    title: str | None | None = None
+    llm_model: str | None = None
 
 
 class SessionHistoryResponse(BaseModel):
     """GET /load-session-history response"""
     events: list[dict[str, Any]]
     attachments: list[dict[str, Any]]
-    project_id: Optional[str] = None
-    title: Optional[str] = None
-    llm_model: Optional[str] = None
-    last_updated: Optional[str] = None
+    project_id: str | None = None
+    title: str | None = None
+    llm_model: str | None = None
+    last_updated: str | None = None
 
 
 # ===== SSE Stream Event Models =====
@@ -123,27 +123,27 @@ class TokenEvent(BaseModel):
 
 # ===== MODELS SAVING TO FIRESTORE =====
 class HumanEventData(BaseModel):
-    attachments: Optional[list[AttachmentModel]] = None
-    content : Optional[str] = None
+    attachments: list[AttachmentModel] | None = None
+    content : str | None = None
 
 class ToolResultData(BaseModel):
     tool_name: str
     tool_args: dict
-    data : Optional[Any] = None
+    data : Any | None = None
 
 class AIEventData(BaseModel):
-    content : Optional[str] = None
-    invalid_tool_calls : Optional[list] = None
-    token_stream: Optional[str] = None
-    reasoning_stream: Optional[str] = None
-    tool_calls : Optional[list] = None
+    content : str | None = None
+    invalid_tool_calls : list | None = None
+    token_stream: str | None = None
+    reasoning_stream: str | None = None
+    tool_calls : list | None = None
 
 class StreamEvent(BaseModel):
     order: int
     type: Literal["human", "ai", "tool_result"]
     created_at: datetime
     query_id: str
-    langchain_id: Optional[str] = None
+    langchain_id: str | None = None
     data : HumanEventData | ToolResultData | AIEventData
 
 # ===== Session State TypedDict =====
@@ -155,24 +155,24 @@ class SessionState(TypedDict, total=False):
     is_authenticated: bool
 
     # User info
-    user_id: Optional[str]
-    access_token: Optional[str]
-    token_type: Optional[str]
-    user_name: Optional[str]
+    user_id: str | None
+    access_token: str | None
+    token_type: str | None
+    user_name: str | None
 
     # Session info
     session_id: str
-    session_title: Optional[str]
+    session_title: str | None
 
     # Messages & history
     messages: list[dict[str, Any]]
     first_question: bool
 
     # Agent config
-    llm_model: Optional[str]
+    llm_model: str | None
 
     # UI state
-    question_to_process: Optional[str]
+    question_to_process: str | None
     files_to_process: list[Any]
     sessions_loaded: bool
     current_session_loaded: bool
@@ -183,8 +183,8 @@ class SessionState(TypedDict, total=False):
 
     # Tool results
     tool_results: dict[str, Any]
-    company_data: Optional[str]  # JSON string
-    industry_data: Optional[str]  # JSON string
+    company_data: str | None  # JSON string
+    industry_data: str | None  # JSON string
 
     # Misc
     valuation_doc_count: int

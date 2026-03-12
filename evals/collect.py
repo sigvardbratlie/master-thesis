@@ -4,10 +4,7 @@ from dotenv import load_dotenv
 import argparse
 from evals import Dataset
 from evals.collect_module import CollectAgentResult
-import os
 import asyncio
-from datetime import datetime
-from agent.config import AgentConfig
 
 config = AppConfig.load_from_toml("config.toml")
 setup_logging(config)
@@ -19,9 +16,9 @@ load_dotenv()
 
 
 
-async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_storage, async_config):
+async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_storage, config):
         car_custom = CollectAgentResult(data, llm_model=llm_model, agent_type=agent_type,
-                                        async_config = async_config)
+                                        config = config)
         collected_results = await car_custom.run_agent(embed_to_vectorstore=embed_to_vectorstore, 
                                                        save_to_storage=save_to_storage,
                                                        )
@@ -97,8 +94,7 @@ async def main():
                             agent_type="custom",
                             embed_to_vectorstore=embed_to_vectorstore,
                             save_to_storage=save_to_storage,
-                            async_config = AgentConfig(max_concurrent=max_conc,
-                                        throttle_value=throttle))
+                            config = config)
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Custom")
         logger.info("━" * 64)
@@ -115,8 +111,7 @@ async def main():
                            llm_model=llm_model,
                              agent_type="baseline",     
                            embed_to_vectorstore=False, save_to_storage=True,
-                           async_config = AgentConfig(max_concurrent=max_conc,
-                                        throttle_value=throttle))
+                           config = config)
 
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline")
@@ -136,8 +131,7 @@ async def main():
                            agent_type="baseline_rag", 
                            embed_to_vectorstore=True, 
                            save_to_storage=True,
-                           async_config = AgentConfig(max_concurrent=max_conc,
-                                        throttle_value=throttle))
+                           config = config)
 
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline + RAG")

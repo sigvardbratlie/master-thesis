@@ -1,6 +1,5 @@
 import logging
 from langchain_core.documents import Document
-from typing import List
 
 from models import VectorStoreMetadata
 
@@ -15,7 +14,7 @@ class TextHandler(BaseHandler):
     def __init__(self):
         super().__init__()
 
-    def parse_text_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> List[Document]:
+    def parse_text_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
         text = content.decode('utf-8', errors='ignore')
         try:
             chunks = self.splitter.split_text(text)

@@ -1,7 +1,6 @@
 import os
 import logging
 import streamlit as st
-from typing import Optional
 from supabase import create_client, Client
 from ui.models import *
 from ui.models import UserDetails, CompanyDetails
@@ -190,7 +189,7 @@ class SupabaseManager:
 
     # ================== USER DETAILS ==================
 
-    def load_user_details(self, user_id: str) -> Optional[UserDetails]:
+    def load_user_details(self, user_id: str) -> UserDetails | None:
         """Load user details from Supabase"""
         try:
             result = self.supabase.table("user_details").select("*").eq("user_id", user_id).execute()
@@ -213,7 +212,7 @@ class SupabaseManager:
 
     # ================== COMPANY DETAILS ==================
 
-    def load_company_details(self, company_id: str) -> Optional[CompanyDetails]:
+    def load_company_details(self, company_id: str) -> CompanyDetails | None:
         """Load company details from Supabase"""
         try:
             result = self.supabase.table("company_details").select("*").eq("company_id", company_id).execute()
@@ -306,7 +305,7 @@ class SupabaseManager:
             logger.error(f"Could not delete project file {path}: {e}")
             return False
 
-    def read_attachment(self, path : str, bucket_name : str = "attachments") -> Optional[bytes]:
+    def read_attachment(self, path : str, bucket_name : str = "attachments") -> bytes | None:
         """
         Fetch attachment content from Supabase storage.
         """

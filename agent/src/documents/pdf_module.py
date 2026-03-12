@@ -3,7 +3,6 @@ from io import BytesIO
 import tempfile
 from PyPDF2 import PdfReader
 import logging
-from typing import List, Optional
 from datetime import datetime
 
 from langchain_core.documents import Document
@@ -22,7 +21,7 @@ class PDFHandler(BaseHandler):
         super().__init__()
 
     
-    def _safe_pdf_date(self, metadata, field: str) -> Optional[datetime]:
+    def _safe_pdf_date(self, metadata, field: str) -> datetime | None:
         """Access a PyPDF2 metadata date property safely, returning None on parse errors."""
         try:
             return getattr(metadata, field)
@@ -91,7 +90,7 @@ class PDFHandler(BaseHandler):
                     except:
                         pass
     
-    def parse_pdf_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> List[Document]:
+    def parse_pdf_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
         if self._needs_ocr(content):
             logger.info("🔍 PDF needs OCR — processing...")
             content = self._ocr_bytes(content)

@@ -1,5 +1,4 @@
 from pydantic import BaseModel
-from typing import Optional
 from .api_request_models import AttachmentModel
 from .project_models import FactSheet, Attachment, Email
 from .api_request_models import StreamEvent
@@ -11,8 +10,8 @@ class SessionHistory(BaseModel):
     attachments: list[AttachmentModel]
     project_id: str
     title: str
-    llm_model: Optional[str] = None
-    updated_at: Optional[str] = None
+    llm_model: str | None = None
+    updated_at: str | None = None
 
 
 class ProjectData(BaseModel):
@@ -53,12 +52,12 @@ class ProjectData(BaseModel):
 
 class ProjectSummary(BaseModel):
     project_id: str
-    title: Optional[str] = None
-    created_at: Optional[str] = None
+    title: str | None = None
+    created_at: str | None = None
 
 
 class SessionSummary(BaseModel):
     session_id: str
-    title: Optional[str] = None
-    llm_model: Optional[str] = None
-    updated_at: Optional[str] = None
+    title: str | None = None
+    llm_model: str | None = None
+    updated_at: str | None = None

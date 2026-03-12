@@ -1,19 +1,19 @@
 from pydantic import BaseModel
-from typing import Optional, Literal
+from typing import Literal
 from .api_request_models import AttachmentModel
 from datetime import datetime
 
 class WriteEmail(BaseModel):
     from_addr: str
     to: list[str]
-    cc: Optional[list[str]] = None
-    bcc: Optional[list[str]] = None
+    cc: list[str] | None = None
+    bcc: list[str] | None = None
     subject: str
     body: str
-    attachments: Optional[list[AttachmentModel]] = None
+    attachments: list[AttachmentModel] | None = None
 
 class WriteDocx(BaseModel):
     file_name: str
-    heading : Optional[str] = None
+    heading : str | None = None
     paragraphs: list[str]
     
