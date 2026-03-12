@@ -14,7 +14,7 @@ import email as python_email
 from database import SupabaseStorageManager, SupabaseManager, BQVectorStore
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from models import PipelineState, AskAgentRequest, ProjectData
+from models import PipelineState, AskAgentRequest, ProjectData, InitialInput
 
 from uuid import uuid4
 
@@ -37,6 +37,7 @@ class ProjectPipeline:
 
     # =========== PIPELINE COMPILATION ===========
     def compile_init_pipeline(self):
+        logger.info(f'\n\n ================ COMPILING INIT PIPELINE ================ \n\n')
         workflow = StateGraph(PipelineState)
 
         workflow.add_node("collapse_emails", self._collapse_emails_node)
@@ -45,6 +46,7 @@ class ProjectPipeline:
         workflow.add_node("parsing", self._parsing_node)
         workflow.add_node("embedding", self._embedding_node)
         workflow.add_node("analyze", self._analyze_node)
+        workflow.add_node("update_metadata", self._update_metadata_node)
         workflow.add_node("save", self._save_init_node)
 
         workflow.add_edge(START, "collapse_emails")
@@ -52,9 +54,9 @@ class ProjectPipeline:
         workflow.add_edge(START, "storage")
         workflow.add_edge("collapse_emails", "parsing")
         workflow.add_edge("parsing", "embedding")
-        workflow.add_edge("parsing", "analyze")
-        workflow.add_edge("initialize_input", "analyze")
-        workflow.add_edge("analyze", "save")
+        workflow.add_edge(["parsing", "initialize_input"], "analyze")
+        workflow.add_edge("analyze", "update_metadata")
+        workflow.add_edge("update_metadata", "save")
 
         workflow.add_edge("embedding", END)
         workflow.add_edge("save", END)
@@ -62,6 +64,7 @@ class ProjectPipeline:
         return workflow.compile()
 
     def compile_update_pipeline(self):
+        logger.info(f'\n\n ================ COMPILING UPDATE PIPELINE ================ \n\n')
         workflow = StateGraph(PipelineState)
 
         workflow.add_node("load_project_data", self._load_project_data)
@@ -70,6 +73,7 @@ class ProjectPipeline:
         workflow.add_node("parsing", self._parsing_node)
         workflow.add_node("embedding", self._embedding_node)
         workflow.add_node("analyze", self._analyze_node)
+        workflow.add_node("update_metadata", self._update_metadata_node)
         workflow.add_node("save", self._save_update_node)
 
         workflow.add_edge(START, "load_project_data")
@@ -77,9 +81,10 @@ class ProjectPipeline:
         workflow.add_edge(START, "storage")
         workflow.add_edge("collapse_emails", "parsing")
         workflow.add_edge("parsing", "embedding")
-        workflow.add_edge("load_project_data", "analyze")
-        workflow.add_edge("parsing", "analyze")
-        workflow.add_edge("analyze", "save")
+        workflow.add_edge(["load_project_data", "parsing"], "analyze")
+        #workflow.add_edge("parsing", "analyze")
+        workflow.add_edge("analyze", "update_metadata")
+        workflow.add_edge("update_metadata", "save")
 
         workflow.add_edge("embedding", END)
         workflow.add_edge("save", END)
@@ -92,6 +97,16 @@ class ProjectPipeline:
 
         async def analyze_docs_with_limit(attachments: list[AttachmentModel], input_, thread: RunnableConfig):
             async with self._semaphore:
+                _writer = get_stream_writer()
+                filenames = [a.filename for a in attachments if a.filename]
+                _writer({
+                    "type": "status",
+                    "phase": ["analyze_docs"],
+                    "status": "starting",
+                    "data": {"specs": ", ".join(filenames), "count": len(attachments)},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": state.query.query_id,
+                })
                 result = await self.context_manager.analyze_docs(
                     input_=input_,
                     attachments=attachments,
@@ -99,11 +114,21 @@ class ProjectPipeline:
                 )
                 if self.config.async_tasks.throttle_value > 0:
                     await asyncio.sleep(self.config.async_tasks.throttle_value)
-                result["_source_filenames"] = [a.filename for a in attachments]
+                result["_source_filenames"] = filenames
                 return result
 
         async def analyze_emails_with_limit(emails: list[EmailModel], input_, thread: RunnableConfig):
             async with self._semaphore:
+                _writer = get_stream_writer()
+                subjects = [e.subject for e in emails if e.subject]
+                _writer({
+                    "type": "status",
+                    "phase": ["analyze_emails"],
+                    "status": "starting",
+                    "data": {"specs": ", ".join(subjects), "count": len(emails)},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": state.query.query_id,
+                })
                 result = await self.context_manager.analyze_emails(
                     input_=input_,
                     emails=emails,
@@ -607,6 +632,7 @@ class ProjectPipeline:
         claims = state.claims
         deadlines = state.deadlines
         emails = state.emails
+        init_input = state.input_
 
         writer({
             "type": "status",
@@ -620,7 +646,6 @@ class ProjectPipeline:
         # ============= PHASE 2 =================
         # Insert new documents to database (must be inserted first to avoid foreign key constraint issues)
         # ========================================
-        key_constraint_tasks = []
         key_constraint_elements = {
             "project_attachments": attachments,
             "project_emails": emails,
@@ -644,40 +669,39 @@ class ProjectPipeline:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id,
             })
-            key_constraint_tasks.append(asyncio.to_thread(
+            await asyncio.to_thread(
                 self.conversation_manager.insert_project_element,
                 data=[element.model_dump(mode="json", exclude={"claims", "damages", "deadlines", "events"}) for element in elements],
                 project_id=query.project_id,
                 table_name=table_name,
-            ))
-
-        await asyncio.gather(*key_constraint_tasks)
-
-        for table_name, elements in key_constraint_elements.items():
-            if elements:
-                writer({
-                    "type": "status",
-                    "phase": ["storage"],
-                    "status": "complete",
-                    "data": {
-                        "total": len(elements),
-                        "storage_type": ["database"],
-                        "table_name": table_name,
-                    },
-                    "timestamp": datetime.now().isoformat(),
-                    "query_id": query.query_id,
-                })
+            )
+            writer({
+                "type": "status",
+                "phase": ["storage"],
+                "status": "complete",
+                "data": {
+                    "total": len(elements),
+                    "storage_type": ["database"],
+                    "table_name": table_name,
+                },
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            })
 
         # ============= PHASE 3 =================
         # Insert new data to database
         # ========================================
-        to_save = {
+        to_insert = {
             "project_events": events,
             "project_damages": damages,
             "project_claims": claims,
             "project_deadlines": deadlines,
         }
-        for table_name, items in to_save.items():
+        to_replace = {
+            "project_parties": init_input.parties or [],
+        }
+
+        for table_name, items in {**to_insert, **to_replace}.items():
             if not items:
                 logger.warning(f"No valid items to save for {table_name}. Skipping storage for this table.")
                 continue
@@ -696,12 +720,20 @@ class ProjectPipeline:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id,
             })
-            await asyncio.to_thread(
-                self.conversation_manager.insert_project_element,
-                data=[item.model_dump(mode="json") for item in items],
-                project_id=query.project_id,
-                table_name=table_name,
-            )
+            if table_name in to_replace:
+                await asyncio.to_thread(
+                    self.conversation_manager.replace_project_element,
+                    data=items,
+                    project_id=query.project_id,
+                    table_name=table_name,
+                )
+            else:
+                await asyncio.to_thread(
+                    self.conversation_manager.insert_project_element,
+                    data=[item.model_dump(mode="json") for item in items],
+                    project_id=query.project_id,
+                    table_name=table_name,
+                )
             writer({
                 "type": "status",
                 "phase": ["storage"],
@@ -714,6 +746,14 @@ class ProjectPipeline:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id,
             })
+
+        #save metadata (background & title)
+        await asyncio.to_thread(
+            self.conversation_manager.upsert_project,
+            data={"background": init_input.background, "title": init_input.title},
+            element_type="metadata",
+            project_id=query.project_id,
+        )
 
         writer({
             "type": "status",
@@ -757,3 +797,46 @@ class ProjectPipeline:
         })
 
         return {"input_": project_data}
+
+    async def _update_metadata_node(self, state: PipelineState):
+        logger.info("🏷️ Running metadata update node")
+        writer = get_stream_writer()
+        
+        project_data = state.input_
+        existing_events = []
+        existing_init_input = InitialInput()
+
+        if isinstance(project_data, ProjectData) and project_data.factsheet:
+            logger.debug(f"Loaded project data with factsheet containing {len(project_data.factsheet.events or [])} events")
+            existing_events = project_data.factsheet.events or []
+            existing_init_input = InitialInput(
+                parties=project_data.factsheet.parties,
+                title=project_data.factsheet.title,
+                background=project_data.factsheet.background,
+            )
+        elif isinstance(project_data, InitialInput):
+            existing_init_input = project_data
+
+        events = existing_events + (state.events or [])
+
+        writer({
+            "type": "status",
+            "phase": ["update_metadata"],
+            "status": "starting",
+            "data": {},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": state.query.query_id,
+        })
+
+        initial_input = await self.context_manager.update_initial_input(events=events, existing_initial_input=existing_init_input)
+        writer({
+            "type": "status",
+            "phase": ["update_metadata"],
+            "status": "complete",
+            "data": {},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": state.query.query_id,
+        })
+        logger.info(f'🏷️ Metadata update complete.')
+        return {"input_": initial_input}
+

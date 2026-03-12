@@ -414,7 +414,7 @@ class Agent:
         """
         Compiles the agent graph with the selected LLM.
         """
-
+        logger.info(f'\n\n ================ COMPILING LLM PIPELINE ================ \n\n')
         logger.debug(f"🤖 Compiling agent | model={llm_model}")
         selected_llm = pick_llm(llm_model, config=self.config,)
         self.llm = selected_llm.bind_tools(self.tools)
