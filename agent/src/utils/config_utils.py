@@ -1,7 +1,10 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings
 from pathlib import Path
 import tomllib
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 1. Definer de indre blokkene som BaseModel
 class FileLoggingConfig(BaseModel):
@@ -31,7 +34,7 @@ class ModelProviderConfig(BaseModel):
 class ModelsConfig(BaseModel):
     together: ModelProviderConfig = Field(default_factory=ModelProviderConfig)
 
-class AgentStream(BaseModel):
+class AgentConfig(BaseModel):
     max_token_tool: int = 10000
     sum_rate : int = 20
 
@@ -41,6 +44,13 @@ class AgentStream(BaseModel):
     embed_to_vectorstore: bool = True
     save_to_storage: bool = True
     minimal_context: bool = False
+
+    @model_validator(mode="after")
+    def enforce_minimal_context(self):
+        if self.minimal_context:
+            logger.warning("⚠️  Minimal context is enabled. This will override significance to only include 'high'.")
+            self.significance = ["high"]
+        return self
 
 
 class ProjectConfig(BaseModel):
@@ -55,7 +65,7 @@ class ProjectConfig(BaseModel):
 class AppConfig(BaseSettings):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     async_tasks: AsyncConfig = Field(default_factory=AsyncConfig, alias="async") 
-    agent: AgentStream = Field(default_factory=AgentStream)
+    agent: AgentConfig = Field(default_factory=AgentConfig)
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     project : ProjectConfig = Field(default_factory=ProjectConfig)
 

@@ -234,10 +234,13 @@ class Agent:
 
         project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.config.agent.use_factsheet else None
         if project and isinstance(project, ProjectData) and isinstance(project.factsheet, FactSheet):
-            inclued_fields=["title", 
-                            "background",
-                            ]
-            significance =self.config.agent.significance
+            if self.config.agent.minimal_context:
+                inclued_fields=["title", 
+                                "background",
+                                ]
+            else:
+                inclued_fields = None
+                significance = self.config.agent.significance
             content = project.shorten_project(excluded_keys=["description"], significance=significance, inclued_fields=inclued_fields)
             prompt = self.prompt + "\n\n" + content
         else:
