@@ -216,7 +216,7 @@ class CollectAgentResult:
                             logger.debug(f"Init response: {chunk}")
                     else:
                         should_clean = False
-                        if self.clean_rate > 0 and (idx % self.clean_rate != 0):
+                        if self.clean_rate is not None and self.clean_rate > 0 and (idx % self.clean_rate != 0):
                             should_clean = True
                         if self.clean_rate == -1 and idx == len(self.data.sessions) - 1:
                             should_clean = True

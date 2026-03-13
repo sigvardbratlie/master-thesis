@@ -43,6 +43,8 @@ class ProjectConfig(BaseModel):
     threshold: int = 5120000     # 500 * 1024
     max_attachments: int = 10
     max_emails: int = 15
+    embed_to_vectorstore: bool = True
+    save_to_storage: bool = True
     
 
 # 2. Definer hovedkonfigurasjonen som BaseSettings

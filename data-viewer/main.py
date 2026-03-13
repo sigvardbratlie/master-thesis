@@ -751,6 +751,13 @@ with tab_results:
         n2.text_input("User ID", value=result_data.get("user_id", "—"), disabled=True, key=f"res_meta_user_{selected_result_idx}")
         n3.text_input("Last updated", value=result_data.get("last_updated", "—"), disabled=True, key=f"res_meta_updated_{selected_result_idx}")
 
+        run_meta = result_data.get("metadata") or {}
+        if run_meta:
+            p1, p2 = st.columns(4)[:2]
+            significance_val = run_meta.get("significance")
+            p1.text_input("Significance", value=", ".join(significance_val) if isinstance(significance_val, list) else str(significance_val or "—"), disabled=True, key=f"res_meta_significance_{selected_result_idx}")
+            p2.text_input("Clean rate", value=str(run_meta.get("clean_rate", "—")), disabled=True, key=f"res_meta_clean_rate_{selected_result_idx}")
+
         time_usage = result_data.get("time_counts") or result_data.get("time_usage") or {}
         if time_usage:
             _render_time_inputs(time_usage, key_prefix=f"res_meta_{selected_result_idx}")
@@ -894,7 +901,7 @@ with tab_evals:
         "LLM-as-judge evaluation results. Select a run to inspect scores per test case."
     )
     st.write("")
-
+    
     selected_eval_label = st.selectbox(
         "Eval run",
         eval_labels,
@@ -922,9 +929,11 @@ with tab_evals:
         for s in _matched_result.get("sessions", [])
         if s.get("session_name")
     }
+    
 
     # ── Metadata strip ─────────────────────────────────────────────────────────
     with st.expander("ℹ️ Run metadata", expanded=False):
+        
         e1, e2, e3, e4 = st.columns(4)
         e1.text_input("LLM model", value=eval_data.get("llm_model", "—"), disabled=True, key="eval_meta_model")
         e2.text_input("Agent type", value=eval_data.get("agent_type", _matched_result.get("agent_type", "—")), disabled=True, key="eval_meta_agent")
@@ -935,6 +944,8 @@ with tab_evals:
         f1.text_input("Dataset", value=eval_data.get("dataset_name", "—"), disabled=True, key="eval_meta_dataset")
         f2.text_input("Project ID", value=eval_data.get("project_id", _matched_result.get("project_id", "—")), disabled=True, key="eval_meta_proj")
         f3.text_input("User ID", value=eval_data.get("user_id", _matched_result.get("user_id", "—")), disabled=True, key="eval_meta_user")
+        f4.text_input("Significance", value=eval_data.get("metadata", {}).get("significance", "—"), disabled=True, key="eval_meta_significance")
+        
 
         # Time and tokens from matched result file (eval file doesn't store these)
         time_usage = _matched_result.get("time_counts") or _matched_result.get("time_usage") or {}
@@ -1114,3 +1125,4 @@ with tab_evals:
                     st.caption(f"query_id: `{meta.get('query_id', '—')}` · turn: `{turn_order}`")
 
         st.write("")
+

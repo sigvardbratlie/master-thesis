@@ -18,7 +18,7 @@ base_url = "https://api.together.xyz/v1"
 max_tokens = 4096
 
 [agent]
-max_token_tool = 10000
+max_token_tool = 20000
 significance = ["high", "medium", "low"]
 embed_to_vectorstore = true
 save_to_storage = true
