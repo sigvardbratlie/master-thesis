@@ -42,7 +42,7 @@ class ProjectData(BaseModel):
     
     def shorten_project(self,inclued_fields: list[Literal["events", "parties", "claims", "damages","title", "background", "emails", "attachments"]] = None,
                             excluded_fields: list[Literal["events", "parties", "claims", "damages","title", "background", "emails", "attachments"]] = None,
-                            excluded_keys: list[Literal["description"]] = None,
+                            excluded_keys: list[Literal["description"]] = ["description"],
                           significance: list[Literal["high", "medium", "low"]] = None) -> str:
         if inclued_fields and excluded_fields:
             logger.warning("Both inclued_fields and excluded_fields are provided. inclued_fields will take precedence and excluded_fields will be ignored.")

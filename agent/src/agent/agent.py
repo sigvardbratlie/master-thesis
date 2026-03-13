@@ -33,7 +33,6 @@ class Agent:
     '''Main Agent class handling the agent operations'''
     def __init__(self,
                  tools : list[tool],
-                 prompt : str,
                  checkpointer = None,
                  config: AppConfig = None,
                  llm : BaseChatModel = None,
@@ -50,7 +49,6 @@ class Agent:
 
         """
         self.tools = tools
-        self.prompt = prompt
         self.checkpointer = checkpointer
         self.summary = "" #rolling summary for long conversations
         self.in_memory_store = ChromaVectorStore()
@@ -68,6 +66,20 @@ class Agent:
         self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
         logger.debug(f"⚙️  AgentConfig: max_concurrent={self.config.async_tasks.max_concurrent_requests}, throttle_value={self.config.async_tasks.throttle_value}s")
 
+        self.prompt = self.load_prompt(self.config.agent.prompt_file_path)
+    
+    
+    def load_prompt(self, path: str) -> str:
+        """Loads the system prompt from a file."""
+        try:
+            with open(path, "r") as f:
+                prompt = f.read()
+            logger.debug(f"✅ Loaded system prompt from {path}")
+            return prompt
+        except Exception as e:
+            logger.error(f"❌ Failed to load system prompt from {path}: {e}")
+            return "You are a helpful assistant."  # Fallback prompt
+    
     # =================================
     #         GRAPH ELEMENTS
     # =================================

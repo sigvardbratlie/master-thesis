@@ -44,6 +44,7 @@ class AgentConfig(BaseModel):
     embed_to_vectorstore: bool = True
     save_to_storage: bool = True
     minimal_context: bool = False
+    prompt_file_path : str = "system_prompt.txt"
 
     @model_validator(mode="after")
     def enforce_minimal_context(self):

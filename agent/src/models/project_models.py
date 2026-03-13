@@ -314,9 +314,9 @@ class FactSheet(InitialInput,
                                 significance=significance)
     
     def shorten_factsheet(self, 
-                          excluded_fields: list[Literal["events", "parties", "claims", "damages", "title", "background"]] = None,
+                          excluded_fields: list[Literal["events", "parties", "claims", "damages", "background"]] = None,
                           significance: list[Literal["high", "medium", "low"]] = None) -> str:
-        view = f"Factsheet for project: {self.title} (ProjectId : {self.project_id}):\n\n" if not excluded_fields or "title" not in excluded_fields else ""
+        view = f"Factsheet for project: {self.title} (ProjectId : {self.project_id}):\n\n"
         view += f"Background\n {self.background}\n\n" if self.background and (not excluded_fields or "background" not in excluded_fields) else ""
         view += self.shorten_parties(significance) if not excluded_fields or "parties" not in excluded_fields else ""
         view += self.shorten_events(significance) if not excluded_fields or "events" not in excluded_fields else ""

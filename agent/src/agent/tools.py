@@ -25,52 +25,6 @@ tavily_search = TavilySearch(
     topic="general",
 )
 
-
-@tool
-def read_attachment(
-    path: str,
-    # config : RunnableConfig
-) -> str:
-    """
-    Reads and processes an attachment from Supabase storage based on the provided path.
-    Use only when the attachment content is not provided in the conversation history.
-
-    Args:
-        path (str): The path to the attachment in Supabase storage. Always in the form of "<user_id>/<session_id>/<file_id>.<ext>".
-
-    Returns:
-        str: Processed content of the attachment.
-    """
-    storage_manager = SupabaseStorageManager()
-    document_processor = DocumentProcessor()
-    content = storage_manager.read_attachment(path=path)
-    try:
-        file_id = (
-            path.split("/")[-1].split(".")[0] if "." in path else path.split("/")[-1]
-        )
-        ext = "." + path.split(".")[-1] if "." in path else ""
-    except Exception as e:
-        logger.error(f"Error extracting file_id and extension from path: {e}")
-        return None
-    if ext in [".pdf", ".docx", ".pptx", ".eml", ".txt", ".md"]:
-        file_type = document_processor.map_file_type(ext)
-        docs = document_processor.parse(
-            content=content,
-            metadata={
-                "file_id": file_id,
-                "filename": file_id + ext,
-                "session_id": None,
-                "embedding_model": None,
-            },
-            file_type=file_type,
-            force_metadata_model=False,
-        )
-        content_txt = document_processor.to_plain_text(docs)
-        return f"Content for file path {path}: \n{content_txt}\n\n"
-    else:
-        logger.error(f"Unsupported file extension: {ext}")
-        return []
-
 @tool
 def read_attachments(
     paths: list[str],
@@ -307,25 +261,101 @@ def create_project():
     return "A new project has been sent for creation"
 
 
-@tool
-def list_project_files_emails(project_id: str, session_id : str = None, ):
-    """Use this function to retrieve a list of the projects files and emails.
+# @tool
+# def list_project_files_emails(project_id: str, session_id : str = None, ):
+#     """Use this function to retrieve a list of the projects files and emails.
     
+#     """
+#     sm = SupabaseManager()
+#     project = sm.load_project(project_id=project_id)
+#     if not project:
+#         return f"No project {project_id}"
+#     value = "=== List of project files and emails ===\n\n"
+#     value += project.shorten_attachments()
+#     value += project.shorten_emails()
+#     return value
+
+# @tool
+# def _show_elements(element_types : list[Literal["events", "parties", "claims", "damages", "emails", "attachments"]],
+#                   project_id: str,
+#                   significance: list[Literal["high", "medium", "low"]] = None,
+#                   ):
+#     """Use this function to retrieve a list of the projects files and emails.
+#     Args:
+#         element_types (list[Literal["events", "parties", "claims", "damages","title", "background", "emails", "attachments"]]): A list of the element types to show. For example, if you only want to show events and parties, use ["events", "parties"].
+#         significance (list[Literal["high", "medium", "low"]], optional): A list of significance levels to filter the elements. Defaults to None.
+#         project_id (str): The project id to identify which project to retrieve the elements from.
+#     Returns:
+#         str: A string representation of the requested elements.
+#     """
+#     sm = SupabaseManager()
+#     project = sm.load_project(project_id=project_id)
+#     if not project:
+#         return f"No project {project_id}"
+#     value = f"=== List of project elements: {', '.join(element_types)} ===\n\n"
+#     all_fields = ["events", "parties", "claims", "damages", "emails", "attachments"]
+#     excluded_fields = [e for e in all_fields if e not in element_types]
+#     if excluded_fields:
+#         value += project.shorten_project(
+#                         significance=significance,
+#                         excluded_fields=excluded_fields,)
+    
+#     return value
+
+@tool
+def show_elements(element_types : list[Literal["events", "parties", "claims", "damages","deadlines"]],
+                  project_id: str,
+                  significance: list[Literal["high", "medium", "low"]] = None,
+                  ):
+    """Use this function to retrieve a list of the projects files and emails.
+    Args:
+        element_types (list[Literal["events", "parties", "claims", "damages","title", "background",]]): A list of the element types to show. For example, if you only want to show events and parties, use ["events", "parties"].
+        significance (list[Literal["high", "medium", "low"]], optional): A list of significance levels to filter the elements. Defaults to None.
+        project_id (str): The project id to identify which project to retrieve the elements from.
+    Returns:
+        str: A string representation of the requested elements.
     """
     sm = SupabaseManager()
-    project = sm.load_project(project_id=project_id)
-    if not project:
+    factsheet = sm.load_factsheet(project_id=project_id)
+    if not factsheet:
         return f"No project {project_id}"
-    value = "=== List of project files and emails ===\n\n"
-    value += project.shorten_attachments()
-    value += project.shorten_emails()
+    value = f"=== List of project elements: {', '.join(element_types)} ===\n\n"
+    all_fields =[ "events", "parties", "claims", "damages", "deadlines"]
+    excluded_fields = [e for e in all_fields if e not in element_types]
+    if excluded_fields:
+        value += factsheet.shorten_factsheet(
+                        significance=significance,
+                        excluded_fields=excluded_fields,)
     return value
 
+@tool
+def list_attachments(element_types : list[Literal["attachments", "emails"]],
+                  project_id: str,
+                  significance: list[Literal["high", "medium", "low"]] = None,
+                  ):
+    """Use this function to retrieve a list of the projects files and emails.
+    Args:
+        element_types (list[Literal["attachments", "emails"]]): A list of the element types to show. For example, if you only want to show attachments and emails, use ["attachments", "emails"].
+        significance (list[Literal["high", "medium", "low"]], optional): A list of significance levels to filter the elements. Defaults to None.
+        project_id (str): The project id to identify which project to retrieve the elements from.
+    Returns:
+        str: A string representation of the requested elements.
+    """
+    sm = SupabaseManager()
+    project= sm.load_project(project_id=project_id)
+    if not project:
+        return f"No project {project_id}"
+    value = f"=== List of project elements: {', '.join(element_types)} ===\n\n"
+    value += project.shorten_project(
+                    significance=significance,
+                    inclued_fields=element_types,)
+    return value
 
 TOOLS = [
     tavily_search,
     read_attachments,
-    list_project_files_emails,
+    show_elements,
+    list_attachments,
     query_project_attachments,
     query_laws,
     read_specific_law,

@@ -23,6 +23,7 @@ sum_rate = 20
 embed_to_vectorstore = true
 save_to_storage = true
 minimal_context = true
+prompt_file_path = "system_prompt.txt"
 
 [project]
 threshold = 5120000     # 500 * 1024
