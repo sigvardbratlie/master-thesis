@@ -6,7 +6,7 @@ from evals import Dataset
 from evals.collect_module import CollectAgentResult
 import asyncio
 
-config = AppConfig.load_from_toml("config.toml")
+config = AppConfig.from_toml("config.toml")
 setup_logging(config)
 noisy_packages = ["httpx", "httpcore", "hpack", "urllib3", "anthropic", "openai", "asyncio", "langsmith"]
 [logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
@@ -47,8 +47,6 @@ async def main():
     n_runs = args.n_runs
     embed_to_vectorstore = not args.skip_embedding
     save_to_storage = not args.skip_storage
-    max_conc = config.async_tasks.max_concurrent_requests
-    throttle = config.async_tasks.throttle_value
 
 
     logger.info("━" * 64)
@@ -76,8 +74,6 @@ async def main():
     ds_custom.assign_session_attachments() if "custom" in agent_types else None
     ds_baseline.assign_session_attachments_baseline() if "baseline" in agent_types else None
     ds_baseline_rag.assign_session_attachments() if "baseline_rag" in agent_types else None
-    #total_attachments = sum(len(s.attachments) for s in data_custom.sessions)
-    #logger.info(f"✅ {len(data_custom.sessions)} sessions ready — {total_attachments} attachments assigned in total")
 
     if "custom" in agent_types:
         # ====== RUN CUSTOM AGENT ======
@@ -110,7 +106,8 @@ async def main():
             await single_run(data=data_baseline.model_copy(deep=True),     
                            llm_model=llm_model,
                              agent_type="baseline",     
-                           embed_to_vectorstore=False, save_to_storage=True,
+                           embed_to_vectorstore=False, 
+                           save_to_storage=False,
                            config = config)
 
         logger.info("━" * 64)
@@ -130,7 +127,7 @@ async def main():
                            llm_model=llm_model, 
                            agent_type="baseline_rag", 
                            embed_to_vectorstore=True, 
-                           save_to_storage=True,
+                           save_to_storage=False,
                            config = config)
 
         logger.info("━" * 64)
