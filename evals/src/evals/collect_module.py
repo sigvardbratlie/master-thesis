@@ -208,10 +208,12 @@ class CollectAgentResult:
                         async for chunk in init_graph.astream({"query": input_obj}, config=thread, stream_mode="custom"):
                             logger.debug(f"Init response: {chunk}")
                     else:
-                        if idx % 2 != 0: #cleanup project every odd session to prevent fact overload, keeping only parties, events and damages
+                        #clean for the last session
+                        #if idx  == len(self.data.sessions) - 1: 
+                        if idx % 2 != 0:
                             cleanup_query = CleanupElementsRequest(
                                 **input_obj.model_dump(),
-                                element_types=["parties", "events", "damages"])
+                                element_types=["parties", "events", "damages", "claims"],)
                             clean_thread = to_thread_config(query=cleanup_query, user_id=self.data.user_id)
                             clean_graph = clean.compile_clean_elements()
                             async for chunk in clean_graph.astream({"query": cleanup_query}, config=clean_thread, stream_mode="custom"):
