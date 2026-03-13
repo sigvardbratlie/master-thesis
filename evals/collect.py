@@ -42,7 +42,7 @@ async def main():
     parser.add_argument("--skip-embedding", action="store_true", help="Skip embedding step for custom agent")
     parser.add_argument("--skip-storage", action="store_true", help="Skip saving results to storage for custom agent")
     parser.add_argument("-s", "--significance", nargs="+", type=str, choices=["high", "medium", "low"], help="Significance levels to include for agent runs (overrides config.toml settings)")
-    parser.add_argument("--clean-rate", type = int, default = 2, help="The rate (of sessions) in which to clean the factsheet. From -1 for last msg, 1 > for all other rates")
+    parser.add_argument("--clean-rate", type = int, help="The rate (of sessions) in which to clean the factsheet. From -1 for last msg, 1 > for all other rates")
     args = parser.parse_args()
     dataset_name = args.dataset
     llm_model = args.model
@@ -54,7 +54,7 @@ async def main():
     clean_rate = args.clean_rate
 
     logger.info("\n\n━" * 64)
-    logger.info(f"🚀  COLLECT  |  dataset: {dataset_name}  |  model: {llm_model}  |  n_runs: {n_runs}")
+    logger.info(f"🚀  COLLECT  |  dataset: {dataset_name}  |  model: {llm_model}  |  n_runs: {n_runs} | Significance : {significance} | clean_rate | {clean_rate}")
     logger.info("━" * 64)
 
     ds_custom = Dataset(dataset_name)
