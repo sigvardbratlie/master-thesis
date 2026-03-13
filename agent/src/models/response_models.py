@@ -32,17 +32,24 @@ class ProjectData(BaseModel):
                                 format_key=format_keys, 
                                 significance=significance)
     
-    def shorten_emails(self, excluded_keys: list[Literal["description"]] = None, significance: list[Literal["high", "medium", "low"]] = None) -> str:
+    def shorten_emails(self, excluded_keys: list[Literal["description"]] = None, 
+                       significance: list[Literal["high", "medium", "low"]] = None) -> str:
         format_keys = ["path", "from_addr", "to", "subject", "date", "title"] + (["description"] if not excluded_keys or "description" not in excluded_keys else [])
         return shorten_element(self.emails, 
                             element_name="emails", 
                             format_key=format_keys, 
                             significance=significance)
     
-    def shorten_project(self,
+    def shorten_project(self,inclued_fields: list[Literal["events", "parties", "claims", "damages","title", "background", "emails", "attachments"]] = None,
                             excluded_fields: list[Literal["events", "parties", "claims", "damages","title", "background", "emails", "attachments"]] = None,
                             excluded_keys: list[Literal["description"]] = None,
                           significance: list[Literal["high", "medium", "low"]] = None) -> str:
+        if inclued_fields and excluded_fields:
+            logger.warning("Both inclued_fields and excluded_fields are provided. inclued_fields will take precedence and excluded_fields will be ignored.")
+            inclued_fields = None
+        if inclued_fields:
+            excluded_fields = [field for field in ["events", "parties", "claims", "damages","title", "background", "emails", "attachments"] if field not in inclued_fields]
+        
         view = ""
         view += self.shorten_factsheet(excluded_fields=excluded_fields, significance=significance)
         view += self.shorten_attachments(excluded_keys=excluded_keys, significance=significance) if not excluded_fields or "attachments" not in excluded_fields else ""

@@ -35,12 +35,8 @@ class Agent:
                  tools : list[tool],
                  prompt : str,
                  checkpointer = None,
-                 use_factsheet : bool = True,
-                 embed_to_vectorstore : bool = True,
-                 save_to_storage : bool = True,
                  config: AppConfig = None,
                  llm : BaseChatModel = None,
-                 significance : list[str] = None,
                  ):
         """
         Initializes the Agent with tools, prompt, LLMs, and checkpointer.
@@ -71,12 +67,6 @@ class Agent:
         self.config = config or AppConfig()
         self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
         logger.debug(f"⚙️  AgentConfig: max_concurrent={self.config.async_tasks.max_concurrent_requests}, throttle_value={self.config.async_tasks.throttle_value}s")
-        
-        #Settings
-        self.significance = significance or self.config.agent.significance
-        self.use_factsheet = use_factsheet #or self.config.agent.use_factsheet
-        self.embed_to_vectorstore = embed_to_vectorstore #or self.config.agent.embed_to_vectorstore
-        self.save_to_storage = save_to_storage #or self.config.agent.save_to_storage
 
     # =================================
     #         GRAPH ELEMENTS
@@ -242,9 +232,13 @@ class Agent:
             user_input=user_input
         )
 
-        project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.use_factsheet else None
+        project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.config.agent.use_factsheet else None
         if project and isinstance(project, ProjectData) and isinstance(project.factsheet, FactSheet):
-            content = project.shorten_project(excluded_keys=["description"], significance=self.significance)
+            inclued_fields=["title", 
+                            "background",
+                            ]
+            significance =self.config.agent.significance
+            content = project.shorten_project(excluded_keys=["description"], significance=significance, inclued_fields=inclued_fields)
             prompt = self.prompt + "\n\n" + content
         else:
             prompt = self.prompt
@@ -254,7 +248,7 @@ class Agent:
         
 
         # ---- LONG CONVERSATION HANDLING ----
-        sum_rate = 8
+        sum_rate = self.config.agent.sum_rate
         messages = [m for m in state.messages if not isinstance(m, SystemMessage)]
 
         if len(state.messages) > sum_rate:
@@ -601,11 +595,11 @@ class Agent:
                     file_type=att.file_type)
                 docs.extend(extracted_docs)
                 att.body = self.document_processor.to_plain_text(extracted_docs)
-            if not self.use_factsheet and self.embed_to_vectorstore:
+            if not self.config.agent.use_factsheet and self.config.agent.embed_to_vectorstore:
                 self.vs.add_documents(docs, collection_id="attachments",)
             # Store (same API regardless of implementation)
             #self.in_memory_store.add_documents(docs, collection_id="attachments") #for testing with in-memory store
-            if self.save_to_storage:
+            if self.config.agent.save_to_storage:
                 await self.storage.save_raw_documents(attachments=query.attachments)
 
         #add attachments without content to user message

@@ -28,8 +28,6 @@ class ProjectClean:
         self.storage = SupabaseStorageManager()
         self.vs = BQVectorStore()
         self.conversation_manager = SupabaseManager()
-        self.embed_to_vectorstore = self.config.project.embed_to_vectorstore
-        self.save_to_storage = self.config.project.save_to_storage
 
     # ======== COMPILE METHODS =========
     

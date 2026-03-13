@@ -32,8 +32,6 @@ class ProjectPipeline:
         self.storage = SupabaseStorageManager()
         self.vs = BQVectorStore()
         self.conversation_manager = SupabaseManager()
-        self.embed_to_vectorstore = self.config.project.embed_to_vectorstore
-        self.save_to_storage = self.config.project.save_to_storage
 
     # =========== PIPELINE COMPILATION ===========
     def compile_init_pipeline(self):
@@ -446,7 +444,7 @@ class ProjectPipeline:
         query = state.query
         docs_by_file = state.docs_by_file
 
-        if docs_by_file and self.embed_to_vectorstore:
+        if docs_by_file and self.config.project.embed_to_vectorstore:
             all_docs = [doc for file_docs in docs_by_file.values() for doc in file_docs]
             writer({
                 "type": "status",

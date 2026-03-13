@@ -42,19 +42,15 @@ class CollectAgentResult:
                 llm_model: str = "google_gemini-2.5-pro", 
                  agent_type: Literal["custom", "baseline", "baseline_rag"] = "custom",
                  config : AppConfig = None,
-                 significance: list = None,
                  clean_rate: int = None):
         self.data = data
         self.llm_model = llm_model
         self.agent_type: Literal["custom", "baseline", "baseline_rag"] = agent_type
         self.dataclass = Dataset(name=data.dataset_name)
         self.config = config or AppConfig()
-        self.significance = significance or self.config.agent.significance
         self.clean_rate = clean_rate
 
-    async def init_agent(self, use_factsheet: bool = True,
-                         save_to_storage: bool = True,
-                         embed_to_vectorstore: bool = True,
+    async def init_agent(self, 
                          tools=None,
                          prompt: str = None):
         connection_string = os.getenv("SUPABASE_DB_URL")
@@ -62,14 +58,10 @@ class CollectAgentResult:
         await pool.open()
         checkpointer = AsyncPostgresSaver(pool)
         agent = Agent(
-            use_factsheet=use_factsheet,
-            save_to_storage=save_to_storage,
-            embed_to_vectorstore=embed_to_vectorstore,
             tools=tools,
             prompt=prompt,
             checkpointer=checkpointer,
             config=self.config,
-            significance=self.significance,
         )
         logger.info("Agent initialized with AsyncPostgresSaver checkpointer")
         return agent
@@ -129,8 +121,13 @@ class CollectAgentResult:
             duration_seconds=(turn_endtime - turn_starttime).total_seconds(),
         )
 
-    async def run_agent(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True) -> GatheredResultPayload:
-        use_factsheet = self.agent_type == "custom"
+    async def run_agent(self, 
+                        #embed_to_vectorstore: bool = True, save_to_storage: bool = True
+                        ) -> GatheredResultPayload:
+        #use_factsheet = self.agent_type == "custom"
+        use_factsheet = self.config.agent.use_factsheet
+        embed_to_vectorstore = self.config.agent.embed_to_vectorstore
+        save_to_storage = self.config.agent.save_to_storage
 
         base_project_id = self.data.project_id  # original case ID from dataset
         # eval_run_id doubles as the Supabase project_id for this run,
@@ -141,9 +138,9 @@ class CollectAgentResult:
         prompt = _PROMPT_MAP[self.agent_type]
 
         agent_class = await self.init_agent(
-            use_factsheet=use_factsheet,
-            save_to_storage=save_to_storage,
-            embed_to_vectorstore=embed_to_vectorstore,
+            #use_factsheet=use_factsheet,
+            #save_to_storage=save_to_storage,
+            #embed_to_vectorstore=embed_to_vectorstore,
             tools=tools,
             prompt=prompt,
         )
@@ -290,7 +287,7 @@ class CollectAgentResult:
                 endtime=endtime,
                 duration_seconds=(endtime - starttime).total_seconds(),
             ),
-            metadata = {"significance" : self.significance, 
+            metadata = {"significance" : self.config.agent.significance, 
                         "clean_rate" : self.clean_rate}
         )
 

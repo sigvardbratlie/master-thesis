@@ -33,10 +33,14 @@ class ModelsConfig(BaseModel):
 
 class AgentStream(BaseModel):
     max_token_tool: int = 10000
+    sum_rate : int = 20
+
+    #related to the factsheet in agent
+    use_factsheet: bool = True
     significance : list[str] = ["high", "medium", "low"]  
     embed_to_vectorstore: bool = True
     save_to_storage: bool = True
-    use_factsheet: bool = True
+    minimal_context: bool = False
 
 
 class ProjectConfig(BaseModel):
