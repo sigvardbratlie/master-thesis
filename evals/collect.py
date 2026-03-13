@@ -48,8 +48,7 @@ async def main():
     embed_to_vectorstore = not args.skip_embedding
     save_to_storage = not args.skip_storage
 
-
-    logger.info("━" * 64)
+    logger.info("\n\n━" * 64)
     logger.info(f"🚀  COLLECT  |  dataset: {dataset_name}  |  model: {llm_model}  |  n_runs: {n_runs}")
     logger.info("━" * 64)
 

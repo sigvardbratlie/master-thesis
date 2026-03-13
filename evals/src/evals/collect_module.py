@@ -210,14 +210,14 @@ class CollectAgentResult:
                     else:
                         #clean for the last session
                         #if idx  == len(self.data.sessions) - 1: 
-                        if idx % 2 != 0:
-                            cleanup_query = CleanupElementsRequest(
-                                **input_obj.model_dump(),
-                                element_types=["parties", "events", "damages", "claims"],)
-                            clean_thread = to_thread_config(query=cleanup_query, user_id=self.data.user_id)
-                            clean_graph = clean.compile_clean_elements()
-                            async for chunk in clean_graph.astream({"query": cleanup_query}, config=clean_thread, stream_mode="custom"):
-                                logger.debug(f"Cleanup response: {chunk}")
+                        #if idx % 2 != 0:
+                            # cleanup_query = CleanupElementsRequest(
+                            #     **input_obj.model_dump(),
+                            #     element_types=["parties", "events", "damages", "claims"],)
+                            # clean_thread = to_thread_config(query=cleanup_query, user_id=self.data.user_id)
+                            # clean_graph = clean.compile_clean_elements()
+                            # async for chunk in clean_graph.astream({"query": cleanup_query}, config=clean_thread, stream_mode="custom"):
+                            #     logger.debug(f"Cleanup response: {chunk}")
 
                         thread = to_thread_config(query=input_obj, user_id=self.data.user_id)
                         update_graph = pm.compile_update_pipeline()
