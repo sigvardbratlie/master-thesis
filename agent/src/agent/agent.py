@@ -39,7 +39,8 @@ class Agent:
                  embed_to_vectorstore : bool = True,
                  save_to_storage : bool = True,
                  config: AppConfig = None,
-                 llm : BaseChatModel = None
+                 llm : BaseChatModel = None,
+                 significance : list[str] = None,
                  ):
         """
         Initializes the Agent with tools, prompt, LLMs, and checkpointer.
@@ -65,17 +66,18 @@ class Agent:
         self.context_manager = ContextManager()
         self.tool_manager = ToolManager()
 
-        #TOGGLES
-        self.use_factsheet = use_factsheet
-        self.embed_to_vectorstore = embed_to_vectorstore
-        self.save_to_storage = save_to_storage
-
-        self.llm  = llm 
+        self.llm  = llm
 
         self.config = config or AppConfig()
         self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
         logger.debug(f"⚙️  AgentConfig: max_concurrent={self.config.async_tasks.max_concurrent_requests}, throttle_value={self.config.async_tasks.throttle_value}s")
-    
+        
+        #Settings
+        self.significance = significance or self.config.agent.significance
+        self.use_factsheet = use_factsheet #or self.config.agent.use_factsheet
+        self.embed_to_vectorstore = embed_to_vectorstore #or self.config.agent.embed_to_vectorstore
+        self.save_to_storage = save_to_storage #or self.config.agent.save_to_storage
+
     # =================================
     #         GRAPH ELEMENTS
     # =================================
@@ -242,9 +244,7 @@ class Agent:
 
         project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.use_factsheet else None
         if project and isinstance(project, ProjectData) and isinstance(project.factsheet, FactSheet):
-            content = project.shorten_factsheet() + "\n\n"
-            content += project.shorten_attachments(excluded_fields=["description"]) + "\n\n"
-            content += project.shorten_emails(excluded_fields=["description"]) + "\n\n"
+            content = project.shorten_project(excluded_keys=["description"], significance=self.significance)
             prompt = self.prompt + "\n\n" + content
         else:
             prompt = self.prompt

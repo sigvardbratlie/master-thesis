@@ -69,21 +69,29 @@ class ContextManager:
         """Truncate messages while preserving tool-call structure."""
         if len(messages) <= max_messages:
             return messages
-        
+
         truncated = messages[-max_messages:]
-        
+
         # Remove orphan tool messages at start
-        while truncated and not  isinstance(truncated[0], HumanMessage):
+        while truncated and not isinstance(truncated[0], HumanMessage):
             truncated.pop(0)
-        
+
+        # If no HumanMessage found in window, fall back to last HumanMessage + everything after
+        if not truncated:
+            last_human_idx = next((i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], HumanMessage)), None)
+            if last_human_idx is not None:
+                truncated = list(messages[last_human_idx:])
+            else:
+                truncated = list(messages[-1:])
+
         # Remove trailing AIMessage with tool_calls if no ToolMessage follows
-        if (truncated and 
-            isinstance(truncated[-1], AIMessage) and 
-            hasattr(truncated[-1], 'tool_calls') and 
+        if (truncated and
+            isinstance(truncated[-1], AIMessage) and
+            hasattr(truncated[-1], 'tool_calls') and
             truncated[-1].tool_calls):
             logger.warning("Dropping trailing AIMessage with tool_calls to avoid API error")
             truncated.pop()
-        
+
         return truncated
 
     def is_valid_uuid(self, val):
