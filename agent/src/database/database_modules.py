@@ -7,7 +7,6 @@ from supabase import create_client, Client
 
 from models import *
 from fastapi import FastAPI,HTTPException,status,Depends
-from agent.agent_modules import Summarizer
 import email 
 from email.message import Message 
 
@@ -17,6 +16,14 @@ from pydantic import BaseModel
 import uuid
 
 logger = logging.getLogger(__name__)
+
+_TABLE_ID_FIELDS = {
+    "project_parties": "party_id",
+    "project_events": "event_id",
+    "project_claims": "claim_id",
+    "project_damages": "damage_id",
+    "project_deadlines": "deadline_id",
+}
 
 
 
@@ -113,7 +120,8 @@ class SupabaseManager:
                        project_id : str,
                        session_id : str,
                        query_id : str = "",
-                       emails : list[Email] = []
+                       emails : list[Email] = [],
+                       llm_model: str = "",
                        ):
         
         custom_fields = ["governing_law", "disputed_facts", "undisputed_facts",]
@@ -143,11 +151,14 @@ class SupabaseManager:
         events = factsheet_dict.pop("events", [])
         parties = factsheet_dict.pop("parties", [])
         
+        now = datetime.now().isoformat()
         factsheet_dict["project_id"] = project_id
         factsheet_dict["user_id"] = user_id
         factsheet_dict["updated_session_id"] = session_id
         factsheet_dict["updated_query_id"] = query_id
-        factsheet_dict["updated_at"] = datetime.now().isoformat()
+        factsheet_dict["updated_at"] = now
+        factsheet_dict["created_by"] = llm_model
+        factsheet_dict["updated_by"] = llm_model
         # ========== PROJECT FACTSHEET ==========
         if factsheet_dict:
             try:
@@ -177,7 +188,7 @@ class SupabaseManager:
             # ========== PROJECT PARTIES ==========
             try:
                 parties_with_project = [
-                        {**party, "project_id": project_id}
+                        {**party, "project_id": project_id, "created_by": llm_model, "updated_by": llm_model, "updated_at": now}
                         for party in parties]
                 self.supabase.table("project_parties").upsert(parties_with_project).execute()
                 logger.debug(f'Upserted {len(parties)} parties for project {project_id} in Supabase.')
@@ -188,7 +199,7 @@ class SupabaseManager:
             # ========== PROJECT EVENTS ==========
             try:
                 events_with_project = [
-                        {**event, "project_id": project_id}
+                        {**event, "project_id": project_id, "created_by": llm_model, "updated_by": llm_model, "updated_at": now}
                         for event in events]
                 self.supabase.table("project_events").upsert(events_with_project).execute()
                 logger.debug(f'Upserted {len(events)} events for project {project_id} in Supabase.')
@@ -199,7 +210,7 @@ class SupabaseManager:
             # ========== PROJECT DEADLINES ==========
             try:
                 deadlines_with_project = [
-                        {**deadline, "project_id": project_id}
+                        {**deadline, "project_id": project_id, "created_by": llm_model, "updated_by": llm_model, "updated_at": now}
                         for deadline in deadlines]
                 self.supabase.table("project_deadlines").upsert(deadlines_with_project).execute()
                 logger.debug(f'Upserted {len(deadlines)} deadlines for project {project_id} in Supabase.')
@@ -210,7 +221,7 @@ class SupabaseManager:
         if damages:
             try:
                 damages_with_project = [
-                        {**damage, "project_id": project_id}
+                        {**damage, "project_id": project_id, "created_by": llm_model, "updated_by": llm_model, "updated_at": now}
                         for damage in damages]
                 self.supabase.table("project_damages").upsert(damages_with_project).execute()
                 logger.debug(f'Upserted {len(damages)} damages for project {project_id} in Supabase.')
@@ -221,7 +232,7 @@ class SupabaseManager:
             # ========== PROJECT CLAIMS ==========
             try:
                 claims_with_project = [
-                        {**claim, "project_id": project_id}
+                        {**claim, "project_id": project_id, "created_by": llm_model, "updated_by": llm_model, "updated_at": now}
                         for claim in claims]
                 self.supabase.table("project_claims").upsert(claims_with_project).execute()
                 logger.debug(f'Upserted {len(claims)} claims for project {project_id} in Supabase.')
@@ -232,17 +243,22 @@ class SupabaseManager:
 
     def insert_project_element(self,data : list[dict],
                     project_id : str,
-                    table_name: str):
+                    table_name: str,
+                    llm_model: str = ""):
         if not data:
             logger.warning(f"No data provided to insert for project {project_id} in table {table_name}. Skipping insert.")
             return
         if not isinstance(data, list):
             raise ValueError("Data must be a list of BaseModel or dict instances.")
-        
+
+        now = datetime.now().isoformat()
         for item in data:
             if not isinstance(item, dict):
                 raise ValueError("Each item in data must be a BaseModel or a dict.")
             item["project_id"] = project_id
+            item["created_by"] = llm_model
+            item["updated_by"] = llm_model
+            item["updated_at"] = now
         try:
             self.supabase.table(table_name).insert(data).execute()
             logger.debug(f'Inserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
@@ -252,43 +268,58 @@ class SupabaseManager:
     def replace_project_element(self,
                     data : list[BaseModel],
                     project_id : str,
-                    table_name: str):
+                    table_name: str,
+                    llm_model: str = ""):
         if not data:
             logger.warning(f"No data provided to replace for project {project_id} in table {table_name}. Skipping replace.")
             return
+
+        id_field = _TABLE_ID_FIELDS.get(table_name)
+        now = datetime.now().isoformat()
+
+        existing_map = {}
+        if id_field:
+            existing = self.supabase.table(table_name).select(f"{id_field}, created_by, created_at").eq("project_id", project_id).execute()
+            existing_map = {row[id_field]: {"created_by": row.get("created_by"), "created_at": row.get("created_at")} for row in existing.data}
 
         data_dicts = []
         for item in data:
             item_dict = item.model_dump(mode='json') if hasattr(item, 'model_dump') else item
             if not isinstance(item_dict, dict):
                 raise ValueError("Each item in data must be a BaseModel or a dict.")
+            item_id = item_dict.get(id_field) if id_field else None
+            existing_entry = existing_map.get(item_id) if item_id else None
             item_dict["project_id"] = project_id
+            item_dict["updated_by"] = llm_model
+            item_dict["updated_at"] = now
+            item_dict["created_by"] = existing_entry["created_by"] if existing_entry else llm_model
+            item_dict["created_at"] = existing_entry["created_at"] if existing_entry else now
             data_dicts.append(item_dict)
 
         try:
             self.supabase.table(table_name).delete().eq("project_id", project_id).execute()
-            
-            if data_dicts:  
-                self.supabase.table(table_name).insert(data_dicts).execute()
-            else:
-                logger.warning(f"No data provided to replace for project {project_id} in table {table_name}. Skipping insert after delete.")
-            
+            self.supabase.table(table_name).insert(data_dicts).execute()
             logger.debug(f'Replaced {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.error(f'Error replacing items for project {project_id} in Supabase table {table_name}: {e}')
 
     def upsert_project_custom(self,
                     data : dict | str,
-                    element_type : str, 
+                    element_type : str,
                     project_id : str,
-                    table_name = "project_legal"):
+                    table_name = "project_legal",
+                    llm_model: str = ""):
         if not data:
             logger.warning(f"No custom field data provided to replace for project {project_id}. Skipping replace.")
             return
         if not isinstance(data, dict):
             data = {element_type: data}
 
+        existing = self.supabase.table(table_name).select("created_by").eq("project_id", project_id).execute()
         data["project_id"] = project_id
+        data["created_by"] = existing.data[0].get("created_by") if existing.data else llm_model
+        data["updated_by"] = llm_model
+        data["updated_at"] = datetime.now().isoformat()
 
         try:
             self.supabase.table(table_name).upsert(data).execute()
@@ -296,16 +327,22 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f'Error replacing custom fields for project {project_id} in Supabase: {e}')
 
-    def upsert_project(self, 
-                       data: dict | str, 
+    def upsert_project(self,
+                       data: dict | str,
                        element_type: str,
-                       project_id: str):
+                       project_id: str,
+                       llm_model: str = ""):
         if not data:
             logger.warning(f"No data provided to upsert for project {project_id}. Skipping upsert.")
             return
         if not isinstance(data, dict):
             data = {element_type: data}
+
+        existing = self.supabase.table("projects").select("created_by").eq("project_id", project_id).execute()
         data["project_id"] = project_id
+        data["created_by"] = existing.data[0].get("created_by") if existing.data else llm_model
+        data["updated_by"] = llm_model
+        data["updated_at"] = datetime.now().isoformat()
         try:
             self.supabase.table("projects").upsert(data).execute()
             logger.debug(f'Project {project_id} upserted in Supabase.')
@@ -418,6 +455,7 @@ class SupabaseManager:
             try:
                 title_msg = [msg.get("content") for msg in new_events if msg.get("type") == "human" or msg.get("type") == "ai"]
                 #title = await self.mk_title(title_msg)
+                from agent.agent_modules import Summarizer
                 summarizer = Summarizer()
                 title = summarizer.mk_title(title_msg)
             except Exception as e:
