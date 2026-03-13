@@ -346,9 +346,13 @@ def list_attachments(element_types : list[Literal["attachments", "emails"]],
     if not project:
         return f"No project {project_id}"
     value = f"=== List of project elements: {', '.join(element_types)} ===\n\n"
-    value += project.shorten_project(
+
+    value += project.shorten_attachments(
                     significance=significance,
-                    inclued_fields=element_types,)
+                    excluded_keys=["description",] if "attachments" in element_types else None,)
+    value += project.shorten_emails(
+                    significance=significance,
+                    excluded_keys=["description",] if "emails" in element_types else None,)
     return value
 
 TOOLS = [

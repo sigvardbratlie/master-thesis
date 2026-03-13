@@ -60,7 +60,7 @@ entity_types = Literal["individual", "company", "government"]
 
 significance_levels = Literal["high", "medium", "low"]
 
-def shorten_element(elements : list,  element_name : Literal["attachments", "emails","events", "parties", "claims", "damages"] , format_key : list[str], significance: list[Literal["high", "medium", "low"]] = None) -> str:
+def shorten_element(elements : list,  element_name : Literal["attachments", "emails","events", "parties", "claims", "damages"] , format_keys : list[str], significance: list[Literal["high", "medium", "low"]] = None) -> str:
         type_map = {
             "attachments": Attachment, 
             "emails": Email,
@@ -72,14 +72,14 @@ def shorten_element(elements : list,  element_name : Literal["attachments", "ema
         if not elements:
             return f"No {element_name.capitalize()}.\n\n"
         view = ""
-        view += "**FORMAT: " + " | ".join(format_key) + "**\n"
+        view += "**FORMAT: " + " | ".join(format_keys) + "**\n"
         for item in elements:
             if not isinstance(item, type_map[element_name]):
                 logger.warning(f'Item is of wrong type: {type(item)}. Expected type {type_map[element_name]. __name__}. Skipping item.')
                 continue
             if significance and item.significance not in significance:
                 continue
-            row = " | ".join([str(getattr(item, key)) for key in format_key])
+            row = " | ".join([str(getattr(item, key)) for key in format_keys])
             view += f"\t* {row}\n"
         return f"{element_name.capitalize()}:\n" + view + "\n\n"
 
@@ -308,32 +308,47 @@ class FactSheet(InitialInput,
 
     def shorten_events(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
         shorten_keys = ["event_start_date", "event_name", "file_id", "description", "disputed"]
-        return shorten_element(self.events,  
+        # return shorten_element(self.events,  
+        #                        element_name="events", 
+        #                        format_keys=shorten_keys, 
+        #                        significance=significance)
+        return self.shorten_element(  
                                element_name="events", 
-                               format_key=shorten_keys, 
+                               format_keys=shorten_keys, 
                                significance=significance)
         
 
     def shorten_parties(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
         shorten_keys = ["legal_name", "entity_type", "role", "role_description"]
-        return shorten_element(self.parties, 
+        # return shorten_element(self.parties, 
+        #                         element_name="parties", 
+        #                         format_keys=shorten_keys, 
+        #                         significance=significance)
+        return self.shorten_element(
                                 element_name="parties", 
-                                format_key=shorten_keys, 
+                                format_keys=shorten_keys, 
                                 significance=significance)
         
 
     def shorten_claims(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
         shorten_keys = ["relief_sought", "factual_basis", "legal_basis"]
-        return shorten_element(self.claims, 
+        # return shorten_element(self.claims, 
+        #                         element_name="claims", 
+        #                        format_keys=shorten_keys, significance=significance)
+        return self.shorten_element( 
                                 element_name="claims", 
-                               format_key=shorten_keys, significance=significance)
+                               format_keys=shorten_keys, significance=significance)
         
 
     def shorten_damages(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
         shorten_keys = ["category", "amount", "currency", "basis"]
-        return shorten_element(self.damages, 
+        # return shorten_element(self.damages, 
+        #                         element_name="damages", 
+        #                         format_keys=shorten_keys, 
+        #                         significance=significance)
+        return self.shorten_element(
                                 element_name="damages", 
-                                format_key=shorten_keys, 
+                                format_keys=shorten_keys, 
                                 significance=significance)
     
     def shorten_factsheet(self, 
@@ -346,3 +361,27 @@ class FactSheet(InitialInput,
         view += self.shorten_claims(significance) if self.claims and (not excluded_fields or "claims" not in excluded_fields) else ""
         view += self.shorten_damages(significance) if self.damages and (not excluded_fields or "damages" not in excluded_fields) else ""
         return view
+    
+    def shorten_element(self,  element_name : Literal["attachments", "emails","events", "parties", "claims", "damages"] , format_keys : list[str], significance: list[Literal["high", "medium", "low"]] = None) -> str:
+        type_map = {
+            "attachments": Attachment, 
+            "emails": Email,
+            "events" : Event,
+            "parties" : Party,
+            "claims" : Claim,
+            "damages" : Damage
+            }
+        elements = getattr(self, element_name, [])
+        if not elements:
+            return f"No {element_name.capitalize()}.\n\n"
+        view = ""
+        view += "**FORMAT: " + " | ".join(format_keys) + "**\n"
+        for item in elements:
+            if not isinstance(item, type_map[element_name]):
+                logger.warning(f'Item is of wrong type: {type(item)}. Expected type {type_map[element_name]. __name__}. Skipping item.')
+                continue
+            if significance and item.significance not in significance:
+                continue
+            row = " | ".join([str(getattr(item, key)) for key in format_keys])
+            view += f"\t* {row}\n"
+        return f"{element_name.capitalize()}:\n" + view + "\n\n"
