@@ -1,25 +1,60 @@
-import copy
-import email
 import json
 import logging
-import math
 import mimetypes
 import os
-import re
 import uuid
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
-
-_OSLO = ZoneInfo("Europe/Oslo")
-from io import BytesIO, StringIO
 from pathlib import Path
 
-import pandas as pd
 import streamlit as st
-from docx import Document
 from google.api_core.exceptions import NotFound
-from google.cloud import storage
-from google.oauth2 import service_account
+
+from gcs import (
+    _OSLO,
+    _DATE_PATTERN,
+    blob_exists,
+    read_blob_bytes,
+    upload_raw_blob,
+    list_dataset_names,
+    list_data_blobs,
+    list_result_blobs,
+    list_eval_blobs,
+    list_versions,
+    dataset_blob_path,
+    draft_blob_path,
+    create_dataset,
+    trash_dataset,
+    trash_file,
+    trash_result_blob,
+    _load_matched_result,
+    parse_result_filename,
+    parse_eval_filename,
+    move_blob,
+)
+from langsmith_utils import update_token_counts
+from components import (
+    SUPPORTED_EXTENSIONS,
+    FILE_ICONS,
+    text_height,
+    _render_token_metrics,
+    _render_time_inputs,
+    render_file,
+    compute_session_attachments,
+    render_attachments_section,
+)
+from state import (
+    fix_encoding,
+    undo_last,
+    delete_session,
+    move_session,
+    delete_query,
+    move_query,
+    add_query,
+    add_session,
+    build_export,
+    save_draft,
+    publish,
+    reset_to_original,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,299 +63,6 @@ if not Path(".").resolve().name == "data-viewer":
     os.chdir("./data-viewer")
 
 st.set_page_config(page_title="📂 Dataset Viewer", layout="wide")
-
-# ── GCS Setup ─────────────────────────────────────────────────────────────────
-
-BUCKET_NAME = "master-thesis-prod"
-
-
-@st.cache_resource
-def get_gcs_client() -> storage.Client:
-    creds = service_account.Credentials.from_service_account_info(
-        dict(st.secrets["gcp_service_account"])
-    )
-    return storage.Client(credentials=creds)
-
-
-def _bucket() -> storage.Bucket:
-    return get_gcs_client().bucket(BUCKET_NAME)
-
-
-def blob_exists(blob_path: str) -> bool:
-    return _bucket().blob(blob_path).exists()
-
-
-def read_blob_bytes(blob_path: str) -> bytes:
-    return _bucket().blob(blob_path).download_as_bytes()
-
-
-def write_blob(blob_path: str, data: bytes) -> None:
-    _bucket().blob(blob_path).upload_from_string(
-        data, content_type="application/json; charset=utf-8"
-    )
-
-
-def delete_blob(blob_path: str) -> None:
-    blob = _bucket().blob(blob_path)
-    if blob.exists():
-        blob.delete()
-
-
-def copy_blob(src: str, dst: str) -> None:
-    bucket = _bucket()
-    bucket.copy_blob(bucket.blob(src), bucket, dst)
-
-
-def move_blob(src: str, dst: str) -> None:
-    copy_blob(src, dst)
-    delete_blob(src)
-
-
-def upload_raw_blob(blob_path: str, data: bytes, content_type: str) -> None:
-    _bucket().blob(blob_path).upload_from_string(data, content_type=content_type)
-
-
-def list_dataset_names() -> list[str]:
-    client = get_gcs_client()
-    blobs = client.list_blobs(BUCKET_NAME, prefix="datasets/", delimiter="/")
-    _ = list(blobs)  # consume iterator to populate prefixes
-    dataset = sorted(
-        p.replace("datasets/", "").rstrip("/")
-        for p in blobs.prefixes
-        if p != "datasets/"
-    )
-
-    return [d for d in dataset if d and d != "None"]
-
-
-def dataset_blob_path(ds: str) -> str:
-    return f"datasets/{ds}/dataset_{ds}.json"
-
-
-def draft_blob_path(ds: str) -> str:
-    return f"datasets/{ds}/dataset_{ds}_draft.json"
-
-
-def version_blob_path(ds: str, ts: str) -> str:
-    return f"datasets/{ds}/versions/dataset_{ds}_{ts}.json"
-
-
-def list_versions(ds: str) -> list[storage.Blob]:
-    """Return published version blobs, newest first."""
-    client = get_gcs_client()
-    prefix = f"datasets/{ds}/versions/"
-    blobs = [
-        b
-        for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
-        if not b.name.endswith("/")
-    ]
-    return sorted(blobs, key=lambda b: b.name, reverse=True)
-
-
-def list_data_blobs(dataset: str) -> list[storage.Blob]:
-    """Return blobs under datasets/<dataset>/01_data/ with supported extensions."""
-    client = get_gcs_client()
-    prefix = f"datasets/{dataset}/01_data/"
-    return [
-        b
-        for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
-        if not b.name.endswith("/")
-        and Path(b.name).suffix.lower() in SUPPORTED_EXTENSIONS
-    ]
-
-
-def list_result_blobs(dataset: str) -> list[storage.Blob]:
-    """Return blobs under datasets/<dataset>/04_results/ (JSON files), newest first."""
-    client = get_gcs_client()
-    prefix = f"datasets/{dataset}/04_results/"
-    blobs = [
-        b
-        for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
-        if not b.name.endswith("/") and b.name.endswith(".json")
-    ]
-    return sorted(blobs, key=lambda b: b.name, reverse=True)
-
-
-def list_eval_blobs(dataset: str) -> list[storage.Blob]:
-    """Return blobs under datasets/<dataset>/05_evals/ (JSON files), newest first."""
-    client = get_gcs_client()
-    prefix = f"datasets/{dataset}/05_evals/"
-    blobs = [
-        b
-        for b in client.list_blobs(BUCKET_NAME, prefix=prefix)
-        if not b.name.endswith("/") and b.name.endswith(".json")
-    ]
-    return sorted(blobs, key=lambda b: b.name, reverse=True)
-
-
-def create_dataset(ds_name: str) -> None:
-    """Create a new empty dataset JSON in GCS."""
-    payload = json.dumps(
-        {
-            "dataset_name": ds_name,
-            "project_id": "",
-            "last_updated": datetime.now(_OSLO).isoformat(),
-            "sessions": [],
-        },
-        ensure_ascii=False,
-        indent=4,
-    ).encode("utf-8")
-    write_blob(dataset_blob_path(ds_name), payload)
-
-
-def trash_dataset(ds_name: str) -> None:
-    """Move all blobs for a dataset to _trash/datasets/{ds_name}_{ts}/."""
-    client = get_gcs_client()
-    prefix = f"datasets/{ds_name}/"
-    blobs = list(client.list_blobs(BUCKET_NAME, prefix=prefix))
-    ts = datetime.now(_OSLO).strftime("%Y-%m-%dT%H-%M-%S")
-    for blob in blobs:
-        rel = blob.name[len(prefix) :]
-        move_blob(blob.name, f"_trash/datasets/{ds_name}_{ts}/{rel}")
-
-
-def trash_file(dataset: str, blob_name: str) -> None:
-    """Move a data file to the dataset's _trash/ folder."""
-    filename = blob_name.split("/")[-1]
-    ts = datetime.now(_OSLO).strftime("%Y-%m-%dT%H-%M-%S")
-    move_blob(blob_name, f"datasets/{dataset}/_trash/{ts}_{filename}")
-
-
-def trash_result_blob(dataset: str, blob_name: str) -> None:
-    """Move a result file to the dataset's _trash/ folder."""
-    filename = blob_name.split("/")[-1]
-    ts = datetime.now(_OSLO).strftime("%Y-%m-%dT%H-%M-%S")
-    move_blob(blob_name, f"datasets/{dataset}/_trash/results_{ts}_{filename}")
-
-
-_RESULT_RE = re.compile(r"^(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})\.json$")
-_EVAL_RE = re.compile(r"^llm-as-judge_(.+)_(custom|baseline)_(.+)\.json$")
-_DATE_PATTERN = re.compile(r"(\d{4}-\d{2}-\d{2})")
-
-
-@st.cache_data(ttl=120)
-def _load_matched_result(dataset: str, eval_run_id: str) -> dict:
-    """Find the result file matching eval_run_id and return its full data dict."""
-    for blob in list_result_blobs(dataset):
-        try:
-            data = json.loads(read_blob_bytes(blob.name).decode("utf-8"))
-            if data.get("eval_run_id") == eval_run_id:
-                return data
-        except Exception:
-            continue
-    return {}
-
-
-# ── LangSmith token counts ─────────────────────────────────────────────────────
-
-def _get_langsmith_client():
-    import os
-    from langsmith import Client
-    api_key = st.secrets["langsmith"].get("LANGSMITH_API_KEY")
-    if api_key:
-        os.environ["LANGSMITH_API_KEY"] = api_key
-    return Client()
-
-
-def _get_session_token_counts(client, runtime_session_id: str, project_name: str) -> dict:
-    runs = list(client.list_runs(
-        project_name=project_name,
-        filter=f'has(metadata, \'{{"thread_id": "{runtime_session_id}"}}\')',
-        run_type="llm",
-    ))
-    per_query: dict[str, dict] = {}
-    for r in runs:
-        qid = (r.extra or {}).get("metadata", {}).get("query_id", "unknown")
-        entry = per_query.setdefault(qid, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0})
-        entry["input_tokens"] += r.prompt_tokens or 0
-        entry["output_tokens"] += r.completion_tokens or 0
-        entry["total_tokens"] += r.total_tokens or 0
-        entry["llm_calls"] += 1
-    return {
-        "input_tokens": sum(r.prompt_tokens or 0 for r in runs),
-        "output_tokens": sum(r.completion_tokens or 0 for r in runs),
-        "total_tokens": sum(r.total_tokens or 0 for r in runs),
-        "llm_calls": len(runs),
-        "per_query": per_query,
-    }
-
-
-def update_token_counts(blob_name: str, result_data: dict) -> None:
-    """Fetch token counts from LangSmith for each session and re-save the result blob."""
-    import os
-    client = _get_langsmith_client()
-    project_name = st.secrets.get("LANGCHAIN_PROJECT") or os.environ.get("LANGCHAIN_PROJECT", "default")
-
-    total_input, total_output, total_tokens, total_calls = 0, 0, 0, 0
-    for session in result_data.get("sessions", []):
-        rid = session.get("runtime_session_id")
-        if not rid:
-            continue
-        s_tok = _get_session_token_counts(client, rid, project_name)
-        total_input += s_tok["input_tokens"]
-        total_output += s_tok["output_tokens"]
-        total_tokens += s_tok["total_tokens"]
-        total_calls += s_tok["llm_calls"]
-
-        session["token_counts"] = {
-            "input_tokens": s_tok["input_tokens"],
-            "output_tokens": s_tok["output_tokens"],
-            "total_tokens": s_tok["total_tokens"],
-            "llm_calls": s_tok["llm_calls"],
-        }
-
-        init_qid = session.get("init_query_id")
-        if init_qid:
-            q_init = s_tok["per_query"].get(init_qid, {})
-            session["init_query_token_count"] = {
-                "input_tokens": q_init.get("input_tokens", 0),
-                "output_tokens": q_init.get("output_tokens", 0),
-                "total_tokens": q_init.get("total_tokens", 0),
-                "llm_calls": q_init.get("llm_calls", 0),
-            }
-
-        for conv in session.get("conversation", []):
-            qid = conv.get("query_id", "unknown")
-            q = s_tok["per_query"].get(qid, {})
-            conv["token_counts"] = {
-                "input_tokens": q.get("input_tokens", 0),
-                "output_tokens": q.get("output_tokens", 0),
-                "total_tokens": q.get("total_tokens", 0),
-                "llm_calls": q.get("llm_calls", 0),
-            }
-
-    result_data["token_counts"] = {
-        "input_tokens": total_input,
-        "output_tokens": total_output,
-        "total_tokens": total_tokens,
-        "llm_calls": total_calls,
-    }
-
-    write_blob(blob_name, json.dumps(result_data, ensure_ascii=False, indent=4).encode("utf-8"))
-    logger.info(f"Token counts updated and saved to {blob_name}")
-
-
-def parse_result_filename(name: str) -> tuple[str, str]:
-    """Return (model, display_timestamp) from a result filename, or (name, '') on failure."""
-    m = _RESULT_RE.match(name)
-    if not m:
-        return name, ""
-    model = m.group(1)
-    ts = m.group(2)  # YYYY-MM-DD_HH-MM-SS
-    display = ts.replace("_", " ").replace("-", ":", 2)  # YYYY-MM-DD HH:MM:SS
-    # Fix: only replace hyphens in the time part
-    date_part, time_part = ts.split("_")
-    display = f"{date_part} {time_part.replace('-', ':')}"
-    return model, display
-
-
-def parse_eval_filename(name: str) -> tuple[str, str, str]:
-    """Return (model, agent_type, eval_run_id) from eval filename, or (name, '', '') on failure."""
-    m = _EVAL_RE.match(name)
-    if not m:
-        return name, "", ""
-    return m.group(1), m.group(2), m.group(3)
-
 
 # ── Header ────────────────────────────────────────────────────────────────────
 
@@ -425,376 +167,6 @@ if st.session_state.get("_loaded_dataset") != dataset:
             st.session_state[f"ans_{s_idx}_{q_idx}"] = query.get("answer", "").strip()
 
 raw = st.session_state["_raw"]
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-
-def text_height(
-    text: str, min_height: int = 100, max_height: int = 800, chars_per_line: int = 90
-) -> int:
-    lines = text.split("\n")
-    total_lines = sum(max(1, math.ceil(len(line) / chars_per_line)) for line in lines)
-    return max(min_height, min(max_height, total_lines * 22 + 50))
-
-
-def _render_token_metrics(token_counts: dict) -> None:
-    """Render token counts dict as Streamlit metric widgets."""
-    st.write("")
-    tc_cols = st.columns(len(token_counts))
-    for col, (k, v) in zip(tc_cols, token_counts.items()):
-        col.metric(k.replace("_", " ").title(), f"{v:,}" if isinstance(v, int) else v)
-
-
-def _render_time_inputs(time_usage: dict, key_prefix: str = "") -> None:
-    """Render time usage (starttime/endtime/duration_seconds) as disabled text inputs."""
-    duration = time_usage.get("duration_seconds")
-    start_time = time_usage.get("starttime")
-    end_time = time_usage.get("endtime")
-    t1, t2, t3, _ = st.columns(4)
-    t1.text_input("Duration", value=f"{duration:.1f}s" if duration else "—", disabled=True, key=f"{key_prefix}_dur" if key_prefix else None)
-    t2.text_input("Start Time", value=start_time or "—", disabled=True, key=f"{key_prefix}_start" if key_prefix else None)
-    t3.text_input("End Time", value=end_time or "—", disabled=True, key=f"{key_prefix}_end" if key_prefix else None)
-
-
-SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".eml", ".docx", ".xlsx"}
-
-FILE_ICONS = {
-    ".pdf": "📄",
-    ".txt": "📝",
-    ".eml": "📧",
-    ".docx": "📝",
-    ".xlsx": "📊",
-}
-
-
-def render_file(filename: str, content: bytes) -> None:
-    """Render a supported file inline."""
-    ext = Path(filename).suffix.lower()
-
-    if ext == ".pdf":
-        st.pdf(BytesIO(content))
-
-    elif ext == ".txt":
-        with st.container(height=600, border=True):
-            st.text(content.decode("utf-8", errors="ignore"))
-
-    elif ext == ".eml":
-        msg = email.message_from_bytes(content)
-        with st.container(height=600, border=True):
-            st.markdown(f"**From:** {msg.get('From', '')}")
-            st.markdown(f"**To:** {msg.get('To', '')}")
-            st.markdown(f"**Subject:** {msg.get('Subject', '')}")
-            st.markdown(f"**Date:** {msg.get('Date', '')}")
-            st.divider()
-            if msg.is_multipart():
-                for part in msg.walk():
-                    if part.get_content_type() == "text/plain":
-                        st.text(
-                            part.get_payload(decode=True).decode(
-                                "utf-8", errors="ignore"
-                            )
-                        )
-            else:
-                st.text(msg.get_payload(decode=True).decode("utf-8", errors="ignore"))
-
-    elif ext == ".docx":
-        document = Document(BytesIO(content))
-        st.text("\n".join(p.text for p in document.paragraphs))
-
-    elif ext == ".xlsx":
-        df = pd.read_excel(BytesIO(content))
-        st.dataframe(df, use_container_width=True)
-
-    else:
-        st.warning(f"Unsupported file type: `{ext}`")
-
-
-def _sync_widgets_to_raw() -> None:
-    """Write current widget values back into _raw before structural changes."""
-    for s_idx, session in enumerate(st.session_state["_raw"]["sessions"]):
-        session["session_name"] = st.session_state.get(
-            f"sname_{s_idx}", session.get("session_name", "")
-        )
-        session["date"] = st.session_state.get(
-            f"sdate_{s_idx}", session.get("date", "")
-        )
-        session["init_query"] = st.session_state.get(
-            f"sinit_{s_idx}", session.get("init_query", "")
-        )
-        for q_idx, query in enumerate(session["conversation"]):
-            query["input"] = st.session_state.get(
-                f"inp_{s_idx}_{q_idx}", query.get("input", "")
-            )
-            query["answer"] = st.session_state.get(
-                f"ans_{s_idx}_{q_idx}", query.get("answer", "")
-            )
-
-
-def _rebuild_session_keys() -> None:
-    """Clear and re-initialise all index-based widget keys from _raw."""
-    for key in [
-        k
-        for k in st.session_state
-        if k.startswith(("sname_", "sdate_", "sinit_", "inp_", "ans_"))
-    ]:
-        del st.session_state[key]
-    for s_idx, session in enumerate(st.session_state["_raw"]["sessions"]):
-        st.session_state[f"sname_{s_idx}"] = session.get("session_name", "")
-        st.session_state[f"sdate_{s_idx}"] = session.get("date", "")
-        st.session_state[f"sinit_{s_idx}"] = session.get("init_query", "")
-        for q_idx, query in enumerate(session["conversation"]):
-            st.session_state[f"inp_{s_idx}_{q_idx}"] = query.get("input", "").strip()
-            st.session_state[f"ans_{s_idx}_{q_idx}"] = query.get("answer", "").strip()
-
-
-def _fix_mojibake(obj):
-    """Recursively fix UTF-8 text that was incorrectly decoded as latin-1."""
-    if isinstance(obj, str):
-        try:
-            return obj.encode("latin-1").decode("utf-8")
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            return obj
-    elif isinstance(obj, dict):
-        return {k: _fix_mojibake(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_fix_mojibake(item) for item in obj]
-    return obj
-
-
-def fix_encoding() -> None:
-    """Fix mojibake encoding in _raw, rebuild widgets, and save draft."""
-    _sync_widgets_to_raw()
-    st.session_state["_raw"] = _fix_mojibake(st.session_state["_raw"])
-    _rebuild_session_keys()
-
-
-def _renumber() -> None:
-    """Reassign sequential 'session' and per-session 'order' fields after structural changes."""
-    for s_idx, session in enumerate(st.session_state["_raw"]["sessions"]):
-        session["session"] = s_idx
-        for q_idx, query in enumerate(session["conversation"]):
-            query["order"] = q_idx
-
-
-def _push_undo() -> None:
-    """Push a deep copy of _raw onto the undo stack before a structural change."""
-    stack = st.session_state.setdefault("_undo_stack", [])
-    stack.append(copy.deepcopy(st.session_state["_raw"]))
-    if len(stack) > 20:
-        stack.pop(0)
-
-
-def undo_last() -> None:
-    """Restore the previous state from the undo stack."""
-    stack = st.session_state.get("_undo_stack", [])
-    if stack:
-        st.session_state["_raw"] = stack.pop()
-        _rebuild_session_keys()
-
-
-def delete_session(s_idx: int) -> None:
-    _push_undo()
-    _sync_widgets_to_raw()
-    del st.session_state["_raw"]["sessions"][s_idx]
-    _renumber()
-    _rebuild_session_keys()
-
-
-def move_session(s_idx: int, direction: int) -> None:
-    """Swap session at s_idx with neighbour. direction: -1 = up, +1 = down."""
-    _push_undo()
-    _sync_widgets_to_raw()
-    sessions = st.session_state["_raw"]["sessions"]
-    target = s_idx + direction
-    sessions[s_idx], sessions[target] = sessions[target], sessions[s_idx]
-    _renumber()
-    _rebuild_session_keys()
-
-
-def delete_query(s_idx: int, q_idx: int) -> None:
-    _push_undo()
-    _sync_widgets_to_raw()
-    del st.session_state["_raw"]["sessions"][s_idx]["conversation"][q_idx]
-    _renumber()
-    _rebuild_session_keys()
-
-
-def move_query(s_idx: int, q_idx: int, direction: int) -> None:
-    _push_undo()
-    _sync_widgets_to_raw()
-    conv = st.session_state["_raw"]["sessions"][s_idx]["conversation"]
-    target = q_idx + direction
-    conv[q_idx], conv[target] = conv[target], conv[q_idx]
-    _renumber()
-    _rebuild_session_keys()
-
-
-def add_query(s_idx: int) -> None:
-    _push_undo()
-    _sync_widgets_to_raw()
-    conv = st.session_state["_raw"]["sessions"][s_idx]["conversation"]
-    conv.append({"input": "", "answer": "", "query_id": str(uuid.uuid4()), "order": 0})
-    _renumber()
-    _rebuild_session_keys()
-
-
-def add_session() -> None:
-    _push_undo()
-    _sync_widgets_to_raw()
-    sessions = st.session_state["_raw"]["sessions"]
-    sessions.append(
-        {
-            "session": 0,
-            "date": datetime.now(_OSLO).strftime("%Y-%m-%d"),
-            "session_id": str(uuid.uuid4()),
-            "session_name": f"New session {len(sessions) + 1}",
-            "init_query": "",
-            "init_query_id": str(uuid.uuid4()),
-            "conversation": [
-                {"input": "", "answer": "", "query_id": str(uuid.uuid4()), "order": 0}
-            ],
-        }
-    )
-    _renumber()
-    _rebuild_session_keys()
-
-
-def build_export() -> str:
-    _sync_widgets_to_raw()
-    data = copy.deepcopy(st.session_state["_raw"])
-    data["last_updated"] = datetime.now(_OSLO).isoformat()
-    return json.dumps(data, ensure_ascii=False, indent=4)
-
-
-def save_draft() -> None:
-    """Sync widgets → _raw, write draft blob to GCS, update last-saved timestamp."""
-    _sync_widgets_to_raw()
-    data = copy.deepcopy(st.session_state["_raw"])
-    data["last_updated"] = datetime.now(_OSLO).isoformat()
-    write_blob(
-        draft_blob_path(st.session_state["_loaded_dataset"]),
-        json.dumps(data, ensure_ascii=False, indent=4).encode("utf-8"),
-    )
-    st.session_state["_last_saved"] = datetime.now(_OSLO).strftime("%H:%M:%S")
-    st.session_state["_from_draft"] = True
-
-
-def publish() -> None:
-    """Publish current state: save timestamped version snapshot + update canonical dataset."""
-    _sync_widgets_to_raw()
-    data = copy.deepcopy(st.session_state["_raw"])
-    data["last_updated"] = datetime.now(_OSLO).isoformat()
-    payload = json.dumps(data, ensure_ascii=False, indent=4).encode("utf-8")
-    ds = st.session_state["_loaded_dataset"]
-
-    ts = datetime.now(_OSLO).strftime("%Y-%m-%dT%H-%M-%S")
-    write_blob(version_blob_path(ds, ts), payload)
-    write_blob(dataset_blob_path(ds), payload)
-    delete_blob(draft_blob_path(ds))
-
-    st.session_state["_from_draft"] = False
-    st.session_state["_last_published"] = datetime.now(_OSLO).strftime("%H:%M:%S")
-    st.session_state["_last_saved"] = None
-    st.session_state["_show_publish_toast"] = True
-
-
-def reset_to_original() -> None:
-    """Delete draft blob from GCS and force reload from last published canonical on next rerun."""
-    delete_blob(draft_blob_path(st.session_state["_loaded_dataset"]))
-    st.session_state["_reset_to_original"] = True
-    del st.session_state["_loaded_dataset"]
-
-
-# ── Session attachment computation ────────────────────────────────────────────
-
-
-@st.cache_data(ttl=120)
-def _get_data_files_by_date(dataset: str) -> dict[str, list[str]]:
-    """Return {date_str: [blob_paths]} for all supported data files in 01_data/."""
-    from collections import defaultdict
-
-    date_to_files: dict[str, list[str]] = defaultdict(list)
-    for blob in list_data_blobs(dataset):
-        match = _DATE_PATTERN.search(blob.name)
-        if match:
-            date_to_files[match.group(1)].append(blob.name)
-    return dict(date_to_files)
-
-
-def compute_session_attachments(dataset: str, sessions: list[dict]) -> list[list[str]]:
-    """Compute attachment lists per session using the date-window logic.
-
-    Mirrors assign_session_attachments() in dataset_module.py:
-    each session gets files whose date falls in (prev_date, session_date].
-    """
-    date_to_files = _get_data_files_by_date(dataset)
-
-    def _parse(s: str | None):
-        try:
-            return datetime.strptime(s, "%Y-%m-%d").date() if s else None
-        except ValueError:
-            return None
-
-    date_to_files_dt = {_parse(d): files for d, files in date_to_files.items() if _parse(d)}
-    file_dates_sorted = sorted(date_to_files_dt.keys())
-
-    seen: set[str] = set()
-    prev_dt = None
-    result: list[list[str]] = []
-
-    for session in sessions:
-        current_dt = _parse(session.get("date"))
-        if current_dt is None:
-            result.append([])
-            continue
-
-        candidates = [
-            f
-            for fd in file_dates_sorted
-            if (prev_dt is None or fd > prev_dt) and fd <= current_dt
-            for f in date_to_files_dt[fd]
-        ]
-        new_files = [f for f in candidates if f not in seen]
-        seen.update(new_files)
-        result.append(new_files)
-        prev_dt = current_dt
-
-    return result
-
-
-# ── Attachment helpers ────────────────────────────────────────────────────────
-
-
-def render_attachment_popover(path: str) -> None:
-    """Render a popover button for a single attachment.
-
-    File bytes are loaded lazily into session state on first user request —
-    nothing is downloaded at render time.
-    """
-    fname = path.split("/")[-1]
-    ext = Path(fname).suffix.lower()
-    icon = FILE_ICONS.get(ext, "📎")
-    bytes_key = f"_att_{path}"
-
-    with st.popover(f"{icon} {fname}"):
-        if bytes_key not in st.session_state:
-            if st.button("📂 Load preview", key=f"load_{bytes_key}"):
-                try:
-                    st.session_state[bytes_key] = read_blob_bytes(path)
-                except Exception as e:
-                    st.error(f"Could not load: {e}")
-        if st.session_state.get(bytes_key):
-            render_file(fname, st.session_state[bytes_key])
-
-
-def render_attachments_section(attachments: list[str]) -> None:
-    """Render an attachments expander with a lazy popover preview per file."""
-    if not attachments:
-        return
-    with st.expander(f"📎 Attachments ({len(attachments)})", expanded=False):
-        for path in attachments:
-            render_attachment_popover(path)
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
@@ -942,7 +314,7 @@ with tab_dataset:
                 )
                 st.caption(f"🔑 `{session.get('init_query_id', '—')}`")
 
-            render_attachments_section(ds_session_attachments[s_idx])
+            render_attachments_section(ds_session_attachments[s_idx], key_prefix=f"ds_{s_idx}")
 
             cap_col, btn_col = st.columns([0.65, 0.35])
             cap_col.caption(
@@ -1427,7 +799,7 @@ with tab_results:
                 st.session_state[f"_res_q_collapsed_{s_idx}"] = not res_q_collapsed
                 st.rerun()
 
-            render_attachments_section(session.get("attachments", []))
+            render_attachments_section(session.get("attachments", []), key_prefix=f"res_{s_idx}")
 
             session_tokens = session.get("token_counts")
             if session_tokens and isinstance(session_tokens, dict):
@@ -1661,7 +1033,7 @@ with tab_evals:
                 st.session_state[f"_ev_q_collapsed_{s_idx}"] = not ev_q_collapsed
                 st.rerun()
 
-            render_attachments_section(result_session.get("attachments", []))
+            render_attachments_section(result_session.get("attachments", []), key_prefix=f"ev_{s_idx}")
 
             session_tokens = result_session.get("token_counts")
             if session_tokens and isinstance(session_tokens, dict):
