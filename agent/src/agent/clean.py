@@ -11,7 +11,7 @@ from utils import AppConfig
 from .context_manager import ContextManager
 from datetime import datetime
 from database import SupabaseStorageManager, SupabaseManager, BQVectorStore
-from models import PipelineState, ProjectData
+from models import PipelineState, ProjectData, Claim, Damage, Event, Deadline, Party
 
 from agent.utils import pick_llm
 
@@ -102,8 +102,13 @@ class ProjectClean:
             "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id,
         })
+        _ET_TO_MODEL = {
+            "claims": Claim, "damages": Damage, "events": Event,
+            "deadlines": Deadline, "parties": Party,
+        }
         for et, cleaned in results.items():
-            setattr(project_data.factsheet, et, cleaned)
+            model_cls = _ET_TO_MODEL.get(et)
+            setattr(project_data.factsheet, et, [model_cls(**item) for item in cleaned] if model_cls else cleaned)
         return {"input_":  project_data}
 
     async def _clean_metadata_node(self, state : PipelineState):
@@ -153,10 +158,17 @@ class ProjectClean:
             "query_id": query.query_id,
         })
 
-        project_data = await asyncio.to_thread(
-            self.conversation_manager.load_project,
+        # project_data = await asyncio.to_thread(
+        #     self.conversation_manager.load_project,
+        #     project_id=query.project_id
+        # )
+        factsheet = await asyncio.to_thread(
+            self.conversation_manager.load_factsheet,
             project_id=query.project_id
         )
+        project_data = ProjectData(factsheet=factsheet,
+                                   attachments=[],
+                                   emails=[])
         if not project_data:
             logger.error(f'No project found for project_id={query.project_id}')
             raise ValueError(f"No project found for project_id={query.project_id}")
@@ -205,6 +217,7 @@ class ProjectClean:
                 data=cleaned,
                 project_id=query.project_id,
                 table_name=f"project_{et}",
+                llm_model=query.llm_model,
             )
             writer({
                 "type": "status",
@@ -233,8 +246,8 @@ class ProjectClean:
             "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id,
         })
-        self.conversation_manager.upsert_project(result["title"], element_type="title", project_id=query.project_id)
-        self.conversation_manager.upsert_project(result["background"], element_type="background", project_id=query.project_id)
+        self.conversation_manager.upsert_project(result["title"], element_type="title", project_id=query.project_id, llm_model=query.llm_model)
+        self.conversation_manager.upsert_project(result["background"], element_type="background", project_id=query.project_id, llm_model=query.llm_model)
         logger.debug(f'Metadata saved: title={bool(result.get("title"))}, background={bool(result.get("background"))}')
         writer({
             "type": "status",

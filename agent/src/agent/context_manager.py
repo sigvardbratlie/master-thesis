@@ -457,17 +457,21 @@ class ContextManager:
         data_map = {et: project_data.factsheet.model_dump().get(et, []) for et in element_types}
 
         prompt = (
-            f'{project_data.shorten_factsheet(excluded_fields=element_types)}\n'
-            f'{project_data.shorten_attachments()}\n'
-            f'{project_data.shorten_emails()}\n'
-            f'Use the context above to clean and fill in missing information for: {", ".join(element_types)}.\n'
-            f'Merge entries that refer to the same entity within each type.\n\n'
+            f'Clean and de-duplicate elements. Merge entries that refer to the same entity within each type: {", ".join(element_types)}.\n'
         )
         for et in element_types:
-            prompt += f'Current {et}:\n{json.dumps(data_map[et], default=str)}\n\n'
+            prompt += f'\nCurrent {et}:\n'
+            keys = list(data_map[et][0].keys()) if data_map[et] else []
+            prompt += f'FORMAT : {" | ".join(keys)}\n'
+            for item in data_map[et]:
+                item_str = " | ".join(str(item.get(k, "")) for k in keys)
+                prompt += f'\t* {item_str}\n'
+            prompt += "\n\n"
 
         structured_llm = self.llm.with_structured_output(CombinedModel, method="function_calling")
         response = await structured_llm.ainvoke(prompt)
+
+        _NULLABLE_UUID_FIELDS = {"file_id", "email_id"}
 
         results = {}
         for et in element_types:
@@ -478,6 +482,9 @@ class ContextManager:
             for item in llm_cleaned:
                 if not item.get(id_field) or not self.is_valid_uuid(item[id_field]):
                     item[id_field] = str(uuid.uuid4())
+                for field in _NULLABLE_UUID_FIELDS:
+                    if isinstance(item.get(field), str) and item[field].lower() in ("null", "none", ""):
+                        item[field] = None
 
             identity_fields = identity_fields_map.get(et, [])
             seen = {}
