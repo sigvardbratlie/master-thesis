@@ -13,6 +13,7 @@ from gcs import (
     _DATE_PATTERN,
     blob_exists,
     read_blob_bytes,
+    cached_read_blob_bytes,
     upload_raw_blob,
     list_dataset_names,
     list_data_blobs,
@@ -684,6 +685,7 @@ with tab_results:
             result_labels,
             index=0,
             label_visibility="collapsed",
+            key="result_run_select",
         )
     with col_tok:
         if st.button("🔢 Update tokens", key="btn_update_tokens", use_container_width=True):
@@ -730,7 +732,7 @@ with tab_results:
 
     try:
         result_data: dict = json.loads(
-            read_blob_bytes(selected_result_blob.name).decode("utf-8")
+            cached_read_blob_bytes(selected_result_blob.name).decode("utf-8")
         )
     except Exception as e:
         st.error(f"❌ Could not load result file: {e}")
@@ -739,19 +741,19 @@ with tab_results:
     # ── Metadata strip ────────────────────────────────────────────────────────
     with st.expander("ℹ️ Run metadata", expanded=False):
         m1, m2, m3, m4 = st.columns(4)
-        m1.text_input("Model", value=result_data.get("llm_model", "—"), disabled=True, key="res_meta_model")
-        m2.text_input("Agent type", value=result_data.get("agent_type", "—"), disabled=True, key="res_meta_agent")
-        m3.text_input("Eval run ID", value=result_data.get("eval_run_id", "—"), disabled=True, key="res_meta_run_id")
-        m4.text_input("Dataset", value=result_data.get("dataset_name", "—"), disabled=True, key="res_meta_dataset")
+        m1.text_input("Model", value=result_data.get("llm_model", "—"), disabled=True, key=f"res_meta_model_{selected_result_idx}")
+        m2.text_input("Agent type", value=result_data.get("agent_type", "—"), disabled=True, key=f"res_meta_agent_{selected_result_idx}")
+        m3.text_input("Eval run ID", value=result_data.get("eval_run_id", "—"), disabled=True, key=f"res_meta_run_id_{selected_result_idx}")
+        m4.text_input("Dataset", value=result_data.get("dataset_name", "—"), disabled=True, key=f"res_meta_dataset_{selected_result_idx}")
 
         n1, n2, n3, n4 = st.columns(4)
-        n1.text_input("Project ID", value=result_data.get("project_id", "—"), disabled=True, key="res_meta_proj")
-        n2.text_input("User ID", value=result_data.get("user_id", "—"), disabled=True, key="res_meta_user")
-        n3.text_input("Last updated", value=result_data.get("last_updated", "—"), disabled=True, key="res_meta_updated")
+        n1.text_input("Project ID", value=result_data.get("project_id", "—"), disabled=True, key=f"res_meta_proj_{selected_result_idx}")
+        n2.text_input("User ID", value=result_data.get("user_id", "—"), disabled=True, key=f"res_meta_user_{selected_result_idx}")
+        n3.text_input("Last updated", value=result_data.get("last_updated", "—"), disabled=True, key=f"res_meta_updated_{selected_result_idx}")
 
         time_usage = result_data.get("time_counts") or result_data.get("time_usage") or {}
         if time_usage:
-            _render_time_inputs(time_usage, key_prefix="res_meta")
+            _render_time_inputs(time_usage, key_prefix=f"res_meta_{selected_result_idx}")
 
         token_counts = result_data.get("token_counts")
         if token_counts and isinstance(token_counts, dict):
@@ -840,7 +842,7 @@ with tab_results:
                             height=text_height(answer) if answer else 100,
                             disabled=True,
                             label_visibility="collapsed",
-                            key=f"res_gt_{s_idx}_{q_idx}",
+                            key=f"res_gt_{selected_result_idx}_{s_idx}_{q_idx}",
                         )
                     with col_mr:
                         st.markdown("**🤖 Model response**")
@@ -852,7 +854,7 @@ with tab_results:
                             else 100,
                             disabled=True,
                             label_visibility="collapsed",
-                            key=f"res_mr_{s_idx}_{q_idx}",
+                            key=f"res_mr_{selected_result_idx}_{s_idx}_{q_idx}",
                         )
 
                     q_tokens = q.get("token_counts")
@@ -898,6 +900,7 @@ with tab_evals:
         eval_labels,
         index=0,
         label_visibility="collapsed",
+        key="eval_run_select",
     )
 
     selected_eval_idx = eval_labels.index(selected_eval_label)
@@ -905,7 +908,7 @@ with tab_evals:
 
     try:
         eval_data: dict = json.loads(
-            read_blob_bytes(selected_eval_blob.name).decode("utf-8")
+            cached_read_blob_bytes(selected_eval_blob.name).decode("utf-8")
         )
     except Exception as e:
         st.error(f"❌ Could not load eval file: {e}")
