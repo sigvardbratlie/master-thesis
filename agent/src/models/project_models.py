@@ -5,7 +5,8 @@ from datetime import datetime,date
 import uuid
 from langgraph.graph.message import add_messages
 from .api_request_models import FileType
-
+import logging
+logger = logging.getLogger(__name__)
 
 # ===== CONTEXT MANAGER MODELS
 PartyRole = Literal[
@@ -59,21 +60,44 @@ entity_types = Literal["individual", "company", "government"]
 
 significance_levels = Literal["high", "medium", "low"]
 
-# === #Custom fields === 
-class GoverningLaw(BaseModel):
-    primary_jurisdiction: str = Field(default = "norwegian_law" , description="Which law governs (e.g., Norwegian law)")
-    key_areas: list[str] | None = Field(default_factory=list, description="Relevant legal areas (contract law, tort, etc)")
-    international_elements: str | None = Field(
-        None, description="Cross-border or conflicts of law issues"
-    )
-    procedural_law: Literal[
-        "tvisteloven", "straffeprosessloven", "arbeidstvistloven", "voldgiftsloven",
-        "forvaltningsloven", "domstolloven"
-    ] = Field(default="tvisteloven",description="Applicable procedural law, if relevant")
+def shorten_element(elements : list,  element_name : Literal["attachments", "emails","events", "parties", "claims", "damages"] , format_key : list[str], significance: list[Literal["high", "medium", "low"]] = None) -> str:
+        type_map = {
+            "attachments": Attachment, 
+            "emails": Email,
+            "events" : Event,
+            "parties" : Party,
+            "claims" : Claim,
+            "damages" : Damage
+            }
+        if not elements:
+            return f"No {element_name.capitalize()}.\n\n"
+        view = ""
+        view += "**FORMAT: " + " | ".join(format_key) + "**\n"
+        for item in elements:
+            if not isinstance(item, type_map[element_name]):
+                logger.warning(f'Item is of wrong type: {type(item)}. Expected type {type_map[element_name]. __name__}. Skipping item.')
+                continue
+            if significance and item.significance not in significance:
+                continue
+            row = " | ".join([str(getattr(item, key)) for key in format_key])
+            view += f"\t* {row}\n"
+        return f"{element_name.capitalize()}:\n" + view + "\n\n"
 
-class FactualFacts(BaseModel):
-    disputed_facts: list[str] | None = Field(None, description="Key facts that are in dispute between the parties")
-    undisputed_facts: list[str] | None = Field(None, description="Key facts that are undisputed between the parties")
+# === #Custom fields === 
+# class GoverningLaw(BaseModel):
+#     primary_jurisdiction: str = Field(default = "norwegian_law" , description="Which law governs (e.g., Norwegian law)")
+#     key_areas: list[str] | None = Field(default_factory=list, description="Relevant legal areas (contract law, tort, etc)")
+#     international_elements: str | None = Field(
+#         None, description="Cross-border or conflicts of law issues"
+#     )
+#     procedural_law: Literal[
+#         "tvisteloven", "straffeprosessloven", "arbeidstvistloven", "voldgiftsloven",
+#         "forvaltningsloven", "domstolloven"
+#     ] = Field(default="tvisteloven",description="Applicable procedural law, if relevant")
+
+# class FactualFacts(BaseModel):
+#     disputed_facts: list[str] | None = Field(None, description="Key facts that are in dispute between the parties")
+#     undisputed_facts: list[str] | None = Field(None, description="Key facts that are undisputed between the parties")
 
 class Claim(BaseModel):
     claim_id : str | None = None
@@ -103,9 +127,7 @@ class Damage(BaseModel):
     email_id: str | None = None  # For damages from emails
     party_role: PartyRole | None = None
     significance : significance_levels = Field(default="medium", description="Significance of the damage claim to the case")
-
     
-
 class Damages(BaseModel):
     damages: list[Damage] = Field(description="Information about damages claimed or incurred in the case, including type, amount if mentioned, evidentiary basis, and associated party roles")
 
@@ -167,6 +189,7 @@ class InitialInput(BaseModel):
 
 class BaseExtracted(BaseModel):
     """Common extraction fields for all document types and emails"""
+    title : str = Field(description="Concise title of the content (MAX 10 words)")
     description: str = Field(description="Concise summary of the content")
     significance: significance_levels = Field(default="medium", description="Importance level")
     party_roles: list[str] | None = Field(None, description="Party roles mentioned")
@@ -198,89 +221,6 @@ class Attachment(AttachmentExtracted):
     #events: list[str] | None = Field(None, description="event IDs mentioned in the document")
     email_id: str | None = Field(None, description="If this attachment was extracted from an email, reference the email_id here")
 
-
-class FactSheet(InitialInput,
-                #FactualFacts
-                ):
-    """Structured representation of case facts for legal analysis."""
-    project_id: str | None = None
-    events: list[Event] #prior variable name: timeline 
-    #governing_law: GoverningLaw | None = None
-    claims: list[Claim] | None = None
-    damages: list[Damage] | None = None
-    deadlines: list[Deadline] | None = None
-
-    def shorten_events(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
-        if not self.events:
-            return ""
-        view = ""
-        view += "\t* Format: event_start_date | event_name | file_id | description" + "(Disputed)"  + "\n"
-        if isinstance(self.events, list):
-            self.events.sort(key=lambda e: str(e.event_start_date))
-        else:
-            raise ValueError(f'Events should be of type list, but actual type is {type(self.events)}')
-        for e in self.events:
-            if significance and e.significance not in significance:
-                continue
-            view += f"\t* {e.event_start_date} | {e.event_name} | {e.file_id or 'No file ID'} | {e.description or ''}"
-            if e.disputed:
-                view += " | Disputed"
-            view += "\n"
-        return "Events:\n" + view + "\n\n"
-
-    def shorten_parties(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
-        if not self.parties:
-            return ""
-        view = ""
-        view += "\t* Format: legal_name (entity_type) | role | role_description\n"
-        for p in self.parties:
-            if significance and p.significance not in significance:
-                continue
-            view += f"\t* {p.legal_name} ({p.entity_type}) | {p.role}"
-            if p.role_description:
-                view += f" | {p.role_description}"
-            view += "\n"
-        return "Parties:\n" + view + "\n\n"
-
-    def shorten_claims(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
-        if not self.claims:
-            return ""
-        view = ""
-        view += "\t* Format: relief_sought | factual_basis | legal_basis\n"
-        for c in self.claims:
-            if significance and c.significance not in significance:
-                continue
-            view += f"\t* Relief sought: {c.relief_sought} | Factual basis: {c.factual_basis} | Legal basis: {c.legal_basis}"
-        return "Claims:\n" + view + "\n\n"
-
-    def shorten_damages(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
-        if not self.damages:
-            return ""
-        rows = []
-        for d in self.damages:
-            if significance and d.significance not in significance:
-                continue
-            row = f"\t* {d.basis} | Category: {d.category}"
-            if d.amount is not None:
-                row += f" | Amount: {d.amount} {d.currency}"
-            rows.append(row)
-        return "Damages:\n" + "\n".join(rows) + "\n\n"
-
-    def shorten_factsheet(self, 
-                          excluded_fields: list[Literal["events", "parties", "claims", "damages", "title", "background"]] = None,
-                          significance: list[Literal["high", "medium", "low"]] = None) -> str:
-        view = f"Factsheet for project: {self.title} (ProjectId : {self.project_id}):\n\n" if not excluded_fields or "title" not in excluded_fields else ""
-        view += f"Background\n {self.background}\n\n" if self.background and (not excluded_fields or "background" not in excluded_fields) else ""
-        view += self.shorten_parties(significance) if not excluded_fields or "parties" not in excluded_fields else ""
-        view += self.shorten_events(significance) if not excluded_fields or "events" not in excluded_fields else ""
-        view += self.shorten_claims(significance) if self.claims and (not excluded_fields or "claims" not in excluded_fields) else ""
-        view += self.shorten_damages(significance) if self.damages and (not excluded_fields or "damages" not in excluded_fields) else ""
-        return view
-
-
-class RelevanceCheck(BaseModel):
-    is_relevant: bool
-    reasoning: str
 
 class EmailExtracted(BaseExtracted):
     """Email-specific extraction fields - what LLM extracts from email content"""
@@ -332,4 +272,54 @@ class Email(EmailExtracted):
 class Emails(BaseModel):
     emails: list[Email] = Field(description="List of emails in the project")
     
+
+class FactSheet(InitialInput,
+                #FactualFacts
+                ):
+    """Structured representation of case facts for legal analysis."""
+    project_id: str | None = None
+    events: list[Event] 
+    claims: list[Claim] | None = None
+    damages: list[Damage] | None = None
+    deadlines: list[Deadline] | None = None
+
+    def shorten_events(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
+        shorten_keys = ["event_start_date", "event_name", "file_id", "description", "disputed"]
+        return shorten_element(self.events,  
+                               element_name="events", 
+                               format_key=shorten_keys, 
+                               significance=significance)
+        
+
+    def shorten_parties(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
+        shorten_keys = ["legal_name", "entity_type", "role", "role_description"]
+        return shorten_element(self.parties, 
+                                element_name="parties", 
+                                format_key=shorten_keys, 
+                                significance=significance)
+        
+
+    def shorten_claims(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
+        shorten_keys = ["relief_sought", "factual_basis", "legal_basis"]
+        return shorten_element(self.claims, 
+                                element_name="claims", 
+                               format_key=shorten_keys, significance=significance)
+        
+
+    def shorten_damages(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
+        shorten_keys = ["category", "amount", "currency", "basis"]
+        return shorten_element(self.damages, 
+                                element_name="damages", 
+                                format_key=shorten_keys, 
+                                significance=significance)
     
+    def shorten_factsheet(self, 
+                          excluded_fields: list[Literal["events", "parties", "claims", "damages", "title", "background"]] = None,
+                          significance: list[Literal["high", "medium", "low"]] = None) -> str:
+        view = f"Factsheet for project: {self.title} (ProjectId : {self.project_id}):\n\n" if not excluded_fields or "title" not in excluded_fields else ""
+        view += f"Background\n {self.background}\n\n" if self.background and (not excluded_fields or "background" not in excluded_fields) else ""
+        view += self.shorten_parties(significance) if not excluded_fields or "parties" not in excluded_fields else ""
+        view += self.shorten_events(significance) if not excluded_fields or "events" not in excluded_fields else ""
+        view += self.shorten_claims(significance) if self.claims and (not excluded_fields or "claims" not in excluded_fields) else ""
+        view += self.shorten_damages(significance) if self.damages and (not excluded_fields or "damages" not in excluded_fields) else ""
+        return view
