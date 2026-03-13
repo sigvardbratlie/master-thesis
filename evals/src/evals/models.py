@@ -74,6 +74,7 @@ class GatheredResultPayload(DatasetPayload):
     agent_type: Literal["custom", "baseline", "baseline_rag"]
     token_counts: TokenCount | None = None
     time_counts: TimeCount | None = None
+    metadata : dict[str, Any] = Field(default_factory=dict)  # For extensibility
 
 
 # ── Eval output payload ────────────────────────────────────────────────────────

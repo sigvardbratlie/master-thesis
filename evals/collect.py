@@ -16,9 +16,10 @@ load_dotenv()
 
 
 
-async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_storage, config):
+async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_storage, config, significance, clean_rate):
         car_custom = CollectAgentResult(data, llm_model=llm_model, agent_type=agent_type,
-                                        config = config)
+                                        config = config, significance = significance, 
+                                        clean_rate = clean_rate)
         collected_results = await car_custom.run_agent(embed_to_vectorstore=embed_to_vectorstore, 
                                                        save_to_storage=save_to_storage,
                                                        )
@@ -40,6 +41,8 @@ async def main():
     parser.add_argument("-n","--n-runs", type=int, default=1, help="Number of runs to execute for each agent")
     parser.add_argument("--skip-embedding", action="store_true", help="Skip embedding step for custom agent")
     parser.add_argument("--skip-storage", action="store_true", help="Skip saving results to storage for custom agent")
+    parser.add_argument("-s", "--significance", nargs="+", type=str, choices=["high", "medium", "low"], help="Significance levels to include for agent runs (overrides config.toml settings)")
+    parser.add_argument("--clean-rate", type = int, default = 2, help="The rate (of sessions) in which to clean the factsheet. From -1 for last msg, 1 > for all other rates")
     args = parser.parse_args()
     dataset_name = args.dataset
     llm_model = args.model
@@ -47,6 +50,8 @@ async def main():
     n_runs = args.n_runs
     embed_to_vectorstore = not args.skip_embedding
     save_to_storage = not args.skip_storage
+    significance = args.significance
+    clean_rate = args.clean_rate
 
     logger.info("\n\n━" * 64)
     logger.info(f"🚀  COLLECT  |  dataset: {dataset_name}  |  model: {llm_model}  |  n_runs: {n_runs}")
@@ -89,7 +94,9 @@ async def main():
                             agent_type="custom",
                             embed_to_vectorstore=embed_to_vectorstore,
                             save_to_storage=save_to_storage,
-                            config = config)
+                            config = config,
+                            significance = significance,
+                            clean_rate = clean_rate)
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Custom")
         logger.info("━" * 64)
@@ -102,12 +109,14 @@ async def main():
             logger.info("━" * 64)
             logger.info(f"🔁  RUN {i+1}/{n_runs}  |     BASELINE   |  {llm_model}  |  dataset: {dataset_name}")
             logger.info("━" * 64)
-            await single_run(data=data_baseline.model_copy(deep=True),     
-                           llm_model=llm_model,
-                             agent_type="baseline",     
-                           embed_to_vectorstore=False, 
-                           save_to_storage=False,
-                           config = config)
+            await single_run(data=data_baseline.model_copy(deep=True),
+                             llm_model=llm_model,
+                             agent_type="baseline",
+                             embed_to_vectorstore=False,
+                             save_to_storage=False,
+                             config=config,
+                             significance=significance,
+                             clean_rate=clean_rate)
 
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline")
@@ -122,12 +131,14 @@ async def main():
             logger.info("━" * 64)
             logger.info(f"🔁  RUN {i+1}/{n_runs}  |  BASELINE RAG |  {llm_model}  |  dataset: {dataset_name}")
             logger.info("━" * 64)
-            await single_run(data=data_baseline_rag.model_copy(deep=True), 
-                           llm_model=llm_model, 
-                           agent_type="baseline_rag", 
-                           embed_to_vectorstore=True, 
-                           save_to_storage=False,
-                           config = config)
+            await single_run(data=data_baseline_rag.model_copy(deep=True),
+                             llm_model=llm_model,
+                             agent_type="baseline_rag",
+                             embed_to_vectorstore=True,
+                             save_to_storage=False,
+                             config=config,
+                             significance=significance,
+                             clean_rate=clean_rate)
 
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline + RAG")

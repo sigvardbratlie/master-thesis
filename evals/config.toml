@@ -19,10 +19,12 @@ max_tokens = 4096
 
 [agent]
 max_token_tool = 10000
+significance = ["high", "medium", "low"]
+embed_to_vectorstore = true
+save_to_storage = true
 
 [project]
 threshold = 5120000     # 500 * 1024
 max_attachments = 10
 max_emails = 15
-embed_to_vectorstore = true
-save_to_storage = true
+
