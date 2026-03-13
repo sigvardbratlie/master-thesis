@@ -13,14 +13,12 @@ async def single_run(data, llm_model : str, agent_type : str , config : AppConfi
                      ):
         car_custom = CollectAgentResult(data, llm_model=llm_model, agent_type=agent_type,
                                         config = config, 
-                                        #significance = significance, 
                                         clean_rate = clean_rate)
         collected_results = await car_custom.run_agent()
                                                        
         ds = Dataset(data.dataset_name)
         ds.update_token_counts(collected_results)
         
-
 async def main():
     parser = argparse.ArgumentParser(description="Evaluate attachment assignment")
     parser.add_argument("-d","--dataset", type=str, choices=["test", "THRD-2021-163881","TOSL-2024-125319"], help="Dataset name to evaluate")
@@ -57,7 +55,8 @@ async def main():
     logger = logging.getLogger(__name__)
     load_dotenv()
 
-    logger.info("\n\n━" * 64)
+    logger.info("\n\n")
+    logger.info("━" * 64)
     logger.info(f"🚀  COLLECT  |  dataset: {dataset_name}  |  model: {llm_model}  |  n_runs: {n_runs} | Significance : {config.agent.significance} | clean_rate | {clean_rate}")
     logger.info("━" * 64)
 

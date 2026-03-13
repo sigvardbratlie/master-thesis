@@ -1,1 +1,1 @@
-agent/system_prompt.txt
+../agent/system_prompt.txt

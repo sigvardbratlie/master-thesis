@@ -78,7 +78,7 @@ class Agent:
             return prompt
         except Exception as e:
             logger.error(f"❌ Failed to load system prompt from {path}: {e}")
-            return "You are a helpful assistant."  # Fallback prompt
+            raise FileNotFoundError()
     
     # =================================
     #         GRAPH ELEMENTS
@@ -250,8 +250,6 @@ class Agent:
                 inclued_fields=["title", 
                                 "background",
                                 ]
-            else:
-                inclued_fields = None
                 significance = self.config.agent.significance
             content = project.shorten_project(excluded_keys=["description"], significance=significance, inclued_fields=inclued_fields)
             prompt = self.prompt + "\n\n" + content

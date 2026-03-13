@@ -303,13 +303,13 @@ def create_project():
 #     return value
 
 @tool
-def show_elements(element_types : list[Literal["events", "parties", "claims", "damages","deadlines"]],
+def show_elements(element_types : list[Literal["events", "parties", "claims", "damages",]],
                   project_id: str,
                   significance: list[Literal["high", "medium", "low"]] = None,
                   ):
     """Use this function to retrieve a list of the projects files and emails.
     Args:
-        element_types (list[Literal["events", "parties", "claims", "damages","title", "background",]]): A list of the element types to show. For example, if you only want to show events and parties, use ["events", "parties"].
+        element_types (list[Literal["events", "parties", "claims", "damages",]]): A list of the element types to show. For example, if you only want to show events and parties, use ["events", "parties"].
         significance (list[Literal["high", "medium", "low"]], optional): A list of significance levels to filter the elements. Defaults to None.
         project_id (str): The project id to identify which project to retrieve the elements from.
     Returns:

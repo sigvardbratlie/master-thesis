@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Literal, TypedDict, Annotated, Sequence
 from langchain_core.messages import BaseMessage
 from datetime import datetime,date
@@ -131,9 +131,27 @@ class Damage(BaseModel):
 class Damages(BaseModel):
     damages: list[Damage] = Field(description="Information about damages claimed or incurred in the case, including type, amount if mentioned, evidentiary basis, and associated party roles")
 
+def _coerce_partial_date(v):
+    """Coerce YYYY-MM or YYYY to YYYY-MM-01 / YYYY-01-01. Rejects non-date strings (e.g. 'P1Y')."""
+    if isinstance(v, (date, datetime)):
+        return v
+    if isinstance(v, str):
+        parts = v.split("-")
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            v = f"{v}-01"
+        elif len(parts) == 1 and parts[0].isdigit():
+            v = f"{v}-01-01"
+    return v
+
+
 class Deadline(BaseModel):
     deadline_id: str | None = None
-    deadline_date: date |datetime
+    deadline_date: date | datetime
+
+    @field_validator("deadline_date", mode="before")
+    @classmethod
+    def coerce_deadline_date(cls, v):
+        return _coerce_partial_date(v)
     description: str
     file_id: str | None = Field(None, description="Related attachment reference")
     email_id: str | None = None  # For deadlines from emails
@@ -172,6 +190,11 @@ class Event(BaseModel):
     event_name: str
     event_start_date: date | datetime
     event_end_date: date | datetime | None = None
+
+    @field_validator("event_start_date", "event_end_date", mode="before")
+    @classmethod
+    def coerce_event_dates(cls, v):
+        return _coerce_partial_date(v)
     description: str
     category: str = Field(description="Categorization of the event, e.g., 'court_filing', 'evidence_submission', 'contract_signing', 'communication', etc.")
     parties: list[str] | None = Field(None, description="Roles of parties involved in the event")
