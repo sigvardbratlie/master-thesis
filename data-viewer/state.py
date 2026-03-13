@@ -174,8 +174,12 @@ def build_export() -> str:
 
 
 def save_draft() -> None:
-    """Sync widgets → _raw, write draft blob to GCS, update last-saved timestamp."""
+    """Sync widgets → _raw, write draft blob to GCS only when content changed."""
     _sync_widgets_to_raw()
+    content_hash = hash(json.dumps(st.session_state["_raw"], ensure_ascii=False, sort_keys=True))
+    if content_hash == st.session_state.get("_draft_content_hash"):
+        return
+    st.session_state["_draft_content_hash"] = content_hash
     data = copy.deepcopy(st.session_state["_raw"])
     data["last_updated"] = datetime.now(_OSLO).isoformat()
     write_blob(

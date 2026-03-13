@@ -1,46 +1,42 @@
-from .api_request_models import *
-from .project_models import *
-from .document_models import *
+from .api_request_models import (AttachmentModel, EmailModel, 
+                                AskAgentRequest, CleanupElementsRequest, 
+                                StreamlitUserInfo, ToolResultData, EventData, StreamData, StreamEvent,
+                                VectorStoreMetadata)
+from .project_models import (FactSheet, 
+                             Attachment, AttachmentExtracted, 
+                             Email, EmailExtracted, Emails, 
+                             Party, Parties,Contact,
+                             Claim, Claims,  
+                             Damage,  Damages,
+                             Event, Events, 
+                             Deadline, Deadlines, 
+                             InitialInput,
+                             PartyRole,FileType, BaseExtracted)
+from .document_models import WriteEmail, WriteDocx
 from .agent_models import AgentState, PipelineState
 from .response_models import SessionHistory, ProjectData, ProjectSummary, SessionSummary
 
 __all__ = [
     "PartyRole",
     "FileType",
-    # PROJECT MODELS
-    "GoverningLaw",
-    "FactualFacts",
-    "Claim", 
-    "Claims",
-    "Damage",
-    "Damages",
-    "Deadline",
-    "Deadlines",
-    "Contact",
-    "Party",
-    "Parties",
-    "Event",
-    "Events",
-    "InitialInput",
     "BaseExtracted",
-    "AttachmentExtracted",
-    "Attachment",
     "FactSheet",
-    "RelevanceCheck",
-    "EmailExtracted",
-    "Email",
-    "Emails",
+    "InitialInput",  
+    # PROJECT MODELS
+    "Claim",   "Claims",
+    "Damage", "Damages",
+    "Deadline",  "Deadlines",
+    "Party", "Parties", "Contact",
+    "Event", "Events",
+    "Attachment", "AttachmentExtracted", 
+    "Email", "Emails", "EmailExtracted",
+    
     
     # API REQUEST MODELS
-    "AskAgentRequest",
-    "CleanupElementsRequest",
-    "StreamEvent",
-    "StreamData",
-    "StreamlitUserInfo",
-    "ToolResultData",
-    "EventData",
-    "AttachmentModel",
-    "EmailModel",
+    "AskAgentRequest", "CleanupElementsRequest",
+    "StreamEvent", "StreamData", "StreamlitUserInfo", "ToolResultData", "EventData",
+    "EmailModel", "AttachmentModel",
+    "VectorStoreMetadata",
 
     # DOCUMENT MODELS
     "WriteEmail",

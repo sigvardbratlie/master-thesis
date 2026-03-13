@@ -38,13 +38,19 @@ _PROMPT_MAP = {
 
 
 class CollectAgentResult:
-    def __init__(self, data: DatasetPayload, llm_model: str = "google_gemini-2.5-pro", agent_type: Literal["custom", "baseline", "baseline_rag"] = "custom",
-                 config : AppConfig = None):
+    def __init__(self, data: DatasetPayload, 
+                llm_model: str = "google_gemini-2.5-pro", 
+                 agent_type: Literal["custom", "baseline", "baseline_rag"] = "custom",
+                 config : AppConfig = None,
+                 significance: list = None,
+                 clean_rate: int = None):
         self.data = data
         self.llm_model = llm_model
         self.agent_type: Literal["custom", "baseline", "baseline_rag"] = agent_type
         self.dataclass = Dataset(name=data.dataset_name)
         self.config = config or AppConfig()
+        self.significance = significance or self.config.agent.significance
+        self.clean_rate = clean_rate
 
     async def init_agent(self, use_factsheet: bool = True,
                          save_to_storage: bool = True,
@@ -63,6 +69,7 @@ class CollectAgentResult:
             prompt=prompt,
             checkpointer=checkpointer,
             config=self.config,
+            significance=self.significance,
         )
         logger.info("Agent initialized with AsyncPostgresSaver checkpointer")
         return agent
@@ -208,10 +215,15 @@ class CollectAgentResult:
                         async for chunk in init_graph.astream({"query": input_obj}, config=thread, stream_mode="custom"):
                             logger.debug(f"Init response: {chunk}")
                     else:
-                        if idx % 2 != 0: #cleanup project every odd session to prevent fact overload, keeping only parties, events and damages
+                        should_clean = False
+                        if self.clean_rate is not None and self.clean_rate > 0 and (idx % self.clean_rate != 0):
+                            should_clean = True
+                        if self.clean_rate == -1 and idx == len(self.data.sessions) - 1:
+                            should_clean = True
+                        if should_clean:
                             cleanup_query = CleanupElementsRequest(
                                 **input_obj.model_dump(),
-                                element_types=["parties", "events", "damages"])
+                                element_types=["parties", "events", "damages", "claims"],)
                             clean_thread = to_thread_config(query=cleanup_query, user_id=self.data.user_id)
                             clean_graph = clean.compile_clean_elements()
                             async for chunk in clean_graph.astream({"query": cleanup_query}, config=clean_thread, stream_mode="custom"):
@@ -278,6 +290,8 @@ class CollectAgentResult:
                 endtime=endtime,
                 duration_seconds=(endtime - starttime).total_seconds(),
             ),
+            metadata = {"significance" : self.significance, 
+                        "clean_rate" : self.clean_rate}
         )
 
     #async def run_agent_mult(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True)

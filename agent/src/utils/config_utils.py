@@ -33,6 +33,10 @@ class ModelsConfig(BaseModel):
 
 class AgentStream(BaseModel):
     max_token_tool: int = 10000
+    significance : list[str] = ["high", "medium", "low"]  
+    embed_to_vectorstore: bool = True
+    save_to_storage: bool = True
+    use_factsheet: bool = True
 
 
 class ProjectConfig(BaseModel):
@@ -41,6 +45,7 @@ class ProjectConfig(BaseModel):
     max_emails: int = 15
     embed_to_vectorstore: bool = True
     save_to_storage: bool = True
+    
 
 # 2. Definer hovedkonfigurasjonen som BaseSettings
 class AppConfig(BaseSettings):

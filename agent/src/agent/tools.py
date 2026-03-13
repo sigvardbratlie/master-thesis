@@ -331,11 +331,10 @@ TOOLS = [
     read_specific_law,
     update_project,
     clean_element,
-    #create_project,
 ]
+
 BASELINE_TOOLS = [
     tavily_search,
-    read_attachments,
 ]
 
 BASELINE_RAG_TOOLS = [
@@ -343,5 +342,4 @@ BASELINE_RAG_TOOLS = [
     query_laws,
     read_specific_law,
     query_project_attachments,
-    read_attachments,
 ]

@@ -47,6 +47,11 @@ def read_blob_bytes(blob_path: str) -> bytes:
     return _bucket().blob(blob_path).download_as_bytes()
 
 
+@st.cache_data(ttl=120)
+def cached_read_blob_bytes(blob_path: str) -> bytes:
+    return read_blob_bytes(blob_path)
+
+
 def write_blob(blob_path: str, data: bytes) -> None:
     _bucket().blob(blob_path).upload_from_string(
         data, content_type="application/json; charset=utf-8"
