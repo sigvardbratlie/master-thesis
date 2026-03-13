@@ -6,7 +6,7 @@ from evals import Dataset
 from evals.collect_module import CollectAgentResult
 import asyncio
 
-config = AppConfig.load_from_toml("config.toml")
+config = AppConfig.from_toml("config.toml")
 setup_logging(config)
 noisy_packages = ["httpx", "httpcore", "hpack", "urllib3", "anthropic", "openai", "asyncio", "langsmith"]
 [logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
@@ -28,7 +28,7 @@ async def single_run(data, llm_model, agent_type, embed_to_vectorstore, save_to_
 
 async def main():
     parser = argparse.ArgumentParser(description="Evaluate attachment assignment")
-    parser.add_argument("-d","--dataset", type=str, choices=["test", "THRD-2021-163881", "TOSL-2024-103311", "TOSL-2024-125319"], help="Dataset name to evaluate")
+    parser.add_argument("-d","--dataset", type=str, choices=["test", "THRD-2021-163881","TOSL-2024-125319"], help="Dataset name to evaluate")
     parser.add_argument("-m","--model", type=str, choices=["google_gemini-2.5-flash", "google_gemini-2.5-pro", 
                                                            "openai_gpt-5.3-chat-latest", "openai_gpt-5.4",
                                                              "anthropic_claude-haiku-4-5", "anthropic_claude-sonnet-4-6",
@@ -76,8 +76,6 @@ async def main():
     ds_custom.assign_session_attachments() if "custom" in agent_types else None
     ds_baseline.assign_session_attachments_baseline() if "baseline" in agent_types else None
     ds_baseline_rag.assign_session_attachments() if "baseline_rag" in agent_types else None
-    #total_attachments = sum(len(s.attachments) for s in data_custom.sessions)
-    #logger.info(f"✅ {len(data_custom.sessions)} sessions ready — {total_attachments} attachments assigned in total")
 
     if "custom" in agent_types:
         # ====== RUN CUSTOM AGENT ======
@@ -110,7 +108,8 @@ async def main():
             await single_run(data=data_baseline.model_copy(deep=True),     
                            llm_model=llm_model,
                              agent_type="baseline",     
-                           embed_to_vectorstore=False, save_to_storage=True,
+                           embed_to_vectorstore=False, 
+                           save_to_storage=False,
                            config = config)
 
         logger.info("━" * 64)
@@ -130,7 +129,7 @@ async def main():
                            llm_model=llm_model, 
                            agent_type="baseline_rag", 
                            embed_to_vectorstore=True, 
-                           save_to_storage=True,
+                           save_to_storage=False,
                            config = config)
 
         logger.info("━" * 64)

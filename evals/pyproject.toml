@@ -90,7 +90,7 @@ requires = ["uv_build>=0.8.22,<0.9.0"]
 build-backend = "uv_build"
 
 [tool.uv.sources]
-agent = { workspace = true, editable = true }
+agent = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

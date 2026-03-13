@@ -103,7 +103,7 @@ class CollectAgentResult:
     async def run_conv(self, conv: ConversationTurn, agent_class, project_id, session_id, query_id, user_id, attachments=[], session_date=None):
         turn_starttime = datetime.now() 
         input_obj = AskAgentRequest(
-            question= f"Dato : {session_date}" + conv.input,
+            question= f"Dato : {session_date} \n" + conv.input,
             session_id=session_id,
             llm_model=self.llm_model,
             query_id=query_id,
