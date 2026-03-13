@@ -113,17 +113,17 @@ class SupabaseManager:
                        project_id : str,
                        session_id : str,
                        query_id : str = "",
-                       emails : list[Email] = []
+                       llm_model : str = "",
+                       emails : list[Email] = [],
                        ):
-        
-        custom_fields = ["governing_law", "disputed_facts", "undisputed_facts",]
-        
+                
         attachment_dicts = []
         email_dicts = []
         if attachments:
             for attachment in attachments:
                 attachment_dict = attachment.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
                 attachment_dict["project_id"] = project_id
+                attachment_dict["created_by"] = llm_model
                 attachment_dicts.append(attachment_dict)
             #logger.debug(f' ========= ATTACHEMNT CONTENTS TO SAVE ======== \n {attachment_dicts} \n')
         
@@ -132,6 +132,7 @@ class SupabaseManager:
             for email in emails:
                 email_dict = email.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
                 email_dict["project_id"] = project_id
+                email_dict["created_by"] = llm_model
                 if email_dict["email_id"] not in seen_email_ids:
                     seen_email_ids.add(email_dict["email_id"])
                     email_dicts.append(email_dict)
@@ -148,6 +149,7 @@ class SupabaseManager:
         factsheet_dict["updated_session_id"] = session_id
         factsheet_dict["updated_query_id"] = query_id
         factsheet_dict["updated_at"] = datetime.now().isoformat()
+        factsheet_dict["created_by"] = llm_model
         # ========== PROJECT FACTSHEET ==========
         if factsheet_dict:
             try:
@@ -177,7 +179,7 @@ class SupabaseManager:
             # ========== PROJECT PARTIES ==========
             try:
                 parties_with_project = [
-                        {**party, "project_id": project_id}
+                        {**party, "project_id": project_id, "created_by": llm_model}
                         for party in parties]
                 self.supabase.table("project_parties").upsert(parties_with_project).execute()
                 logger.debug(f'Upserted {len(parties)} parties for project {project_id} in Supabase.')
@@ -188,7 +190,7 @@ class SupabaseManager:
             # ========== PROJECT EVENTS ==========
             try:
                 events_with_project = [
-                        {**event, "project_id": project_id}
+                        {**event, "project_id": project_id, "created_by": llm_model}
                         for event in events]
                 self.supabase.table("project_events").upsert(events_with_project).execute()
                 logger.debug(f'Upserted {len(events)} events for project {project_id} in Supabase.')
@@ -199,7 +201,7 @@ class SupabaseManager:
             # ========== PROJECT DEADLINES ==========
             try:
                 deadlines_with_project = [
-                        {**deadline, "project_id": project_id}
+                        {**deadline, "project_id": project_id, "created_by": llm_model}
                         for deadline in deadlines]
                 self.supabase.table("project_deadlines").upsert(deadlines_with_project).execute()
                 logger.debug(f'Upserted {len(deadlines)} deadlines for project {project_id} in Supabase.')
@@ -210,7 +212,7 @@ class SupabaseManager:
         if damages:
             try:
                 damages_with_project = [
-                        {**damage, "project_id": project_id}
+                        {**damage, "project_id": project_id, "created_by": llm_model}
                         for damage in damages]
                 self.supabase.table("project_damages").upsert(damages_with_project).execute()
                 logger.debug(f'Upserted {len(damages)} damages for project {project_id} in Supabase.')
@@ -221,7 +223,7 @@ class SupabaseManager:
             # ========== PROJECT CLAIMS ==========
             try:
                 claims_with_project = [
-                        {**claim, "project_id": project_id}
+                        {**claim, "project_id": project_id, "created_by": llm_model}
                         for claim in claims]
                 self.supabase.table("project_claims").upsert(claims_with_project).execute()
                 logger.debug(f'Upserted {len(claims)} claims for project {project_id} in Supabase.')
@@ -232,7 +234,8 @@ class SupabaseManager:
 
     def insert_project_element(self,data : list[dict],
                     project_id : str,
-                    table_name: str):
+                    table_name: str,
+                    llm_model : str = ""):
         if not data:
             logger.warning(f"No data provided to insert for project {project_id} in table {table_name}. Skipping insert.")
             return
@@ -243,6 +246,7 @@ class SupabaseManager:
             if not isinstance(item, dict):
                 raise ValueError("Each item in data must be a BaseModel or a dict.")
             item["project_id"] = project_id
+            item["created_by"] = llm_model
         try:
             self.supabase.table(table_name).insert(data).execute()
             logger.debug(f'Inserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
@@ -252,7 +256,9 @@ class SupabaseManager:
     def replace_project_element(self,
                     data : list[BaseModel],
                     project_id : str,
-                    table_name: str):
+                    table_name: str,
+                    llm_model : str = ""
+                    ):
         if not data:
             logger.warning(f"No data provided to replace for project {project_id} in table {table_name}. Skipping replace.")
             return
@@ -263,6 +269,7 @@ class SupabaseManager:
             if not isinstance(item_dict, dict):
                 raise ValueError("Each item in data must be a BaseModel or a dict.")
             item_dict["project_id"] = project_id
+            item_dict["created_by"] = llm_model
             data_dicts.append(item_dict)
 
         try:
@@ -277,35 +284,18 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f'Error replacing items for project {project_id} in Supabase table {table_name}: {e}')
 
-    def upsert_project_custom(self,
-                    data : dict | str,
-                    element_type : str, 
-                    project_id : str,
-                    table_name = "project_legal"):
-        if not data:
-            logger.warning(f"No custom field data provided to replace for project {project_id}. Skipping replace.")
-            return
-        if not isinstance(data, dict):
-            data = {element_type: data}
-
-        data["project_id"] = project_id
-
-        try:
-            self.supabase.table(table_name).upsert(data).execute()
-            logger.debug(f'Replaced custom fields for project {project_id} in Supabase table {table_name}.')
-        except Exception as e:
-            logger.error(f'Error replacing custom fields for project {project_id} in Supabase: {e}')
-
     def upsert_project(self, 
                        data: dict | str, 
                        element_type: str,
-                       project_id: str):
+                       project_id: str,
+                       llm_model: str = ""):
         if not data:
             logger.warning(f"No data provided to upsert for project {project_id}. Skipping upsert.")
             return
         if not isinstance(data, dict):
             data = {element_type: data}
         data["project_id"] = project_id
+        data["created_by"] = llm_model
         try:
             self.supabase.table("projects").upsert(data).execute()
             logger.debug(f'Project {project_id} upserted in Supabase.')

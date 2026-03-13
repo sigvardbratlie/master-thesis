@@ -592,6 +592,7 @@ class ProjectPipeline:
             session_id=query.session_id,
             query_id=query.query_id,
             project_id=query.project_id,
+            llm_model=query.llm_model,
         )
 
         writer({
@@ -674,6 +675,7 @@ class ProjectPipeline:
                 data=[element.model_dump(mode="json", exclude={"claims", "damages", "deadlines", "events"}) for element in elements],
                 project_id=query.project_id,
                 table_name=table_name,
+                llm_model=query.llm_model,
             )
             writer({
                 "type": "status",
@@ -726,6 +728,7 @@ class ProjectPipeline:
                     data=items,
                     project_id=query.project_id,
                     table_name=table_name,
+                    llm_model=query.llm_model,
                 )
             else:
                 await asyncio.to_thread(
@@ -733,6 +736,7 @@ class ProjectPipeline:
                     data=[item.model_dump(mode="json") for item in items],
                     project_id=query.project_id,
                     table_name=table_name,
+                    llm_model=query.llm_model,
                 )
             writer({
                 "type": "status",
@@ -753,6 +757,7 @@ class ProjectPipeline:
             data={"background": init_input.background, "title": init_input.title},
             element_type="metadata",
             project_id=query.project_id,
+            llm_model=query.llm_model,
         )
 
         writer({

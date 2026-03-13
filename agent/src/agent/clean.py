@@ -205,6 +205,7 @@ class ProjectClean:
                 data=cleaned,
                 project_id=query.project_id,
                 table_name=f"project_{et}",
+                llm_model=self.context_manager.llm.model_name
             )
             writer({
                 "type": "status",
@@ -233,8 +234,8 @@ class ProjectClean:
             "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id,
         })
-        self.conversation_manager.upsert_project(result["title"], element_type="title", project_id=query.project_id)
-        self.conversation_manager.upsert_project(result["background"], element_type="background", project_id=query.project_id)
+        self.conversation_manager.upsert_project(result["title"], element_type="title", project_id=query.project_id, llm_model=query.llm_model)
+        self.conversation_manager.upsert_project(result["background"], element_type="background", project_id=query.project_id, llm_model=query.llm_model)
         logger.debug(f'Metadata saved: title={bool(result.get("title"))}, background={bool(result.get("background"))}')
         writer({
             "type": "status",
