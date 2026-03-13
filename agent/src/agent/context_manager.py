@@ -6,8 +6,7 @@ from uuid import uuid4
 import uuid
 import asyncio
 from pydantic import BaseModel, create_model,Field
-from langchain_core.messages import AIMessage,ToolMessage
-from langchain_core.documents import Document
+from langchain_core.messages import AIMessage,ToolMessage, HumanMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 
@@ -74,7 +73,7 @@ class ContextManager:
         truncated = messages[-max_messages:]
         
         # Remove orphan tool messages at start
-        while truncated and isinstance(truncated[0], ToolMessage):
+        while truncated and not  isinstance(truncated[0], HumanMessage):
             truncated.pop(0)
         
         # Remove trailing AIMessage with tool_calls if no ToolMessage follows
