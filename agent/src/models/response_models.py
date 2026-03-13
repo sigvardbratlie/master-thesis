@@ -25,29 +25,28 @@ class ProjectData(BaseModel):
                           significance: list[Literal["high", "medium", "low"]] = None) -> str:
         return self.factsheet.shorten_factsheet(excluded_fields=excluded_fields, significance=significance)
 
-    def shorten_attachments(self, excluded_fields: list[Literal["description", ]] = None, significance: list[Literal["high", "medium", "low"]] = None) -> str:
-        format_keys = ["path", "file_date","title"] + (["description",] if not excluded_fields or "description" not in excluded_fields else [])
+    def shorten_attachments(self, excluded_keys: list[Literal["description", ]] = None, significance: list[Literal["high", "medium", "low"]] = None) -> str:
+        format_keys = ["path", "file_date","title"] + (["description",] if not excluded_keys or "description" not in excluded_keys else [])
         return shorten_element(self.attachments, 
                                 element_name="attachments", 
                                 format_key=format_keys, 
                                 significance=significance)
     
-    def shorten_emails(self, excluded_fields: list[Literal["description"]] = None, significance: list[Literal["high", "medium", "low"]] = None) -> str:
-        format_keys = ["path", "from_addr", "to", "subject", "date", "title"] + (["description"] if not excluded_fields or "description" not in excluded_fields else [])
+    def shorten_emails(self, excluded_keys: list[Literal["description"]] = None, significance: list[Literal["high", "medium", "low"]] = None) -> str:
+        format_keys = ["path", "from_addr", "to", "subject", "date", "title"] + (["description"] if not excluded_keys or "description" not in excluded_keys else [])
         return shorten_element(self.emails, 
                             element_name="emails", 
                             format_key=format_keys, 
                             significance=significance)
-
-    
     
     def shorten_project(self,
-                            excluded_fields: list[Literal["events", "parties", "claims", "damages","title", "background"]] = None,
+                            excluded_fields: list[Literal["events", "parties", "claims", "damages","title", "background", "emails", "attachments"]] = None,
+                            excluded_keys: list[Literal["description"]] = None,
                           significance: list[Literal["high", "medium", "low"]] = None) -> str:
         view = ""
         view += self.shorten_factsheet(excluded_fields=excluded_fields, significance=significance)
-        view += self.shorten_attachments(excluded_fields=excluded_fields, significance=significance)
-        view += self.shorten_emails(excluded_fields=excluded_fields, significance=significance)
+        view += self.shorten_attachments(excluded_keys=excluded_keys, significance=significance) if not excluded_fields or "attachments" not in excluded_fields else ""
+        view += self.shorten_emails(excluded_keys=excluded_keys, significance=significance) if not excluded_fields or "emails" not in excluded_fields else ""
         return view
 
 class ProjectSummary(BaseModel):
