@@ -14,7 +14,7 @@ from agent.agent import Agent
 from agent import ProjectPipeline, ProjectClean
 from models import AskAgentRequest, AttachmentModel, CleanupElementsRequest
 from models.project_models import FactSheet
-from agent.utils import PROMPT, PROMPT_BASELINE, PROMPT_BASELINE_RAG, to_thread_config
+from agent.utils import to_thread_config
 from agent.tools import TOOLS, BASELINE_TOOLS, BASELINE_RAG_TOOLS
 from .dataset_module import Dataset
 from .models import ConversationTurn, DatasetPayload, GatheredResultPayload, TimeCount
@@ -28,12 +28,6 @@ _TOOLS_MAP = {
     "custom": TOOLS,
     "baseline": BASELINE_TOOLS,
     "baseline_rag": BASELINE_RAG_TOOLS,
-}
-
-_PROMPT_MAP = {
-    "custom": PROMPT,
-    "baseline": PROMPT_BASELINE,
-    "baseline_rag": PROMPT_BASELINE_RAG,
 }
 
 
@@ -59,7 +53,6 @@ class CollectAgentResult:
         checkpointer = AsyncPostgresSaver(pool)
         agent = Agent(
             tools=tools,
-            prompt=prompt,
             checkpointer=checkpointer,
             config=self.config,
         )
@@ -135,14 +128,12 @@ class CollectAgentResult:
         eval_run_id = str(uuid.uuid4())
 
         tools = _TOOLS_MAP[self.agent_type]
-        prompt = _PROMPT_MAP[self.agent_type]
 
         agent_class = await self.init_agent(
             #use_factsheet=use_factsheet,
             #save_to_storage=save_to_storage,
             #embed_to_vectorstore=embed_to_vectorstore,
             tools=tools,
-            prompt=prompt,
         )
         pm, clean = self.init_pipeline(
             embed_to_vectorstore=embed_to_vectorstore,

@@ -65,7 +65,6 @@ def mock_agent():
 
         agent = Agent(
             tools=[],
-            prompt="You are a helpful legal assistant.",
             config=mock_config,
         )
 

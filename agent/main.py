@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from agent.utils import PROMPT
 from agent.tools import TOOLS
 from agent.agent import Agent
 from database import SupabaseManager
@@ -76,7 +75,6 @@ async def lifespan(app: FastAPI):
 
     agent = Agent(
         tools=TOOLS,
-        prompt=PROMPT,
         checkpointer=checkpointer,
         config = config
     )
