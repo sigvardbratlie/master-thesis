@@ -753,10 +753,12 @@ with tab_results:
 
         run_meta = result_data.get("metadata") or {}
         if run_meta:
-            p1, p2 = st.columns(4)[:2]
+            p1, p2,p3,p4 = st.columns(4)
             significance_val = run_meta.get("significance")
             p1.text_input("Significance", value=", ".join(significance_val) if isinstance(significance_val, list) else str(significance_val or "—"), disabled=True, key=f"res_meta_significance_{selected_result_idx}")
             p2.text_input("Clean rate", value=str(run_meta.get("clean_rate", "—")), disabled=True, key=f"res_meta_clean_rate_{selected_result_idx}")
+            p3.text_input("Minimal context", value=run_meta.get("minimal_context", "—"), disabled=True, key=f"res_meta_min_context_{selected_result_idx}")
+
 
         time_usage = result_data.get("time_counts") or result_data.get("time_usage") or {}
         if time_usage:

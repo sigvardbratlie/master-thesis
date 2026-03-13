@@ -280,7 +280,7 @@ class CollectAgentResult:
             ),
             metadata = {"significance" : self.config.agent.significance, 
                         "clean_rate" : self.clean_rate,
-                        "minimal-context" : self.config.agent.minimal_context}
+                        "minimal_context" : self.config.agent.minimal_context}
         )
 
     #async def run_agent_mult(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True)
