@@ -322,6 +322,13 @@ def list_attachments(element_types : list[Literal["attachments", "emails"]],
 
 @tool
 def list_project_attachments(project_id: str) -> str:
+    '''Use this function to retrieve a list of the projects attachments with their file_ids. 
+    
+    Args:
+        project_id (str): The project id to identify which project's attachments to list.
+    Returns:
+        str: A string representation of the list of attachments with their file_ids.
+    '''
     client = bigquery.Client()
     query = f"""SELECT filename, file_id FROM vector_store.attachments WHERE project_id = '{project_id}'"""
     query_job = client.query(query)

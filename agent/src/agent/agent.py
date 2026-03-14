@@ -390,7 +390,7 @@ class Agent:
                     tool_data_results.append(raw_tool_data)
 
                 # ---- HANDLE LONG TOOL RESULTS FOR LLM MEMORY ----
-                if n_tokens > TOKEN_LIMIT:
+                if TOKEN_LIMIT and n_tokens > TOKEN_LIMIT:
                     formatted_result = "Executive summary of the tool result: " + self.summarizer.summarize(str(result), limit=TOKEN_LIMIT)
                 else:
                     formatted_result = self.tool_manager.format_tool_result(result)

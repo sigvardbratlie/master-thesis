@@ -43,53 +43,35 @@ async def main():
     n_runs = args.n_runs
     clean_rate = args.clean_rate
     include_init_query = not args.skip_init_query
-
-    config = AppConfig.from_toml(f"config.toml")
-    config_baseline = AppConfig.from_toml(f"config_baseline.toml")
-    config_baseline_rag = AppConfig.from_toml(f"config_baseline_rag.toml")
+    
+    config = AppConfig.from_toml(f"config.toml") 
     setup_logging(config)
     noisy_packages = ["httpx", "httpcore", "hpack", "urllib3", "anthropic", "openai", "asyncio", "langsmith"]
     [logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
 
     logger = logging.getLogger(__name__)
     load_dotenv()
-
+    
     logger.info("\n\n")
     logger.info("━" * 64)
-    logger.info(f"🚀  COLLECT  |  dataset: {dataset_name}  |  model: {llm_model}  |  n_runs: {n_runs} | Significance : {config.agent.significance} | clean_rate | {clean_rate}")
+    logger.info(f"🚀  COLLECT  |  dataset: {dataset_name}  |  model: {llm_model}  |  n_runs: {n_runs}")
     logger.info("━" * 64)
 
-    ds_custom = Dataset(dataset_name)
-    ds_baseline = Dataset(dataset_name)
-    ds_baseline_rag = Dataset(dataset_name)
-
-    data_custom = ds_custom.load_dataset() if "custom" in agent_types else None
-    data_baseline = ds_baseline.load_dataset() if "baseline" in agent_types else None
-    data_baseline_rag = ds_baseline_rag.load_dataset() if "baseline_rag" in agent_types else None
-
-    if "custom" in agent_types and (not data_custom or not data_custom.sessions):
-        logger.error("Custom dataset is empty or missing 'sessions' key.")
-        exit()
-    if "baseline" in agent_types and (not data_baseline or not data_baseline.sessions):
-        logger.error("Baseline dataset is empty or missing 'sessions' key.")
-        exit()
-    if "baseline_rag" in agent_types and (not data_baseline_rag or not data_baseline_rag.sessions):
-        logger.error("Baseline RAG dataset is empty or missing 'sessions' key.")
-        exit()
-
-    ds_custom.assign_session_attachments() if "custom" in agent_types else None
-    ds_baseline.assign_session_attachments_baseline() if "baseline" in agent_types else None
-    ds_baseline_rag.assign_session_attachments() if "baseline_rag" in agent_types else None
-
     if "custom" in agent_types:
+        ds_custom = Dataset(dataset_name)
+        data_custom = ds_custom.load_dataset()
+        if not data_custom or not data_custom.sessions:
+            logger.error("Custom dataset is empty or missing 'sessions' key.")
+            exit()
+        ds_custom.assign_session_attachments()
         # ====== RUN CUSTOM AGENT ======
         logger.info("━" * 64)
-        logger.info(f"🤖  CUSTOM AGENT  |  {llm_model}  |  dataset: {dataset_name}")
+        logger.info(f"🤖  CUSTOM AGENT  |  {llm_model}  |  dataset: {dataset_name} | significance {config.agent.significance} |  clean_rate | {clean_rate}")
         logger.info("━" * 64)
 
         for i in range(n_runs):
             logger.info(f"━" * 64)
-            logger.info(f"🔁  RUN {i+1}/{n_runs}  |  CUSTOM AGENT  |  {llm_model}  |  dataset: {dataset_name}")
+            logger.info(f"🔁  RUN {i+1}/{n_runs}")
             logger.info("━" * 64)
             await single_run(data=data_custom.model_copy(deep=True),
                             llm_model=llm_model,
@@ -105,12 +87,19 @@ async def main():
         logger.info("━" * 64)
             
     if "baseline" in agent_types:
+        config_baseline = AppConfig.from_toml(f"config_baseline.toml")
+        ds_baseline = Dataset(dataset_name)
+        data_baseline = ds_baseline.load_dataset()
+        if not data_baseline or not data_baseline.sessions:
+            logger.error("Baseline dataset is empty or missing 'sessions' key.")
+            exit()
+        ds_baseline.assign_session_attachments_baseline()
         logger.info("━" * 64)
-        logger.info(f"📋🔍  BASELINE  |  {llm_model}  |  dataset: {dataset_name}")
+        logger.info(f"📋🔍  BASELINE  |  {llm_model}  |  dataset: {dataset_name} | significance : {config_baseline.agent.significance}")
         logger.info("━" * 64)
         for i in range(n_runs):
             logger.info("━" * 64)
-            logger.info(f"🔁  RUN {i+1}/{n_runs}  |     BASELINE   |  {llm_model}  |  dataset: {dataset_name}")
+            logger.info(f"🔁  RUN {i+1}/{n_runs}")
             logger.info("━" * 64)
             await single_run(data=data_baseline.model_copy(deep=True),
                              llm_model=llm_model,
@@ -123,13 +112,20 @@ async def main():
         logger.info("━" * 64)
     
     if "baseline_rag" in agent_types:
+        config_baseline_rag = AppConfig.from_toml(f"config_baseline_rag.toml")
+        ds_baseline_rag = Dataset(dataset_name)
+        data_baseline_rag = ds_baseline_rag.load_dataset()
+        if not data_baseline_rag or not data_baseline_rag.sessions:
+            logger.error("Baseline RAG dataset is empty or missing 'sessions' key.")
+            exit()
+        ds_baseline_rag.assign_session_attachments()
         # ====== RUN BASELINE + BASELINE RAG IN PARALLEL ======
         logger.info("━" * 64)
-        logger.info(f"📋🔍  BASELINE + RAG |  {llm_model}  |  dataset: {dataset_name}")
+        logger.info(f"📋🔍  BASELINE + RAG |  {llm_model}  |  dataset: {dataset_name} | significance : {config_baseline_rag.agent.significance}")
         logger.info("━" * 64)
         for i in range(n_runs):
             logger.info("━" * 64)
-            logger.info(f"🔁  RUN {i+1}/{n_runs}  |  BASELINE RAG |  {llm_model}  |  dataset: {dataset_name}")
+            logger.info(f"🔁  RUN {i+1}/{n_runs}")
             logger.info("━" * 64)
             await single_run(data=data_baseline_rag.model_copy(deep=True),
                              llm_model=llm_model,

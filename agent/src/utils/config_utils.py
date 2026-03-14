@@ -35,7 +35,7 @@ class ModelsConfig(BaseModel):
     together: ModelProviderConfig = Field(default_factory=ModelProviderConfig)
 
 class AgentConfig(BaseModel):
-    max_token_tool: int = 10000
+    max_token_tool: int | None = None
     sum_rate : int = 20
 
     #related to the factsheet in agent
