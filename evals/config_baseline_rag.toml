@@ -31,3 +31,8 @@ max_attachments = 10
 max_emails = 15
 embed_to_vectorstore = true
 save_to_storage = true
+
+[vectorstore]
+chunk_size = 1500
+chunk_overlap = 300
+k = 3

@@ -8,13 +8,16 @@ import asyncio
 
 
 
-async def single_run(data, llm_model : str, agent_type : str , config : AppConfig, clean_rate : int,
-                     #embed_to_vectorstore, save_to_storage, , significance, 
+async def single_run(data, llm_model : str, 
+                     agent_type : str , 
+                     config : AppConfig, 
+                     clean_rate : int,
+                     include_init_query: bool = True
                      ):
         car_custom = CollectAgentResult(data, llm_model=llm_model, agent_type=agent_type,
                                         config = config, 
                                         clean_rate = clean_rate)
-        collected_results = await car_custom.run_agent()
+        collected_results = await car_custom.run_agent(include_init_query=include_init_query)
                                                        
         ds = Dataset(data.dataset_name)
         ds.update_token_counts(collected_results)
@@ -31,19 +34,15 @@ async def main():
                         help="LLM model to use for evaluation")
     parser.add_argument("-a", "--agent-type", nargs="+", type=str, choices=["custom", "baseline", "baseline_rag"], default=["custom", "baseline", "baseline_rag"],help="Agent type to run (custom, baseline, or baseline_rag)")
     parser.add_argument("-n","--n-runs", type=int, default=1, help="Number of runs to execute for each agent")
-    #parser.add_argument("--skip-embedding", action="store_true", help="Skip embedding step for custom agent")
-    #parser.add_argument("--skip-storage", action="store_true", help="Skip saving results to storage for custom agent")
-    #parser.add_argument("-s", "--significance", nargs="+", type=str, choices=["high", "medium", "low"], help="Significance levels to include for agent runs (overrides config.toml settings)")
     parser.add_argument("--clean-rate", type = int, help="The rate (of sessions) in which to clean the factsheet. From -1 for last msg, 1 > for all other rates")
+    parser.add_argument("--skip-init-query", action="store_true", help="Whether to skip the initial query for baseline_rag agent type (only applicable if baseline_rag is included in agent types)")
     args = parser.parse_args()
     dataset_name = args.dataset
     llm_model = args.model
     agent_types = args.agent_type
     n_runs = args.n_runs
-    # embed_to_vectorstore = not args.skip_embedding
-    # save_to_storage = not args.skip_storage
-    # significance = args.significance
     clean_rate = args.clean_rate
+    include_init_query = not args.skip_init_query
 
     config = AppConfig.from_toml(f"config_custom.toml")
     config_baseline = AppConfig.from_toml(f"config_baseline.toml")
@@ -116,12 +115,8 @@ async def main():
             await single_run(data=data_baseline.model_copy(deep=True),
                              llm_model=llm_model,
                              agent_type="baseline",
-                             #embed_to_vectorstore=False,
-                             #save_to_storage=False,
-                             #significance=significance,
-
                              config=config_baseline,
-                             clean_rate=clean_rate)
+                             clean_rate=clean_rate,)
 
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline")
@@ -139,11 +134,9 @@ async def main():
             await single_run(data=data_baseline_rag.model_copy(deep=True),
                              llm_model=llm_model,
                              agent_type="baseline_rag",
-                             #embed_to_vectorstore=True,
-                             #save_to_storage=False,
-                             #significance=significance,
                              config=config_baseline_rag,
-                             clean_rate=clean_rate)
+                             clean_rate=clean_rate,
+                             include_init_query=include_init_query)
 
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline + RAG")
@@ -151,5 +144,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-#python collect.py -d test -m anthropic_claude-sonnet-4-6

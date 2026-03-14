@@ -45,8 +45,7 @@ class CollectAgentResult:
         self.clean_rate = clean_rate
 
     async def init_agent(self, 
-                         tools=None,
-                         prompt: str = None):
+                         tools=None,):
         connection_string = os.getenv("SUPABASE_DB_URL")
         pool = AsyncConnectionPool(conninfo=connection_string, open=False, min_size=1, max_size=2)
         await pool.open()
@@ -115,8 +114,8 @@ class CollectAgentResult:
         )
 
     async def run_agent(self, 
-                        #embed_to_vectorstore: bool = True, save_to_storage: bool = True
-                        ) -> GatheredResultPayload:
+                       include_init_query: bool = True
+                       ) -> GatheredResultPayload:
         #use_factsheet = self.agent_type == "custom"
         use_factsheet = self.config.agent.use_factsheet
         embed_to_vectorstore = self.config.agent.embed_to_vectorstore
@@ -229,19 +228,22 @@ class CollectAgentResult:
                     )
                     logger.debug(f"Session {idx} initialization completed in {session.init_query_time_count.duration_seconds:.2f} seconds")
                 else:
-                    conv_query_id = session.init_query_id or str(uuid.uuid4())
-                    init_query = session.init_query or f"{session.session_name}. Se vedlagte dokumenter"
-                    with tracing_context(metadata={"query_id": conv_query_id}):
-                        await self.run_conv(
-                            conv=ConversationTurn(input=init_query, answer=""),
-                            agent_class=agent_class,
-                            project_id=eval_run_id if self.agent_type in ["custom","baseline_rag"] else None,
-                            session_id=runtime_session_id,
-                            query_id=conv_query_id,
-                            user_id=self.data.user_id,
-                            attachments=attachments,
-                            session_date=session.date,
-                        )
+                    if self.agent_type in ["baseline_rag"] and not include_init_query:
+                        logger.info(f"Skipping initial query for session {idx} for agent type {self.agent_type} as per configuration")
+                    else:
+                        conv_query_id = session.init_query_id or str(uuid.uuid4())
+                        init_query = session.init_query or f"{session.session_name}. Se vedlagte dokumenter"
+                        with tracing_context(metadata={"query_id": conv_query_id}):
+                            await self.run_conv(
+                                conv=ConversationTurn(input=init_query, answer=""),
+                                agent_class=agent_class,
+                                project_id=eval_run_id if self.agent_type in ["custom","baseline_rag"] else None,
+                                session_id=runtime_session_id,
+                                query_id=conv_query_id,
+                                user_id=self.data.user_id,
+                                attachments=attachments,
+                                session_date=session.date,
+                            )
 
 
                 for conv in session.conversation:
