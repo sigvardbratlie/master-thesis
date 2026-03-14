@@ -27,20 +27,22 @@ tavily_search = TavilySearch(
 
 @tool
 def read_attachments(
-    paths: list[str],
+    file_ids: list[str],
     # config : RunnableConfig
 ) -> str:
     """
     Reads and processes multiple attachments from Supabase storage based on the provided paths.
 
     Args:
-        paths (str): The path to the attachments in Supabase storage. Always in the form of ["<user_id>/<session_id>/<file_id>.<ext>", etc...].
+        file_ids (str): The file IDs of the attachments in Supabase storage. 
 
     Returns:
         str: Processed content of the attachment.
     """
+    db = SupabaseManager()
     storage_manager = SupabaseStorageManager()
     document_processor = DocumentProcessor()
+    paths = db.get_paths(file_ids)
     contents = storage_manager.read_attachments(paths=paths)
     def process_attachment(path, content):
         try:
@@ -228,6 +230,7 @@ def read_specific_law(title: list[str],
         
     except Exception as e:
         return f"Feil ved spørring: {str(e)}"
+
 @tool
 def update_project(
     project_id: str,

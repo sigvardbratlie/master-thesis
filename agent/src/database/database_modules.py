@@ -493,3 +493,10 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f'Error deleting project {project_id} from Supabase: {e}', exc_info=True)
 
+    def get_paths(self, file_ids: list[str]) -> list[str]:
+        """Get storage paths for given file IDs from Supabase"""
+        response_att = self.supabase.table("project_attachments").select("path").in_("file_id", file_ids).execute()
+        response_emails = self.supabase.table("project_emails").select("path").in_("email_id", file_ids).execute()
+        paths = [item["path"] for item in response_att.data]
+        emails = [item["path"] for item in response_emails.data]
+        return emails + paths
