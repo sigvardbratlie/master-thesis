@@ -131,8 +131,6 @@ class CollectAgentResult:
             tools=tools,
         )
         pm, clean = self.init_pipeline(
-            embed_to_vectorstore=embed_to_vectorstore,
-            save_to_storage=save_to_storage,
         )
         logger.info("=========== Running agent ===========")
         logger.info(
