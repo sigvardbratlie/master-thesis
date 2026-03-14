@@ -52,8 +52,9 @@ class CollectAgentResult:
     async def init_agent(self, 
                          tools=None,):
         connection_string = os.getenv("SUPABASE_DB_URL")
-        pool = AsyncConnectionPool(conninfo=connection_string, open=False, min_size=1, max_size=2)
-        await pool.open()
+        pool = AsyncConnectionPool(conninfo=connection_string, open=False, min_size=1, max_size=2,
+                                   kwargs={"autocommit": True, "prepare_threshold": 0})
+        await pool.open(wait=True, timeout=15.0)
         checkpointer = AsyncPostgresSaver(pool)
         agent = Agent(
             tools=tools,
@@ -182,7 +183,17 @@ class CollectAgentResult:
                     )
                     attachments.append(att_model)
 
-                    doc = self.dp.parse(content=b64decode(att_model.content), file_type=att_model.file_type, metadata={"file_id": att_model.file_id, "session_id": runtime_session_id})
+                    doc = self.dp.parse(content=b64decode(att_model.content), 
+                                        file_type=att_model.file_type, 
+                                        force_metadata_model=False,
+                                        metadata={"file_id": att_model.file_id, 
+                                                  "session_id": runtime_session_id,
+                                                  "project_id": eval_run_id,
+                                                  "query_id": query_id,
+                                                  "filename": att_model.filename,
+                                                  "file_type": att_model.file_type,
+                                                  "size": att_model.size,
+                                                  })
                     att_model.body = self.dp.to_plain_text(doc)
                     docs.extend(doc)
 
@@ -232,9 +243,8 @@ class CollectAgentResult:
                 
                 elif self.agent_type == "baseline_rag":
                     logger.info(f'Embed documents for the purpose of the RAG run')
-                    
                     self.vs.add_documents(docs)
-                    session.conversation[0].input = (str(session.init_query) if session.init_query else "") + "\n" + session.conversation[0].input
+                    session.conversation[0].input = f"Project-Id: {eval_run_id}\n" + (str(session.init_query) if session.init_query else "") + "\n" + session.conversation[0].input
 
                 
                 else:

@@ -338,6 +338,28 @@ def list_project_attachments(project_id: str) -> str:
         output += f"filename: {row.filename}, file_id: {row.file_id}\n"
     return output
 
+@tool
+def read_full_attachments(file_ids: list[str]) -> str:
+    '''Use this function to retrieve the full content of attachments based on their file_ids. This is a helper function that can be used in the read_attachments tool if you want to retrieve the full content instead of a shortened version. 
+
+    Args:
+        file_ids (list[str]): A list of file ids to identify which attachments to read.
+    Returns:
+        str: A string representation of the full content of the attachments.
+    '''
+    client = bigquery.Client()
+    query = f"""SELECT file_id, content FROM vector_store.attachments WHERE file_id IN {tuple(file_ids)}"""
+    query_job = client.query(query)
+    results = query_job.result()
+    string_results = ""
+    current_file_id = None
+    for row in results:
+        if not current_file_id or row.file_id != current_file_id:
+            string_results += f"\n\n======== CONTENT FOR FILE_ID {row.file_id}: ========\n\n"
+        current_file_id = row.file_id
+        string_results += row.content
+    return string_results
+
 TOOLS = [
     tavily_search,
     read_attachments,
@@ -360,4 +382,5 @@ BASELINE_RAG_TOOLS = [
     read_specific_law,
     query_project_attachments,
     list_project_attachments,
+    read_full_attachments,
 ]
