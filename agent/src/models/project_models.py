@@ -230,6 +230,13 @@ class AttachmentExtracted(BaseExtracted):
     file_id: str | None = None
     key_provisions: list[str] | None = Field(None, description="Important clauses or sections (for agreements)")
     file_date: date | datetime | None = Field(None, description="Date of the document (when it was created/sent, not when it was received). Must be a valid date or datetime (e.g., '2023-05-01' or '2023-05-01T14:30:00')")
+
+    @field_validator("file_date", mode="before")
+    @classmethod
+    def coerce_empty_date(cls, v):
+        if v == "":
+            return None
+        return v
     category: Literal[
         "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
         "court_order", "invoice", "expert_report", "witness_statement", "internal_memo",

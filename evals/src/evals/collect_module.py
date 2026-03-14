@@ -119,13 +119,8 @@ class CollectAgentResult:
 
     async def run_agent(self, 
                        ) -> GatheredResultPayload:
-        #use_factsheet = self.config.agent.use_factsheet
-        embed_to_vectorstore = self.config.agent.embed_to_vectorstore
-        save_to_storage = self.config.agent.save_to_storage
-
         base_project_id = self.data.project_id 
         eval_run_id = str(uuid.uuid4())
-
         tools = _TOOLS_MAP[self.agent_type]
 
         agent_class = await self.init_agent(
@@ -185,7 +180,7 @@ class CollectAgentResult:
 
                     doc = self.dp.parse(content=b64decode(att_model.content), 
                                         file_type=att_model.file_type, 
-                                        force_metadata_model=False,
+                                        #force_metadata_model=False,
                                         metadata={"file_id": att_model.file_id, 
                                                   "session_id": runtime_session_id,
                                                   "project_id": eval_run_id,
@@ -193,6 +188,7 @@ class CollectAgentResult:
                                                   "filename": att_model.filename,
                                                   "file_type": att_model.file_type,
                                                   "size": att_model.size,
+                                                  "user_id": self.data.user_id,
                                                   })
                     att_model.body = self.dp.to_plain_text(doc)
                     docs.extend(doc)
