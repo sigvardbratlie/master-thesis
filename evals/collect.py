@@ -44,7 +44,7 @@ async def main():
     clean_rate = args.clean_rate
     include_init_query = not args.skip_init_query
 
-    config = AppConfig.from_toml(f"config_custom.toml")
+    config = AppConfig.from_toml(f"config.toml")
     config_baseline = AppConfig.from_toml(f"config_baseline.toml")
     config_baseline_rag = AppConfig.from_toml(f"config_baseline_rag.toml")
     setup_logging(config)

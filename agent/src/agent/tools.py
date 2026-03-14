@@ -83,33 +83,6 @@ def read_attachments(
     return results
 
 @tool
-# def query_project_attachments(query: str, project_id: str, k: int = 3) -> str:
-#     """Function to use RAG to retrieve documents of a specific project.
-
-#     Args:
-#         query (str): The query to search in the vectorstore.
-#         project_id (str): The project id to identify which vectorstore to query.
-#         k (int): The number of top results to retrieve from the vectorstore. Default is 5.
-#     Returns:
-#         str: The retrieved information from the vectorstore based on the query.
-#     """
-#     vectorstore = BQVectorStore()
-#     results = vectorstore.query(
-#         query=query, collection_id="attachments", k=k, filter={"project_id": project_id}
-#     )
-#     if not results:
-#         return f"No relevant information found in the vectorstore for project {project_id}."
-#     res = "=== Retrieved relevant chunks from vectorstore: ===\n"
-#     for doc in results:
-#         res += (
-#             f"filename: {doc.metadata.get('filename', 'Unknown')}"
-#             f"title: {doc.metadata.get('title', 'Unknown')} | "
-#             f"path: {doc.metadata.get('path', 'Unknown')} | "
-#             f"| chunk: {doc.metadata.get('chunk', 'Unknown')} of {doc.metadata.get('total_chunks', 'Unknown')} total chunks\n"
-#         )
-#         res += f"{doc.page_content}\n\n"
-#     return res
-@tool
 def query_project_attachments(query: str, project_id: str, k: int = 5, metadata : dict = None) -> str:
     """Function to use RAG to retrieve documents of a specific project.
 
@@ -117,9 +90,11 @@ def query_project_attachments(query: str, project_id: str, k: int = 5, metadata 
         query (str): The query to search in the vectorstore.
         project_id (str): The project id to identify which vectorstore to query.
         k (int): The number of top results to retrieve from the vectorstore. Default is 5.
-        metadata (dict, optional): Additional metadata to filter the vectorstore query. Defaults to None. I.e., {'file_id' : '741ef083-9335-4a55-bbe1-ea866bf01758'}
+        metadata (dict, optional): Additional metadata to filter the vectorstore query. Defaults to None. I.e., {'file_id' : '741ef083-9335-4a55-bbe1-ea866bf01758'}.
     Returns:
         str: The retrieved information from the vectorstore based on the query.
+
+    Available metadata fields are : file_id, filename, file_type (MIME)
     """
     filters = {"project_id": project_id}
     if metadata:
