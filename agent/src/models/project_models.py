@@ -60,7 +60,11 @@ entity_types = Literal["individual", "company", "government"]
 
 significance_levels = Literal["high", "medium", "low"]
 
-def shorten_element(elements : list,  element_name : Literal["attachments", "emails","events", "parties", "claims", "damages", "deadlines"] , format_keys : list[str], significance: list[Literal["high", "medium", "low"]] = None) -> str:
+def shorten_element(elements : list,  
+                    element_name : Literal["attachments", "emails","events", "parties", "claims", "damages", "deadlines"] , 
+                    format_keys : list[str], 
+                    significance: list[Literal["high", "medium", "low"]] = None,
+                    include_reference_ids: bool = False) -> str:
         type_map = {
             "attachments": Attachment, 
             "emails": Email,
@@ -82,7 +86,7 @@ def shorten_element(elements : list,  element_name : Literal["attachments", "ema
             "deadlines": "deadline_id"
         }
         element_id_key = element_id_map.get(element_name)
-        presented_format_keys = ["id" if key == element_id_key else key for key in format_keys]
+        presented_format_keys = ["id" if key == element_id_key else key for key in format_keys] + (["reference_id"] if include_reference_ids and element_name not in ["attachments", "emails", "parties"] else [])
         view = ""
         view += "**FORMAT: " + " | ".join(presented_format_keys) + "**\n"
         for item in elements:
@@ -92,24 +96,13 @@ def shorten_element(elements : list,  element_name : Literal["attachments", "ema
             if significance and item.significance not in significance:
                 continue
             row = " | ".join([str(getattr(item, key)) for key in format_keys])
+            if include_reference_ids and element_name not in ["attachments", "emails", "parties"]:
+                reference_id = getattr(item, "email_id", None) or getattr(item, "file_id", None)
+                row += f" | {reference_id}" if reference_id else " | "
             view += f"\t* {row}\n"
         return f"{element_name.capitalize()}:\n" + view + "\n\n"
 
 # === #Custom fields === 
-# class GoverningLaw(BaseModel):
-#     primary_jurisdiction: str = Field(default = "norwegian_law" , description="Which law governs (e.g., Norwegian law)")
-#     key_areas: list[str] | None = Field(default_factory=list, description="Relevant legal areas (contract law, tort, etc)")
-#     international_elements: str | None = Field(
-#         None, description="Cross-border or conflicts of law issues"
-#     )
-#     procedural_law: Literal[
-#         "tvisteloven", "straffeprosessloven", "arbeidstvistloven", "voldgiftsloven",
-#         "forvaltningsloven", "domstolloven"
-#     ] = Field(default="tvisteloven",description="Applicable procedural law, if relevant")
-
-# class FactualFacts(BaseModel):
-#     disputed_facts: list[str] | None = Field(None, description="Key facts that are in dispute between the parties")
-#     undisputed_facts: list[str] | None = Field(None, description="Key facts that are undisputed between the parties")
 
 class Claim(BaseModel):
     claim_id : str | None = None
@@ -385,27 +378,3 @@ class FactSheet(InitialInput,
         view += self.shorten_deadlines(significance) if self.deadlines and (not excluded_fields or "deadlines" not in excluded_fields) else ""
         return view
     
-    # def shorten_element(self,  element_name : Literal["attachments", "emails","events", "parties", "claims", "damages"] , format_keys : list[str], significance: list[Literal["high", "medium", "low"]] = None) -> str:
-    #     type_map = {
-    #         "attachments": Attachment, 
-    #         "emails": Email,
-    #         "events" : Event,
-    #         "parties" : Party,
-    #         "claims" : Claim,
-    #         "damages" : Damage
-    #         }
-    #     presented_format_keys = ["id" if key.endswith("_id") else key for key in format_keys]
-    #     elements = getattr(self, element_name, [])
-    #     if not elements:
-    #         return f"No {element_name.capitalize()}.\n\n"
-    #     view = ""
-    #     view += "**FORMAT: " + " | ".join(presented_format_keys) + "**\n"
-    #     for item in elements:
-    #         if not isinstance(item, type_map[element_name]):
-    #             logger.warning(f'Item is of wrong type: {type(item)}. Expected type {type_map[element_name]. __name__}. Skipping item.')
-    #             continue
-    #         if significance and item.significance not in significance:
-    #             continue
-    #         row = " | ".join([str(getattr(item, key)) for key in format_keys])
-    #         view += f"\t* {row}\n"
-    #     return f"{element_name.capitalize()}:\n" + view + "\n\n"

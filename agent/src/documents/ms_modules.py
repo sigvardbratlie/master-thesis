@@ -11,8 +11,13 @@ logger = logging.getLogger(__name__)
 
 
 class DocxHandler(BaseHandler):
-    def __init__(self):
-        super().__init__()
+    def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
+        '''Handler for parsing DOCX documents.
+        Args:
+            chunk_size (int): The maximum size of each text chunk extracted from the DOCX. (default: Splits by paragraph)
+            chunk_overlap (int): The number of characters to overlap between chunks. (default: 200)
+        '''
+        super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     def parse_docx_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
         try:
@@ -51,16 +56,16 @@ class DocxHandler(BaseHandler):
             return output.getvalue()
         
 class XlsxHandler(BaseHandler):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
+        super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     
     def parse_xlsx_to_docs(self, content: bytes, metadata: dict) -> list[Document]:
         logger.warning(f"⚠️  XLSX parsing not implemented yet {metadata.get('filename', 'unknown')}")
         return []
     
 class PptxHandler(BaseHandler):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
+        super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     def parse_pptx_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
         try:

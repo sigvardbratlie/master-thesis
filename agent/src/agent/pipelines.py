@@ -27,7 +27,7 @@ class ProjectPipeline:
         self.name = name
         self.config = config or AppConfig()
         self.context_manager = ContextManager()
-        self.document_processor = DocumentProcessor()
+        self.document_processor = DocumentProcessor(chunk_size = self.config.vectorstore.chunk_size, chunk_overlap = self.config.vectorstore.chunk_overlap)
         self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
         self.storage = SupabaseStorageManager()
         self.vs = BQVectorStore()
@@ -215,7 +215,7 @@ class ProjectPipeline:
     def mk_update_query_from_session(self,
                                         query : AskAgentRequest,
                                         ) -> AskAgentRequest:
-        '''Update the project with new input and attachments, using session data as context'''
+        '''Update the project with new input and attachments, using a given session as context.'''
         input_attachments = query.attachments or []
         new_input = ""
         session_conv = self.conversation_manager.load_session_history(session_id=query.session_id)

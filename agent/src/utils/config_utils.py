@@ -62,13 +62,19 @@ class ProjectConfig(BaseModel):
     save_to_storage: bool = True
     
 
-# 2. Definer hovedkonfigurasjonen som BaseSettings
+class VectorstoreConfig(BaseModel):
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
+    k : int = 3
+
+# ========= MAIN CONFIG CLASS =========
 class AppConfig(BaseSettings):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     async_tasks: AsyncConfig = Field(default_factory=AsyncConfig, alias="async") 
     agent: AgentConfig = Field(default_factory=AgentConfig)
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     project : ProjectConfig = Field(default_factory=ProjectConfig)
+    vectorstore : VectorstoreConfig = Field(default_factory=VectorstoreConfig)
 
 
     @classmethod

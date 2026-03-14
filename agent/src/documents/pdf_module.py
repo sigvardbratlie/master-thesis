@@ -17,8 +17,14 @@ from .base_module import BaseHandler
 logger = logging.getLogger(__name__)
 
 class PDFHandler(BaseHandler):
-    def __init__(self):
-        super().__init__()
+    '''Handler for parsing PDF documents, with optional OCR for scanned PDFs.'''
+    def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
+        '''Handler for parsing PDF documents, with optional OCR for scanned PDFs.
+        Args:
+            chunk_size (int): The maximum size of each text chunk extracted from the PDF. (default: Splits by page)
+            chunk_overlap (int): The number of characters to overlap between chunks. (default: 200)
+        '''
+        super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     
     def _safe_pdf_date(self, metadata, field: str) -> datetime | None:

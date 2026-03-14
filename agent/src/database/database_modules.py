@@ -349,45 +349,6 @@ class SupabaseManager:
         except Exception as e:
             logger.error(f'Error upserting project {project_id} in Supabase: {e}')
 
-    def load_projects(self, user_id: str) -> list[ProjectSummary]:
-        projects = self.supabase.table("projects").select("project_id, title, created_at").eq("user_id", user_id).execute()
-        if projects.data:
-            sorted_projects = sorted(
-                projects.data,
-                key=lambda x: x.get("created_at") or "",
-                reverse=True
-            )
-            return [ProjectSummary(**p) for p in sorted_projects]
-        return []
-
-    def load_project_sessions(self, project_id: str) -> list[SessionSummary]:
-        project_sessions = self.supabase.table("sessions").select("session_id, title, updated_at, llm_model").eq("project_id", project_id).execute()
-        if project_sessions.data:
-            sorted_sessions = sorted(
-                project_sessions.data,
-                key=lambda x: x.get("updated_at") or "",
-                reverse=True
-            )
-            return [SessionSummary(**s) for s in sorted_sessions]
-        return []
-
-    def load_user_sessions(self, user_id: str) -> list[SessionSummary]:
-        '''Load all sessions for a user from Supabase'''
-        try:
-            sessions = self.supabase.table("sessions").select("title, session_id, updated_at").eq("user_id", user_id).order("updated_at", desc=True).execute()
-            if sessions.data:
-                sorted_sessions = sorted(
-                    sessions.data,
-                    key=lambda x: x.get("updated_at") or "",
-                    reverse=True
-                )
-                logger.debug(f'Loaded {len(sessions.data)} sessions for user {user_id} from Supabase.')
-                return [SessionSummary(**s) for s in sorted_sessions]
-            return []
-        except Exception as e:
-            logger.error(f'❌ Could not load sessions for user {user_id}: {e}', exc_info=True)
-            return []
-
     def load_session_history(self, session_id: str) -> SessionHistory:
         '''Load session history for a given session from Supabase'''
         query = """ *,
@@ -412,16 +373,6 @@ class SupabaseManager:
         else:
             logger.warning(f"No session found for session_id: {session_id} in Supabase.")
             return SessionHistory(events=[], attachments=[], project_id="", title="Ny samtale")
-
-    def load_session_attachments(self, session_id: str) -> list[AttachmentModel]:
-        '''Load attachments for a given session from Supabase'''
-        response = self.supabase.table("session_attachments").select("*").eq("session_id", session_id).execute()
-        if response.data:
-            logger.debug(f'Loaded {len(response.data)} attachments for session {session_id} from Supabase.')
-            return [AttachmentModel.model_validate(att) for att in response.data]
-        else:
-            logger.warning(f"No attachments found for session_id: {session_id} in Supabase.")
-            return []
 
     def save_stream(self, 
                     data : StreamData,

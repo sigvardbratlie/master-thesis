@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 
 class TextHandler(BaseHandler):
-    def __init__(self):
-        super().__init__()
+    def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
+        super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     def parse_text_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
         text = content.decode('utf-8', errors='ignore')

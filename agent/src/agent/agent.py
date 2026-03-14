@@ -48,12 +48,16 @@ class Agent:
             None
 
         """
+        self.config = config or AppConfig()
+        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
+        logger.debug(f"⚙️  AgentConfig: max_concurrent={self.config.async_tasks.max_concurrent_requests}, throttle_value={self.config.async_tasks.throttle_value}s")
+        
         self.tools = tools
         self.checkpointer = checkpointer
         self.summary = "" #rolling summary for long conversations
         self.in_memory_store = ChromaVectorStore()
         self.vs = BQVectorStore()
-        self.document_processor = DocumentProcessor()
+        self.document_processor = DocumentProcessor(chunk_size = self.config.vectorstore.chunk_size, chunk_overlap = self.config.vectorstore.chunk_overlap)
         self.summarizer = Summarizer()
         self.storage = SupabaseStorageManager() #GCSManager() 
         self.conversation_manager =  SupabaseManager() #ConversationManager()
@@ -62,9 +66,7 @@ class Agent:
 
         self.llm  = llm
 
-        self.config = config or AppConfig()
-        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
-        logger.debug(f"⚙️  AgentConfig: max_concurrent={self.config.async_tasks.max_concurrent_requests}, throttle_value={self.config.async_tasks.throttle_value}s")
+        
 
         self.prompt = self.load_prompt(self.config.agent.prompt_file_path)
     

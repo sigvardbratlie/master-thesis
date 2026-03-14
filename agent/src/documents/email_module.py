@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 class EmailHandler(BaseHandler):
-    def __init__(self):
-        super().__init__()
+    def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
+        super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     def _extract_email_body(self, msg : Message) -> dict:
         if msg.is_multipart():

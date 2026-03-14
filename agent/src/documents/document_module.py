@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 class DocumentProcessor(BaseHandler):
     """Handles parsing of various document types into Document objects, ready for embedding and storage. Delegates to specific handlers based on file type."""
     
-    def __init__(self,):
-        pass
+    def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
+        super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     def map_file_type(self, file_suffix: str) -> FileType:
         """Maps file suffix to MIME type for parsing. Defaults to 'unknown/unknown' if not recognized."""
@@ -53,19 +53,19 @@ class DocumentProcessor(BaseHandler):
 
         kwargs = {"metadata": metadata, "force_metadata_model": force_metadata_model}
         if file_type == "application/pdf":
-            return PDFHandler().parse_pdf_to_docs(content, **kwargs)
+            return PDFHandler(chunk_size = self.chunk_size, chunk_overlap = self.chunk_overlap).parse_pdf_to_docs(content, **kwargs)
         elif file_type in ["text/plain", "text/markdown"]:
-            return TextHandler().parse_text_to_docs(content, **kwargs)
+            return TextHandler(chunk_size = self.chunk_size, chunk_overlap = self.chunk_overlap).parse_text_to_docs(content, **kwargs)
         elif file_type == "text/csv":
-            return TextHandler().parse_csv_to_docs(content, **kwargs)
+            return TextHandler(chunk_size = self.chunk_size, chunk_overlap = self.chunk_overlap).parse_csv_to_docs(content, **kwargs)
         elif file_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-            return XlsxHandler().parse_xlsx_to_docs(content, **kwargs)
+            return XlsxHandler(chunk_size = self.chunk_size, chunk_overlap = self.chunk_overlap).parse_xlsx_to_docs(content, **kwargs)
         elif file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            return DocxHandler().parse_docx_to_docs(content, **kwargs)
+            return DocxHandler(chunk_size = self.chunk_size, chunk_overlap = self.chunk_overlap).parse_docx_to_docs(content, **kwargs)
         elif file_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation":
-            return PptxHandler().parse_pptx_to_docs(content, **kwargs)
+            return PptxHandler(chunk_size = self.chunk_size, chunk_overlap = self.chunk_overlap).parse_pptx_to_docs(content, **kwargs)
         elif file_type == "message/rfc822":
-            return EmailHandler().parse_eml_to_docs(content, **kwargs)
+            return EmailHandler(chunk_size = self.chunk_size, chunk_overlap = self.chunk_overlap).parse_eml_to_docs(content, **kwargs)
         else:
             logger.warning(f"⚠️  Unsupported file type '{file_type}' for {metadata.get('file_id')}")
             return []

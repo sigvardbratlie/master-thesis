@@ -83,33 +83,61 @@ def read_attachments(
     return results
 
 @tool
-def query_project_attachments(query: str, project_id: str, k: int = 3) -> str:
+# def query_project_attachments(query: str, project_id: str, k: int = 3) -> str:
+#     """Function to use RAG to retrieve documents of a specific project.
+
+#     Args:
+#         query (str): The query to search in the vectorstore.
+#         project_id (str): The project id to identify which vectorstore to query.
+#         k (int): The number of top results to retrieve from the vectorstore. Default is 5.
+#     Returns:
+#         str: The retrieved information from the vectorstore based on the query.
+#     """
+#     vectorstore = BQVectorStore()
+#     results = vectorstore.query(
+#         query=query, collection_id="attachments", k=k, filter={"project_id": project_id}
+#     )
+#     if not results:
+#         return f"No relevant information found in the vectorstore for project {project_id}."
+#     res = "=== Retrieved relevant chunks from vectorstore: ===\n"
+#     for doc in results:
+#         res += (
+#             f"filename: {doc.metadata.get('filename', 'Unknown')}"
+#             f"title: {doc.metadata.get('title', 'Unknown')} | "
+#             f"path: {doc.metadata.get('path', 'Unknown')} | "
+#             f"| chunk: {doc.metadata.get('chunk', 'Unknown')} of {doc.metadata.get('total_chunks', 'Unknown')} total chunks\n"
+#         )
+#         res += f"{doc.page_content}\n\n"
+#     return res
+@tool
+def query_project_attachments(query: str, project_id: str, k: int = 5, metadata : dict = None) -> str:
     """Function to use RAG to retrieve documents of a specific project.
 
     Args:
         query (str): The query to search in the vectorstore.
         project_id (str): The project id to identify which vectorstore to query.
         k (int): The number of top results to retrieve from the vectorstore. Default is 5.
+        metadata (dict, optional): Additional metadata to filter the vectorstore query. Defaults to None. I.e., {'file_id' : '741ef083-9335-4a55-bbe1-ea866bf01758'}
     Returns:
         str: The retrieved information from the vectorstore based on the query.
     """
+    filters = {"project_id": project_id}
+    if metadata:
+        filters.update(metadata)
     vectorstore = BQVectorStore()
-    results = vectorstore.query(
-        query=query, collection_id="attachments", k=k, filter={"project_id": project_id}
-    )
+    results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=filters)
     if not results:
         return f"No relevant information found in the vectorstore for project {project_id}."
     res = "=== Retrieved relevant chunks from vectorstore: ===\n"
     for doc in results:
         res += (
-            f"filename: {doc.metadata.get('filename', 'Unknown')}"
+            f"filename: {doc.metadata.get('filename', 'Unknown')} |"
             f"title: {doc.metadata.get('title', 'Unknown')} | "
-            f"path: {doc.metadata.get('path', 'Unknown')} | "
+            f"file_id: {doc.metadata.get('file_id', 'Unknown')} | "
             f"| chunk: {doc.metadata.get('chunk', 'Unknown')} of {doc.metadata.get('total_chunks', 'Unknown')} total chunks\n"
         )
         res += f"{doc.page_content}\n\n"
     return res
-
 
 @tool
 def query_laws(query: str, 
@@ -264,47 +292,6 @@ def create_project():
     return "A new project has been sent for creation"
 
 
-# @tool
-# def list_project_files_emails(project_id: str, session_id : str = None, ):
-#     """Use this function to retrieve a list of the projects files and emails.
-    
-#     """
-#     sm = SupabaseManager()
-#     project = sm.load_project(project_id=project_id)
-#     if not project:
-#         return f"No project {project_id}"
-#     value = "=== List of project files and emails ===\n\n"
-#     value += project.shorten_attachments()
-#     value += project.shorten_emails()
-#     return value
-
-# @tool
-# def _show_elements(element_types : list[Literal["events", "parties", "claims", "damages", "emails", "attachments"]],
-#                   project_id: str,
-#                   significance: list[Literal["high", "medium", "low"]] = None,
-#                   ):
-#     """Use this function to retrieve a list of the projects files and emails.
-#     Args:
-#         element_types (list[Literal["events", "parties", "claims", "damages","title", "background", "emails", "attachments"]]): A list of the element types to show. For example, if you only want to show events and parties, use ["events", "parties"].
-#         significance (list[Literal["high", "medium", "low"]], optional): A list of significance levels to filter the elements. Defaults to None.
-#         project_id (str): The project id to identify which project to retrieve the elements from.
-#     Returns:
-#         str: A string representation of the requested elements.
-#     """
-#     sm = SupabaseManager()
-#     project = sm.load_project(project_id=project_id)
-#     if not project:
-#         return f"No project {project_id}"
-#     value = f"=== List of project elements: {', '.join(element_types)} ===\n\n"
-#     all_fields = ["events", "parties", "claims", "damages", "emails", "attachments"]
-#     excluded_fields = [e for e in all_fields if e not in element_types]
-#     if excluded_fields:
-#         value += project.shorten_project(
-#                         significance=significance,
-#                         excluded_fields=excluded_fields,)
-    
-#     return value
-
 @tool
 def show_elements(element_types : list[Literal["events", "parties", "claims", "damages",]],
                   project_id: str,
@@ -358,6 +345,17 @@ def list_attachments(element_types : list[Literal["attachments", "emails"]],
                     excluded_keys=["description",] if "emails" in element_types else None,)
     return value
 
+@tool
+def list_project_attachments(project_id: str) -> str:
+    client = bigquery.Client()
+    query = f"""SELECT filename, file_id FROM vector_store.attachments WHERE project_id = '{project_id}'"""
+    query_job = client.query(query)
+    results = query_job.result()
+    output = "=== List of project attachments ===\n\n"
+    for row in results:
+        output += f"filename: {row.filename}, file_id: {row.file_id}\n"
+    return output
+
 TOOLS = [
     tavily_search,
     read_attachments,
@@ -366,8 +364,8 @@ TOOLS = [
     query_project_attachments,
     query_laws,
     read_specific_law,
-    update_project,
-    clean_element,
+    #update_project,
+    #clean_element,
 ]
 
 BASELINE_TOOLS = [
@@ -379,4 +377,5 @@ BASELINE_RAG_TOOLS = [
     query_laws,
     read_specific_law,
     query_project_attachments,
+    list_project_attachments,
 ]
