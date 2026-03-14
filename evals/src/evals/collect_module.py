@@ -63,10 +63,8 @@ class CollectAgentResult:
         logger.info("Agent initialized with AsyncPostgresSaver checkpointer")
         return agent
 
-    def init_pipeline(self, embed_to_vectorstore: bool = True, save_to_storage: bool = True):
+    def init_pipeline(self,):
         pm = ProjectPipeline(name="ProjectPipeline", config=self.config)
-        pm.embed_to_vectorstore = embed_to_vectorstore
-        pm.save_to_storage = save_to_storage
         clean = ProjectClean(name="ProjectClean", config=self.config)
         return pm, clean
 
@@ -119,7 +117,6 @@ class CollectAgentResult:
         )
 
     async def run_agent(self, 
-                       #include_init_query: bool = True
                        ) -> GatheredResultPayload:
         #use_factsheet = self.config.agent.use_factsheet
         embed_to_vectorstore = self.config.agent.embed_to_vectorstore
@@ -239,7 +236,7 @@ class CollectAgentResult:
                     logger.info(f'Embed documents for the purpose of the RAG run')
                     
                     self.vs.add_documents(docs)
-                    session.conversation[0].input = session.init_query + "\n" + session.conversation[0].input
+                    session.conversation[0].input = (str(session.init_query) if session.init_query else "") + "\n" + session.conversation[0].input
 
                 
                 else:
@@ -264,7 +261,7 @@ class CollectAgentResult:
                     for att in attachments:
                         attachments_text += f"- {att.filename} ({att.file_type}, {att.size} bytes)\n"
                         attachments_text += f"{att.body}\n"
-                    session.conversation[0].input = attachments_text + session.init_query + "\n" + session.conversation[0].input
+                    session.conversation[0].input = attachments_text + (str(session.init_query) if session.init_query else "") + "\n" + session.conversation[0].input
                 
 
                 for conv in session.conversation:

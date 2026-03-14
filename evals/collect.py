@@ -12,12 +12,11 @@ async def single_run(data, llm_model : str,
                      agent_type : str , 
                      config : AppConfig, 
                      clean_rate : int,
-                     include_init_query: bool = True
                      ):
         car_custom = CollectAgentResult(data, llm_model=llm_model, agent_type=agent_type,
                                         config = config, 
                                         clean_rate = clean_rate)
-        collected_results = await car_custom.run_agent(include_init_query=include_init_query)
+        collected_results = await car_custom.run_agent()
                                                        
         ds = Dataset(data.dataset_name)
         ds.update_token_counts(collected_results)
@@ -35,14 +34,12 @@ async def main():
     parser.add_argument("-a", "--agent-type", nargs="+", type=str, choices=["custom", "baseline", "baseline_rag"], default=["custom", "baseline", "baseline_rag"],help="Agent type to run (custom, baseline, or baseline_rag)")
     parser.add_argument("-n","--n-runs", type=int, default=1, help="Number of runs to execute for each agent")
     parser.add_argument("--clean-rate", type = int, help="The rate (of sessions) in which to clean the factsheet. From -1 for last msg, 1 > for all other rates")
-    parser.add_argument("--skip-init-query", action="store_true", help="Whether to skip the initial query for baseline_rag agent type (only applicable if baseline_rag is included in agent types)")
     args = parser.parse_args()
     dataset_name = args.dataset
     llm_model = args.model
     agent_types = args.agent_type
     n_runs = args.n_runs
     clean_rate = args.clean_rate
-    include_init_query = not args.skip_init_query
     
     config = AppConfig.from_toml(f"config.toml") 
     setup_logging(config)
@@ -131,8 +128,7 @@ async def main():
                              llm_model=llm_model,
                              agent_type="baseline_rag",
                              config=config_baseline_rag,
-                             clean_rate=clean_rate,
-                             include_init_query=include_init_query)
+                             clean_rate=clean_rate,)
 
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline + RAG")
