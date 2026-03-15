@@ -286,7 +286,7 @@ def show_elements(element_types : list[Literal["events", "parties", "claims", "d
     if not factsheet:
         return f"No project {project_id}"
     value = f"=== List of project elements: {', '.join(element_types)} ===\n\n"
-    all_fields =[ "events", "parties", "claims", "damages", "deadlines"]
+    all_fields =[ "events", "parties", "claims", "damages", "deadlines", "background"]
     excluded_fields = [e for e in all_fields if e not in element_types]
     if excluded_fields:
         value += factsheet.shorten_factsheet(

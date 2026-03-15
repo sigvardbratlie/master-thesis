@@ -191,6 +191,13 @@ def trash_result_blob(dataset: str, blob_name: str) -> None:
     move_blob(blob_name, f"datasets/{dataset}/_trash/results_{ts}_{filename}")
 
 
+def trash_eval_blob(dataset: str, blob_name: str) -> None:
+    """Move an eval file to the dataset's _trash/ folder."""
+    filename = blob_name.split("/")[-1]
+    ts = datetime.now(_OSLO).strftime("%Y-%m-%dT%H-%M-%S")
+    move_blob(blob_name, f"datasets/{dataset}/_trash/evals_{ts}_{filename}")
+
+
 @st.cache_data(ttl=120)
 def _load_matched_result(dataset: str, eval_run_id: str) -> dict:
     """Find the result file matching eval_run_id and return its full data dict."""

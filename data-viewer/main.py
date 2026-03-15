@@ -26,6 +26,7 @@ from gcs import (
     trash_dataset,
     trash_file,
     trash_result_blob,
+    trash_eval_blob,
     _load_matched_result,
     parse_result_filename,
     parse_eval_filename,
@@ -77,7 +78,7 @@ st.divider()
 dataset_names = list_dataset_names()
 
 st.markdown("#### 🗂️ Select dataset")
-_ds_col, _btn_new, _btn_del = st.columns([0.6, 0.2, 0.2])
+_ds_col, _btn_new, _btn_del, _btn_refresh = st.columns([0.52, 0.18, 0.18, 0.12])
 with _ds_col:
     dataset = st.selectbox(
         "Dataset",
@@ -93,6 +94,10 @@ with _btn_new:
 with _btn_del:
     if dataset and st.button("🗑️ Delete dataset", use_container_width=True):
         st.session_state["_confirm_delete_dataset"] = dataset
+with _btn_refresh:
+    if st.button("🔄 Refresh", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
 
 if st.session_state.get("_show_new_dataset"):
     with st.form("form_new_dataset", clear_on_submit=True):
@@ -904,13 +909,30 @@ with tab_evals:
     )
     st.write("")
     
-    selected_eval_label = st.selectbox(
-        "Eval run",
-        eval_labels,
-        index=0,
-        label_visibility="collapsed",
-        key="eval_run_select",
-    )
+    col_eval_sel, col_eval_del = st.columns([0.88, 0.12])
+    with col_eval_sel:
+        selected_eval_label = st.selectbox(
+            "Eval run",
+            eval_labels,
+            index=0,
+            label_visibility="collapsed",
+            key="eval_run_select",
+        )
+    with col_eval_del:
+        if st.button("🗑️ Delete", key="btn_del_eval", use_container_width=True):
+            st.session_state["_confirm_del_eval"] = selected_eval_label
+
+    if st.session_state.get("_confirm_del_eval") == selected_eval_label:
+        st.warning(f"⚠️ Move **{selected_eval_label}** to trash?")
+        _col_yes, _col_no, _ = st.columns([0.12, 0.1, 0.78])
+        if _col_yes.button("Yes", key="confirm_del_eval_yes"):
+            _del_idx = eval_labels.index(selected_eval_label)
+            trash_eval_blob(dataset, eval_blobs[_del_idx].name)
+            st.session_state.pop("_confirm_del_eval", None)
+            st.rerun()
+        if _col_no.button("Cancel", key="confirm_del_eval_no"):
+            st.session_state.pop("_confirm_del_eval", None)
+            st.rerun()
 
     selected_eval_idx = eval_labels.index(selected_eval_label)
     selected_eval_blob = eval_blobs[selected_eval_idx]
