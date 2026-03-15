@@ -43,7 +43,7 @@ async def main():
     
     config = AppConfig.from_toml(f"config.toml") 
     setup_logging(config)
-    noisy_packages = ["httpx", "httpcore", "hpack", "urllib3", "anthropic", "openai", "asyncio", "langsmith"]
+    noisy_packages = ["httpx", "httpcore", "hpack", "urllib3", "anthropic", "openai", "asyncio", "langsmith", "ocrmypdf", "PIL", "img2pdf", ]
     [logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
 
     logger = logging.getLogger(__name__)
