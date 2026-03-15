@@ -37,7 +37,7 @@ def _sync_widgets_to_raw() -> None:
             )
 
 
-def _rebuild_session_keys() -> None:
+def rebuild_session_keys() -> None:
     """Clear and re-initialise all index-based widget keys from _raw."""
     for key in [
         k
@@ -72,7 +72,7 @@ def fix_encoding() -> None:
     """Fix mojibake encoding in _raw, rebuild widgets, and save draft."""
     _sync_widgets_to_raw()
     st.session_state["_raw"] = _fix_mojibake(st.session_state["_raw"])
-    _rebuild_session_keys()
+    rebuild_session_keys()
 
 
 def _renumber() -> None:
@@ -96,7 +96,7 @@ def undo_last() -> None:
     stack = st.session_state.get("_undo_stack", [])
     if stack:
         st.session_state["_raw"] = stack.pop()
-        _rebuild_session_keys()
+        rebuild_session_keys()
 
 
 def delete_session(s_idx: int) -> None:
@@ -104,7 +104,7 @@ def delete_session(s_idx: int) -> None:
     _sync_widgets_to_raw()
     del st.session_state["_raw"]["sessions"][s_idx]
     _renumber()
-    _rebuild_session_keys()
+    rebuild_session_keys()
 
 
 def move_session(s_idx: int, direction: int) -> None:
@@ -115,7 +115,7 @@ def move_session(s_idx: int, direction: int) -> None:
     target = s_idx + direction
     sessions[s_idx], sessions[target] = sessions[target], sessions[s_idx]
     _renumber()
-    _rebuild_session_keys()
+    rebuild_session_keys()
 
 
 def delete_query(s_idx: int, q_idx: int) -> None:
@@ -123,7 +123,7 @@ def delete_query(s_idx: int, q_idx: int) -> None:
     _sync_widgets_to_raw()
     del st.session_state["_raw"]["sessions"][s_idx]["conversation"][q_idx]
     _renumber()
-    _rebuild_session_keys()
+    rebuild_session_keys()
 
 
 def move_query(s_idx: int, q_idx: int, direction: int) -> None:
@@ -133,7 +133,7 @@ def move_query(s_idx: int, q_idx: int, direction: int) -> None:
     target = q_idx + direction
     conv[q_idx], conv[target] = conv[target], conv[q_idx]
     _renumber()
-    _rebuild_session_keys()
+    rebuild_session_keys()
 
 
 def add_query(s_idx: int) -> None:
@@ -142,7 +142,7 @@ def add_query(s_idx: int) -> None:
     conv = st.session_state["_raw"]["sessions"][s_idx]["conversation"]
     conv.append({"input": "", "answer": "", "query_id": str(uuid.uuid4()), "order": 0})
     _renumber()
-    _rebuild_session_keys()
+    rebuild_session_keys()
 
 
 def add_session() -> None:
@@ -163,7 +163,7 @@ def add_session() -> None:
         }
     )
     _renumber()
-    _rebuild_session_keys()
+    rebuild_session_keys()
 
 
 def build_export() -> str:
@@ -171,6 +171,20 @@ def build_export() -> str:
     data = copy.deepcopy(st.session_state["_raw"])
     data["last_updated"] = datetime.now(_OSLO).isoformat()
     return json.dumps(data, ensure_ascii=False, indent=4)
+
+
+def save_raw_direct() -> None:
+    """Write _raw to draft blob without syncing widgets first (used for cross-tab edits)."""
+    data = copy.deepcopy(st.session_state["_raw"])
+    data["last_updated"] = datetime.now(_OSLO).isoformat()
+    content_hash = hash(json.dumps(data, ensure_ascii=False, sort_keys=True))
+    st.session_state["_draft_content_hash"] = content_hash
+    write_blob(
+        draft_blob_path(st.session_state["_loaded_dataset"]),
+        json.dumps(data, ensure_ascii=False, indent=4).encode("utf-8"),
+    )
+    st.session_state["_last_saved"] = datetime.now(_OSLO).strftime("%H:%M:%S")
+    st.session_state["_from_draft"] = True
 
 
 def save_draft() -> None:

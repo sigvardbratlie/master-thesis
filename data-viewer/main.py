@@ -54,8 +54,10 @@ from state import (
     add_session,
     build_export,
     save_draft,
+    save_raw_direct,
     publish,
     reset_to_original,
+    rebuild_session_keys,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -174,6 +176,9 @@ if st.session_state.get("_loaded_dataset") != dataset:
 
 raw = st.session_state["_raw"]
 
+# Apply any pending ground-truth updates from the Results tab before widgets render
+for _key, _val in st.session_state.pop("_pending_ans_updates", {}).items():
+    st.session_state[_key] = _val
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 
@@ -861,26 +866,35 @@ with tab_results:
                             key=gt_key,
                         )
                         query_id = q.get("query_id")
+                        logger.info("[GT] Rendering query s=%d q=%d | gt_key=%s | query_id=%s | gt_in_state=%s", s_idx, q_idx, gt_key, query_id, gt_key in st.session_state)
                         save_key = f"res_gt_save_{selected_result_idx}_{s_idx}_{q_idx}"
                         if st.button("💾 Save to dataset", key=save_key):
                             edited = st.session_state[gt_key]
+                            logger.info("[GT] Save clicked | edited=%r", edited[:80] if edited else edited)
                             saved = False
                             for ds_s_idx, ds_session in enumerate(st.session_state["_raw"]["sessions"]):
                                 for ds_q_idx, ds_query in enumerate(ds_session["conversation"]):
+                                    ds_qid = ds_query.get("query_id")
+                                    ds_inp = ds_query.get("input", "").strip()
                                     match = (
-                                        (query_id and ds_query.get("query_id") == query_id)
-                                        or (not query_id and ds_query.get("input", "").strip() == inp)
+                                        (query_id and ds_qid == query_id)
+                                        or (not query_id and ds_inp == inp)
                                     )
                                     if match:
-                                        st.session_state[f"ans_{ds_s_idx}_{ds_q_idx}"] = edited
+                                        logger.info("[GT] Match found at ds s=%d q=%d — updating _raw", ds_s_idx, ds_q_idx)
+                                        ds_query["answer"] = edited
+                                        pending = st.session_state.setdefault("_pending_ans_updates", {})
+                                        pending[f"ans_{ds_s_idx}_{ds_q_idx}"] = edited
                                         saved = True
                                         break
                                 if saved:
                                     break
                             if saved:
-                                save_draft()
+                                save_raw_direct()
                                 st.success("Saved to dataset.")
+                                logger.info("[GT] Save complete")
                             else:
+                                logger.warning("[GT] No match found in _raw for query_id=%s", query_id)
                                 st.warning("Could not find matching query in dataset.")
                     with col_mr:
                         st.markdown("**🤖 Model response**")
