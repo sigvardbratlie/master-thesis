@@ -209,24 +209,19 @@ class CollectAgentResult:
                         async for chunk in init_graph.astream({"query": input_obj}, config=thread, stream_mode="custom"):
                             logger.debug(f"Init response: {chunk}")
                     else:
-                        # should_clean = False
-                        # if self.clean_rate is not None and self.clean_rate > 0 and (idx % self.clean_rate != 0):
-                        #     should_clean = True
-                        # if self.clean_rate == -1 and idx == len(self.data.sessions) - 1:
-                        #     should_clean = True
-                        # if should_clean:
-                        #     cleanup_query = CleanupElementsRequest(
-                        #         **input_obj.model_dump(),
-                        #         element_types=["parties", "events", "damages", "claims"],)
-                        #     clean_thread = to_thread_config(query=cleanup_query, user_id=self.data.user_id)
-                        #     clean_graph = clean.compile_clean_elements()
-                        #     async for chunk in clean_graph.astream({"query": cleanup_query}, config=clean_thread, stream_mode="custom"):
-                        #         logger.debug(f"Cleanup response: {chunk}")
-
                         thread = to_thread_config(query=input_obj, user_id=self.data.user_id)
                         update_graph = pm.compile_update_pipeline()
                         async for chunk in update_graph.astream({"query": input_obj}, config=thread, stream_mode="custom"):
                             logger.debug(f"Update response: {chunk}")
+                    if len(self.data.sessions) // 2 == idx:
+                        cleanup_query = CleanupElementsRequest(
+                                **input_obj.model_dump(),
+                                element_types=["events", "claims"],)
+                        clean_thread = to_thread_config(query=cleanup_query, user_id=self.data.user_id)
+                        clean_graph = clean.compile_clean_elements()
+                        async for chunk in clean_graph.astream({"query": cleanup_query}, config=clean_thread, stream_mode="custom"):
+                            logger.debug(f"Cleanup response: {chunk}")
+
 
                     
                     endtime_init = datetime.now()

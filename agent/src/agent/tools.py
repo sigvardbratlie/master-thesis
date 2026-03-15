@@ -272,9 +272,10 @@ def show_elements(element_types : list[Literal["events", "parties", "claims", "d
                   project_id: str,
                   significance: list[Literal["high", "medium", "low"]] = None,
                   ):
-    """Use this function to retrieve a list of the projects files and emails.
+    """Use this function to retrieve structured case facts (parties, events, claims, damages) from the factsheet.
+    Only request the element types relevant to the question. Do not fetch all types unless the question explicitly requires all of them.
     Args:
-        element_types (list[Literal["events", "parties", "claims", "damages",]]): A list of the element types to show. For example, if you only want to show events and parties, use ["events", "parties"].
+        element_types (list[Literal["events", "parties", "claims", "damages",]]): A list of the element types to show. Only include types needed to answer the question. For example, a question about actors → ["parties"]; about timeline → ["events"].
         significance (list[Literal["high", "medium", "low"]], optional): A list of significance levels to filter the elements. Defaults to None.
         project_id (str): The project id to identify which project to retrieve the elements from.
     Returns:

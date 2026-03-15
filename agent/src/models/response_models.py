@@ -6,6 +6,8 @@ from typing import Literal
 import logging
 logger = logging.getLogger(__name__)
 
+fields = Literal["events", "parties", "claims", "damages","deadlines", "background", "emails", "attachments"]
+
 class SessionHistory(BaseModel):
     events: list[StreamEvent]
     attachments: list[AttachmentModel]
@@ -21,7 +23,7 @@ class ProjectData(BaseModel):
     emails: list[Email]
 
     def shorten_factsheet(self, 
-                          excluded_fields: list[Literal["events", "parties", "claims", "damages","title", "background"]] = None,
+                          excluded_fields: list[Literal["events", "parties", "claims", "damages", "deadlines", "background", ]] = None,
                           significance: list[Literal["high", "medium", "low"]] = None) -> str:
         return self.factsheet.shorten_factsheet(excluded_fields=excluded_fields, significance=significance)
 
@@ -56,15 +58,15 @@ class ProjectData(BaseModel):
         #                     format_keys=format_keys, 
         #                     significance=significance)
     
-    def shorten_project(self,inclued_fields: list[Literal["events", "parties", "claims", "damages","title", "background", "emails", "attachments"]] = None,
-                            excluded_fields: list[Literal["events", "parties", "claims", "damages","title", "background", "emails", "attachments"]] = None,
+    def shorten_project(self,inclued_fields: list[fields] = None,
+                            excluded_fields: list[fields] = None,
                             excluded_keys: list[Literal["description"]] = ["description"],
                           significance: list[Literal["high", "medium", "low"]] = None) -> str:
         if inclued_fields and excluded_fields:
             logger.warning("Both inclued_fields and excluded_fields are provided. inclued_fields will take precedence and excluded_fields will be ignored.")
             inclued_fields = None
         if inclued_fields:
-            excluded_fields = [field for field in ["events", "parties", "claims", "damages","title", "background", "emails", "attachments"] if field not in inclued_fields]
+            excluded_fields = [field for field in ["events", "parties", "claims", "damages","deadlines", "background", "emails", "attachments"] if field not in inclued_fields]
         
         view = ""
         view += self.shorten_factsheet(excluded_fields=excluded_fields, significance=significance)

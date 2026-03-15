@@ -1,4 +1,5 @@
 import os
+import json
 import base64
 import logging
 import tiktoken
@@ -65,6 +66,7 @@ class Agent:
         self.tool_manager = ToolManager()
 
         self.llm  = llm
+        self._tool_cache: dict[str, dict[str, str]] = {}  # session_id -> {cache_key -> result}
 
         
 
@@ -340,7 +342,8 @@ class Agent:
 
         thread = get_config()
         query_id = thread.get("metadata", {}).get("query_id")
-        
+        session_id = thread.get("configurable", {}).get("thread_id", "")
+
         if not isinstance(state.messages[-1], AIMessage):
             raise TypeError(f'The last message is not an AI message and has not attr "tool_calls"')
 
@@ -351,7 +354,7 @@ class Agent:
         enc = tiktoken.encoding_for_model("gpt-4o-mini")
         DATA_PROD_TOOLS = []
         TOKEN_LIMIT = self.config.agent.max_token_tool
-        
+
 
         if not tool_calls:
             logger.debug("No tool calls in message")
@@ -364,36 +367,69 @@ class Agent:
             logger.debug(f'🔧 Calling tool: {name} | args={args}')
 
             if name in tools_dict:
-                # ---- CALL TOOL ----
                 tool_to_call = tools_dict[name]
-                try:
-                    #result = tool_to_call.invoke(input_to_tool)
-                    result = await tool_to_call.ainvoke(args)
-                except Exception as e:
-                    result = f'Something went wrong when calling tool {name} with args {args} : {e}.'
-                    logger.error(f"❌ {result}", exc_info=True)
-                
-                n_tokens = len(enc.encode(str(result)))
-                logger.debug(f'Result: {n_tokens} tokens')
+                session_cache = self._tool_cache.setdefault(session_id, {})
 
-                # ---- PROCESS DATA PRODUCTION TOOLS ----
-                if name in DATA_PROD_TOOLS:
-                    raw_tool_data = {
-                        "tool_name": name,
-                        "tool_args": args,
-                        "tool_data": result,
-                        "n_tokens": n_tokens,
-                        "timestamp": pd.Timestamp.now().isoformat(),
-                        "tool_call_id": tool["id"],
-                        "query_id": query_id,
-                    }                
-                    tool_data_results.append(raw_tool_data)
+                # ---- show_elements: cache per element_type to allow partial reuse ----
+                if name == "show_elements":
+                    element_types = args.get("element_types", [])
+                    base_args = {k: v for k, v in args.items() if k != "element_types"}
+                    fresh_parts = []
+                    stub_types = []
+                    for elem_type in element_types:
+                        elem_key = f"show_elements_elem:{elem_type}:{json.dumps(base_args, sort_keys=True)}"
+                        if elem_key in session_cache:
+                            logger.debug(f'💾 Cache hit — show_elements element: {elem_type}')
+                            stub_types.append(elem_type)
+                        else:
+                            try:
+                                single_result = await tool_to_call.ainvoke({**base_args, "element_types": [elem_type]})
+                            except Exception as e:
+                                single_result = f'Error fetching {elem_type}: {e}'
+                                logger.error(f"❌ {single_result}", exc_info=True)
+                            session_cache[elem_key] = str(single_result)
+                            fresh_parts.append(str(single_result))
+                    parts = []
+                    if stub_types:
+                        parts.append(f"[Already retrieved this session — refer to earlier show_elements results for: {', '.join(stub_types)}]")
+                    parts.extend(fresh_parts)
+                    formatted_result = "\n\n".join(parts)
 
-                # ---- HANDLE LONG TOOL RESULTS FOR LLM MEMORY ----
-                if TOKEN_LIMIT and n_tokens > TOKEN_LIMIT:
-                    formatted_result = "Executive summary of the tool result: " + self.summarizer.summarize(str(result), limit=TOKEN_LIMIT)
+                # ---- All other tools: exact-match cache, return stub on hit ----
                 else:
-                    formatted_result = self.tool_manager.format_tool_result(result)
+                    cache_key = f"{name}:{json.dumps(args, sort_keys=True)}"
+                    if cache_key in session_cache:
+                        logger.debug(f'💾 Cache hit — skipping tool call: {name}')
+                        formatted_result = f"[Already retrieved this session — refer to the earlier {name} result in this conversation.]"
+                    else:
+                        try:
+                            result = await tool_to_call.ainvoke(args)
+                        except Exception as e:
+                            result = f'Something went wrong when calling tool {name} with args {args} : {e}.'
+                            logger.error(f"❌ {result}", exc_info=True)
+                        session_cache[cache_key] = result
+
+                        n_tokens = len(enc.encode(str(result)))
+                        logger.debug(f'Result: {n_tokens} tokens')
+
+                        # ---- PROCESS DATA PRODUCTION TOOLS ----
+                        if name in DATA_PROD_TOOLS:
+                            raw_tool_data = {
+                                "tool_name": name,
+                                "tool_args": args,
+                                "tool_data": result,
+                                "n_tokens": n_tokens,
+                                "timestamp": pd.Timestamp.now().isoformat(),
+                                "tool_call_id": tool["id"],
+                                "query_id": query_id,
+                            }
+                            tool_data_results.append(raw_tool_data)
+
+                        if TOKEN_LIMIT and n_tokens > TOKEN_LIMIT:
+                            formatted_result = "Executive summary of the tool result: " + self.summarizer.summarize(str(result), limit=TOKEN_LIMIT)
+                        else:
+                            formatted_result = self.tool_manager.format_tool_result(result)
+
                 results.append(ToolMessage(tool_call_id=tool_id, name=name, content=str(formatted_result)))
 
             else:
