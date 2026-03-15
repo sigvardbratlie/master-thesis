@@ -850,14 +850,38 @@ with tab_results:
                     col_gt, col_mr = st.columns(2)
                     with col_gt:
                         st.markdown("**✍️ Ground truth**")
+                        gt_key = f"res_gt_{selected_result_idx}_{s_idx}_{q_idx}"
+                        if gt_key not in st.session_state:
+                            st.session_state[gt_key] = answer
                         st.text_area(
                             "Ground truth",
-                            value=answer or "No ground truth",
                             height=text_height(answer) if answer else 100,
-                            disabled=True,
                             label_visibility="collapsed",
-                            key=f"res_gt_{selected_result_idx}_{s_idx}_{q_idx}",
+                            placeholder="Fill in the expected answer...",
+                            key=gt_key,
                         )
+                        query_id = q.get("query_id")
+                        save_key = f"res_gt_save_{selected_result_idx}_{s_idx}_{q_idx}"
+                        if st.button("💾 Save to dataset", key=save_key):
+                            edited = st.session_state[gt_key]
+                            saved = False
+                            for ds_s_idx, ds_session in enumerate(st.session_state["_raw"]["sessions"]):
+                                for ds_q_idx, ds_query in enumerate(ds_session["conversation"]):
+                                    match = (
+                                        (query_id and ds_query.get("query_id") == query_id)
+                                        or (not query_id and ds_query.get("input", "").strip() == inp)
+                                    )
+                                    if match:
+                                        st.session_state[f"ans_{ds_s_idx}_{ds_q_idx}"] = edited
+                                        saved = True
+                                        break
+                                if saved:
+                                    break
+                            if saved:
+                                save_draft()
+                                st.success("Saved to dataset.")
+                            else:
+                                st.warning("Could not find matching query in dataset.")
                     with col_mr:
                         st.markdown("**🤖 Model response**")
                         st.text_area(

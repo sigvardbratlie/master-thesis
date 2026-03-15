@@ -121,7 +121,7 @@ class Evaluater:
                     criteria=(
                         "Evaluate whether actual_output addresses the user's query. "
                         "Treat expected_output as a minimum baseline; additional facts in actual_output must not lower the score. "
-                        "Score low only if the response is clearly off-topic or fails to address the query.",
+                        "Score low only if the response is clearly off-topic or fails to address the query."
                     ),
                     evaluation_steps=[
                         "Identify the subject and intent of the input question.",
