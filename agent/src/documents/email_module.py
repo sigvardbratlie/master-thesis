@@ -175,7 +175,7 @@ class EmailHandler(BaseHandler):
                         "title": msg.get("Subject"),
                         "created_at": email.utils.parsedate_to_datetime(msg.get("Date")) if msg.get("Date") else None,
                         }
-        final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump() if force_metadata_model else metadata_all
+        final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump(mode="json") if force_metadata_model else metadata_all
         return [
             Document(page_content=chunk, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(chunks)})
             for i, chunk in enumerate(chunks)

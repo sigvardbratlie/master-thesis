@@ -27,10 +27,13 @@ class PDFHandler(BaseHandler):
         super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     
-    def _safe_pdf_date(self, metadata, field: str) -> datetime | None:
+    def _safe_pdf_date(self, metadata, field: str) -> str | None:
         """Access a PyPDF2 metadata date property safely, returning None on parse errors."""
         try:
-            return getattr(metadata, field)
+            value = getattr(metadata, field)
+            if value is None:
+                return None
+            return value.isoformat() if isinstance(value, datetime) else str(value)
         except Exception:
             return None
 
@@ -117,14 +120,14 @@ class PDFHandler(BaseHandler):
             "file_size": len(content),
             "file_type": "application/pdf",
         }
-        final_metadata = VectorStoreMetadata.model_validate(base_meta).model_dump() if force_metadata_model else base_meta
+        final_metadata = VectorStoreMetadata.model_validate(base_meta).model_dump(mode="json") if force_metadata_model else base_meta
 
         docs = []
         for i, page in enumerate(reader.pages):
             txt = page.extract_text().strip() if page.extract_text() else ""
             if not txt:
                 count_without_text += 1
-                logger.debug(f"Page {i + 1} has no extractable text.")
+                logger.debug(f"Page {i + 1} of {metadata.get('filename', 'unknown')} has no extractable text.")
                 continue
             docs.append(Document(
                 page_content=txt,

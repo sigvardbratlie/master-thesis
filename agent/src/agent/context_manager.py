@@ -5,10 +5,11 @@ import logging
 from uuid import uuid4
 import uuid
 import asyncio
-from pydantic import BaseModel, create_model,Field
+from pydantic import BaseModel, create_model, Field, field_validator
 from langchain_core.messages import AIMessage,ToolMessage, HumanMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
+from datetime import date, datetime
 
 from langchain.chat_models import init_chat_model
 
@@ -277,6 +278,24 @@ class ContextManager:
             """Result for ONE email analysis"""
             email: EmailExtracted = Field(description="Extracted metadata and content from this specific email")
             events: list[Event] | None = Field(default=None, description="Timeline events mentioned in this email (can be empty list or null if no events found)")
+
+            @field_validator("events", mode="before")
+            @classmethod
+            def filter_events_without_date(cls, v):
+                if not isinstance(v, list):
+                    return v
+                def _has_valid_date(e):
+                    if not isinstance(e, dict):
+                        return True
+                    val = e.get("event_start_date")
+                    if val is None:
+                        return False
+                    if isinstance(val, (date, datetime)):
+                        return True
+                    if isinstance(val, str):
+                        return val.split("-")[0].isdigit()
+                    return False
+                return [e for e in v if _has_valid_date(e)]
         
         class EmailsAnalysisResult(BaseModel):
             """Result containing ALL email analyses"""

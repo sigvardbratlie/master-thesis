@@ -137,7 +137,7 @@ class Damages(BaseModel):
     damages: list[Damage] = Field(description="Information about damages claimed or incurred in the case, including type, amount if mentioned, evidentiary basis, and associated party roles")
 
 def _coerce_partial_date(v):
-    """Coerce YYYY-MM or YYYY to YYYY-MM-01 / YYYY-01-01. Rejects non-date strings (e.g. 'P1Y')."""
+    """Coerce YYYY-MM or YYYY to YYYY-MM-01 / YYYY-01-01. Returns None for non-date strings."""
     if isinstance(v, (date, datetime)):
         return v
     if isinstance(v, str):
@@ -146,12 +146,17 @@ def _coerce_partial_date(v):
             v = f"{v}-01"
         elif len(parts) == 1 and parts[0].isdigit():
             v = f"{v}-01-01"
+        else:
+            try:
+                return datetime.fromisoformat(v)
+            except ValueError:
+                return None
     return v
 
 
 class Deadline(BaseModel):
     deadline_id: str | None = None
-    deadline_date: date | datetime
+    deadline_date: date | datetime | None
 
     @field_validator("deadline_date", mode="before")
     @classmethod

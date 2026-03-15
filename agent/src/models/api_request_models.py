@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from typing import Literal
 from typing import TypedDict, Annotated, Sequence
 from langchain_core.messages import BaseMessage
@@ -136,6 +136,10 @@ class VectorStoreMetadata(BaseModel):
     updated_at : datetime | None = None
     chunk : int | None = None
     total_chunks : int | None = None
+
+    @field_serializer("uploaded_at", "created_at", "updated_at")
+    def serialize_datetime(self, v: datetime | None) -> str | None:
+        return v.isoformat() if v is not None else None
     creator : str | None = None
     producer : str | None = None
     embedding_model : str = None

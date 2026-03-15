@@ -37,7 +37,7 @@ class DocxHandler(BaseHandler):
             "language": props.language,
             "file_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         }
-        final_metadata = VectorStoreMetadata.model_validate(metadata_full).model_dump() if force_metadata_model else metadata_full
+        final_metadata = VectorStoreMetadata.model_validate(metadata_full).model_dump(mode="json") if force_metadata_model else metadata_full
 
         return [
             Document(page_content=para.text.strip(), metadata={**final_metadata, "chunk": i+1, "total_chunks": len(word_doc.paragraphs)})
@@ -85,7 +85,7 @@ class PptxHandler(BaseHandler):
             "language": props.language,
             "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         }
-        final_metadata = VectorStoreMetadata.model_validate(metadata_full).model_dump() if force_metadata_model else metadata_full
+        final_metadata = VectorStoreMetadata.model_validate(metadata_full).model_dump(mode="json") if force_metadata_model else metadata_full
 
         docs = []
         for i, slide in enumerate(ppt_doc.slides):

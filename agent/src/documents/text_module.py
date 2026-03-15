@@ -27,7 +27,7 @@ class TextHandler(BaseHandler):
             return []
 
         metadata_all = {**metadata, "file_size": len(content), "file_type": "text/plain"}
-        final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump() if force_metadata_model else metadata_all
+        final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump(mode="json") if force_metadata_model else metadata_all
         return [
             Document(page_content=chunk, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(chunks)})
             for i, chunk in enumerate(chunks)
@@ -42,7 +42,7 @@ class TextHandler(BaseHandler):
             chunks = [content_decoded]
 
         metadata_all = {**metadata, "file_size": len(content), "file_type": "text/csv"}
-        final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump() if force_metadata_model else metadata_all
+        final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump(mode="json") if force_metadata_model else metadata_all
         return [
             Document(page_content=chunk, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(chunks)})
             for i, chunk in enumerate(chunks)
