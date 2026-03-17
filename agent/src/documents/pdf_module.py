@@ -103,14 +103,25 @@ class PDFHandler(BaseHandler):
                     except:
                         pass
     
-    def _extract_text_pypdf2(self, content : bytes) -> str:
+    def _extract_text_pypdf2(self, content : bytes) -> dict:
         reader = PdfReader(BytesIO(content))
         text = ""
         for page in reader.pages:
             text += page.extract_text() or ""
-        return text.strip()
+        metadata = {
+            "creator": reader.metadata.creator if reader.metadata else None,
+            "producer": reader.metadata.producer if reader.metadata else None,
+            "created_at": self._safe_pdf_date(reader.metadata, "creation_date") if reader.metadata else None,
+            "updated_at": self._safe_pdf_date(reader.metadata, "modification_date") if reader.metadata else None,
+            "title": reader.metadata.subject or reader.metadata.title if reader.metadata else None,
+            "keywords": reader.metadata.get("/Keywords") if reader.metadata else None,
+            "file_size": len(content),
+            "file_type": "application/pdf",
+        }
+        return {"text" : text.strip(), 
+                "metadata" : metadata}
 
-    def _extract_text_textract(self, content : bytes) -> str:
+    def _extract_md_textract(self, content : bytes) -> dict:
         
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
             f.write(content)
@@ -131,16 +142,21 @@ class PDFHandler(BaseHandler):
                                         s3_output_path=f"s3://{bucket_name}/textract-output/",
                                         s3_upload_path=f"s3://{bucket_name}/uploads/",
                                         )
-        return document.get_text(config=config)
+        markdown = document.get_text(config=config)
+        return {"markdown" : markdown, "metadata" : {}}
 
-    def _extract_text_pymupdf(self, content : bytes) -> str:
+    def _extract_md_pymupdf(self, content : bytes) -> dict:
         doc = fitz.open(stream=content, filetype="pdf")
-        return pymupdf4llm.to_markdown(doc, metadata = True)
-    
+        markdown = pymupdf4llm.extract_markdown(doc)
+        meta = doc.metadata
+        doc.close()
+        return {"markdown" : markdown,
+                "metadata" : meta}
+
     def parse_pdf_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
         if self._needs_ocr(content):
             logger.info("🔍 PDF needs OCR — processing...")
-            content = self._ocr_bytes(content)
+            #md = self._extract_md_textract(content)
 
         count_without_text = 0
         try:
