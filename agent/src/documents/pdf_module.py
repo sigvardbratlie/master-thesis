@@ -1,9 +1,10 @@
 import os
 from io import BytesIO
 import tempfile
-from PyPDF2 import PdfReader
 import logging
 from datetime import datetime
+import fitz
+import pymupdf4llm
 
 from langchain_core.documents import Document
 
@@ -12,7 +13,10 @@ import ocrmypdf
 
 from .base_module import BaseHandler
 
-
+from textractor import Textractor
+from textractor.data.constants import TextractFeatures
+from textractor.data.text_linearization_config import TextLinearizationConfig
+from PyPDF2 import PdfReader
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +102,40 @@ class PDFHandler(BaseHandler):
                         os.unlink(f)
                     except:
                         pass
+    
+    def _extract_text_pypdf2(self, content : bytes) -> str:
+        reader = PdfReader(BytesIO(content))
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+        return text.strip()
+
+    def _extract_text_textract(self, content : bytes) -> str:
+        
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            f.write(content)
+            tmp_path = f.name
+
+        bucket_name = "master-thesis-prod-533267386321-eu-west-1-an"
+        config = TextLinearizationConfig(
+            hide_figure_layout=False,
+            title_prefix="# ",
+            section_header_prefix="## ",
+            table_linearization_format="markdown",
+        )
+        extractor = Textractor(profile_name="default", region_name="eu-west-1")
+
+        document = extractor.start_document_analysis(
+                                        file_source=tmp_path,
+                                        features=[TextractFeatures.LAYOUT, TextractFeatures.TABLES],
+                                        s3_output_path=f"s3://{bucket_name}/textract-output/",
+                                        s3_upload_path=f"s3://{bucket_name}/uploads/",
+                                        )
+        return document.get_text(config=config)
+
+    def _extract_text_pymupdf(self, content : bytes) -> str:
+        doc = fitz.open(stream=content, filetype="pdf")
+        return pymupdf4llm.to_markdown(doc, metadata = True)
     
     def parse_pdf_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
         if self._needs_ocr(content):
