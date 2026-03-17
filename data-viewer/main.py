@@ -165,6 +165,7 @@ if st.session_state.get("_loaded_dataset") != dataset:
     st.session_state["_loaded_dataset"] = dataset
     st.session_state["_last_saved"] = None
     st.session_state["_last_published"] = None
+    st.session_state.pop("eval_run_select", None)
 
     for s_idx, session in enumerate(raw["sessions"]):
         st.session_state[f"sname_{s_idx}"] = session.get("session_name", "")
@@ -866,11 +867,11 @@ with tab_results:
                             key=gt_key,
                         )
                         query_id = q.get("query_id")
-                        logger.info("[GT] Rendering query s=%d q=%d | gt_key=%s | query_id=%s | gt_in_state=%s", s_idx, q_idx, gt_key, query_id, gt_key in st.session_state)
+                        logger.debug("[GT] Rendering query s=%d q=%d | gt_key=%s | query_id=%s | gt_in_state=%s", s_idx, q_idx, gt_key, query_id, gt_key in st.session_state)
                         save_key = f"res_gt_save_{selected_result_idx}_{s_idx}_{q_idx}"
                         if st.button("💾 Save to dataset", key=save_key):
                             edited = st.session_state[gt_key]
-                            logger.info("[GT] Save clicked | edited=%r", edited[:80] if edited else edited)
+                            logger.debug("[GT] Save clicked | edited=%r", edited[:80] if edited else edited)
                             saved = False
                             for ds_s_idx, ds_session in enumerate(st.session_state["_raw"]["sessions"]):
                                 for ds_q_idx, ds_query in enumerate(ds_session["conversation"]):
@@ -881,7 +882,7 @@ with tab_results:
                                         or (not query_id and ds_inp == inp)
                                     )
                                     if match:
-                                        logger.info("[GT] Match found at ds s=%d q=%d — updating _raw", ds_s_idx, ds_q_idx)
+                                        logger.debug("[GT] Match found at ds s=%d q=%d — updating _raw", ds_s_idx, ds_q_idx)
                                         ds_query["answer"] = edited
                                         pending = st.session_state.setdefault("_pending_ans_updates", {})
                                         pending[f"ans_{ds_s_idx}_{ds_q_idx}"] = edited
