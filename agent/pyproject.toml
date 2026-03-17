@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "sigvardbratlie", email = "sigvard.bratlie@gmail.com" }
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.10,<3.14"
 dependencies = [
     "fastapi>=0.128.0",
     "google-cloud-bigquery>=3.40.0",
@@ -20,12 +20,10 @@ dependencies = [
     "langchain-tavily>=0.2.16",
     "langgraph>=1.0.5",
     "langgraph-checkpoint-postgres>=3.0.4",
-    "ocrmypdf>=16.13.0",
     "pandas-gbq>=0.33.0",
     "psycopg[binary,pool]>=3.3.2",
     "psycopg2-binary>=2.9.11",
     "pyjwt>=2.10.1",
-    "pypdf2>=3.0.1",
     "python-dotenv>=1.2.1",
     "supabase>=2.27.2",
     "tiktoken>=0.12.0",
@@ -37,6 +35,13 @@ dependencies = [
     "langchain>=1.2.3",
     "langchain-core>=1.2.13",
     "langchain-anthropic>=1.3.4",
+    "ocrmypdf>=16.13.0",
+    "amazon-textract-response-parser>=1.0.3",
+    "amazon-textract-prettyprinter>=0.1.4",
+    "amazon-textract-caller>=0.2.4",
+    "amazon-textract-textractor>=1.9.2",
+    "pymupdf4llm>=1.27.2.1",
+    "pypdf2>=3.0.1",
 ]
 
 [project.scripts]
