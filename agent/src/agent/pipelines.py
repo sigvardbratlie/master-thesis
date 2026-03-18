@@ -39,6 +39,7 @@ class ProjectPipeline:
         workflow = StateGraph(PipelineState)
 
         workflow.add_node("collapse_emails", self._collapse_emails_node)
+        workflow.add_node("extract_emails", self._extract_emails_node)
         workflow.add_node("initialize_input", self._initialize_input_node)
         workflow.add_node("storage", self._storage_node)
         workflow.add_node("parsing", self._parsing_node)
@@ -49,8 +50,10 @@ class ProjectPipeline:
 
         workflow.add_edge(START, "collapse_emails")
         workflow.add_edge(START, "initialize_input")
-        workflow.add_edge(START, "storage")
-        workflow.add_edge("collapse_emails", "parsing")
+        #workflow.add_edge(START, "storage")
+        workflow.add_edge("collapse_emails", "extract_emails")
+        workflow.add_edge("extract_emails", "parsing")
+        workflow.add_edge("extract_emails", "storage")
         workflow.add_edge("parsing", "embedding")
         workflow.add_edge(["parsing", "initialize_input"], "analyze")
         workflow.add_edge("analyze", "update_metadata")
@@ -67,6 +70,7 @@ class ProjectPipeline:
 
         workflow.add_node("load_project_data", self._load_project_data)
         workflow.add_node("collapse_emails", self._collapse_emails_node)
+        workflow.add_node("extract_emails", self._extract_emails_node)
         workflow.add_node("storage", self._storage_node)
         workflow.add_node("parsing", self._parsing_node)
         workflow.add_node("embedding", self._embedding_node)
@@ -76,11 +80,12 @@ class ProjectPipeline:
 
         workflow.add_edge(START, "load_project_data")
         workflow.add_edge(START, "collapse_emails")
-        workflow.add_edge(START, "storage")
-        workflow.add_edge("collapse_emails", "parsing")
+        #workflow.add_edge(START, "storage")
+        workflow.add_edge("collapse_emails", "extract_emails")
+        workflow.add_edge("extract_emails", "parsing")
+        workflow.add_edge("extract_emails", "storage")
         workflow.add_edge("parsing", "embedding")
         workflow.add_edge(["load_project_data", "parsing"], "analyze")
-        #workflow.add_edge("parsing", "analyze")
         workflow.add_edge("analyze", "update_metadata")
         workflow.add_edge("update_metadata", "save")
 
@@ -137,11 +142,8 @@ class ProjectPipeline:
                 return result
 
         attachments = state.query.attachments
-        shortened_emails = state.collapsed_emails
         input_ = state.input_
         thread = get_config()
-        user_id = thread.get("configurable", {}).get("user_id")
-        query = state.query
 
         threshold = self.config.project.threshold
         max_attachments = self.config.project.max_attachments
@@ -176,40 +178,17 @@ class ProjectPipeline:
             doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_, thread))
 
         # ======== EMAILS (EML) ============
-        emails_to_handle = shortened_emails or {}
-        logger.info(f'ℹ️ Processing {len(emails_to_handle)} email(s) for analysis')
-        for id_, contents in emails_to_handle.items():
-            data = eml._extract_email_data(
-                msg=contents[0],
-                user_id=user_id,
-                query_id=query.query_id,
-                session_id=query.session_id,
-                file_id=id_,
-            )
-            email = data.get("email", [])
-            email.reference_paths = [f"{user_id}/{query.session_id}/{e_id}.eml" for e_id in contents[1]] if contents[1] else None
-            current_email_attachments = data.get("attachments", [])
-            if current_email_attachments:
-                logger.info(f"📎 Email '{email.subject}': {len(current_email_attachments)} nested attachment(s) → dispatching as doc batch")
-                doc_tasks.append(analyze_docs_with_limit(current_email_attachments, input_, thread))
-            else:
-                logger.debug(f"📭 Email '{email.subject}': no nested attachments")
-
-            email_size = email.size or 0
+        emails_to_process = state.email_models or []
+        for email in emails_to_process:
+            email_size = len(email.body.encode("utf-8")) if email.body else email.size or 0
             if email_size_counter + email_size <= threshold and len(email_attachments) < max_emails:
                 email_attachments.append(email)
                 email_size_counter += email_size
-                logger.debug(f"📧 Accumulated {len(email_attachments)} email(s) in batch ({email_size_counter / 1024:.1f}KB)")
             else:
                 logger.info(f"📦 Dispatching email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
                 doc_tasks.append(analyze_emails_with_limit(email_attachments, input_, thread))
                 email_attachments = [email]
                 email_size_counter = email_size
-
-        if email_attachments:
-            logger.info(f"📦 Dispatching final email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
-            doc_tasks.append(analyze_emails_with_limit(email_attachments, input_, thread))
-
         return doc_tasks
 
     def mk_update_query_from_session(self,
@@ -377,6 +356,66 @@ class ProjectPipeline:
             "query_id": query.query_id,
         })
         return {"collapsed_emails": collapsed_emails}
+
+    def _extract_emails_node(self, state: PipelineState):
+        '''Extract email content and nested attachments as documents for analysis.'''
+        writer = get_stream_writer()
+        shortened_emails = state.collapsed_emails
+        query = state.query
+        user_id = get_config().get("configurable", {}).get("user_id")
+
+        writer({
+            "type": "status",
+            "phase": ["extract_emails"],
+            "status": "starting",
+            "data": {"total": len(shortened_emails or {})},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+
+        eml = EmailHandler()
+        emails_to_handle = shortened_emails or {}
+        output_emails = []
+        logger.info(f'ℹ️ Processing {len(emails_to_handle)} email(s) for analysis')
+        for id_, messages in emails_to_handle.items():
+            
+
+            data = eml.extract_email_data(
+                msg=messages[0],
+                user_id=user_id,
+                query_id=query.query_id,
+                session_id=query.session_id,
+                file_id=id_,
+            )
+            email = data.get("email", [])
+            email.reference_paths = [f"{user_id}/{query.session_id}/{e_id}.eml" for e_id in messages[1]] if messages[1] else None
+            output_emails.append(email)
+            current_email_attachments = data.get("attachments", [])
+            if current_email_attachments:
+                logger.info(f"📎 Email '{email.subject}': {len(current_email_attachments)} nested attachment(s) → dispatching as doc batch")
+                query.attachments.extend(current_email_attachments)
+            else:
+                logger.debug(f"📭 Email '{email.subject}': no nested attachments")
+
+            writer({
+                "type": "status",
+                "phase": ["extract_emails"],
+                "status": "processing",
+                "data": {"current": email.subject, 
+                        "remaining": len(emails_to_handle) - len(output_emails)},
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            })
+
+        writer({
+            "type": "status",
+            "phase": ["extract_emails"],
+            "status": "complete",
+            "data": {},
+            "timestamp": datetime.now().isoformat(),
+            "query_id": query.query_id,
+        })
+        return {"email_models": output_emails, "query": query}
 
     async def _storage_node(self, state: PipelineState):
         query = state.query

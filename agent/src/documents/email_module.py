@@ -70,7 +70,7 @@ class EmailHandler(BaseHandler):
                     logger.warning("⚠️  Attachment part found without filename — skipping")
         return attachments
  
-    def _extract_email_data(self, msg : Message, file_id : str, query_id : str, user_id: str , session_id : str) -> dict:
+    def extract_email_data(self, msg : Message, file_id : str, query_id : str, user_id: str , session_id : str) -> dict:
         #file_id = str(uuid.uuid4())
         attachments_list = self._extract_attachments(msg)
         attachments = []

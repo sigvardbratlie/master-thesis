@@ -18,6 +18,7 @@ class PipelineState(BaseModel):
     query: AskAgentRequest | CleanupElementsRequest
 
     # Intermediate
+    email_models: list = Field(default_factory=list)
     docs_by_file: dict = Field(default_factory=dict)
     collapsed_emails: dict = Field(default_factory=dict)
     input_: InitialInput | ProjectData | None = None
