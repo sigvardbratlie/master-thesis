@@ -134,6 +134,16 @@ class VectorStoreMetadata(BaseModel):
     uploaded_at : datetime | None = None
     created_at : datetime | None = None
     updated_at : datetime | None = None
+    
+    author : str | None = None
+    page_count : int | None = None
+    creator : str | None = None
+    producer : str | None = None
+    title : str | None = None
+    language : str | None = None
+    encryption : str | None = None
+    keywords : str | None = None
+
     chunk : int | None = None
     total_chunks : int | None = None
 

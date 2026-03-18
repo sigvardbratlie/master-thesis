@@ -19,7 +19,7 @@ class DocxHandler(BaseHandler):
         '''
         super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
-    def parse_docx_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
+    def parse_docx(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> tuple[str, dict]:
         try:
             word_doc = DocxDocument(BytesIO(content))
         except Exception as e:
@@ -38,12 +38,17 @@ class DocxHandler(BaseHandler):
             "file_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         }
         final_metadata = VectorStoreMetadata.model_validate(metadata_full).model_dump(mode="json") if force_metadata_model else metadata_full
+        full_text = "\n".join(para.text.strip() for para in word_doc.paragraphs if para.text.strip())
+        return full_text, final_metadata
 
-        return [
-            Document(page_content=para.text.strip(), metadata={**final_metadata, "chunk": i+1, "total_chunks": len(word_doc.paragraphs)})
-            for i, para in enumerate(word_doc.paragraphs)
-            if para.text.strip()
-        ]
+    # def parse_docx_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
+        
+
+    #     return [
+    #         Document(page_content=para.text.strip(), metadata={**final_metadata, "chunk": i+1, "total_chunks": len(word_doc.paragraphs)})
+    #         for i, para in enumerate(word_doc.paragraphs)
+    #         if para.text.strip()
+    #     ]
 
     def mk_docx(self, docx_data : WriteDocx) -> bytes:
         doc = DocxDocument()
@@ -67,7 +72,7 @@ class PptxHandler(BaseHandler):
     def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
         super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
-    def parse_pptx_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
+    def parse_pptx(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> tuple[str, dict]:
         try:
             ppt_doc = Presentation(BytesIO(content))
         except Exception as e:
@@ -87,10 +92,38 @@ class PptxHandler(BaseHandler):
         }
         final_metadata = VectorStoreMetadata.model_validate(metadata_full).model_dump(mode="json") if force_metadata_model else metadata_full
 
-        docs = []
-        for i, slide in enumerate(ppt_doc.slides):
-            slide_text = "\n".join(shape.text.strip() for shape in slide.shapes if hasattr(shape, "text")).strip()
-            if slide_text:
-                docs.append(Document(page_content=slide_text, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(ppt_doc.slides)}))
-        return docs
+        full_text = "\n".join(
+            shape.text.strip()
+            for slide in ppt_doc.slides
+            for shape in slide.shapes
+            if hasattr(shape, "text") and shape.text.strip()
+        )
+        return full_text, final_metadata
+    
+    # def parse_pptx_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
+    #     try:
+    #         ppt_doc = Presentation(BytesIO(content))
+    #     except Exception as e:
+    #         logger.error(f"❌ Failed to load PPTX: {e} ({metadata.get('filename', 'unknown')})  ")
+    #         return []
+
+    #     props = ppt_doc.core_properties
+    #     metadata_full = {
+    #         **metadata,
+    #         "title": props.title,
+    #         "creator": props.author,
+    #         "created_at": props.created.isoformat() if props.created else None,
+    #         "updated_at": props.modified.isoformat() if props.modified else None,
+    #         "comments": props.comments,
+    #         "language": props.language,
+    #         "file_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    #     }
+    #     final_metadata = VectorStoreMetadata.model_validate(metadata_full).model_dump(mode="json") if force_metadata_model else metadata_full
+
+    #     docs = []
+    #     for i, slide in enumerate(ppt_doc.slides):
+    #         slide_text = "\n".join(shape.text.strip() for shape in slide.shapes if hasattr(shape, "text")).strip()
+    #         if slide_text:
+    #             docs.append(Document(page_content=slide_text, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(ppt_doc.slides)}))
+    #     return docs
 

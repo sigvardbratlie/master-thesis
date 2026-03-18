@@ -2,7 +2,7 @@ import os
 from io import BytesIO
 import tempfile
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import fitz
 import pymupdf4llm
 
@@ -31,15 +31,49 @@ class PDFHandler(BaseHandler):
         super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     
-    def _safe_pdf_date(self, metadata, field: str) -> str | None:
+    def _safe_pdf_date(self,value) -> str | None:
         """Access a PyPDF2 metadata date property safely, returning None on parse errors."""
         try:
-            value = getattr(metadata, field)
             if value is None:
                 return None
             return value.isoformat() if isinstance(value, datetime) else str(value)
         except Exception:
             return None
+        
+    def pdf_date_to_datetime(self, pdf_date: str) -> datetime | None:
+        """
+        Konverterer PDF-dato-streng (f.eks. "D:20240320112610+01'00'")
+        til datetime-objekt. Returnerer None ved ugyldig input.
+        """
+        if not pdf_date or not pdf_date.startswith("D:"):
+            return None
+        
+        # Fjern "D:" og apostrofer (vanlig i eldre PDF-er)
+        s = pdf_date[2:].replace("'", "")
+        
+        # Mulige formatvarianter – vi prøver de vanligste
+        formats = [
+            "%Y%m%d%H%M%S%z",       # D:20240320112610+0100
+            "%Y%m%d%H%M%S%Z",       # D:20240320112610Z     (UTC)
+            "%Y%m%d%H%M%S",         # D:20240320112610      (ingen tidssone)
+            "%Y%m%d",               # D:20240320            (bare dato)
+        ]
+        
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(s, fmt)
+                
+                # Hvis det er %z eller %Z → allerede tidssone
+                if dt.tzinfo is not None:
+                    return dt
+                
+                # Ingen tidssone → antar UTC / lokal, her bruker vi naive → UTC
+                return dt.replace(tzinfo=timezone.utc)
+                
+            except ValueError:
+                continue
+        
+        return None
 
     def _needs_ocr(self, content: bytes) -> bool:
         """Detect if PDF needs OCR based on text density."""
@@ -60,7 +94,7 @@ class PDFHandler(BaseHandler):
             text_coverage = pages_with_text / total_pages if total_pages > 0 else 0
             avg_text_per_page = total_text_length / total_pages if total_pages > 0 else 0
 
-            return text_coverage < 0.5 or avg_text_per_page < 500
+            return text_coverage < 0.7 or avg_text_per_page < 500
         except Exception as e:
             logger.warning(f"⚠️  Could not analyze PDF for OCR need: {e}")
             return False  # Default to no OCR if detection fails
@@ -103,25 +137,39 @@ class PDFHandler(BaseHandler):
                     except:
                         pass
     
-    def _extract_text_pypdf2(self, content : bytes) -> dict:
+    def _extract_metadata(self, content: bytes) -> dict:
+        doc = fitz.open(stream=content, filetype="pdf")
+        meta = doc.metadata
+        meta_map = {"creationDate" : "created_at",
+            "modDate" : "modified_at",}
+        for k,v in meta.copy().items():
+            if k in meta_map and v is not None:
+                meta[meta_map[k]] = self.pdf_date_to_datetime(meta.pop(k))
+        meta["size"] = len(content)
+        meta["file_type"] = "application/pdf"
+        meta["page_count"] = doc.page_count
+        doc.close()
+        return meta
+
+
+    def _extract_text_pypdf2(self, content : bytes) -> str:
         reader = PdfReader(BytesIO(content))
         text = ""
         for page in reader.pages:
             text += page.extract_text() or ""
-        metadata = {
-            "creator": reader.metadata.creator if reader.metadata else None,
-            "producer": reader.metadata.producer if reader.metadata else None,
-            "created_at": self._safe_pdf_date(reader.metadata, "creation_date") if reader.metadata else None,
-            "updated_at": self._safe_pdf_date(reader.metadata, "modification_date") if reader.metadata else None,
-            "title": reader.metadata.subject or reader.metadata.title if reader.metadata else None,
-            "keywords": reader.metadata.get("/Keywords") if reader.metadata else None,
-            "file_size": len(content),
-            "file_type": "application/pdf",
-        }
-        return {"text" : text.strip(), 
-                "metadata" : metadata}
+        # metadata = {
+        #     "creator": reader.metadata.creator if reader.metadata else None,
+        #     "producer": reader.metadata.producer if reader.metadata else None,
+        #     "created_at": self._safe_pdf_date(reader.metadata, "creation_date") if reader.metadata else None,
+        #     "updated_at": self._safe_pdf_date(reader.metadata, "modification_date") if reader.metadata else None,
+        #     "title": reader.metadata.subject or reader.metadata.title if reader.metadata else None,
+        #     "keywords": reader.metadata.get("/Keywords") if reader.metadata else None,
+        #     "size": len(content),
+        #     "file_type": "application/pdf",
+        # }
+        return text.strip()
 
-    def _extract_md_textract(self, content : bytes) -> dict:
+    def _extract_md_textract(self, content : bytes) -> str:
         
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
             f.write(content)
@@ -143,54 +191,48 @@ class PDFHandler(BaseHandler):
                                         s3_upload_path=f"s3://{bucket_name}/uploads/",
                                         )
         markdown = document.get_text(config=config)
-        return {"markdown" : markdown, "metadata" : {}}
+        return markdown 
 
-    def _extract_md_pymupdf(self, content : bytes) -> dict:
+    def _extract_md_pymupdf(self, content : bytes) -> str:
         doc = fitz.open(stream=content, filetype="pdf")
-        markdown = pymupdf4llm.extract_markdown(doc)
-        meta = doc.metadata
+        markdown = pymupdf4llm.to_markdown(doc)
         doc.close()
-        return {"markdown" : markdown,
-                "metadata" : meta}
-
-    def parse_pdf_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
+        return markdown
+    
+    def parse_pdf(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> tuple[str, dict]:
+        meta = self._extract_metadata(content)
         if self._needs_ocr(content):
-            logger.info("🔍 PDF needs OCR — processing...")
-            #md = self._extract_md_textract(content)
+            logger.info("🔍 PDF needs OCR — processing with Textract...")
+            md = self._extract_md_textract(content)
+        else:
+            logger.info("✅ PDF has extractable text — extracting with PyMuPDF...")
+            md = self._extract_md_pymupdf(content)
 
-        count_without_text = 0
-        try:
-            reader = PdfReader(BytesIO(content))
-        except Exception as e:
-            logger.error(f"❌ Error reading PDF: {e} ({metadata.get('filename', 'unknown')})")
-            return []
-        base_meta = metadata | {
-            "creator": reader.metadata.creator if reader.metadata else None,
-            "producer": reader.metadata.producer if reader.metadata else None,
-            "created_at": self._safe_pdf_date(reader.metadata, "creation_date") if reader.metadata else None,
-            "updated_at": self._safe_pdf_date(reader.metadata, "modification_date") if reader.metadata else None,
-            "title": reader.metadata.subject or reader.metadata.title if reader.metadata else None,
-            "keywords": reader.metadata.get("/Keywords") if reader.metadata else None,
-            "file_size": len(content),
-            "file_type": "application/pdf",
-        }
-        final_metadata = VectorStoreMetadata.model_validate(base_meta).model_dump(mode="json") if force_metadata_model else base_meta
+        final_metadata = VectorStoreMetadata.model_validate(meta).model_dump(mode="json") if force_metadata_model else meta
+        return md, final_metadata
 
-        docs = []
-        for i, page in enumerate(reader.pages):
-            txt = page.extract_text().strip() if page.extract_text() else ""
-            if not txt:
-                count_without_text += 1
-                logger.debug(f"Page {i + 1} of {metadata.get('filename', 'unknown')} has no extractable text.")
-                continue
-            docs.append(Document(
-                page_content=txt,
-                metadata={**final_metadata, "chunk": i + 1, "total_chunks": len(reader.pages)}
-            ))
+    # def parse_pdf_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
+    #     meta = self._extract_metadata(content)
+    #     if self._needs_ocr(content):
+    #         logger.info("🔍 PDF needs OCR — processing with Textract...")
+    #         md = self._extract_md_textract(content)
+    #     else:
+    #         logger.info("✅ PDF has extractable text — extracting with PyMuPDF...")
+    #         md = self._extract_md_pymupdf(content)
 
-        if not docs or count_without_text == len(reader.pages):
-            logger.warning(f"⚠️  No pages extracted from PDF {metadata.get('filename', 'unknown')} — all {count_without_text} pages had no text")
-            return []
-        logger.debug(f"Extracted {len(docs)} pages with text out of {len(reader.pages)} total pages from {metadata.get('filename', 'unknown')}.")
-        return docs
+    #     final_metadata = VectorStoreMetadata.model_validate(meta).model_dump(mode="json") if force_metadata_model else meta
+
+    #     try:
+    #         chunks = self.splitter.split_text(md)
+    #     except Exception as e:
+    #         logger.error(f"❌ PDF split failed: {e} ({metadata.get('filename', 'unknown')})")
+    #         chunks = [md]
+    #     if not chunks:
+    #         logger.warning(f"⚠️  No text extracted from PDF {metadata.get('filename', 'unknown')}")
+    #         return []
+        
+    #     return [
+    #         Document(page_content=chunk, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(chunks)})
+    #         for i, chunk in enumerate(chunks)
+    #     ]
 

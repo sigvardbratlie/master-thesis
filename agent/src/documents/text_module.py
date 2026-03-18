@@ -14,24 +14,30 @@ class TextHandler(BaseHandler):
     def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
         super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
-    def parse_text_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
+    def parse_text(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> tuple[str, dict]:
         text = content.decode('utf-8', errors='ignore')
-        try:
-            chunks = self.splitter.split_text(text)
-        except Exception as e:
-            logger.error(f"❌ Text split failed: {e} ({metadata.get('filename', 'unknown')})")
-            chunks = [text]
-
-        if not chunks:
-            logger.warning(f"⚠️  No chunks created from text ({metadata.get('filename', 'unknown')})")
-            return []
-
         metadata_all = {**metadata, "file_size": len(content), "file_type": "text/plain"}
         final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump(mode="json") if force_metadata_model else metadata_all
-        return [
-            Document(page_content=chunk, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(chunks)})
-            for i, chunk in enumerate(chunks)
-        ]
+        return text, final_metadata
+
+    # def parse_text_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
+    #     text = content.decode('utf-8', errors='ignore')
+    #     try:
+    #         chunks = self.splitter.split_text(text)
+    #     except Exception as e:
+    #         logger.error(f"❌ Text split failed: {e} ({metadata.get('filename', 'unknown')})")
+    #         chunks = [text]
+
+    #     if not chunks:
+    #         logger.warning(f"⚠️  No chunks created from text ({metadata.get('filename', 'unknown')})")
+    #         return []
+
+    #     metadata_all = {**metadata, "file_size": len(content), "file_type": "text/plain"}
+    #     final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump(mode="json") if force_metadata_model else metadata_all
+    #     return [
+    #         Document(page_content=chunk, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(chunks)})
+    #         for i, chunk in enumerate(chunks)
+    #     ]
         
 
     def parse_csv_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
@@ -47,4 +53,10 @@ class TextHandler(BaseHandler):
             Document(page_content=chunk, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(chunks)})
             for i, chunk in enumerate(chunks)
         ]
+    
+    def parse_csv(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> tuple[str, dict]:
+        content_decoded = content.decode('utf-8', errors='ignore')
+        metadata_all = {**metadata, "file_size": len(content), "file_type": "text/csv"}
+        final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump(mode="json") if force_metadata_model else metadata_all
+        return content_decoded, final_metadata
    

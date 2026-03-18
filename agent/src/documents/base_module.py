@@ -26,3 +26,20 @@ class BaseHandler:
     def to_dict(docs: list[Document]) -> list[dict]:
         """Convert to dict for JSON/BigQuery."""
         return [{"content": d.page_content, "metadata": d.metadata} for d in docs]
+    
+    def to_docs(self, string : str, metadata: dict) -> list[Document]:
+        """Converts a long string into a list of Document objects, using the configured text splitter. Attaches metadata to each Document."""
+        try:
+            chunks = self.splitter.split_text(string)
+        except Exception as e:
+            logger.error(f"❌ Text split failed: {e} ({metadata.get('filename', 'unknown')})")
+            chunks = [string]
+
+        if not chunks:
+            logger.warning(f"⚠️  No chunks created from text ({metadata.get('filename', 'unknown')})")
+            return []
+
+        return [
+             Document(page_content=chunk, metadata={**metadata, "chunk": i+1, "total_chunks": len(chunks)})
+             for i, chunk in enumerate(chunks)
+         ]
