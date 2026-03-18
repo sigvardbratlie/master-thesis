@@ -163,6 +163,7 @@ class ContextManager:
                                 IMPORTANT: Return exactly {len(attachments)} AttachmentWithEvents objects in the attachments array.
                                 CRITICAL: Set file_id in AttachmentExtracted to match the file_id from the input document.
 
+                                Do not include any irrelevant information.
                                 Documents to analyze:
                                 {documents_formatted}'''
         retry_prompt = prompt
