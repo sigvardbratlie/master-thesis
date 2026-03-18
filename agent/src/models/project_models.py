@@ -273,7 +273,6 @@ class EmailExtracted(BaseExtracted):
 
 class Email(EmailExtracted):
     """Email model - Python-friendly names with RFC aliases"""
-    
     # IDs
     #email_id: str | None = None
     project_id: str | None = None

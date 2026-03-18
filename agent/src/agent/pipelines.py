@@ -47,21 +47,24 @@ class ProjectPipeline:
         workflow.add_node("analyze", self._analyze_node)
         workflow.add_node("update_metadata", self._update_metadata_node)
         workflow.add_node("save", self._save_init_node)
+        workflow.add_node("qc_analysis", self._qc_analsysis_node)
 
         workflow.add_edge(START, "collapse_emails")
         workflow.add_edge(START, "initialize_input")
-        #workflow.add_edge(START, "storage")
+        
         workflow.add_edge("collapse_emails", "extract_emails")
         workflow.add_edge("extract_emails", "parsing")
         workflow.add_edge("extract_emails", "storage")
         workflow.add_edge("parsing", "embedding")
         workflow.add_edge(["parsing", "initialize_input"], "analyze")
         workflow.add_edge("analyze", "update_metadata")
+        workflow.add_edge("analyze", "qc_analysis")
         workflow.add_edge("update_metadata", "save")
 
         workflow.add_edge("embedding", END)
         workflow.add_edge("save", END)
         workflow.add_edge("storage", END)
+        workflow.add_edge("qc_analysis", END)
         return workflow.compile()
 
     def compile_update_pipeline(self):
@@ -77,10 +80,10 @@ class ProjectPipeline:
         workflow.add_node("analyze", self._analyze_node)
         workflow.add_node("update_metadata", self._update_metadata_node)
         workflow.add_node("save", self._save_update_node)
+        workflow.add_node("qc_analysis", self._qc_analsysis_node)
 
         workflow.add_edge(START, "load_project_data")
         workflow.add_edge(START, "collapse_emails")
-        #workflow.add_edge(START, "storage")
         workflow.add_edge("collapse_emails", "extract_emails")
         workflow.add_edge("extract_emails", "parsing")
         workflow.add_edge("extract_emails", "storage")
@@ -88,10 +91,13 @@ class ProjectPipeline:
         workflow.add_edge(["load_project_data", "parsing"], "analyze")
         workflow.add_edge("analyze", "update_metadata")
         workflow.add_edge("update_metadata", "save")
+        workflow.add_edge("analyze", "qc_analysis")
+
 
         workflow.add_edge("embedding", END)
         workflow.add_edge("save", END)
         workflow.add_edge("storage", END)
+        workflow.add_edge("qc_analysis", END)
         return workflow.compile()
 
     # =========== HELPER METHODS ===========
@@ -149,7 +155,6 @@ class ProjectPipeline:
         max_attachments = self.config.project.max_attachments
         max_emails = self.config.project.max_emails
 
-        eml = EmailHandler()
         email_attachments = []
         email_size_counter = 0
 
@@ -189,6 +194,10 @@ class ProjectPipeline:
                 doc_tasks.append(analyze_emails_with_limit(email_attachments, input_, thread))
                 email_attachments = [email]
                 email_size_counter = email_size
+        
+        if email_attachments:
+            logger.info(f"📦 Dispatching final email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
+            doc_tasks.append(analyze_emails_with_limit(email_attachments, input_, thread))
         return doc_tasks
 
     def mk_update_query_from_session(self,
@@ -378,8 +387,6 @@ class ProjectPipeline:
         output_emails = []
         logger.info(f'ℹ️ Processing {len(emails_to_handle)} email(s) for analysis')
         for id_, messages in emails_to_handle.items():
-            
-
             data = eml.extract_email_data(
                 msg=messages[0],
                 user_id=user_id,
@@ -581,6 +588,7 @@ class ProjectPipeline:
             "query_id": query.query_id,
         })
 
+        
         return {
             "attachments": attachments,
             "events": events,
@@ -589,6 +597,27 @@ class ProjectPipeline:
             "deadlines": deadlines,
             "emails": emails,
         }
+
+    def _qc_analsysis_node(self, state):
+        input_emails = {e.message_id: getattr(e, "subject", "unknown subject") for e in state.email_models or [] if hasattr(e, "message_id")}
+        input_attachments = {a.file_id: getattr(a, "filename", "unknown file") for a in state.query.attachments or [] if hasattr(a, "file_id")}
+
+        output_emails = {e.message_id for e in state.emails or [] if hasattr(e, "message_id")}
+        output_attachments = {a.file_id for a in state.attachments or [] if hasattr(a, "file_id")}
+
+        if len(input_emails) != len(output_emails):
+            difference = set(input_emails.keys()) - output_emails
+            logger.warning(f"QC Warning: Number of output emails ({len(output_emails)}) does not match number of input emails ({len(input_emails)}).")
+            logger.debug(f'The following emails are in input but missing from output:')
+            for msg_id in difference:
+                logger.debug(f'- [{msg_id}] {input_emails[msg_id]}')
+
+        if len(input_attachments) != len(output_attachments):
+            difference = set(input_attachments.keys()) - output_attachments
+            logger.warning(f"QC Warning: Number of output attachments ({len(output_attachments)}) does not match number of input attachments ({len(input_attachments)}).")
+            logger.debug(f'The following attachments are in input but missing from output:')
+            for file_id in difference:
+                logger.debug(f'- [{file_id}] {input_attachments[file_id]}')
 
     async def _save_init_node(self, state: PipelineState):
         query = state.query
