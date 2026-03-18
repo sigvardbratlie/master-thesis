@@ -14,7 +14,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 import uuid
-
+from typing import Literal
 logger = logging.getLogger(__name__)
 
 _TABLE_ID_FIELDS = {
@@ -35,14 +35,19 @@ class SupabaseManager:
         self.supabase = create_client(self.url, self.key)
         # Initialize Supabase client here if needed
 
-    def load_factsheet(self, project_id: str,) -> FactSheet:
-        select_query = """
+    def load_factsheet(self, project_id: str,
+                       tables: list[Literal["events", "parties", "deadlines", "damages", "claims", ]] = None
+                       ) -> FactSheet:
+        if tables is None:
+            tables = ["project_events", "project_parties", "project_deadlines", "project_damages", "project_claims", ]
+        
+        select = ""
+        for table in tables:
+            select += f"project_{table}(*),\n"
+        
+        select_query = f"""
             *,
-            project_events(*),
-            project_parties(*),
-            project_damages(*),
-            project_claims(*),
-            project_deadlines(*)
+            {select.strip().rstrip(',\n')}
         """
 
         # Utfør spørringen — ved limited: filtrer ut low-significance events og parties
@@ -76,17 +81,19 @@ class SupabaseManager:
         )
         return factsheet
     
-    def load_project(self, project_id: str) -> ProjectData:
-        select_query = """
-                *,
-                project_attachments(*),
-                project_events(*),
-                project_parties(*),
-                project_deadlines(*),
-                project_damages(*),
-                project_claims(*),
-                project_emails(*)"""
+    def load_project(self, project_id: str, 
+                     tables: list[Literal["attachments", "events", "parties", "deadlines", "damages", "claims", "emails"]] = None) -> ProjectData:
+        if tables is None:
+            tables = ["project_attachments", "project_events", "project_parties", "project_deadlines", "project_damages", "project_claims", "project_emails"]
 
+        select = ""
+        for table in tables:
+            select += f"project_{table}(*),\n"
+
+        select_query = f"""
+                *,
+                {select.rstrip(',\n')}
+            """
         project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
 
         # Extract nested data from single query

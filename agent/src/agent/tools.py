@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import json
 from typing import Optional, Literal
 import logging
-
+from datetime import datetime, timezone
 from google.cloud import bigquery
 
 from langchain_tavily import TavilySearch
@@ -19,6 +19,15 @@ from documents import DocumentProcessor
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 logger = logging.getLogger(__name__)
+
+def _parse_date(value: datetime | str | None, default: datetime) -> datetime:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+    raise ValueError("date must be a datetime or ISO format string")
 
 tavily_search = TavilySearch(
     max_results=5,
@@ -268,58 +277,117 @@ def create_project():
 
 
 @tool
-def show_elements(element_types : list[Literal["events", "parties", "claims", "damages",]],
-                  project_id: str,
-                  significance: list[Literal["high", "medium", "low"]] = None,
-                  ):
-    """Use this function to retrieve structured case facts (parties, events, claims, damages) from the factsheet.
-    Only request the element types relevant to the question. Do not fetch all types unless the question explicitly requires all of them.
+def show_elements(project_id: str, 
+                  element_types: list[str], 
+                    start_date: datetime | str = None, 
+                    end_date: datetime | str = None, 
+                    significance: list[Literal["high", "medium", "low"]] = None) -> str:
+    '''
+    Show elements of a project filtered by date and significance.
     Args:
-        element_types (list[Literal["events", "parties", "claims", "damages",]]): A list of the element types to show. Only include types needed to answer the question. For example, a question about actors → ["parties"]; about timeline → ["events"].
-        significance (list[Literal["high", "medium", "low"]], optional): A list of significance levels to filter the elements. Defaults to None.
-        project_id (str): The project id to identify which project to retrieve the elements from.
+        project_id (str): The ID of the project.
+        element_types (list[str]): The types of elements to show (e.g. "events", "parties", "claims", "damages", "deadlines").
+        start_date (datetime): The start date for filtering elements.
+        end_date (datetime): The end date for filtering elements.
+        significance (list[str]): The significance levels to include (e.g. ["high", "medium"]).
     Returns:
-        str: A string representation of the requested elements.
-    """
+        str: A formatted string containing the filtered elements.
+
+    '''
+    if not significance:
+        significance = ["high", "medium", "low"]
+
+    start_date = _parse_date(start_date, datetime.min.replace(tzinfo=timezone.utc))
+    end_date = _parse_date(end_date, datetime.max.replace(tzinfo=timezone.utc))
+
     sm = SupabaseManager()
-    factsheet = sm.load_factsheet(project_id=project_id)
-    if not factsheet:
-        return f"No project {project_id}"
-    value = f"=== List of project elements: {', '.join(element_types)} ===\n\n"
-    all_fields =[ "events", "parties", "claims", "damages", "deadlines", "background"]
-    excluded_fields = [e for e in all_fields if e not in element_types]
-    if excluded_fields:
-        value += factsheet.shorten_factsheet(
-                        significance=significance,
-                        excluded_fields=excluded_fields,)
+    factsheet = sm.load_factsheet(project_id=project_id, tables=element_types)
+    date_col_map = {"events": "event_start_date",
+                    "claims": "claim_date",
+                    "damages": "damage_date",
+                    "attachments": "file_date",
+                    "emails": "date"}
+    format_map = {
+            "events": ["event_start_date", "event_name", "file_id", "description", "disputed"],
+            "parties": ["legal_name", "entity_type", "role", "role_description"],
+            "claims": ["relief_sought", "factual_basis", "legal_basis"],
+            "damages": ["category", "amount", "currency", "basis"],
+            "deadlines": ["deadline_date", "description", "file_id", "email_id"]}
+
+    value = f"=== List of {', '.join(element_types)} ===\n"
+
+    for element in element_types:
+        all_elements = getattr(factsheet, element) or []
+        date_col = date_col_map.get(element)
+        filtered_elements = [
+            e for e in all_elements
+            if (not date_col or (getattr(e, date_col, None) and start_date <= getattr(e, date_col) <= end_date))
+            and getattr(e, "significance", None) in significance
+        ]
+
+        value += f"\n\n=== {element.upper()} ===\n"
+        value += f'**FORMAT** : {" | ".join(format_map[element])}\n'
+        for item in filtered_elements:
+            element_info = "\t" + " | ".join([f"{getattr(item, field)}" for field in format_map[element]])
+            value += f"- {element_info}\n"
+
     return value
 
 @tool
-def list_attachments(element_types : list[Literal["attachments", "emails"]],
-                  project_id: str,
-                  significance: list[Literal["high", "medium", "low"]] = None,
+def list_attachments(
+                    project_id: str,
+                    element_types : list[Literal["attachments", "emails"]],
+                    start_date: datetime | str = None, 
+                    end_date: datetime | str = None, 
+                    significance: list[Literal["high", "medium", "low"]] = None,
                   ):
-    """Use this function to retrieve a list of the projects files and emails.
+    '''
+    List attachments and emails of a project filtered by date and significance.
     Args:
-        element_types (list[Literal["attachments", "emails"]]): A list of the element types to show. For example, if you only want to show attachments and emails, use ["attachments", "emails"].
-        significance (list[Literal["high", "medium", "low"]], optional): A list of significance levels to filter the elements. Defaults to None.
-        project_id (str): The project id to identify which project to retrieve the elements from.
+        project_id (str): The ID of the project.
+        element_types (list[str]): The types of elements to show (e.g. "events", "parties", "claims", "damages", "deadlines").
+        start_date (datetime): The start date for filtering elements.
+        end_date (datetime): The end date for filtering elements.
+        significance (list[str]): The significance levels to include (e.g. ["high", "medium"]).
     Returns:
-        str: A string representation of the requested elements.
-    """
-    sm = SupabaseManager()
-    project= sm.load_project(project_id=project_id)
-    if not project:
-        return f"No project {project_id}"
-    value = f"=== List of project elements: {', '.join(element_types)} ===\n\n"
+        str: A formatted string containing the filtered elements.
 
-    value += project.shorten_attachments(
-                    significance=significance,
-                    excluded_keys=["description",] if "attachments" in element_types else None,)
-    value += project.shorten_emails(
-                    significance=significance,
-                    excluded_keys=["description",] if "emails" in element_types else None,)
+    Use the id of in `read_attachments` to read the full content of the attachment.
+
+    '''
+    if not significance:
+        significance = ["high", "medium", "low"]
+
+    start_date = _parse_date(start_date, datetime.min.replace(tzinfo=timezone.utc))
+    end_date = _parse_date(end_date, datetime.max.replace(tzinfo=timezone.utc))
+
+    sm = SupabaseManager()
+    project = sm.load_project(project_id=project_id, tables=element_types)
+
+    date_col_map = {"emails": "date", "attachments": "file_date"}
+    format_map = {
+            "emails": ["email_id", "from_addr", "to", "date", "title"],
+            "attachments": ["file_id", "file_date", "title"]}
+    key_map = {"emails": "email_id", "attachments": "file_id"}
+
+    value = f"=== List of {', '.join(element_types)} ===\n"
+    for item in element_types:
+        all_elements = getattr(project, item) or []
+        date_col = date_col_map.get(item)
+        filtered_elements = [
+            e for e in all_elements
+            if (not date_col or (getattr(e, date_col, None) and start_date <= getattr(e, date_col) <= end_date))
+            and getattr(e, "significance", None) in significance
+        ]
+
+        value += f"\n\n=== {item.upper()} ===\n"
+        format_view = [key if key != key_map[item] else "id" for key in format_map[item]]
+        value += f'**FORMAT** : {" | ".join(format_view)}\n'
+        for row in filtered_elements:
+            element_info = "\t" + " | ".join([f"{getattr(row, field)}" for field in format_map[item]])
+            value += f"- {element_info}\n"
     return value
+
 
 @tool
 def list_project_attachments(project_id: str) -> str:
