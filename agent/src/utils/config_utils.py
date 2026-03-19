@@ -59,18 +59,15 @@ class StorageGCSConfig(BaseModel):
     bucket_name: str = ""
     region_name : str = ""
 
+class StorageSupabaseConfig(BaseModel):
+    bucket_name: str = ""
+
 
 class StorageConfig(BaseModel):
     aws: StorageAWSConfig = Field(default_factory=StorageAWSConfig)
     gcs: StorageGCSConfig = Field(default_factory=StorageGCSConfig)
+    supabase: StorageSupabaseConfig = Field(default_factory=StorageSupabaseConfig)
 
-class VectorstoreBQConfig(BaseModel):
-    embedding_model: str = "google_gemini-embedding-001"
-    region : str
-    dataset : str
-
-class VectorstoreConfig(BaseModel):
-    bigquery : VectorstoreBQConfig = Field(default_factory=VectorstoreBQConfig)
 
 
 class ProjectConfig(BaseModel):
@@ -80,11 +77,16 @@ class ProjectConfig(BaseModel):
     embed_to_vectorstore: bool = True
     save_to_storage: bool = True
     
+class VectorstoreBQConfig(BaseModel):
+    embedding_model: str = "google_gemini-embedding-001"
+    region : str
+    dataset : str
 
 class VectorstoreConfig(BaseModel):
     chunk_size: int = 1000
     chunk_overlap: int = 200
     k : int = 3
+    bigquery : VectorstoreBQConfig = Field(default_factory=VectorstoreBQConfig)
 
 # ========= MAIN CONFIG CLASS =========
 class AppConfig(BaseSettings):
