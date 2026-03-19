@@ -219,6 +219,7 @@ class InitialInput(BaseModel):
     parties: list[Party] | None = Field([], description="List of parties involved in the case.")
     background: str | None = Field("", description="Brief factual background of the case, including key events, timeline, and context")
     title : str | None = Field("", description="Title of the case or matter (MAX 10 words)")
+    start_date: date | datetime | None = Field(None, description="Start date of the case or matter. Must be a valid date or datetime (e.g., '2023-05-01' or '2023-05-01T14:30:00')")
 
 class BaseExtracted(BaseModel):
     """Common extraction fields for all document types and emails"""

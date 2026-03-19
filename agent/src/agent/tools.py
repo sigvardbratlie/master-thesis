@@ -92,13 +92,13 @@ def read_attachments(
     return results
 
 @tool
-def query_project_attachments(query: str, project_id: str, k: int = 5, metadata : dict = None) -> str:
+def query_project_attachments(query: str, project_id: str, k: int = 10, metadata : dict = None) -> str:
     """Function to use RAG to retrieve documents of a specific project.
 
     Args:
         query (str): The query to search in the vectorstore.
         project_id (str): The project id to identify which vectorstore to query.
-        k (int): The number of top results to retrieve from the vectorstore. Default is 5.
+        k (int): The number of top results to retrieve from the vectorstore. 
         metadata (dict, optional): Additional metadata to filter the vectorstore query. Defaults to None. I.e., {'file_id' : '741ef083-9335-4a55-bbe1-ea866bf01758'}.
     Returns:
         str: The retrieved information from the vectorstore based on the query.

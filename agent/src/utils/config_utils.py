@@ -25,8 +25,6 @@ class AsyncConfig(BaseModel):
     max_concurrent_requests: int = 20
     throttle_value: float = 0.0
 
-
-
 class ModelProviderConfig(BaseModel):
     base_url: str = ""
     max_tokens: int = 4096
@@ -53,6 +51,27 @@ class AgentConfig(BaseModel):
             self.significance = ["high"]
         return self
 
+class StorageAWSConfig(BaseModel):
+    bucket_name: str = ""
+    region: str = ""
+
+class StorageGCSConfig(BaseModel):
+    bucket_name: str = ""
+    region_name : str = ""
+
+
+class StorageConfig(BaseModel):
+    aws: StorageAWSConfig = Field(default_factory=StorageAWSConfig)
+    gcs: StorageGCSConfig = Field(default_factory=StorageGCSConfig)
+
+class VectorstoreBQConfig(BaseModel):
+    embedding_model: str = "google_gemini-embedding-001"
+    region : str
+    dataset : str
+
+class VectorstoreConfig(BaseModel):
+    bigquery : VectorstoreBQConfig = Field(default_factory=VectorstoreBQConfig)
+
 
 class ProjectConfig(BaseModel):
     threshold: int = 5120000     # 500 * 1024
@@ -75,6 +94,7 @@ class AppConfig(BaseSettings):
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     project : ProjectConfig = Field(default_factory=ProjectConfig)
     vectorstore : VectorstoreConfig = Field(default_factory=VectorstoreConfig)
+    storage : StorageConfig = Field(default_factory=StorageConfig)
 
 
     @classmethod

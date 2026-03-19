@@ -22,13 +22,18 @@ logger = logging.getLogger(__name__)
 
 class PDFHandler(BaseHandler):
     '''Handler for parsing PDF documents, with optional OCR for scanned PDFs.'''
-    def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
+    def __init__(self,chunk_size : int = 1000, 
+                      chunk_overlap : int = 200,
+                      aws_bucket_name: str = "",
+                      aws_region: str = "",):
         '''Handler for parsing PDF documents, with optional OCR for scanned PDFs.
         Args:
             chunk_size (int): The maximum size of each text chunk extracted from the PDF. (default: Splits by page)
             chunk_overlap (int): The number of characters to overlap between chunks. (default: 200)
         '''
         super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        self.aws_bucket_name = aws_bucket_name
+        self.aws_region = aws_region
 
     
     def _safe_pdf_date(self,value) -> str | None:
@@ -151,7 +156,6 @@ class PDFHandler(BaseHandler):
         doc.close()
         return meta
 
-
     def _extract_text_pypdf2(self, content : bytes) -> str:
         reader = PdfReader(BytesIO(content))
         text = ""
@@ -175,20 +179,19 @@ class PDFHandler(BaseHandler):
             f.write(content)
             tmp_path = f.name
 
-        bucket_name = "master-thesis-prod-533267386321-eu-west-1-an"
         config = TextLinearizationConfig(
             hide_figure_layout=False,
             title_prefix="# ",
             section_header_prefix="## ",
             table_linearization_format="markdown",
         )
-        extractor = Textractor(profile_name="default", region_name="eu-west-1")
+        extractor = Textractor(profile_name="default", region_name=self.aws_region)
 
         document = extractor.start_document_analysis(
                                         file_source=tmp_path,
                                         features=[TextractFeatures.LAYOUT, TextractFeatures.TABLES],
-                                        s3_output_path=f"s3://{bucket_name}/textract-output/",
-                                        s3_upload_path=f"s3://{bucket_name}/uploads/",
+                                        s3_output_path=f"s3://{self.aws_bucket_name}/textract-output/",
+                                        s3_upload_path=f"s3://{self.aws_bucket_name}/uploads/",
                                         )
         markdown = document.get_text(config=config)
         return markdown 

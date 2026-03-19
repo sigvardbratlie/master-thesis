@@ -64,7 +64,7 @@ class XlsxHandler(BaseHandler):
     def __init__(self, chunk_size: int = 1000, chunk_overlap: int = 200):
         super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     
-    def parse_xlsx_to_docs(self, content: bytes, metadata: dict) -> list[Document]:
+    def parse_xlsx(self, content: bytes, metadata: dict) -> list[Document]:
         logger.warning(f"⚠️  XLSX parsing not implemented yet {metadata.get('filename', 'unknown')}")
         return []
     

@@ -26,7 +26,7 @@ class ProjectClean:
         self.document_processor = DocumentProcessor(chunk_size = self.config.vectorstore.chunk_size, chunk_overlap = self.config.vectorstore.chunk_overlap)
         self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
         self.storage = SupabaseStorageManager()
-        self.vs = BQVectorStore()
+        self.vs = BQVectorStore(embedding_model=self.config.vectorstore.bigquery.embedding_model)
         self.conversation_manager = SupabaseManager()
 
     # ======== COMPILE METHODS =========

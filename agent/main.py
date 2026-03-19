@@ -87,7 +87,7 @@ async def lifespan(app: FastAPI):
     app.state.clean = ProjectClean(name="ProjectClean", config=config,)
     app.state.auth = SupabaseAuth()
     app.state.conversation_manager = SupabaseManager()
-    app.state.vectorstore = BQVectorStore()
+    app.state.vectorstore = BQVectorStore(embedding_model=config.vectorstore.bigquery.embedding_model)
 
     silence_loggers()
 
