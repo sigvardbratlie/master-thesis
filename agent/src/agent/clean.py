@@ -23,7 +23,7 @@ class ProjectClean:
         self.name = name
         self.config = config or AppConfig()
         self.context_manager = ContextManager()
-        self.document_processor = DocumentProcessor(chunk_size = self.config.vectorstore.chunk_size, chunk_overlap = self.config.vectorstore.chunk_overlap)
+        self.document_processor = DocumentProcessor(config=self.config)
         self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
         self.storage = SupabaseStorageManager()
         self.vs = BQVectorStore(embedding_model=self.config.vectorstore.bigquery.embedding_model)

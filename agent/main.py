@@ -60,7 +60,12 @@ async def lifespan(app: FastAPI):
     global agent, pool
     connection_string = os.getenv("SUPABASE_DB_URL")
     #logger.info(f"🔗 DB connection: {connection_string[:50]}...")
-    pool = AsyncConnectionPool(conninfo=connection_string, open=False)
+    pool = AsyncConnectionPool(
+        conninfo=connection_string,
+        open=False,
+        min_size=2,
+        max_size=5,
+    )
     await pool.open()
 
     checkpointer = AsyncPostgresSaver(pool)

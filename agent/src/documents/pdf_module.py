@@ -203,7 +203,8 @@ class PDFHandler(BaseHandler):
         return markdown
     
     def parse_pdf(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> tuple[str, dict]:
-        meta = self._extract_metadata(content)
+        meta_pdf = self._extract_metadata(content)
+        meta = {**metadata, **meta_pdf}
         if self._needs_ocr(content):
             logger.info("🔍 PDF needs OCR — processing with Textract...")
             md = self._extract_md_textract(content)

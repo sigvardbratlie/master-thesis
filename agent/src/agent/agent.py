@@ -58,7 +58,7 @@ class Agent:
         self.summary = "" #rolling summary for long conversations
         self.in_memory_store = ChromaVectorStore()
         self.vs = BQVectorStore(**self.config.vectorstore.bigquery.model_dump())
-        self.document_processor = DocumentProcessor(chunk_size = self.config.vectorstore.chunk_size, chunk_overlap = self.config.vectorstore.chunk_overlap)
+        self.document_processor = DocumentProcessor(config=self.config)
         self.summarizer = Summarizer()
         self.storage = SupabaseStorageManager() #GCSManager() 
         self.conversation_manager =  SupabaseManager() #ConversationManager()

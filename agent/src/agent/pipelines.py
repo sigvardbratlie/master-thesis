@@ -13,10 +13,7 @@ import base64
 import email as python_email
 from database import SupabaseStorageManager, SupabaseManager, BQVectorStore
 
-from langchain_core.language_models.chat_models import BaseChatModel
 from models import PipelineState, AskAgentRequest, ProjectData, InitialInput
-
-from uuid import uuid4
 
 from agent.utils import pick_llm
 logger = logging.getLogger(__name__)
@@ -27,7 +24,7 @@ class ProjectPipeline:
         self.name = name
         self.config = config or AppConfig()
         self.context_manager = ContextManager()
-        self.document_processor = DocumentProcessor(chunk_size = self.config.vectorstore.chunk_size, chunk_overlap = self.config.vectorstore.chunk_overlap)
+        self.document_processor = DocumentProcessor(config=self.config)
         self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
         self.storage = SupabaseStorageManager()
         self.vs = BQVectorStore(embedding_model=self.config.vectorstore.bigquery.embedding_model)
@@ -47,7 +44,7 @@ class ProjectPipeline:
         workflow.add_node("analyze", self._analyze_node)
         workflow.add_node("update_metadata", self._update_metadata_node)
         workflow.add_node("save", self._save_init_node)
-        workflow.add_node("qc_analysis", self._qc_analsysis_node)
+        workflow.add_node("qc_analysis", self._qc_analysis_node)
 
         workflow.add_edge(START, "collapse_emails")
         workflow.add_edge(START, "initialize_input")
@@ -80,7 +77,7 @@ class ProjectPipeline:
         workflow.add_node("analyze", self._analyze_node)
         workflow.add_node("update_metadata", self._update_metadata_node)
         workflow.add_node("save", self._save_update_node)
-        workflow.add_node("qc_analysis", self._qc_analsysis_node)
+        workflow.add_node("qc_analysis", self._qc_analysis_node)
 
         workflow.add_edge(START, "load_project_data")
         workflow.add_edge(START, "collapse_emails")
@@ -185,7 +182,7 @@ class ProjectPipeline:
         # ======== EMAILS (EML) ============
         emails_to_process = state.email_models or []
         for email in emails_to_process:
-            email_size = len(email.body.encode("utf-8")) if email.body else email.size or 0
+            email_size = len(email.body_text.encode("utf-8")) if email.body_text else email.size or 0
             if email_size_counter + email_size <= threshold and len(email_attachments) < max_emails:
                 email_attachments.append(email)
                 email_size_counter += email_size
@@ -394,7 +391,10 @@ class ProjectPipeline:
                 session_id=query.session_id,
                 file_id=id_,
             )
-            email = data.get("email", [])
+            email = data.get("email")
+            if not email:
+                logger.warning(f"⚠️ No email extracted for id {id_}, skipping.")
+                continue
             email.reference_paths = [f"{user_id}/{query.session_id}/{e_id}.eml" for e_id in messages[1]] if messages[1] else None
             output_emails.append(email)
             current_email_attachments = data.get("attachments", [])
@@ -598,7 +598,7 @@ class ProjectPipeline:
             "emails": emails,
         }
 
-    def _qc_analsysis_node(self, state):
+    def _qc_analysis_node(self, state):
         input_emails = {e.message_id: getattr(e, "subject", "unknown subject") for e in state.email_models or [] if hasattr(e, "message_id")}
         input_attachments = {a.file_id: getattr(a, "filename", "unknown file") for a in state.query.attachments or [] if hasattr(a, "file_id")}
 
@@ -692,7 +692,6 @@ class ProjectPipeline:
     async def _save_update_node(self, state: PipelineState):
         writer = get_stream_writer()
         query = state.query
-        user_id = get_config().get("configurable", {}).get("user_id")
         attachments = state.attachments
         events = state.events
         damages = state.damages

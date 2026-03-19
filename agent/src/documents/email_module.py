@@ -147,7 +147,7 @@ class EmailHandler(BaseHandler):
                                               file_id=file_id)
         return email_data
     
-    def parse_eml_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
+    def parse_eml(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> tuple[str, dict]:
         '''Process EML content and extract email data and attachments
 
         Args:
@@ -155,7 +155,7 @@ class EmailHandler(BaseHandler):
             metadata (dict): Additional metadata to attach to each Document.
             force_metadata_model (bool): Validate and serialize metadata through VectorStoreMetadata. Defaults to True.
         Returns:
-            list[Document]: A list of Document objects extracted from the email body.
+            tuple[str, dict]: A tuple containing the extracted email body text and metadata.
 
         '''
         try:
@@ -164,9 +164,6 @@ class EmailHandler(BaseHandler):
             logger.error(f"❌ EML parse failed: {e}", exc_info=True)
             raise ValueError("Invalid EML content") from e
         body = self._extract_email_body(msg)
-        if not chunks:
-            logger.warning("⚠️  No text chunks from email body — using raw text")
-            chunks = [body.get("text", "")]
         metadata_all = {**metadata,
                         "file_size": len(content),
                         "file_type": "message/rfc822",
@@ -175,8 +172,8 @@ class EmailHandler(BaseHandler):
                         "created_at": email.utils.parsedate_to_datetime(msg.get("Date")) if msg.get("Date") else None,
                         }
         final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump(mode="json") if force_metadata_model else metadata_all
-        return body, final_metadata
-    
+        return body.get("text", ""), final_metadata
+
     def mk_eml(self, email_data : WriteEmail) -> bytes:
         msg = email.message.EmailMessage()
         msg["Subject"] = email_data.subject
