@@ -119,7 +119,7 @@ class AttachmentComponent:
 
             if file_type == "message/rfc822" and not content_bytes:
                 references = attachment.get('reference_paths', '')
-                st.info(f'This view shows in total {len(references)} uploaded' + (' emails' if len(references) > 1 else ' email'))
+                st.info(f'This view shows in total {len(references)} uploaded' + (' emails' if len(references) > 1 else ' email')) if references else st.info('No references found for this email attachment.')
                 #if st.button("show email", )
 
                 # Render email from DB data directly
@@ -163,11 +163,13 @@ class AttachmentComponent:
 
         file_id = attachment.get('file_id', "unknown_id")
         filename = attachment.get('filename', 'Ukjent fil')
+        file_date = attachment.get('file_date', '') or attachment.get("date")
+        #st.json(attachment)
 
         # Use stable key based on file_id, not random uuid
         button_key = key if key else f"att_{file_id}"
 
-        label = f"{sig_icon} 📎 {filename}" if sig_icon else f"📎 {filename}"
+        label = f"{sig_icon} 📅 {file_date} 📎 {filename}" if sig_icon else f"📎 {filename}"
         st.button(label, key=button_key, on_click=lambda a=attachment: self.on_click_view(a))
 
 

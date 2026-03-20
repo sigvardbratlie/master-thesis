@@ -56,7 +56,7 @@ class SupabaseManager:
     def load_project(self, project_id: str) -> dict:
         select_query = """
                 *, 
-                project_attachments(file_id, filename, file_type, path, created_at),
+                project_attachments(file_id, file_date, filename, file_type, path, created_at),
                 project_events(*),
                 project_parties(*),
                 project_deadlines(*),
