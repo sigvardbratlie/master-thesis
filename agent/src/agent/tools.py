@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 import json
 from typing import Optional, Literal
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from google.cloud import bigquery
 
 from langchain_tavily import TavilySearch
@@ -20,14 +20,22 @@ load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 logger = logging.getLogger(__name__)
 
-def _parse_date(value: datetime | str | None, default: datetime) -> datetime:
+def _parse_date(value: date | str | None, default: date) -> date:
     if value is None:
         return default
     if isinstance(value, str):
-        return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+        return date.fromisoformat(value[:10])
     if isinstance(value, datetime):
-        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
-    raise ValueError("date must be a datetime or ISO format string")
+        return value.date()
+    if isinstance(value, date):
+        return value
+    raise ValueError("date must be a date, datetime, or ISO format string")
+
+def _as_date(value) -> date | None:
+    """Coerce date or datetime to date for consistent comparisons."""
+    if isinstance(value, datetime):
+        return value.date()
+    return value
 
 tavily_search = TavilySearch(
     max_results=5,
@@ -297,8 +305,8 @@ def show_elements(project_id: str,
     if not significance:
         significance = ["high", "medium", "low"]
 
-    start_date = _parse_date(start_date, datetime.min.replace(tzinfo=timezone.utc))
-    end_date = _parse_date(end_date, datetime.max.replace(tzinfo=timezone.utc))
+    start_date = _parse_date(start_date, date.min)
+    end_date = _parse_date(end_date, date.max)
 
     sm = SupabaseManager()
     factsheet = sm.load_factsheet(project_id=project_id, tables=element_types)
@@ -321,7 +329,7 @@ def show_elements(project_id: str,
         date_col = date_col_map.get(element)
         filtered_elements = [
             e for e in all_elements
-            if (not date_col or (getattr(e, date_col, None) and start_date <= getattr(e, date_col) <= end_date))
+            if (not date_col or (getattr(e, date_col, None) and start_date <= _as_date(getattr(e, date_col)) <= end_date))
             and getattr(e, "significance", None) in significance
         ]
 
@@ -358,8 +366,8 @@ def list_attachments(
     if not significance:
         significance = ["high", "medium", "low"]
 
-    start_date = _parse_date(start_date, datetime.min.replace(tzinfo=timezone.utc))
-    end_date = _parse_date(end_date, datetime.max.replace(tzinfo=timezone.utc))
+    start_date = _parse_date(start_date, date.min)
+    end_date = _parse_date(end_date, date.max)
 
     sm = SupabaseManager()
     project = sm.load_project(project_id=project_id, tables=element_types)
@@ -372,11 +380,11 @@ def list_attachments(
 
     value = f"=== List of {', '.join(element_types)} ===\n"
     for item in element_types:
-        all_elements = getattr(project, item) or []
+        all_elements = project.get(item) or []
         date_col = date_col_map.get(item)
         filtered_elements = [
             e for e in all_elements
-            if (not date_col or (getattr(e, date_col, None) and start_date <= getattr(e, date_col) <= end_date))
+            if (not date_col or (getattr(e, date_col, None) and start_date <= _as_date(getattr(e, date_col)) <= end_date))
             and getattr(e, "significance", None) in significance
         ]
 

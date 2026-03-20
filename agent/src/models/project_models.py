@@ -138,7 +138,9 @@ class Damages(BaseModel):
 
 def _coerce_partial_date(v):
     """Coerce YYYY-MM or YYYY to YYYY-MM-01 / YYYY-01-01. Returns None for non-date strings."""
-    if isinstance(v, (date, datetime)):
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
         return v
     if isinstance(v, str):
         parts = v.split("-")
@@ -146,17 +148,16 @@ def _coerce_partial_date(v):
             v = f"{v}-01"
         elif len(parts) == 1 and parts[0].isdigit():
             v = f"{v}-01-01"
-        else:
-            try:
-                return datetime.fromisoformat(v)
-            except ValueError:
-                return None
+        try:
+            return date.fromisoformat(v[:10])
+        except ValueError:
+            return None
     return v
 
 
 class Deadline(BaseModel):
     deadline_id: str | None = None
-    deadline_date: date | datetime | None
+    deadline_date: date | None
 
     @field_validator("deadline_date", mode="before")
     @classmethod
@@ -198,8 +199,8 @@ class Event(BaseModel):
     file_id: str | None = None  # For events from attachments
     email_id: str | None = None  # For events from emails
     event_name: str
-    event_start_date: date | datetime
-    event_end_date: date | datetime | None = None
+    event_start_date: date
+    event_end_date: date | None = None
 
     @field_validator("event_start_date", "event_end_date", mode="before")
     @classmethod
@@ -219,7 +220,12 @@ class InitialInput(BaseModel):
     parties: list[Party] | None = Field([], description="List of parties involved in the case.")
     background: str | None = Field("", description="Brief factual background of the case, including key events, timeline, and context")
     title : str | None = Field("", description="Title of the case or matter (MAX 10 words)")
-    start_date: date | datetime | None = Field(None, description="Start date of the case or matter. Must be a valid date or datetime (e.g., '2023-05-01' or '2023-05-01T14:30:00')")
+    start_date: date | None = Field(None, description="Start date of the case or matter (e.g., '2023-05-01')")
+
+    @field_validator("start_date", mode="before")
+    @classmethod
+    def coerce_start_date(cls, v):
+        return _coerce_partial_date(v)
 
 class BaseExtracted(BaseModel):
     """Common extraction fields for all document types and emails"""
@@ -235,14 +241,14 @@ class AttachmentExtracted(BaseExtracted):
     """Document-specific extraction fields"""
     file_id: str | None = None
     key_provisions: list[str] | None = Field(None, description="Important clauses or sections (for agreements)")
-    file_date: date | datetime | None = Field(None, description="Date of the document (when it was created/sent, not when it was received). Must be a valid date or datetime (e.g., '2023-05-01' or '2023-05-01T14:30:00')")
+    file_date: date | None = Field(None, description="Date of the document (when it was created/sent, not when it was received), e.g. '2023-05-01'")
 
     @field_validator("file_date", mode="before")
     @classmethod
     def coerce_empty_date(cls, v):
-        if v == "":
+        if v == "" or v is None:
             return None
-        return v
+        return _coerce_partial_date(v)
     category: Literal[
         "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
         "court_order", "invoice", "expert_report", "witness_statement", "internal_memo",

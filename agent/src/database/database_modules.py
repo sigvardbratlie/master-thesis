@@ -14,7 +14,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 import uuid
-from typing import Literal
+from typing import Any, Literal
 logger = logging.getLogger(__name__)
 
 _TABLE_ID_FIELDS = {
@@ -119,6 +119,22 @@ class SupabaseManager:
             attachments=attachments_models,
             emails=emails_models,
         )
+
+    def load_attachments(self, project_id: str, element_types : list[Literal["emails", "attachments"]]) -> dict[str, Any]:
+        emails, attachments = [], []
+        try:
+            if "attachments" in element_types:
+                response = self.supabase.table("project_attachments").select("*").eq("project_id", project_id).execute()
+                attachments = [Attachment.model_validate(row) for row in response.data] if "attachments" in element_types and response.data else []
+            if "emails" in element_types:
+                response = self.supabase.table("project_emails").select("*").eq("project_id", project_id).execute()
+                emails = [Email.model_validate(row) for row in response.data] if "emails" in element_types and response.data else []
+            
+            logger.debug(f'Loaded {len(attachments)} attachments for project {project_id} from Supabase.')
+            return {"attachments": attachments, "emails": emails}
+        except Exception as e:
+            logger.error(f'Error loading attachments for project {project_id} from Supabase: {e}', exc_info=True)
+            return {}
 
     def save_project(self,
                        factsheet : FactSheet,
