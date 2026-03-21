@@ -29,7 +29,7 @@ async def init_project_endpoint(query: AskAgentRequest,
                 yield f'data: {json.dumps(chunk)}\n\n'
                 await asyncio.sleep(0.01)
         except Exception as e:
-            logger.error(f"Error in init_stream_generator: {e}", exc_info=True)
+            logger.exception(f"❌ Error in init_stream_generator")
             yield f'data: {json.dumps({"error": str(e)})}\n\n'
 
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -49,7 +49,7 @@ async def update_project_endpoint(query: AskAgentRequest,
                 yield f'data: {json.dumps(chunk)}\n\n'
                 await asyncio.sleep(0.01)
         except Exception as e:
-            logger.error(f"Error in update_stream_generator: {e}", exc_info=True)
+            logger.exception(f"❌ Error in update_stream_generator")
             yield f'data: {json.dumps({"error": str(e)})}\n\n'
     return StreamingResponse(gen(), media_type="text/event-stream")
 
@@ -67,6 +67,6 @@ async def update_project_from_session_endpoint(query: AskAgentRequest,
                 yield f'data: {json.dumps(chunk)}\n\n'
                 await asyncio.sleep(0.01)
         except Exception as e:
-            logger.error(f"Error in update_stream_generator: {e}", exc_info=True)
+            logger.exception(f"❌ Error in update_stream_generator")
             yield f'data: {json.dumps({"error": str(e)})}\n\n'
     return StreamingResponse(gen(), media_type="text/event-stream")

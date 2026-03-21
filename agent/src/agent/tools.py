@@ -370,7 +370,7 @@ def list_attachments(
     end_date = _parse_date(end_date, date.max)
 
     sm = SupabaseManager()
-    project = sm.load_project(project_id=project_id, tables=element_types)
+    project = sm.load_attachments(project_id=project_id, tables=element_types)
 
     date_col_map = {"emails": "date", "attachments": "file_date"}
     format_map = {

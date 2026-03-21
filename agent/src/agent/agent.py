@@ -385,8 +385,8 @@ class Agent:
                             try:
                                 single_result = await tool_to_call.ainvoke({**base_args, "element_types": [elem_type]})
                             except Exception as e:
+                                logger.exception(f"❌ Tool 'show_elements' failed for element_type='{elem_type}'")
                                 single_result = f'Error fetching {elem_type}: {e}'
-                                logger.error(f"❌ {single_result}", exc_info=True)
                             session_cache[elem_key] = str(single_result)
                             fresh_parts.append(str(single_result))
                     parts = []
@@ -405,8 +405,8 @@ class Agent:
                         try:
                             result = await tool_to_call.ainvoke(args)
                         except Exception as e:
-                            result = f'Something went wrong when calling tool {name} with args {args} : {e}.'
-                            logger.error(f"❌ {result}", exc_info=True)
+                            logger.exception(f"❌ Tool '{name}' failed (args={args})")
+                            result = f'Something went wrong when calling tool {name}: {e}.'
                         session_cache[cache_key] = result
 
                         n_tokens = len(enc.encode(str(result)))

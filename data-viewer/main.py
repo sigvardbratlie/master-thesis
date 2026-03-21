@@ -678,7 +678,12 @@ with tab_results:
     for blob in result_blobs:
         fname = blob.name.split("/")[-1]
         model, ts_display = parse_result_filename(fname)
-        result_labels.append(f"{model} — {ts_display}" if ts_display else fname)
+        created = (
+            blob.time_created.astimezone(_OSLO).strftime("%Y-%m-%d %H:%M")
+            if blob.time_created
+            else ts_display
+        )
+        result_labels.append(f"{model} — {created}" if created else fname)
 
     st.markdown(
         f"#### 📊 Results &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({len(result_blobs)} runs)</span>",
@@ -933,8 +938,13 @@ with tab_evals:
     for blob in eval_blobs:
         fname = blob.name.split("/")[-1]
         model, agent_type, run_id = parse_eval_filename(fname)
+        created = (
+            blob.time_created.astimezone(_OSLO).strftime("%Y-%m-%d %H:%M")
+            if blob.time_created
+            else ""
+        )
         if agent_type:
-            eval_labels.append(f"{model} · {agent_type} · {run_id}")
+            eval_labels.append(f"{model} · {agent_type} — {created}" if created else f"{model} · {agent_type} · {run_id}")
         else:
             eval_labels.append(fname)
 

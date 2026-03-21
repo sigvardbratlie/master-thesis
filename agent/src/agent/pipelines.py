@@ -686,7 +686,7 @@ class ProjectPipeline:
             })
             logger.debug(f"Final result yielded successfully.")
         except Exception as e:
-            logger.error(f"❌ Failed to serialize/yield final result: {e}", exc_info=True)
+            logger.exception(f"❌ Failed to serialize/yield final result")
             raise
 
     async def _save_update_node(self, state: PipelineState):

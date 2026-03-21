@@ -23,7 +23,7 @@ class DocxHandler(BaseHandler):
         try:
             word_doc = DocxDocument(BytesIO(content))
         except Exception as e:
-            logger.error(f"❌ Failed to load DOCX: {e} ({metadata.get('filename', 'unknown')})")
+            logger.exception(f"❌ Failed to load DOCX ({metadata.get('filename', 'unknown')})")
             return []
 
         props = word_doc.core_properties
@@ -76,7 +76,7 @@ class PptxHandler(BaseHandler):
         try:
             ppt_doc = Presentation(BytesIO(content))
         except Exception as e:
-            logger.error(f"❌ Failed to load PPTX: {e} ({metadata.get('filename', 'unknown')})  ")
+            logger.exception(f"❌ Failed to load PPTX ({metadata.get('filename', 'unknown')})")
             return []
 
         props = ppt_doc.core_properties

@@ -32,7 +32,7 @@ class BaseHandler:
         try:
             chunks = self.splitter.split_text(string)
         except Exception as e:
-            logger.error(f"❌ Text split failed: {e} ({metadata.get('filename', 'unknown')})")
+            logger.exception(f"❌ Text split failed ({metadata.get('filename', 'unknown')})")
             chunks = [string]
 
         if not chunks:

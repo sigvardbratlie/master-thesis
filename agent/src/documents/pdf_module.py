@@ -132,7 +132,7 @@ class PDFHandler(BaseHandler):
                 logger.debug("PDF already has OCR text — skipping OCR")
                 return content
             except Exception as e:
-                logger.error(f"❌ OCR failed: {e} — returning original PDF")
+                logger.exception(f"❌ OCR failed — returning original PDF")
                 return content
             finally:
                 # Cleanup temp files

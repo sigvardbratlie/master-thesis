@@ -45,7 +45,7 @@ async def main():
     setup_logging(config)
     noisy_packages = ["httpx", "httpcore", "hpack", "urllib3", 
                       "anthropic", "openai", "asyncio", "langsmith", "ocrmypdf", "PIL", 
-                      "img2pdf", "botocore","textractor"]
+                      "img2pdf", "botocore","textractor", "google_genai"]
     [logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
 
     logger = logging.getLogger(__name__)

@@ -17,7 +17,7 @@ async def delete_vectorstore_project_endpoint(project_id: str,
         logger.info(f"🗑️  Deleted project {project_id} from vector store")
         return {"success": True, "project_id": project_id}
     except Exception as e:
-        logger.error(f"Error in /delete-vectorstore-project: {e}", exc_info=True)
+        logger.exception(f"❌ Error in /delete-vectorstore-project")
         raise HTTPException(status_code=500, detail=f"Error deleting project from vector store: {str(e)}")
 
 @router.delete("/delete-file/{file_id}")
@@ -29,6 +29,6 @@ async def delete_vectorstore_file_endpoint(file_id: str,
         vectorstore.delete_file(file_id)
         return {"success": True, "file_id": file_id}
     except Exception as e:
-        logger.error(f"Error in /delete-vectorstore-file: {e}", exc_info=True)
+        logger.exception(f"❌ Error in /delete-vectorstore-file")
         raise HTTPException(status_code=500, detail=f"Error deleting file from vector store: {str(e)}")
 

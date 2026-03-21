@@ -38,7 +38,7 @@ class SupabaseAuth:
             logger.debug('🔐 User auth OK')
             return response.user.id
         except Exception as e:
-            logger.error(f'❌ Auth failed: {e}')
+            logger.exception(f'❌ Auth failed')
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication credentials",

@@ -138,7 +138,7 @@ class EmailHandler(BaseHandler):
         try:
             msg = email.message_from_bytes(content)
         except Exception as e:
-            logger.error(f"❌ EML parse failed: {e}", exc_info=True)
+            logger.exception(f"❌ EML parse failed")
             raise ValueError("Invalid EML content") from e
         email_data = self._extract_email_data(msg, 
                                               query_id=query_id, 
@@ -161,7 +161,7 @@ class EmailHandler(BaseHandler):
         try:
             msg = email.message_from_bytes(content)
         except Exception as e:
-            logger.error(f"❌ EML parse failed: {e}", exc_info=True)
+            logger.exception(f"❌ EML parse failed")
             raise ValueError("Invalid EML content") from e
         body = self._extract_email_body(msg)
         metadata_all = {**metadata,
