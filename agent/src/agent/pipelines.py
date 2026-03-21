@@ -800,7 +800,7 @@ class ProjectPipeline:
             })
             if table_name in to_replace:
                 await asyncio.to_thread(
-                    self.conversation_manager.replace_project_element,
+                    self.conversation_manager.upsert_replace_project_element,
                     data=items,
                     project_id=query.project_id,
                     table_name=table_name,

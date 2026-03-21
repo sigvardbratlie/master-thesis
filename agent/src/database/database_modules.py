@@ -326,6 +326,51 @@ class SupabaseManager:
         except Exception as e:
             logger.exception(f'Error replacing items for project {project_id} in Supabase table {table_name}: {e}')
 
+    def upsert_replace_project_element(self,
+                    data: list[BaseModel],
+                    project_id: str,
+                    table_name: str,
+                    llm_model: str = ""):
+        """Upsert new/updated items and delete items no longer in the list.
+        Safer than replace_project_element (no delete+insert race condition)."""
+        if not data:
+            logger.warning(f"No data provided to upsert-replace for project {project_id} in table {table_name}. Skipping.")
+            return
+
+        id_field = _TABLE_ID_FIELDS.get(table_name)
+        now = datetime.now().isoformat()
+
+        existing_map = {}
+        if id_field:
+            existing = self.supabase.table(table_name).select(f"{id_field}, created_by, created_at").eq("project_id", project_id).execute()
+            existing_map = {row[id_field]: {"created_by": row.get("created_by"), "created_at": row.get("created_at")} for row in existing.data}
+
+        data_dicts = []
+        for item in data:
+            item_dict = item.model_dump(mode='json') if hasattr(item, 'model_dump') else item
+            if not isinstance(item_dict, dict):
+                raise ValueError("Each item in data must be a BaseModel or a dict.")
+            item_id = item_dict.get(id_field) if id_field else None
+            existing_entry = existing_map.get(item_id) if item_id else None
+            item_dict["project_id"] = project_id
+            item_dict["updated_by"] = llm_model
+            item_dict["updated_at"] = now
+            item_dict["created_by"] = existing_entry["created_by"] if existing_entry else llm_model
+            item_dict["created_at"] = existing_entry["created_at"] if existing_entry else now
+            data_dicts.append(item_dict)
+
+        new_ids = [d[id_field] for d in data_dicts if id_field and d.get(id_field)]
+
+        try:
+            self.supabase.table(table_name).upsert(data_dicts).execute()
+            if new_ids:
+                self.supabase.table(table_name).delete().eq("project_id", project_id).not_.in_(id_field, new_ids).execute()
+            else:
+                self.supabase.table(table_name).delete().eq("project_id", project_id).execute()
+            logger.debug(f'Upsert-replaced {len(data)} items for project {project_id} in Supabase table {table_name}.')
+        except Exception as e:
+            logger.exception(f'Error upsert-replacing items for project {project_id} in Supabase table {table_name}: {e}')
+
     def upsert_project_custom(self,
                     data : dict | str,
                     element_type : str,

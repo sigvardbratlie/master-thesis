@@ -211,7 +211,7 @@ class ProjectClean:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id,
             })
-            await asyncio.to_thread(self.conversation_manager.replace_project_element,
+            await asyncio.to_thread(self.conversation_manager.upsert_replace_project_element,
                 data=cleaned,
                 project_id=query.project_id,
                 table_name=f"project_{et}",
