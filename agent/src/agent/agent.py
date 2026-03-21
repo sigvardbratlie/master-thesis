@@ -370,65 +370,38 @@ class Agent:
                 tool_to_call = tools_dict[name]
                 session_cache = self._tool_cache.setdefault(session_id, {})
 
-                # ---- show_elements: cache per element_type to allow partial reuse ----
-                if name == "show_elements":
-                    element_types = args.get("element_types", [])
-                    base_args = {k: v for k, v in args.items() if k != "element_types"}
-                    fresh_parts = []
-                    stub_types = []
-                    for elem_type in element_types:
-                        elem_key = f"show_elements_elem:{elem_type}:{json.dumps(base_args, sort_keys=True)}"
-                        if elem_key in session_cache:
-                            logger.debug(f'💾 Cache hit — show_elements element: {elem_type}')
-                            stub_types.append(elem_type)
-                        else:
-                            try:
-                                single_result = await tool_to_call.ainvoke({**base_args, "element_types": [elem_type]})
-                            except Exception as e:
-                                logger.exception(f"❌ Tool 'show_elements' failed for element_type='{elem_type}'")
-                                single_result = f'Error fetching {elem_type}: {e}'
-                            session_cache[elem_key] = str(single_result)
-                            fresh_parts.append(str(single_result))
-                    parts = []
-                    if stub_types:
-                        parts.append(f"[Already retrieved this session — refer to earlier show_elements results for: {', '.join(stub_types)}]")
-                    parts.extend(fresh_parts)
-                    formatted_result = "\n\n".join(parts)
-
-                # ---- All other tools: exact-match cache, return stub on hit ----
+                cache_key = f"{name}:{json.dumps(args, sort_keys=True)}"
+                if cache_key in session_cache:
+                    logger.debug(f'💾 Cache hit — skipping tool call: {name}')
+                    formatted_result = f"[Already retrieved this session — refer to the earlier {name} result in this conversation.]"
                 else:
-                    cache_key = f"{name}:{json.dumps(args, sort_keys=True)}"
-                    if cache_key in session_cache:
-                        logger.debug(f'💾 Cache hit — skipping tool call: {name}')
-                        formatted_result = f"[Already retrieved this session — refer to the earlier {name} result in this conversation.]"
+                    try:
+                        result = await tool_to_call.ainvoke(args)
+                    except Exception as e:
+                        logger.exception(f"❌ Tool '{name}' failed (args={args})")
+                        result = f'Something went wrong when calling tool {name}: {e}.'
+                    session_cache[cache_key] = result
+
+                    n_tokens = len(enc.encode(str(result)))
+                    logger.debug(f'Result: {n_tokens} tokens')
+
+                    # ---- PROCESS DATA PRODUCTION TOOLS ----
+                    if name in DATA_PROD_TOOLS:
+                        raw_tool_data = {
+                            "tool_name": name,
+                            "tool_args": args,
+                            "tool_data": result,
+                            "n_tokens": n_tokens,
+                            "timestamp": pd.Timestamp.now().isoformat(),
+                            "tool_call_id": tool["id"],
+                            "query_id": query_id,
+                        }
+                        tool_data_results.append(raw_tool_data)
+
+                    if TOKEN_LIMIT and n_tokens > TOKEN_LIMIT:
+                        formatted_result = "Executive summary of the tool result: " + self.summarizer.summarize(str(result), limit=TOKEN_LIMIT)
                     else:
-                        try:
-                            result = await tool_to_call.ainvoke(args)
-                        except Exception as e:
-                            logger.exception(f"❌ Tool '{name}' failed (args={args})")
-                            result = f'Something went wrong when calling tool {name}: {e}.'
-                        session_cache[cache_key] = result
-
-                        n_tokens = len(enc.encode(str(result)))
-                        logger.debug(f'Result: {n_tokens} tokens')
-
-                        # ---- PROCESS DATA PRODUCTION TOOLS ----
-                        if name in DATA_PROD_TOOLS:
-                            raw_tool_data = {
-                                "tool_name": name,
-                                "tool_args": args,
-                                "tool_data": result,
-                                "n_tokens": n_tokens,
-                                "timestamp": pd.Timestamp.now().isoformat(),
-                                "tool_call_id": tool["id"],
-                                "query_id": query_id,
-                            }
-                            tool_data_results.append(raw_tool_data)
-
-                        if TOKEN_LIMIT and n_tokens > TOKEN_LIMIT:
-                            formatted_result = "Executive summary of the tool result: " + self.summarizer.summarize(str(result), limit=TOKEN_LIMIT)
-                        else:
-                            formatted_result = self.tool_manager.format_tool_result(result)
+                        formatted_result = self.tool_manager.format_tool_result(result)
 
                 results.append(ToolMessage(tool_call_id=tool_id, name=name, content=str(formatted_result)))
 
