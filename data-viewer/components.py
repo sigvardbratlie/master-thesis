@@ -86,7 +86,7 @@ def render_file(filename: str, content: bytes) -> None:
         st.warning(f"Unsupported file type: `{ext}`")
 
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=300)
 def _get_data_files_by_date(dataset: str) -> dict[str, list[str]]:
     """Return {date_str: [blob_paths]} for all supported data files in 01_data/."""
     from collections import defaultdict

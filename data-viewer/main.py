@@ -481,7 +481,7 @@ with tab_dataset:
                 vcol_size.caption(f"{(blob.size or 0) / 1024:.1f} KB")
                 vcol_dl.download_button(
                     "⬇️ Download",
-                    data=read_blob_bytes(blob.name),
+                    data=cached_read_blob_bytes(blob.name),
                     file_name=vname,
                     mime="application/json",
                     key=f"dl_version_{blob.name}",
@@ -737,6 +737,7 @@ with tab_results:
             selected_idx = result_labels.index(selected_result_label)
             selected_blob = result_blobs[selected_idx]
             trash_result_blob(dataset, selected_blob.name)
+            st.cache_data.clear()
             st.session_state.pop("_confirm_del_res", None)
             st.rerun()
         if _col_no.button("Cancel", key="confirm_del_res_no"):
@@ -755,30 +756,30 @@ with tab_results:
         st.stop()
 
     # ── Metadata strip ────────────────────────────────────────────────────────
+    _res_k = selected_result_blob.name.split("/")[-1].replace(".", "_")
     with st.expander("ℹ️ Run metadata", expanded=False):
         m1, m2, m3, m4 = st.columns(4)
-        m1.text_input("Model", value=result_data.get("llm_model", "—"), disabled=True, key=f"res_meta_model_{selected_result_idx}")
-        m2.text_input("Agent type", value=result_data.get("agent_type", "—"), disabled=True, key=f"res_meta_agent_{selected_result_idx}")
-        m3.text_input("Eval run ID", value=result_data.get("eval_run_id", "—"), disabled=True, key=f"res_meta_run_id_{selected_result_idx}")
-        m4.text_input("Dataset", value=result_data.get("dataset_name", "—"), disabled=True, key=f"res_meta_dataset_{selected_result_idx}")
+        m1.text_input("Model", value=result_data.get("llm_model", "—"), disabled=True, key=f"res_meta_model_{_res_k}")
+        m2.text_input("Agent type", value=result_data.get("agent_type", "—"), disabled=True, key=f"res_meta_agent_{_res_k}")
+        m3.text_input("Eval run ID", value=result_data.get("eval_run_id", "—"), disabled=True, key=f"res_meta_run_id_{_res_k}")
+        m4.text_input("Dataset", value=result_data.get("dataset_name", "—"), disabled=True, key=f"res_meta_dataset_{_res_k}")
 
         n1, n2, n3, n4 = st.columns(4)
-        n1.text_input("Project ID", value=result_data.get("project_id", "—"), disabled=True, key=f"res_meta_proj_{selected_result_idx}")
-        n2.text_input("User ID", value=result_data.get("user_id", "—"), disabled=True, key=f"res_meta_user_{selected_result_idx}")
-        n3.text_input("Last updated", value=result_data.get("last_updated", "—"), disabled=True, key=f"res_meta_updated_{selected_result_idx}")
+        n1.text_input("Project ID", value=result_data.get("project_id", "—"), disabled=True, key=f"res_meta_proj_{_res_k}")
+        n2.text_input("User ID", value=result_data.get("user_id", "—"), disabled=True, key=f"res_meta_user_{_res_k}")
+        n3.text_input("Last updated", value=result_data.get("last_updated", "—"), disabled=True, key=f"res_meta_updated_{_res_k}")
 
         run_meta = result_data.get("metadata") or {}
         if run_meta:
             p1, p2,p3,p4 = st.columns(4)
             significance_val = run_meta.get("significance")
-            p1.text_input("Significance", value=", ".join(significance_val) if isinstance(significance_val, list) else str(significance_val or "—"), disabled=True, key=f"res_meta_significance_{selected_result_idx}")
-            p2.text_input("Clean rate", value=str(run_meta.get("clean_rate", "—")), disabled=True, key=f"res_meta_clean_rate_{selected_result_idx}")
-            p3.text_input("Minimal context", value=run_meta.get("minimal_context", "—"), disabled=True, key=f"res_meta_min_context_{selected_result_idx}")
-
+            p1.text_input("Significance", value=", ".join(significance_val) if isinstance(significance_val, list) else str(significance_val or "—"), disabled=True, key=f"res_meta_significance_{_res_k}")
+            p2.text_input("Clean rate", value=str(run_meta.get("clean_rate", "—")), disabled=True, key=f"res_meta_clean_rate_{_res_k}")
+            p3.text_input("Minimal context", value=run_meta.get("minimal_context", "—"), disabled=True, key=f"res_meta_min_context_{_res_k}")
 
         time_usage = result_data.get("time_counts") or result_data.get("time_usage") or {}
         if time_usage:
-            _render_time_inputs(time_usage, key_prefix=f"res_meta_{selected_result_idx}")
+            _render_time_inputs(time_usage, key_prefix=f"res_meta_{_res_k}")
 
         token_counts = result_data.get("token_counts")
         if token_counts and isinstance(token_counts, dict):
@@ -944,7 +945,8 @@ with tab_evals:
             else ""
         )
         if agent_type:
-            eval_labels.append(f"{model} · {agent_type} — {created}" if created else f"{model} · {agent_type} · {run_id}")
+            label = f"{model} · {agent_type} — {created}" if created else f"{model} · {agent_type}"
+            eval_labels.append(f"{label} · {run_id}" if run_id else label)
         else:
             eval_labels.append(fname)
 
@@ -977,6 +979,7 @@ with tab_evals:
         if _col_yes.button("Yes", key="confirm_del_eval_yes"):
             _del_idx = eval_labels.index(selected_eval_label)
             trash_eval_blob(dataset, eval_blobs[_del_idx].name)
+            st.cache_data.clear()
             st.session_state.pop("_confirm_del_eval", None)
             st.rerun()
         if _col_no.button("Cancel", key="confirm_del_eval_no"):
@@ -1005,25 +1008,24 @@ with tab_evals:
     
 
     # ── Metadata strip ─────────────────────────────────────────────────────────
+    _eval_k = selected_eval_blob.name.split("/")[-1].replace(".", "_")
     with st.expander("ℹ️ Run metadata", expanded=False):
-        
         e1, e2, e3, e4 = st.columns(4)
-        e1.text_input("LLM model", value=eval_data.get("llm_model", "—"), disabled=True, key="eval_meta_model")
-        e2.text_input("Agent type", value=eval_data.get("agent_type", _matched_result.get("agent_type", "—")), disabled=True, key="eval_meta_agent")
-        e3.text_input("Eval run ID", value=_eval_run_id or "—", disabled=True, key="eval_meta_run")
-        e4.text_input("Created at", value=eval_data.get("created_at", "—"), disabled=True, key="eval_meta_created")
+        e1.text_input("LLM model", value=eval_data.get("llm_model", "—"), disabled=True, key=f"eval_meta_model_{_eval_k}")
+        e2.text_input("Agent type", value=eval_data.get("agent_type", _matched_result.get("agent_type", "—")), disabled=True, key=f"eval_meta_agent_{_eval_k}")
+        e3.text_input("Eval run ID", value=_eval_run_id or "—", disabled=True, key=f"eval_meta_run_{_eval_k}")
+        e4.text_input("Created at", value=eval_data.get("created_at", "—"), disabled=True, key=f"eval_meta_created_{_eval_k}")
 
         f1, f2, f3, f4 = st.columns(4)
-        f1.text_input("Dataset", value=eval_data.get("dataset_name", "—"), disabled=True, key="eval_meta_dataset")
-        f2.text_input("Project ID", value=eval_data.get("project_id", _matched_result.get("project_id", "—")), disabled=True, key="eval_meta_proj")
-        f3.text_input("User ID", value=eval_data.get("user_id", _matched_result.get("user_id", "—")), disabled=True, key="eval_meta_user")
-        f4.text_input("Significance", value=eval_data.get("metadata", {}).get("significance", "—"), disabled=True, key="eval_meta_significance")
-        
+        f1.text_input("Dataset", value=eval_data.get("dataset_name", "—"), disabled=True, key=f"eval_meta_dataset_{_eval_k}")
+        f2.text_input("Project ID", value=eval_data.get("project_id", _matched_result.get("project_id", "—")), disabled=True, key=f"eval_meta_proj_{_eval_k}")
+        f3.text_input("User ID", value=eval_data.get("user_id", _matched_result.get("user_id", "—")), disabled=True, key=f"eval_meta_user_{_eval_k}")
+        f4.text_input("Significance", value=eval_data.get("metadata", {}).get("significance", "—"), disabled=True, key=f"eval_meta_significance_{_eval_k}")
 
         # Time and tokens from matched result file (eval file doesn't store these)
         time_usage = _matched_result.get("time_counts") or _matched_result.get("time_usage") or {}
         if time_usage:
-            _render_time_inputs(time_usage, key_prefix="eval_meta")
+            _render_time_inputs(time_usage, key_prefix=f"eval_meta_{_eval_k}")
 
         token_counts = _matched_result.get("token_counts")
         if token_counts and isinstance(token_counts, dict):
