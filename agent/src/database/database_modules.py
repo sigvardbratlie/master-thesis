@@ -188,7 +188,7 @@ class SupabaseManager:
                 self.supabase.table("projects").upsert(factsheet_dict).execute()
                 logger.debug(f'Project {project_id} upserted in Supabase.')
             except Exception as e:
-                logger.error(f'❌ Upsert failed for project {project_id}: {e} — stopping', exc_info=True)
+                logger.exception(f'❌ Upsert failed for project {project_id}: {e} — stopping')
                 return
 
         if attachment_dicts:
@@ -197,15 +197,15 @@ class SupabaseManager:
                 self.supabase.table("project_attachments").upsert(attachment_dicts).execute()
                 logger.debug(f'Upserted {len(attachments)} attachments for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting attachments for project {project_id} in Supabase: {e}', exc_info=True)
+                logger.exception(f'Error upserting attachments for project {project_id} in Supabase: {e}')
         if email_dicts:
             try:
                 # ========== PROJECT EMAILS ==========
                 self.supabase.table("project_emails").upsert(email_dicts).execute()
                 logger.debug(f'Upserted {len(emails)} emails for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting emails for project {project_id} in Supabase: {e}', exc_info=True)
-                logger.error(f'\n\nEmail dicts DEBUG:\n {email_dicts}\n\n')
+                logger.exception(f'Error upserting emails for project {project_id} in Supabase: {e}')
+                logger.exception(f'\n\nEmail dicts DEBUG:\n {email_dicts}\n\n')
 
         if parties:
             # ========== PROJECT PARTIES ==========
@@ -216,7 +216,7 @@ class SupabaseManager:
                 self.supabase.table("project_parties").upsert(parties_with_project).execute()
                 logger.debug(f'Upserted {len(parties)} parties for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting parties for project {project_id} in Supabase: {e}', exc_info=True)
+                logger.exception(f'Error upserting parties for project {project_id} in Supabase: {e}')
 
         if events:
             # ========== PROJECT EVENTS ==========
@@ -227,7 +227,7 @@ class SupabaseManager:
                 self.supabase.table("project_events").upsert(events_with_project).execute()
                 logger.debug(f'Upserted {len(events)} events for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting events for project {project_id} in Supabase: {e}', exc_info=True)
+                logger.exception(f'Error upserting events for project {project_id} in Supabase: {e}')
 
         if deadlines:
             # ========== PROJECT DEADLINES ==========
@@ -238,7 +238,7 @@ class SupabaseManager:
                 self.supabase.table("project_deadlines").upsert(deadlines_with_project).execute()
                 logger.debug(f'Upserted {len(deadlines)} deadlines for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting deadlines for project {project_id} in Supabase: {e}', exc_info=True)
+                logger.exception(f'Error upserting deadlines for project {project_id} in Supabase: {e}')
 
         # ========== PROJECT DAMAGES ==========
         if damages:
@@ -249,7 +249,7 @@ class SupabaseManager:
                 self.supabase.table("project_damages").upsert(damages_with_project).execute()
                 logger.debug(f'Upserted {len(damages)} damages for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting damages for project {project_id} in Supabase: {e}', exc_info=True)
+                logger.exception(f'Error upserting damages for project {project_id} in Supabase: {e}')
 
         if claims:
             # ========== PROJECT CLAIMS ==========
@@ -260,7 +260,7 @@ class SupabaseManager:
                 self.supabase.table("project_claims").upsert(claims_with_project).execute()
                 logger.debug(f'Upserted {len(claims)} claims for project {project_id} in Supabase.')
             except Exception as e:
-                logger.error(f'Error upserting claims for project {project_id} in Supabase: {e}', exc_info=True)
+                logger.exception(f'Error upserting claims for project {project_id} in Supabase: {e}')
         
         logger.debug(f'Completed save_project for project {project_id}. Parties: {len(parties) if parties else 0}, Events: {len(events) if events else 0}, Deadlines: {len(deadlines) if deadlines else 0}, Damages: {len(damages) if damages else 0}, Claims: {len(claims) if claims else 0}')
 
@@ -286,7 +286,7 @@ class SupabaseManager:
             self.supabase.table(table_name).insert(data).execute()
             logger.debug(f'Inserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
-            logger.error(f'Error inserting items for project {project_id} in Supabase table {table_name}: {e}',exc_info=True)
+            logger.exception(f'Error inserting items for project {project_id} in Supabase table {table_name}')
     
     def replace_project_element(self,
                     data : list[BaseModel],
@@ -324,7 +324,7 @@ class SupabaseManager:
             self.supabase.table(table_name).insert(data_dicts).execute()
             logger.debug(f'Replaced {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
-            logger.error(f'Error replacing items for project {project_id} in Supabase table {table_name}: {e}')
+            logger.exception(f'Error replacing items for project {project_id} in Supabase table {table_name}: {e}')
 
     def upsert_project_custom(self,
                     data : dict | str,
@@ -348,7 +348,7 @@ class SupabaseManager:
             self.supabase.table(table_name).upsert(data).execute()
             logger.debug(f'Replaced custom fields for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
-            logger.error(f'Error replacing custom fields for project {project_id} in Supabase: {e}')
+            logger.exception(f'Error replacing custom fields for project {project_id} in Supabase: {e}')
 
     def upsert_project(self,
                        data: dict | str,
@@ -370,7 +370,7 @@ class SupabaseManager:
             self.supabase.table("projects").upsert(data).execute()
             logger.debug(f'Project {project_id} upserted in Supabase.')
         except Exception as e:
-            logger.error(f'Error upserting project {project_id} in Supabase: {e}')
+            logger.exception(f'Error upserting project {project_id} in Supabase: {e}')
 
     def load_session_history(self, session_id: str) -> SessionHistory:
         '''Load session history for a given session from Supabase'''
@@ -433,7 +433,7 @@ class SupabaseManager:
                 summarizer = Summarizer()
                 title = summarizer.mk_title(title_msg)
             except Exception as e:
-                logger.error(f"Error creating title: {e}", exc_info=True)
+                logger.exception(f"Error creating title")
                 title = "Ny samtale"
 
         try:
@@ -445,19 +445,19 @@ class SupabaseManager:
                 "llm_model" : data.llm_model,}).execute()
             logger.debug(f'Session {session_id} upserted in Supabase.')
         except Exception as e:
-            logger.error(f'❌ Upsert failed for session {session_id}: {e} — stopping', exc_info=True)
+            logger.exception(f'❌ Upsert failed for session {session_id}: {e} — stopping')
             return 
 
         try:
             self.supabase.table("session_events").insert(new_events).execute() if new_events else None
             logger.debug(f'Inserted {len(new_events)} events for session {session_id} in Supabase.')
         except Exception as e:
-            logger.error(f'Error inserting events for session {session_id} in Supabase: {e}', exc_info=True)
+            logger.exception(f'Error inserting events for session {session_id} in Supabase: {e}')
         try:
             self.supabase.table("session_attachments").insert(new_attachments).execute() if new_attachments else None
             logger.debug(f'Inserted {len(new_attachments)} attachments for session {session_id} in Supabase.')
         except Exception as e:
-            logger.error(f'Error inserting attachments for session {session_id} in Supabase: {e}', exc_info=True)
+            logger.exception(f'Error inserting attachments for session {session_id} in Supabase: {e}')
 
     def delete_project(self, project_id: str):
         """Delete project from Supabase (vector store cleanup handled separately by FE calling agent API)"""
@@ -465,7 +465,7 @@ class SupabaseManager:
             self.supabase.table("projects").delete().eq("project_id", project_id).execute()
             logger.debug(f'Project {project_id} deleted from Supabase.')
         except Exception as e:
-            logger.error(f'Error deleting project {project_id} from Supabase: {e}', exc_info=True)
+            logger.exception(f'Error deleting project {project_id} from Supabase: {e}')
 
     def get_paths(self, file_ids: list[str]) -> list[str]:
         """Get storage paths for given file IDs from Supabase"""
