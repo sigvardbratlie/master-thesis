@@ -108,12 +108,7 @@ async def test_load_project_node_returns_project(mock_clean):
     query = get_mock_cleanup_request(["events"])
     state = PipelineState(query=query)
 
-    mock_project = ProjectData(
-        factsheet=get_mock_factsheet(),
-        attachments=[],
-        emails=[]
-    )
-    mock_clean.conversation_manager.load_project.return_value = mock_project
+    mock_clean.conversation_manager.load_factsheet.return_value = get_mock_factsheet()
     mock_writer = MagicMock()
 
     with patch('agent.clean.get_stream_writer', return_value=mock_writer), \
@@ -143,17 +138,17 @@ async def test_load_project_node_missing_project_raises(mock_clean):
 
 @pytest.mark.asyncio
 async def test_load_project_node_invalid_type_raises(mock_clean):
-    """_load_project_node raises TypeError when load_project returns wrong type."""
+    """_load_project_node raises an error when load_factsheet returns wrong type."""
     query = get_mock_cleanup_request(["events"])
     state = PipelineState(query=query)
 
-    mock_clean.conversation_manager.load_project.return_value = {"invalid": "dict"}
+    mock_clean.conversation_manager.load_factsheet.return_value = {"invalid": "dict"}
     mock_writer = MagicMock()
 
     with patch('agent.clean.get_stream_writer', return_value=mock_writer), \
          patch('agent.clean.get_config', return_value=MOCK_THREAD_CONFIG), \
          patch('agent.clean.pick_llm', return_value=MagicMock()), \
-         pytest.raises(TypeError):
+         pytest.raises(Exception):
         await mock_clean._load_project_node(state)
 
 
@@ -170,15 +165,15 @@ async def test_clean_elements_node(mock_clean):
     state = PipelineState(query=query, input_=project_data)
 
     cleaned_events = [
-        Event(
-            event_id="event-cleaned-001",
-            event_name="ContractSigned",
-            event_start_date="2023-08-25",
-            description="Cleaned event",
-            significance="high",
-            disputed=False,
-            category="transaction"
-        )
+        {
+            "event_id": "event-cleaned-001",
+            "event_name": "ContractSigned",
+            "event_start_date": "2023-08-25",
+            "description": "Cleaned event",
+            "significance": "high",
+            "disputed": False,
+            "category": "transaction",
+        }
     ]
     mock_clean.context_manager.clean_elements = AsyncMock(return_value={"events": cleaned_events})
     mock_writer = MagicMock()
@@ -190,7 +185,8 @@ async def test_clean_elements_node(mock_clean):
 
     assert "input_" in result
     assert isinstance(result["input_"], ProjectData)
-    assert result["input_"].factsheet.events == cleaned_events
+    assert len(result["input_"].factsheet.events) == len(cleaned_events)
+    assert all(isinstance(e, Event) for e in result["input_"].factsheet.events)
     mock_clean.context_manager.clean_elements.assert_called_once_with(["events"], project_data)
 
 

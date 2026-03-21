@@ -258,7 +258,7 @@ async def test_embedding_node_disabled(mock_pipeline):
     mock_docs = get_mock_vector_store_docs()
     state = PipelineState(query=query, docs_by_file={"file-001": mock_docs})
 
-    mock_pipeline.embed_to_vectorstore = False
+    mock_pipeline.config.project.embed_to_vectorstore = False
     mock_writer = MagicMock()
 
     with patch('agent.pipelines.get_stream_writer', return_value=mock_writer):

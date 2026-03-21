@@ -136,13 +136,13 @@ def test_replace_project_element(mock_supabase_manager):
         else:
             assert item['created_by'] == "test_model"
 
+@pytest.mark.skip(reason="load_projects was removed from SupabaseManager and moved to the UI layer (database_service.py)")
 def test_load_projects(mock_supabase_manager):
     client = mock_supabase_manager.supabase
     data = get_mock_user_projects()
     response = Mock()
     response.data = data.get("data")
 
-    #projects = self.supabase.table("projects").select("project_id, title, created_at").eq("user_id", user_id).execute()
     client.table.return_value.select.return_value.eq.return_value.execute.return_value = response
 
     user_id = "test_user_id"
@@ -152,12 +152,13 @@ def test_load_projects(mock_supabase_manager):
     assert len(result) == 4
     assert result[0].created_at > result[-1].created_at
 
+@pytest.mark.skip(reason="load_project_sessions was removed from SupabaseManager and moved to the UI layer (database_service.py)")
 def test_load_project_sessions(mock_supabase_manager):
     client = mock_supabase_manager.supabase
     data = get_mock_project_sessions()
     response = Mock()
     response.data = data.get("data")
-    #project_sessions = self.supabase.table("sessions").select("session_id, title, updated_at, llm_model").eq("project_id", project_id).execute()
+
     client.table.return_value.select.return_value.eq.return_value.execute.return_value = response
 
     project_id = "test_project_id"
@@ -168,12 +169,13 @@ def test_load_project_sessions(mock_supabase_manager):
     assert result[0].updated_at > result[-1].updated_at
 
 
+@pytest.mark.skip(reason="load_user_sessions was removed from SupabaseManager and moved to the UI layer (database_service.py)")
 def test_load_user_sessions(mock_supabase_manager):
     client = mock_supabase_manager.supabase
     data = get_mock_user_sessions()
     response = Mock()
     response.data = data.get("data")
-    #sessions = self.supabase.table("sessions").select("title, session_id, updated_at").eq("user_id", user_id).order("updated_at", desc=True).execute()
+
     client.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = response
 
     user_id = "test_user_id"

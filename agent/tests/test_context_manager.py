@@ -59,7 +59,7 @@ def test_truncate_messages(mock_context_manager):
 
 
 def test_truncate_messages_removes_orphan_tool_messages_at_start(mock_context_manager):
-    """Truncation should remove orphan ToolMessages at the beginning."""
+    """Truncation should remove non-HumanMessages at the beginning after slicing."""
     from langchain_core.messages import ToolMessage
     messages = [
         HumanMessage(content="Q1"),
@@ -70,11 +70,12 @@ def test_truncate_messages_removes_orphan_tool_messages_at_start(mock_context_ma
         AIMessage(content="A2"),
     ]
     # max_messages=3 takes last 3: [AIMessage(A1 final), HumanMessage(Q2), AIMessage(A2)]
+    # then drops leading non-HumanMessage (AIMessage "A1 final"), leaving 2
     result = mock_context_manager.truncate_messages(messages, max_messages=3)
-    assert len(result) == 3
+    assert len(result) == 2
     assert not any(isinstance(m, ToolMessage) for m in result)
-    assert isinstance(result[0], AIMessage)
-    assert result[0].content == "A1 final"
+    assert isinstance(result[0], HumanMessage)
+    assert result[0].content == "Q2"
 
 
 def test_truncate_messages_removes_trailing_ai_with_tool_calls(mock_context_manager):

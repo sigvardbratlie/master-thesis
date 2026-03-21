@@ -45,7 +45,8 @@ def test_bq_init(mock_bq_store):
 
 def test_bq_init_unknown_embedding():
     """Test BQVectorStore falls back to default for unknown embedding prefix."""
-    with patch('database.vectorstore_modules.GoogleGenerativeAIEmbeddings') as mock_embed_cls:
+    with patch('database.vectorstore_modules.GoogleGenerativeAIEmbeddings') as mock_embed_cls, \
+         patch('database.vectorstore_modules.bigquery.Client'):
         with patch.dict(os.environ, {"GOOGLE_CLOUD_PROJECT": "test-project"}):
             store = BQVectorStore(embedding_model="unknown_model")
             mock_embed_cls.assert_called_with(model="gemini-embedding-001")
@@ -133,7 +134,7 @@ def test_bq_query(mock_bq_store):
 
     result = mock_bq_store.query("eiendomstvist", collection_id="test-collection", k=5)
 
-    mock_store.as_retriever.assert_called_once_with(search_kwargs={"k": 5}, filter = {})
+    mock_store.as_retriever.assert_called_once_with(search_kwargs={"k": 5, "filter": {}})
     mock_retriever.invoke.assert_called_once_with("eiendomstvist")
     assert result == expected
 

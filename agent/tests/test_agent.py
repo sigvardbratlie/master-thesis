@@ -32,7 +32,8 @@ def mock_agent():
          patch('agent.agent.SupabaseStorageManager') as mock_storage, \
          patch('agent.agent.SupabaseManager') as mock_conversation_manager, \
          patch('agent.agent.ContextManager') as mock_context_manager, \
-         patch('agent.agent.ToolManager') as mock_tool_manager:
+         patch('agent.agent.ToolManager') as mock_tool_manager, \
+         patch.object(Agent, 'load_prompt', return_value="Mock system prompt"):
 
         mock_chroma_instance = MagicMock()
         mock_chroma.return_value = mock_chroma_instance
@@ -62,6 +63,12 @@ def mock_agent():
         mock_config.async_tasks.max_concurrent_requests = 3
         mock_config.async_tasks.throttle_value = 0
         mock_config.agent.max_token_tool = 10000
+        mock_config.agent.sum_rate = 20
+        mock_config.agent.use_factsheet = False
+        mock_config.agent.minimal_context = False
+        mock_config.agent.significance = ["high", "medium", "low"]
+        mock_config.agent.embed_to_vectorstore = False
+        mock_config.agent.save_to_storage = False
 
         agent = Agent(
             tools=[],
