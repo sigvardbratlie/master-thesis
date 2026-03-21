@@ -4,6 +4,7 @@ from models import FactSheet, AttachmentModel, EmailModel
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer, get_config
 from documents import DocumentProcessor, EmailHandler
+from documents.pdf_module import PDFHandler
 import logging
 import asyncio
 from utils import AppConfig
@@ -255,10 +256,19 @@ class ProjectPipeline:
         completed_text_extraction = 0
 
         for att in attachments:
+            content_bytes = base64.b64decode(att.content)
+
+            ocr_needed = None
+            if att.file_type == "application/pdf":
+                ocr_needed = PDFHandler(
+                    aws_region=self.config.storage.aws.region,
+                    aws_bucket_name=self.config.storage.aws.bucket_name,
+                )._needs_ocr(content_bytes)
+
             writer({
                 "type": "status",
                 "phase": ["parse_doc"],
-                "status": "starting",
+                "status": "ocr" if ocr_needed else "starting",
                 "data": {
                     "filename": att.filename,
                     "file_id": att.file_id,
@@ -272,8 +282,9 @@ class ProjectPipeline:
                 continue
             extracted_docs = await asyncio.to_thread(
                 self.document_processor.parse,
-                content=base64.b64decode(att.content),
+                content=content_bytes,
                 file_type=att.file_type,
+                ocr=ocr_needed,
                 metadata={
                     "file_id": att.file_id,
                     "filename": att.filename,

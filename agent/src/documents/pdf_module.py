@@ -202,14 +202,15 @@ class PDFHandler(BaseHandler):
         doc.close()
         return markdown
     
-    def parse_pdf(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> tuple[str, dict]:
+    def parse_pdf(self, content: bytes, metadata: dict, force_metadata_model: bool = True, ocr: bool | None = None) -> tuple[str, dict]:
         meta_pdf = self._extract_metadata(content)
         meta = {**metadata, **meta_pdf}
-        if self._needs_ocr(content):
-            logger.info(f"🔍 PDF needs OCR — processing with Textract... File : {metadata.get("filename", "unknown")}")
+        needs_ocr = ocr if ocr is not None else self._needs_ocr(content)
+        if needs_ocr:
+            logger.info(f"🔍 PDF needs OCR — processing with Textract... File : {metadata.get('filename', 'unknown')}")
             md = self._extract_md_textract(content)
         else:
-            logger.info(f"✅ PDF has extractable text — extracting with PyMuPDF... File : {metadata.get("filename", "unknown")}")
+            logger.info(f"✅ PDF has extractable text — extracting with PyMuPDF... File : {metadata.get('filename', 'unknown')}")
             md = self._extract_md_pymupdf(content)
 
         final_metadata = VectorStoreMetadata.model_validate(meta).model_dump(mode="json") if force_metadata_model else meta

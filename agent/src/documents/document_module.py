@@ -41,7 +41,8 @@ class DocumentProcessor(BaseHandler):
     def parse(self, content: bytes,
               file_type: FileType,
               metadata: dict = None,
-              force_metadata_model: bool = True) -> list[Document]:
+              force_metadata_model: bool = True,
+              ocr: bool | None = None) -> list[Document]:
         '''Main entry point for parsing attachments. Handles different file types and routes to appropriate parsers.
         Args:
             content (bytes): The raw binary content of the attachment.
@@ -61,7 +62,7 @@ class DocumentProcessor(BaseHandler):
             string,metadata =  PDFHandler(
                                  aws_region = self.config.storage.aws.region,
                                 aws_bucket_name = self.config.storage.aws.bucket_name
-                                ).parse_pdf(content, **kwargs)
+                                ).parse_pdf(content, ocr=ocr, **kwargs)
         elif file_type in ["text/plain", "text/markdown"]:
             string,metadata = TextHandler().parse_text(content, **kwargs)
         elif file_type == "text/csv":
