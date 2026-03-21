@@ -35,3 +35,25 @@ save_to_storage = true
 chunk_size = 1500
 chunk_overlap = 300
 k = 3
+
+
+[vectorstore]
+chunk_size = 1500
+chunk_overlap = 300
+k = 5
+
+[vectorstore.bigquery]
+embedding_model =  "google_gemini-embedding-001"
+dataset = "vector_store"
+region = "europe-north2"
+
+[storage.gcs]
+bucket_name = "master-thesis-prod"
+region = "europe-north2"
+
+[storage.aws]
+bucket_name = "master-thesis-prod-533267386321-eu-west-1-an"
+region = "eu-west-1"
+
+[storage.supabase]
+bucket_name = "attachments"

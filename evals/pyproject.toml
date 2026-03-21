@@ -25,6 +25,7 @@ dependencies = [
     "nbformat>=5.10.4",
     "bert-score>=0.3.13",
     "ipywidgets>=8.1.8",
+    "bs4>=0.0.2",
 ]
 
 [project.scripts]

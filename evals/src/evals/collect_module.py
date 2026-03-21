@@ -47,7 +47,7 @@ class CollectAgentResult:
         self.clean_rate = clean_rate
 
         self.vs = BQVectorStore()
-        self.dp = DocumentProcessor()
+        self.dp = DocumentProcessor(config=self.config)
 
     async def init_agent(self, 
                          tools=None,):

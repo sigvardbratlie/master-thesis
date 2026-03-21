@@ -43,7 +43,9 @@ async def main():
     
     config = AppConfig.from_toml(f"config.toml") 
     setup_logging(config)
-    noisy_packages = ["httpx", "httpcore", "hpack", "urllib3", "anthropic", "openai", "asyncio", "langsmith", "ocrmypdf", "PIL", "img2pdf", ]
+    noisy_packages = ["httpx", "httpcore", "hpack", "urllib3", 
+                      "anthropic", "openai", "asyncio", "langsmith", "ocrmypdf", "PIL", 
+                      "img2pdf", "botocore","textractor"]
     [logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
 
     logger = logging.getLogger(__name__)
@@ -77,7 +79,6 @@ async def main():
                            # save_to_storage=save_to_storage,
                            #significance = significance,
                             config = config,
-                            
                             clean_rate = clean_rate)
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Custom")

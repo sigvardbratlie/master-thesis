@@ -206,37 +206,11 @@ class PDFHandler(BaseHandler):
         meta_pdf = self._extract_metadata(content)
         meta = {**metadata, **meta_pdf}
         if self._needs_ocr(content):
-            logger.info("🔍 PDF needs OCR — processing with Textract...")
+            logger.info(f"🔍 PDF needs OCR — processing with Textract... File : {metadata.get("filename", "unknown")}")
             md = self._extract_md_textract(content)
         else:
-            logger.info("✅ PDF has extractable text — extracting with PyMuPDF...")
+            logger.info(f"✅ PDF has extractable text — extracting with PyMuPDF... File : {metadata.get("filename", "unknown")}")
             md = self._extract_md_pymupdf(content)
 
         final_metadata = VectorStoreMetadata.model_validate(meta).model_dump(mode="json") if force_metadata_model else meta
         return md, final_metadata
-
-    # def parse_pdf_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
-    #     meta = self._extract_metadata(content)
-    #     if self._needs_ocr(content):
-    #         logger.info("🔍 PDF needs OCR — processing with Textract...")
-    #         md = self._extract_md_textract(content)
-    #     else:
-    #         logger.info("✅ PDF has extractable text — extracting with PyMuPDF...")
-    #         md = self._extract_md_pymupdf(content)
-
-    #     final_metadata = VectorStoreMetadata.model_validate(meta).model_dump(mode="json") if force_metadata_model else meta
-
-    #     try:
-    #         chunks = self.splitter.split_text(md)
-    #     except Exception as e:
-    #         logger.error(f"❌ PDF split failed: {e} ({metadata.get('filename', 'unknown')})")
-    #         chunks = [md]
-    #     if not chunks:
-    #         logger.warning(f"⚠️  No text extracted from PDF {metadata.get('filename', 'unknown')}")
-    #         return []
-        
-    #     return [
-    #         Document(page_content=chunk, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(chunks)})
-    #         for i, chunk in enumerate(chunks)
-    #     ]
-

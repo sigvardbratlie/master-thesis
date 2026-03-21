@@ -39,7 +39,7 @@ class SupabaseManager:
                        tables: list[Literal["events", "parties", "deadlines", "damages", "claims", ]] = None
                        ) -> FactSheet:
         if tables is None:
-            tables = ["project_events", "project_parties", "project_deadlines", "project_damages", "project_claims", ]
+            tables = ["events", "parties", "deadlines", "damages", "claims", ]
         
         select = ""
         for table in tables:
@@ -84,7 +84,7 @@ class SupabaseManager:
     def load_project(self, project_id: str, 
                      tables: list[Literal["attachments", "events", "parties", "deadlines", "damages", "claims", "emails"]] = None) -> ProjectData:
         if tables is None:
-            tables = ["project_attachments", "project_events", "project_parties", "project_deadlines", "project_damages", "project_claims", "project_emails"]
+            tables = ["attachments", "events", "parties", "deadlines", "damages", "claims", "emails"]
 
         select = ""
         for table in tables:
