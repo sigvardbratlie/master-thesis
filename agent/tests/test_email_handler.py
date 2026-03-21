@@ -11,6 +11,7 @@ from tests.fixtures.email_data import (
     get_mock_eml_plain_text,
     get_mock_eml_multipart,
     get_mock_eml_with_text_attachment,
+    get_mock_eml_metadata,
 )
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -305,6 +306,75 @@ def test_parse_eml_multipart(parser):
     assert "email" in result
     email_data = result["email"]
     assert "Befaring" in email_data.body_text
+
+
+# ============================================
+#           parse_eml TESTS
+# ============================================
+
+def test_parse_eml_plain_text(parser):
+    """Test parse_eml extracts text from plain text email, returning (str, dict)."""
+    raw = get_mock_eml_plain_text()
+    metadata = get_mock_eml_metadata()
+
+    result = parser.parse_eml(raw, metadata)
+
+    assert isinstance(result, tuple)
+    text_out, meta_out = result
+    assert isinstance(text_out, str)
+    assert "eiendomssaken" in text_out
+    assert meta_out["file_id"] == metadata["file_id"]
+    assert meta_out["session_id"] == metadata["session_id"]
+
+
+def test_parse_eml_multipart_body(parser):
+    """Test parse_eml extracts text from multipart email."""
+    raw = get_mock_eml_multipart()
+    metadata = get_mock_eml_metadata()
+
+    result = parser.parse_eml(raw, metadata)
+
+    assert isinstance(result, tuple)
+    text_out, meta_out = result
+    assert "Befaring" in text_out
+
+
+def test_parse_eml_with_attachment(parser):
+    """Test parse_eml processes email body (not attachments)."""
+    raw = get_mock_eml_with_text_attachment()
+    metadata = get_mock_eml_metadata()
+
+    result = parser.parse_eml(raw, metadata)
+
+    assert isinstance(result, tuple)
+    text_out, meta_out = result
+    assert "vedlagt" in text_out.lower()
+
+
+def test_parse_eml_preserves_metadata(parser):
+    """Test parse_eml preserves all metadata in the returned dict."""
+    raw = get_mock_eml_plain_text()
+    metadata = {
+        "file_id": "eml-001",
+        "session_id": "s-001",
+        "embedding_model": "google_gemini-embedding-001",
+        "filename": "test-email.eml",
+        "user_id": "user-123",
+        "query_id": "query-456",
+    }
+
+    result = parser.parse_eml(raw, metadata)
+
+    text_out, meta_out = result
+    assert meta_out["file_id"] == "eml-001"
+    assert meta_out["session_id"] == "s-001"
+
+
+def test_parse_eml_invalid_bytes(parser):
+    """Test parse_eml with invalid bytes returns (str, dict)."""
+    metadata = get_mock_eml_metadata()
+    result = parser.parse_eml(b"not a real email", metadata)
+    assert isinstance(result, tuple)
 
 
 # ============================================
