@@ -42,7 +42,11 @@ def _make_msg(msg_id: str, refs: str = None, date: str = "Mon, 15 Jan 2024 10:00
 
 @pytest.fixture
 def parser():
-    return EmailHandler()
+    handler = EmailHandler()
+    # Alias private name to the renamed public method so that internal
+    # calls to self._extract_email_data() still resolve correctly.
+    handler._extract_email_data = handler.extract_email_data
+    return handler
 
 
 # ============================================
@@ -145,7 +149,7 @@ def test_extract_email_data_simple(parser):
     """Extract data from a simple plain text email."""
     raw = get_mock_eml_plain_text()
     msg = email.message_from_bytes(raw)
-    result = parser._extract_email_data(
+    result = parser.extract_email_data(
         msg, file_id="f-001", query_id="q-001", user_id="u-001", session_id="s-001"
     )
 
@@ -163,7 +167,7 @@ def test_extract_email_data_with_attachment(parser):
     """Extract data from email with text attachment."""
     raw = get_mock_eml_with_text_attachment()
     msg = email.message_from_bytes(raw)
-    result = parser._extract_email_data(
+    result = parser.extract_email_data(
         msg, file_id="f-002", query_id="q-002", user_id="u-001", session_id="s-001"
     )
 
@@ -181,7 +185,7 @@ def test_extract_email_data_headers(parser):
     """Extracted email should contain headers dict."""
     raw = get_mock_eml_plain_text()
     msg = email.message_from_bytes(raw)
-    result = parser._extract_email_data(
+    result = parser.extract_email_data(
         msg, file_id="f-003", query_id="q-003", user_id="u-001", session_id="s-001"
     )
 
@@ -194,7 +198,7 @@ def test_extract_email_data_threading_fields(parser):
     """Email threading fields should be extracted correctly."""
     raw = get_mock_eml_plain_text()
     msg = email.message_from_bytes(raw)
-    result = parser._extract_email_data(
+    result = parser.extract_email_data(
         msg, file_id="f-004", query_id="q-004", user_id="u-001", session_id="s-001"
     )
 
@@ -208,7 +212,7 @@ def test_extract_email_data_body_text(parser):
     """Email body text should be extracted correctly."""
     raw = get_mock_eml_plain_text()
     msg = email.message_from_bytes(raw)
-    result = parser._extract_email_data(
+    result = parser.extract_email_data(
         msg, file_id="f-005", query_id="q-005", user_id="u-001", session_id="s-001"
     )
 
@@ -220,7 +224,7 @@ def test_extract_email_data_multipart_body(parser):
     """Multipart email should extract both text and html body."""
     raw = get_mock_eml_multipart()
     msg = email.message_from_bytes(raw)
-    result = parser._extract_email_data(
+    result = parser.extract_email_data(
         msg, file_id="f-006", query_id="q-006", user_id="u-001", session_id="s-001"
     )
 

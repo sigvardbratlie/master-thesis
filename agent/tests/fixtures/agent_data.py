@@ -373,6 +373,7 @@ def get_mock_analyzed_doc() -> dict:
     """Returns mock analyzed document result."""
     return {
         "file": Attachment(
+            title="Mock attachment title",
             file_id="fc545f59-ac93-4cda-8b41-83eed0d04ee3",
             filename="2023-08-25_kjoepekontrakt.pdf",
             path="53d63d18-cfa1-416e-96e8-770c8f66507b/8fbac4e4-c2ff-4f58-95ba-7836f207a89d/fc545f59-ac93-4cda-8b41-83eed0d04ee3.pdf",

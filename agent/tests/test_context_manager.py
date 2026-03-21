@@ -198,6 +198,7 @@ async def test_analyze_docs_returns_dict(mock_context_manager):
         attachments: list[AttachmentWithEvents]
 
     att1 = AttachmentExtracted(
+        title="Purchase Agreement Granveien 15B",
         file_id="att-file-id-001",
         description="Purchase agreement for the property",
         significance="high",
@@ -207,6 +208,7 @@ async def test_analyze_docs_returns_dict(mock_context_manager):
         category="agreement",
     )
     att2 = AttachmentExtracted(
+        title="Seller Email House Condition",
         file_id="att-file-id-002",
         description="Email from seller about house condition",
         significance="medium",
@@ -301,6 +303,7 @@ async def test_analyze_docs_file_id_mismatch_fallback(mock_context_manager):
 
     # LLM returns wrong file_ids (hallucinated)
     att1 = AttachmentExtracted(
+        title="Purchase Agreement",
         file_id="hallucinated-id-999",
         description="Purchase agreement",
         significance="high",
@@ -308,6 +311,7 @@ async def test_analyze_docs_file_id_mismatch_fallback(mock_context_manager):
         category="agreement",
     )
     att2 = AttachmentExtracted(
+        title="Seller Email",
         file_id="hallucinated-id-888",
         description="Email from seller",
         significance="medium",
@@ -370,6 +374,7 @@ async def test_analyze_emails_returns_dict(mock_context_manager):
             EmailAnalysisResult(email=mock_extracted, events=[event]),
             EmailAnalysisResult(
                 email=EmailExtracted(
+                    title="Befaring Update",
                     description="Befaring update email",
                     significance="medium",
                     party_roles=["expert"],
@@ -377,7 +382,6 @@ async def test_analyze_emails_returns_dict(mock_context_manager):
                     damages=None,
                     claims=None,
                     key_points=["Befaring done"],
-                    privilege_status=None,
                     email_id="test-file-id-002",
                 ),
                 events=[]
