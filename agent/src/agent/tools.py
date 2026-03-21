@@ -17,7 +17,7 @@ from documents import DocumentProcessor
 
 
 load_dotenv()
-project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+#project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 logger = logging.getLogger(__name__)
 
 def _parse_date(value: date | str | None, default: date) -> date:
@@ -111,11 +111,16 @@ def query_project_attachments(query: str, project_id: str, k: int = 10, metadata
     Returns:
         str: The retrieved information from the vectorstore based on the query.
 
-    Available metadata fields are : file_id, filename, file_type (MIME)
+    Available metadata fields are limited to: file_id : uuid, filename : str, file_type (MIME) : str. 
     """
     filters = {"project_id": project_id}
     if metadata:
-        filters.update(metadata)
+        if not isinstance(metadata, dict):
+            logger.warning(f"Metadata should be a dictionary. Received {type(metadata)}. Ignoring metadata.")
+        elif "file_id" not in metadata and "filename" not in metadata and "file_type" not in metadata:
+            logger.warning(f"Metadata should contain at least one of the following keys: 'file_id', 'filename', 'file_type'. Received keys: {list(metadata.keys())}. Ignoring metadata.")
+        else:
+            filters.update(metadata)
     vectorstore = BQVectorStore()
     results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=filters)
     if not results:
@@ -286,7 +291,7 @@ def create_project():
 
 @tool
 def show_elements(project_id: str, 
-                  element_types: list[str], 
+                  element_types: list[Literal["parties", "events", "claims", "damages", "deadlines"]], 
                     start_date: datetime | str = None, 
                     end_date: datetime | str = None, 
                     significance: list[Literal["high", "medium", "low"]] = None) -> str:
@@ -311,15 +316,13 @@ def show_elements(project_id: str,
     sm = SupabaseManager()
     factsheet = sm.load_factsheet(project_id=project_id, tables=element_types)
     date_col_map = {"events": "event_start_date",
-                    "claims": "claim_date",
-                    "damages": "damage_date",
-                    "attachments": "file_date",
-                    "emails": "date"}
+                    "deadlines": "deadline_date",
+                    }
     format_map = {
             "events": ["event_start_date", "event_name", "file_id", "description", "disputed"],
             "parties": ["legal_name", "entity_type", "role", "role_description"],
-            "claims": ["relief_sought", "factual_basis", "legal_basis"],
-            "damages": ["category", "amount", "currency", "basis"],
+            "claims": ["party_role", "relief_sought", "factual_basis", "legal_basis", "strength_assessment"],
+            "damages": ["party_role", "category", "amount", "currency", "basis"],
             "deadlines": ["deadline_date", "description", "file_id", "email_id"]}
 
     value = f"=== List of {', '.join(element_types)} ===\n"
@@ -374,8 +377,8 @@ def list_attachments(
 
     date_col_map = {"emails": "date", "attachments": "file_date"}
     format_map = {
-            "emails": ["email_id", "from_addr", "to", "date", "title"],
-            "attachments": ["file_id", "file_date", "title"]}
+            "emails": ["email_id", "from_addr", "date", "title"],
+            "attachments": ["file_id", "file_date", "title", "category"]}
     key_map = {"emails": "email_id", "attachments": "file_id"}
 
     value = f"=== List of {', '.join(element_types)} ===\n"

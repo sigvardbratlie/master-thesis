@@ -136,6 +136,86 @@ def test_replace_project_element(mock_supabase_manager):
         else:
             assert item['created_by'] == "test_model"
 
+def test_upsert_replace_project_element(mock_supabase_manager):
+    """upsert_replace_project_element should call upsert (not insert) and delete stale items."""
+    data = get_mock_save_project_data().get("factsheet").model_dump(mode="json").get("parties")
+    client = mock_supabase_manager.supabase
+    client.reset_mock()
+
+    existing_party_ids = [data[0]["party_id"], data[1]["party_id"]]
+    existing_response = Mock()
+    existing_response.data = [
+        {"party_id": existing_party_ids[0], "created_by": "original_model", "created_at": "2026-01-01T00:00:00"},
+        {"party_id": existing_party_ids[1], "created_by": "original_model", "created_at": "2026-01-01T00:00:00"},
+    ]
+    client.table.return_value.select.return_value.eq.return_value.execute.return_value = existing_response
+
+    mock_supabase_manager.upsert_replace_project_element(
+        data=data,
+        project_id="test_project_id",
+        table_name="project_parties",
+        llm_model="test_model",
+    )
+
+    client.table.assert_any_call("project_parties")
+    client.table.return_value.upsert.assert_called()
+    client.table.return_value.delete.assert_called()
+    client.table.return_value.delete.return_value.eq.return_value.not_.in_.assert_called()
+
+    upserted_data = client.table.return_value.upsert.call_args[0][0]
+    for item in upserted_data:
+        assert item["updated_by"] == "test_model"
+        assert "updated_at" in item
+        if item["party_id"] in existing_party_ids:
+            assert item["created_by"] == "original_model"
+            assert item["created_at"] == "2026-01-01T00:00:00"
+        else:
+            assert item["created_by"] == "test_model"
+
+
+def test_upsert_replace_project_element_removes_stale_items(mock_supabase_manager):
+    """Items in DB but not in new list should be excluded from upsert and covered by delete not_.in_."""
+    data = get_mock_save_project_data().get("factsheet").model_dump(mode="json").get("parties")
+    client = mock_supabase_manager.supabase
+    client.reset_mock()
+
+    stale_party_id = "stale-0000-0000-0000-000000000000"
+    existing_response = Mock()
+    existing_response.data = [
+        {"party_id": stale_party_id, "created_by": "old_model", "created_at": "2025-01-01T00:00:00"},
+    ]
+    client.table.return_value.select.return_value.eq.return_value.execute.return_value = existing_response
+
+    mock_supabase_manager.upsert_replace_project_element(
+        data=data,
+        project_id="test_project_id",
+        table_name="project_parties",
+        llm_model="test_model",
+    )
+
+    upserted_data = client.table.return_value.upsert.call_args[0][0]
+    upserted_ids = [item["party_id"] for item in upserted_data]
+    assert stale_party_id not in upserted_ids
+
+    not_in_ids = client.table.return_value.delete.return_value.eq.return_value.not_.in_.call_args[0][1]
+    assert stale_party_id not in not_in_ids
+
+
+def test_upsert_replace_project_element_no_data_skips(mock_supabase_manager):
+    """Empty data should skip all DB calls."""
+    client = mock_supabase_manager.supabase
+    client.reset_mock()
+
+    mock_supabase_manager.upsert_replace_project_element(
+        data=[],
+        project_id="test_project_id",
+        table_name="project_parties",
+        llm_model="test_model",
+    )
+
+    client.table.assert_not_called()
+
+
 @pytest.mark.skip(reason="load_projects was removed from SupabaseManager and moved to the UI layer (database_service.py)")
 def test_load_projects(mock_supabase_manager):
     client = mock_supabase_manager.supabase
