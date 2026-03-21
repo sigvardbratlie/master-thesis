@@ -227,14 +227,14 @@ async def test_save_elements_node(mock_clean):
     project_data = ProjectData(factsheet=factsheet, attachments=[], emails=[])
     state = PipelineState(query=query, input_=project_data)
 
-    mock_clean.conversation_manager.replace_project_element = MagicMock()
+    mock_clean.conversation_manager.upsert_replace_project_element = MagicMock()
     writer_calls = []
     mock_writer = MagicMock(side_effect=lambda x: writer_calls.append(x))
 
     with patch('agent.clean.get_stream_writer', return_value=mock_writer):
         await mock_clean._save_elements_node(state)
 
-    mock_clean.conversation_manager.replace_project_element.assert_called()
+    mock_clean.conversation_manager.upsert_replace_project_element.assert_called()
     result_calls = [c for c in writer_calls if isinstance(c, dict) and c.get("type") == "result"]
     assert len(result_calls) == 1
     assert result_calls[0]["data"]["success"] is True
