@@ -25,8 +25,9 @@ class ConversationTurn(BaseModel):
     answer: str
     order: int | None = None
     query_id: str | None = None
+    question_type: Literal["factual", "summary", "analytical"] | None = None
     model_response: str | None = None  # Populated after agent run
-    time_counts: TimeCount | None = None  
+    time_counts: TimeCount | None = None
     token_counts : TokenCount | None = None
 
 # ── Session ────────────────────────────────────────────────────────────────────
@@ -114,9 +115,10 @@ class BaseMetric(BaseModel):
 class DeepEvalObservation(BaseMetric):
     """One observation per query × eval_run from LLM-as-judge evaluation."""
     name: str | None = None
+    question_type: str | None = None
     correctness: float
     relevancy: float
-    completeness: float
+    completeness: float | None = None  # None when not evaluated (summary/analytical questions)
     success: bool
 
 

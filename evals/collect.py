@@ -23,7 +23,7 @@ async def single_run(data, llm_model : str,
         
 async def main():
     parser = argparse.ArgumentParser(description="Evaluate attachment assignment")
-    parser.add_argument("-d","--dataset", type=str, choices=["test", "THRD-2021-163881","TOSL-2024-125319"], help="Dataset name to evaluate")
+    parser.add_argument("-d","--dataset", type=str, choices=["test", "THRD-2021-163881","TOSL-2024-125319","TOSL-2024-125319-MIN" ], help="Dataset name to evaluate")
     parser.add_argument("-m","--model", type=str, choices=["google_gemini-2.5-flash", "google_gemini-2.5-pro", 
                                                            "openai_gpt-5.3-chat-latest", "openai_gpt-5.4",
                                                              "anthropic_claude-haiku-4-5", "anthropic_claude-sonnet-4-6",

@@ -296,7 +296,7 @@ def show_elements(project_id: str,
                     end_date: datetime | str = None, 
                     significance: list[Literal["high", "medium", "low"]] = None) -> str:
     '''
-    Show elements of a project filtered by date and significance.
+    Show elements of a project filtered by date and significance. Be specific in the element types you want to show and the date range.
     Args:
         project_id (str): The ID of the project.
         element_types (list[str]): The types of elements to show (e.g. "events", "parties", "claims", "damages", "deadlines").
