@@ -6,7 +6,24 @@ from datetime import datetime,date
 import uuid
 from langgraph.graph.message import add_messages
 
-FileType = Literal["application/pdf", "text/plain", "application/msword","message/rfc822","text/csv",
+FileType = Literal[#Basic MIME types
+                   "application/pdf", 
+                   "text/plain", 
+                   "text/csv",
+                   "text/markdown",
+                   "message/rfc822",
+
+                   #TO BE IMPLEMENTED
+                #    "text/html",
+                #    "text/xml",
+                #    "application/json",
+                #    "application/xml",
+                #    "image/jpeg",
+                #    "image/png",
+                #    "image/webp",
+                   
+                   
+                   #MS Office MIME types                   
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
                     "application/vnd.openxmlformats-officedocument.presentationml.presentation", 
