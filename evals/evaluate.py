@@ -21,8 +21,15 @@ logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate attachment assignment")
-    parser.add_argument("-d","--dataset", type=str, choices=["test", "THRD-2021-163881", "TOSL-2024-125319"], help="Dataset name to evaluate")
-    parser.add_argument("-m","--model", type=str, choices = ["gemini-2.5-flash", "gpt-4.1",], default = "gemini-2.5-flash", help="LLM model to evaluate (optional, defaults to all models in dataset)")
+    parser.add_argument("-d","--dataset", 
+                        type=str, 
+                        choices=["test", "THRD-2021-163881", "TOSL-2024-125319"], 
+                        help="Dataset name to evaluate")
+    parser.add_argument("-m","--model", 
+                        type=str, 
+                        choices = ["gemini-2.5-flash", "gpt-4.1",], 
+                        default = "gemini-2.5-flash", 
+                        help="LLM model to evaluate (optional, defaults to all models in dataset)")
     parser.add_argument("-i","--id" , type = str, help = "eval_runtime_id")
     parser.add_argument("--threshold", type=float, default=0.5, help="Threshold for evaluation metrics (default: 0.5)")
     args = parser.parse_args()
