@@ -13,11 +13,12 @@ _OSLO = ZoneInfo("Europe/Oslo")
 
 BUCKET_NAME = "master-thesis-prod"
 
-SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".eml", ".docx", ".xlsx"}
+SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".md", ".eml", ".docx", ".xlsx"}
 
 FILE_ICONS = {
     ".pdf": "📄",
     ".txt": "📝",
+    ".md": "📝",
     ".eml": "📧",
     ".docx": "📝",
     ".xlsx": "📊",

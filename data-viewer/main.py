@@ -671,256 +671,256 @@ with tab_results:
         st.warning(
             f"⚠️ No result files found in `04_results` for dataset **{dataset}**."
         )
-        st.stop()
-
-    # Build display labels for the selectbox
-    result_labels = []
-    for blob in result_blobs:
-        fname = blob.name.split("/")[-1]
-        model, ts_display = parse_result_filename(fname)
-        created = (
-            blob.time_created.astimezone(_OSLO).strftime("%Y-%m-%d %H:%M")
-            if blob.time_created
-            else ts_display
-        )
-        result_labels.append(f"{model} — {created}" if created else fname)
-
-    st.markdown(
-        f"#### 📊 Results &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({len(result_blobs)} runs)</span>",
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        "Select a result run to compare model responses against the ground-truth answers."
-    )
-    st.write("")
-
-    col_sel, col_tok, col_del = st.columns([0.72, 0.16, 0.12])
-    with col_sel:
-        selected_result_label = st.selectbox(
-            "Result run",
-            result_labels,
-            index=0,
-            label_visibility="collapsed",
-            key="result_run_select",
-        )
-    with col_tok:
-        if st.button("🔢 Update tokens", key="btn_update_tokens", use_container_width=True):
-            st.session_state["_confirm_update_tokens"] = selected_result_label
-    with col_del:
-        if st.button("🗑️ Delete", key="btn_del_res", use_container_width=True):
-            st.session_state["_confirm_del_res"] = selected_result_label
-
-    if st.session_state.get("_confirm_update_tokens") == selected_result_label:
-        st.info(f"⏳ Fetch token counts from LangSmith for **{selected_result_label}**?")
-        _col_yes, _col_no, _ = st.columns([0.12, 0.1, 0.78])
-        if _col_yes.button("Yes", key="confirm_update_tokens_yes"):
-            selected_idx = result_labels.index(selected_result_label)
-            selected_blob = result_blobs[selected_idx]
-            try:
-                _rd = json.loads(read_blob_bytes(selected_blob.name).decode("utf-8"))
-                with st.spinner("Fetching token counts from LangSmith…"):
-                    update_token_counts(selected_blob.name, _rd)
-                st.session_state.pop("_confirm_update_tokens", None)
-                st.success("✅ Token counts updated.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Failed to update token counts: {e}")
-                logger.error("update_token_counts failed", exc_info=True)
-        if _col_no.button("Cancel", key="confirm_update_tokens_no"):
-            st.session_state.pop("_confirm_update_tokens", None)
-            st.rerun()
-
-    if st.session_state.get("_confirm_del_res") == selected_result_label:
-        st.warning(f"⚠️ Move **{selected_result_label}** to trash?")
-        _col_yes, _col_no, _ = st.columns([0.12, 0.1, 0.78])
-        if _col_yes.button("Yes", key="confirm_del_res_yes"):
-            selected_idx = result_labels.index(selected_result_label)
-            selected_blob = result_blobs[selected_idx]
-            trash_result_blob(dataset, selected_blob.name)
-            st.cache_data.clear()
-            st.session_state.pop("_confirm_del_res", None)
-            st.rerun()
-        if _col_no.button("Cancel", key="confirm_del_res_no"):
-            st.session_state.pop("_confirm_del_res", None)
-            st.rerun()
-
-    selected_result_idx = result_labels.index(selected_result_label)
-    selected_result_blob = result_blobs[selected_result_idx]
-
-    try:
-        result_data: dict = json.loads(
-            cached_read_blob_bytes(selected_result_blob.name).decode("utf-8")
-        )
-    except Exception as e:
-        st.error(f"❌ Could not load result file: {e}")
-        st.stop()
-
-    # ── Metadata strip ────────────────────────────────────────────────────────
-    _res_k = selected_result_blob.name.split("/")[-1].replace(".", "_")
-    with st.expander("ℹ️ Run metadata", expanded=False):
-        m1, m2, m3, m4 = st.columns(4)
-        m1.text_input("Model", value=result_data.get("llm_model", "—"), disabled=True, key=f"res_meta_model_{_res_k}")
-        m2.text_input("Agent type", value=result_data.get("agent_type", "—"), disabled=True, key=f"res_meta_agent_{_res_k}")
-        m3.text_input("Eval run ID", value=result_data.get("eval_run_id", "—"), disabled=True, key=f"res_meta_run_id_{_res_k}")
-        m4.text_input("Dataset", value=result_data.get("dataset_name", "—"), disabled=True, key=f"res_meta_dataset_{_res_k}")
-
-        n1, n2, n3, n4 = st.columns(4)
-        n1.text_input("Project ID", value=result_data.get("project_id", "—"), disabled=True, key=f"res_meta_proj_{_res_k}")
-        n2.text_input("User ID", value=result_data.get("user_id", "—"), disabled=True, key=f"res_meta_user_{_res_k}")
-        n3.text_input("Last updated", value=result_data.get("last_updated", "—"), disabled=True, key=f"res_meta_updated_{_res_k}")
-
-        run_meta = result_data.get("metadata") or {}
-        if run_meta:
-            p1, p2,p3,p4 = st.columns(4)
-            significance_val = run_meta.get("significance")
-            p1.text_input("Significance", value=", ".join(significance_val) if isinstance(significance_val, list) else str(significance_val or "—"), disabled=True, key=f"res_meta_significance_{_res_k}")
-            p2.text_input("Clean rate", value=str(run_meta.get("clean_rate", "—")), disabled=True, key=f"res_meta_clean_rate_{_res_k}")
-            p3.text_input("Minimal context", value=run_meta.get("minimal_context", "—"), disabled=True, key=f"res_meta_min_context_{_res_k}")
-
-        time_usage = result_data.get("time_counts") or result_data.get("time_usage") or {}
-        if time_usage:
-            _render_time_inputs(time_usage, key_prefix=f"res_meta_{_res_k}")
-
-        token_counts = result_data.get("token_counts")
-        if token_counts and isinstance(token_counts, dict):
-            _render_token_metrics(token_counts)
-
-    st.divider()
-
-    # ── Sessions & conversations ───────────────────────────────────────────────
-    result_sessions = result_data.get("sessions", [])
-    n_result_sessions = len(result_sessions)
-
-    # Summary counts
-    total_queries = sum(len(s.get("conversation", [])) for s in result_sessions)
-    answered = sum(
-        1
-        for s in result_sessions
-        for q in s.get("conversation", [])
-        if q.get("model_response", "").strip()
-    )
-    st.caption(
-        f"**{n_result_sessions}** sessions · **{total_queries}** queries · **{answered}** with model response"
-    )
-    st.write("")
-
-    for s_idx, session in enumerate(result_sessions):
-        sname = session.get("session_name", f"Session {s_idx + 1}")
-        sdate = session.get("date", "")
-        label = f"📁 {sname}" + (f" — {sdate}" if sdate else "")
-
-        with st.expander(label, expanded=True):
-            conversation = session.get("conversation", [])
-            res_cap_col, res_btn_col = st.columns([0.65, 0.35])
-            _runtime_sid = session.get("runtime_session_id", "")
-            res_cap_col.caption(
-                f"🔢 {len(conversation)} {'query' if len(conversation) == 1 else 'queries'}"
-                + (f" · session_id: `{_runtime_sid}`" if _runtime_sid else "")
+    else:
+        # Build display labels for the selectbox
+        result_labels = []
+        for blob in result_blobs:
+            fname = blob.name.split("/")[-1]
+            model, ts_display = parse_result_filename(fname)
+            created = (
+                blob.time_created.astimezone(_OSLO).strftime("%Y-%m-%d %H:%M")
+                if blob.time_created
+                else ts_display
             )
-            res_q_collapsed = st.session_state.get(f"_res_q_collapsed_{s_idx}", False)
-            if res_btn_col.button(
-                "⬆️ Collapse queries" if not res_q_collapsed else "⬇️ Expand queries",
-                key=f"toggle_res_q_{s_idx}",
-                type="tertiary",
-                use_container_width=True,
-            ):
-                st.session_state[f"_res_q_collapsed_{s_idx}"] = not res_q_collapsed
+            result_labels.append(f"{model} — {created}" if created else fname)
+
+        st.markdown(
+            f"#### 📊 Results &nbsp; <span style='color:grey;font-size:0.85em;font-weight:normal'>({len(result_blobs)} runs)</span>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Select a result run to compare model responses against the ground-truth answers."
+        )
+        st.write("")
+
+        col_sel, col_tok, col_del = st.columns([0.72, 0.16, 0.12])
+        with col_sel:
+            selected_result_label = st.selectbox(
+                "Result run",
+                result_labels,
+                index=0,
+                label_visibility="collapsed",
+                key="result_run_select",
+            )
+        with col_tok:
+            if st.button("🔢 Update tokens", key="btn_update_tokens", use_container_width=True):
+                st.session_state["_confirm_update_tokens"] = selected_result_label
+        with col_del:
+            if st.button("🗑️ Delete", key="btn_del_res", use_container_width=True):
+                st.session_state["_confirm_del_res"] = selected_result_label
+
+        if st.session_state.get("_confirm_update_tokens") == selected_result_label:
+            st.info(f"⏳ Fetch token counts from LangSmith for **{selected_result_label}**?")
+            _col_yes, _col_no, _ = st.columns([0.12, 0.1, 0.78])
+            if _col_yes.button("Yes", key="confirm_update_tokens_yes"):
+                selected_idx = result_labels.index(selected_result_label)
+                selected_blob = result_blobs[selected_idx]
+                try:
+                    _rd = json.loads(read_blob_bytes(selected_blob.name).decode("utf-8"))
+                    with st.spinner("Fetching token counts from LangSmith…"):
+                        update_token_counts(selected_blob.name, _rd)
+                    st.session_state.pop("_confirm_update_tokens", None)
+                    st.success("✅ Token counts updated.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Failed to update token counts: {e}")
+                    logger.error("update_token_counts failed", exc_info=True)
+            if _col_no.button("Cancel", key="confirm_update_tokens_no"):
+                st.session_state.pop("_confirm_update_tokens", None)
                 st.rerun()
 
-            render_attachments_section(session.get("attachments", []), key_prefix=f"res_{s_idx}")
+        if st.session_state.get("_confirm_del_res") == selected_result_label:
+            st.warning(f"⚠️ Move **{selected_result_label}** to trash?")
+            _col_yes, _col_no, _ = st.columns([0.12, 0.1, 0.78])
+            if _col_yes.button("Yes", key="confirm_del_res_yes"):
+                selected_idx = result_labels.index(selected_result_label)
+                selected_blob = result_blobs[selected_idx]
+                trash_result_blob(dataset, selected_blob.name)
+                st.cache_data.clear()
+                st.session_state.pop("_confirm_del_res", None)
+                st.rerun()
+            if _col_no.button("Cancel", key="confirm_del_res_no"):
+                st.session_state.pop("_confirm_del_res", None)
+                st.rerun()
 
-            session_tokens = session.get("token_counts")
-            if session_tokens and isinstance(session_tokens, dict):
-                _render_token_metrics(session_tokens)
+        selected_result_idx = result_labels.index(selected_result_label)
+        selected_result_blob = result_blobs[selected_result_idx]
 
-            if session.get("init_query"):
-                with st.expander("📝 Initial instruction", expanded=False):
-                    st.text(session["init_query"])
-                    init_tokens = session.get("init_query_token_count")
-                    if init_tokens and isinstance(init_tokens, dict):
-                        _render_token_metrics(init_tokens)
+        try:
+            result_data: dict = json.loads(
+                cached_read_blob_bytes(selected_result_blob.name).decode("utf-8")
+            )
+        except Exception as e:
+            st.error(f"❌ Could not load result file: {e}")
+            result_data = None
 
-            for q_idx, q in enumerate(conversation):
-                inp = q.get("input", "").strip()
-                answer = q.get("answer", "").strip()
-                model_response = q.get("model_response", "").strip()
-                has_response = bool(model_response)
-                q_time = q.get("time_counts") or {}
-                turn_duration = q_time.get("duration_seconds") or q.get("turn_duration")
-                duration_str = f" ⏱️ {turn_duration:.1f}s" if turn_duration else ""
+        if result_data is not None:
+            # ── Metadata strip ────────────────────────────────────────────────────────
+            _res_k = selected_result_blob.name.split("/")[-1].replace(".", "_")
+            with st.expander("ℹ️ Run metadata", expanded=False):
+                m1, m2, m3, m4 = st.columns(4)
+                m1.text_input("Model", value=result_data.get("llm_model", "—"), disabled=True, key=f"res_meta_model_{_res_k}")
+                m2.text_input("Agent type", value=result_data.get("agent_type", "—"), disabled=True, key=f"res_meta_agent_{_res_k}")
+                m3.text_input("Eval run ID", value=result_data.get("eval_run_id", "—"), disabled=True, key=f"res_meta_run_id_{_res_k}")
+                m4.text_input("Dataset", value=result_data.get("dataset_name", "—"), disabled=True, key=f"res_meta_dataset_{_res_k}")
 
-                with st.expander(
-                    f"{'✅' if has_response else '⬜'} Query {q_idx + 1}{duration_str}",
-                    expanded=not st.session_state.get(
-                        f"_res_q_collapsed_{s_idx}", False
-                    ),
-                ):
-                    st.markdown(f"**🧑‍💼 Query**")
-                    st.markdown(inp or "_No input_")
-                    st.write("")
+                n1, n2, n3, n4 = st.columns(4)
+                n1.text_input("Project ID", value=result_data.get("project_id", "—"), disabled=True, key=f"res_meta_proj_{_res_k}")
+                n2.text_input("User ID", value=result_data.get("user_id", "—"), disabled=True, key=f"res_meta_user_{_res_k}")
+                n3.text_input("Last updated", value=result_data.get("last_updated", "—"), disabled=True, key=f"res_meta_updated_{_res_k}")
 
-                    col_gt, col_mr = st.columns(2)
-                    with col_gt:
-                        st.markdown("**✍️ Ground truth**")
-                        gt_key = f"res_gt_{selected_result_idx}_{s_idx}_{q_idx}"
-                        if gt_key not in st.session_state:
-                            st.session_state[gt_key] = answer
-                        st.text_area(
-                            "Ground truth",
-                            height=text_height(answer) if answer else 100,
-                            label_visibility="collapsed",
-                            placeholder="Fill in the expected answer...",
-                            key=gt_key,
-                        )
-                        query_id = q.get("query_id")
-                        logger.debug("[GT] Rendering query s=%d q=%d | gt_key=%s | query_id=%s | gt_in_state=%s", s_idx, q_idx, gt_key, query_id, gt_key in st.session_state)
-                        save_key = f"res_gt_save_{selected_result_idx}_{s_idx}_{q_idx}"
-                        if st.button("💾 Save to dataset", key=save_key):
-                            edited = st.session_state[gt_key]
-                            logger.debug("[GT] Save clicked | edited=%r", edited[:80] if edited else edited)
-                            saved = False
-                            for ds_s_idx, ds_session in enumerate(st.session_state["_raw"]["sessions"]):
-                                for ds_q_idx, ds_query in enumerate(ds_session["conversation"]):
-                                    ds_qid = ds_query.get("query_id")
-                                    ds_inp = ds_query.get("input", "").strip()
-                                    match = (
-                                        (query_id and ds_qid == query_id)
-                                        or (not query_id and ds_inp == inp)
-                                    )
-                                    if match:
-                                        logger.debug("[GT] Match found at ds s=%d q=%d — updating _raw", ds_s_idx, ds_q_idx)
-                                        ds_query["answer"] = edited
-                                        pending = st.session_state.setdefault("_pending_ans_updates", {})
-                                        pending[f"ans_{ds_s_idx}_{ds_q_idx}"] = edited
-                                        saved = True
-                                        break
-                                if saved:
-                                    break
-                            if saved:
-                                save_raw_direct()
-                                st.success("Saved to dataset.")
-                                logger.info("[GT] Save complete")
-                            else:
-                                logger.warning("[GT] No match found in _raw for query_id=%s", query_id)
-                                st.warning("Could not find matching query in dataset.")
-                    with col_mr:
-                        st.markdown("**🤖 Model response**")
-                        st.text_area(
-                            "Model response",
-                            value=model_response or "No response",
-                            height=text_height(model_response)
-                            if model_response
-                            else 100,
-                            disabled=True,
-                            label_visibility="collapsed",
-                            key=f"res_mr_{selected_result_idx}_{s_idx}_{q_idx}",
-                        )
+                run_meta = result_data.get("metadata") or {}
+                if run_meta:
+                    p1, p2,p3,p4 = st.columns(4)
+                    significance_val = run_meta.get("significance")
+                    p1.text_input("Significance", value=", ".join(significance_val) if isinstance(significance_val, list) else str(significance_val or "—"), disabled=True, key=f"res_meta_significance_{_res_k}")
+                    p2.text_input("Clean rate", value=str(run_meta.get("clean_rate", "—")), disabled=True, key=f"res_meta_clean_rate_{_res_k}")
+                    p3.text_input("Minimal context", value=run_meta.get("minimal_context", "—"), disabled=True, key=f"res_meta_min_context_{_res_k}")
 
-                    q_tokens = q.get("token_counts")
-                    if q_tokens and isinstance(q_tokens, dict):
-                        _render_token_metrics(q_tokens)
+                time_usage = result_data.get("time_counts") or result_data.get("time_usage") or {}
+                if time_usage:
+                    _render_time_inputs(time_usage, key_prefix=f"res_meta_{_res_k}")
 
-        st.write("")
+                token_counts = result_data.get("token_counts")
+                if token_counts and isinstance(token_counts, dict):
+                    _render_token_metrics(token_counts)
+
+            st.divider()
+
+            # ── Sessions & conversations ───────────────────────────────────────────────
+            result_sessions = result_data.get("sessions", [])
+            n_result_sessions = len(result_sessions)
+
+            # Summary counts
+            total_queries = sum(len(s.get("conversation", [])) for s in result_sessions)
+            answered = sum(
+                1
+                for s in result_sessions
+                for q in s.get("conversation", [])
+                if q.get("model_response", "").strip()
+            )
+            st.caption(
+                f"**{n_result_sessions}** sessions · **{total_queries}** queries · **{answered}** with model response"
+            )
+            st.write("")
+
+            for s_idx, session in enumerate(result_sessions):
+                sname = session.get("session_name", f"Session {s_idx + 1}")
+                sdate = session.get("date", "")
+                label = f"📁 {sname}" + (f" — {sdate}" if sdate else "")
+
+                with st.expander(label, expanded=True):
+                    conversation = session.get("conversation", [])
+                    res_cap_col, res_btn_col = st.columns([0.65, 0.35])
+                    _runtime_sid = session.get("runtime_session_id", "")
+                    res_cap_col.caption(
+                        f"🔢 {len(conversation)} {'query' if len(conversation) == 1 else 'queries'}"
+                        + (f" · session_id: `{_runtime_sid}`" if _runtime_sid else "")
+                    )
+                    res_q_collapsed = st.session_state.get(f"_res_q_collapsed_{s_idx}", False)
+                    if res_btn_col.button(
+                        "⬆️ Collapse queries" if not res_q_collapsed else "⬇️ Expand queries",
+                        key=f"toggle_res_q_{s_idx}",
+                        type="tertiary",
+                        use_container_width=True,
+                    ):
+                        st.session_state[f"_res_q_collapsed_{s_idx}"] = not res_q_collapsed
+                        st.rerun()
+
+                    render_attachments_section(session.get("attachments", []), key_prefix=f"res_{s_idx}")
+
+                    session_tokens = session.get("token_counts")
+                    if session_tokens and isinstance(session_tokens, dict):
+                        _render_token_metrics(session_tokens)
+
+                    if session.get("init_query"):
+                        with st.expander("📝 Initial instruction", expanded=False):
+                            st.text(session["init_query"])
+                            init_tokens = session.get("init_query_token_count")
+                            if init_tokens and isinstance(init_tokens, dict):
+                                _render_token_metrics(init_tokens)
+
+                    for q_idx, q in enumerate(conversation):
+                        inp = q.get("input", "").strip()
+                        answer = q.get("answer", "").strip()
+                        model_response = q.get("model_response", "").strip()
+                        has_response = bool(model_response)
+                        q_time = q.get("time_counts") or {}
+                        turn_duration = q_time.get("duration_seconds") or q.get("turn_duration")
+                        duration_str = f" ⏱️ {turn_duration:.1f}s" if turn_duration else ""
+
+                        with st.expander(
+                            f"{'✅' if has_response else '⬜'} Query {q_idx + 1}{duration_str}",
+                            expanded=not st.session_state.get(
+                                f"_res_q_collapsed_{s_idx}", False
+                            ),
+                        ):
+                            st.markdown(f"**🧑‍💼 Query**")
+                            st.markdown(inp or "_No input_")
+                            st.write("")
+
+                            col_gt, col_mr = st.columns(2)
+                            with col_gt:
+                                st.markdown("**✍️ Ground truth**")
+                                gt_key = f"res_gt_{selected_result_idx}_{s_idx}_{q_idx}"
+                                if gt_key not in st.session_state:
+                                    st.session_state[gt_key] = answer
+                                st.text_area(
+                                    "Ground truth",
+                                    height=text_height(answer) if answer else 100,
+                                    label_visibility="collapsed",
+                                    placeholder="Fill in the expected answer...",
+                                    key=gt_key,
+                                )
+                                query_id = q.get("query_id")
+                                logger.debug("[GT] Rendering query s=%d q=%d | gt_key=%s | query_id=%s | gt_in_state=%s", s_idx, q_idx, gt_key, query_id, gt_key in st.session_state)
+                                save_key = f"res_gt_save_{selected_result_idx}_{s_idx}_{q_idx}"
+                                if st.button("💾 Save to dataset", key=save_key):
+                                    edited = st.session_state[gt_key]
+                                    logger.debug("[GT] Save clicked | edited=%r", edited[:80] if edited else edited)
+                                    saved = False
+                                    for ds_s_idx, ds_session in enumerate(st.session_state["_raw"]["sessions"]):
+                                        for ds_q_idx, ds_query in enumerate(ds_session["conversation"]):
+                                            ds_qid = ds_query.get("query_id")
+                                            ds_inp = ds_query.get("input", "").strip()
+                                            match = (
+                                                (query_id and ds_qid == query_id)
+                                                or (not query_id and ds_inp == inp)
+                                            )
+                                            if match:
+                                                logger.debug("[GT] Match found at ds s=%d q=%d — updating _raw", ds_s_idx, ds_q_idx)
+                                                ds_query["answer"] = edited
+                                                pending = st.session_state.setdefault("_pending_ans_updates", {})
+                                                pending[f"ans_{ds_s_idx}_{ds_q_idx}"] = edited
+                                                saved = True
+                                                break
+                                        if saved:
+                                            break
+                                    if saved:
+                                        save_raw_direct()
+                                        st.success("Saved to dataset.")
+                                        logger.info("[GT] Save complete")
+                                    else:
+                                        logger.warning("[GT] No match found in _raw for query_id=%s", query_id)
+                                        st.warning("Could not find matching query in dataset.")
+                            with col_mr:
+                                st.markdown("**🤖 Model response**")
+                                st.text_area(
+                                    "Model response",
+                                    value=model_response or "No response",
+                                    height=text_height(model_response)
+                                    if model_response
+                                    else 100,
+                                    disabled=True,
+                                    label_visibility="collapsed",
+                                    key=f"res_mr_{selected_result_idx}_{s_idx}_{q_idx}",
+                                )
+
+                            q_tokens = q.get("token_counts")
+                            if q_tokens and isinstance(q_tokens, dict):
+                                _render_token_metrics(q_tokens)
+
+                st.write("")
 
 
 # ════════════════════════════════════════════════════════════════════════════

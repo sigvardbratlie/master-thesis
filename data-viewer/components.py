@@ -55,6 +55,10 @@ def render_file(filename: str, content: bytes) -> None:
         with st.container(height=600, border=True):
             st.text(content.decode("utf-8", errors="ignore"))
 
+    elif ext == ".md":
+        with st.container(height=600, border=True):
+            st.markdown(content.decode("utf-8", errors="ignore"))
+
     elif ext == ".eml":
         msg = email.message_from_bytes(content)
         with st.container(height=600, border=True):
