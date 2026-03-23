@@ -114,7 +114,7 @@ class Claim(BaseModel):
                         "declaratory_claim",    # Fastsettelseskrav
                         "reimbursement_claim",  # Regresskrav (fordring)
                         "procedural_claim",     # Prosessuelt krav (avvisning etc.)
-                        ] = None
+                        ] | None = None
     legal_basis: str = Field(description="Statutory basis (e.g., avtaleloven §36)")
     factual_basis: str = Field(description="Key facts supporting this claim")
     relief_sought: str = Field(description="What is being claimed (damages, injunction, etc)")
