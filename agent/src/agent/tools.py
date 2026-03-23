@@ -20,22 +20,18 @@ load_dotenv()
 #project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 logger = logging.getLogger(__name__)
 
-def _parse_date(value: date | str | None, default: date) -> date:
+def _parse_date(value: date | str | None, default: date) -> str:
     if value is None:
-        return default
+        return default.isoformat()
     if isinstance(value, str):
-        return date.fromisoformat(value[:10])
+        return date.fromisoformat(value[:10]).isoformat()
     if isinstance(value, datetime):
-        return value.date()
+        return value.date().isoformat()
     if isinstance(value, date):
-        return value
+        return value.isoformat()
     raise ValueError("date must be a date, datetime, or ISO format string")
 
-def _as_date(value) -> date | None:
-    """Coerce date or datetime to date for consistent comparisons."""
-    if isinstance(value, datetime):
-        return value.date()
-    return value
+
 
 tavily_search = TavilySearch(
     max_results=5,
@@ -306,6 +302,8 @@ def show_elements(project_id: str,
     Returns:
         str: A formatted string containing the filtered elements.
 
+    Short dictionary for norwegian-english translation: Krav -> damages, Påstander -> claims. 
+
     '''
     if not significance:
         significance = ["high", "medium", "low"]
@@ -314,34 +312,38 @@ def show_elements(project_id: str,
     end_date = _parse_date(end_date, date.max)
 
     sm = SupabaseManager()
-    factsheet = sm.load_factsheet(project_id=project_id, tables=element_types)
+    data = sm.load_elements(project_id=project_id, 
+                                tables=element_types, 
+                                params = {"p_start_date" : start_date, "p_end_date" : end_date, "p_significance" : significance},
+                                )
+
     date_col_map = {"events": "event_start_date",
-                    "deadlines": "deadline_date",
-                    }
+                        "deadlines": "deadline_date",
+                        "claims" : "source_date",
+                        "damages" : "source_date",
+                        }
+
+
     format_map = {
             "events": ["event_start_date", "event_name", "file_id", "description", "disputed"],
             "parties": ["legal_name", "entity_type", "role", "role_description"],
-            "claims": ["party_role", "relief_sought", "factual_basis", "legal_basis", "strength_assessment"],
-            "damages": ["party_role", "category", "amount", "currency", "basis"],
-            "deadlines": ["deadline_date", "description", "file_id", "email_id"]}
+            "claims": ["party_role", "relief_sought", "factual_basis", "legal_basis", "strength_assessment", "source_date"],
+            "damages": ["party_role", "category", "amount", "currency", "basis", "source_date"],
+            "deadlines": ["deadline_date", "description", "file_id", "email_id", ]}
 
     value = f"=== List of {', '.join(element_types)} ===\n"
 
     for element in element_types:
-        all_elements = getattr(factsheet, element) or []
+        all_elements = data.get(element, [])
         date_col = date_col_map.get(element)
-        filtered_elements = [
-            e for e in all_elements
-            if (not date_col or (getattr(e, date_col, None) and start_date <= _as_date(getattr(e, date_col)) <= end_date))
-            and getattr(e, "significance", None) in significance
-        ]
-
+        all_elements.sort(key = lambda x: x.get(date_col)) #getattr(x, date_col))
+        
         value += f"\n\n=== {element.upper()} ===\n"
         value += f'**FORMAT** : {" | ".join(format_map[element])}\n'
-        for item in filtered_elements:
-            element_info = "\t" + " | ".join([f"{getattr(item, field)}" for field in format_map[element]])
+        for item in all_elements:
+            #element_info = "\t" + " | ".join([f"{getattr(item, field)}" for field in format_map[element]])
+            element_info = "\t" + " | ".join([f"{item.get(field)}" for field in format_map[element]])
             value += f"- {element_info}\n"
-
     return value
 
 @tool
@@ -373,7 +375,10 @@ def list_attachments(
     end_date = _parse_date(end_date, date.max)
 
     sm = SupabaseManager()
-    project = sm.load_attachments(project_id=project_id, tables=element_types)
+    project = sm.load_attachments(project_id=project_id, 
+                                tables=element_types,
+                                params = {"p_start_date" : start_date, "p_end_date" : end_date, "p_significance" : significance},
+                                )
 
     date_col_map = {"emails": "date", "attachments": "file_date"}
     format_map = {
@@ -385,17 +390,14 @@ def list_attachments(
     for item in element_types:
         all_elements = project.get(item) or []
         date_col = date_col_map.get(item)
-        filtered_elements = [
-            e for e in all_elements
-            if (not date_col or (getattr(e, date_col, None) and start_date <= _as_date(getattr(e, date_col)) <= end_date))
-            and getattr(e, "significance", None) in significance
-        ]
-
+        all_elements.sort(key = lambda x : x.get(date_col)) #getattr(x, date_col))
+        
         value += f"\n\n=== {item.upper()} ===\n"
         format_view = [key if key != key_map[item] else "id" for key in format_map[item]]
         value += f'**FORMAT** : {" | ".join(format_view)}\n'
-        for row in filtered_elements:
-            element_info = "\t" + " | ".join([f"{getattr(row, field)}" for field in format_map[item]])
+        for row in all_elements:
+            #element_info = "\t" + " | ".join([f"{getattr(row, field)}" for field in format_map[item]])
+            element_info = "\t" + " | ".join([f"{row.get(field)}" for field in format_map[item]])
             value += f"- {element_info}\n"
     return value
 

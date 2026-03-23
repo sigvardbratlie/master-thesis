@@ -106,6 +106,15 @@ def shorten_element(elements : list,
 
 class Claim(BaseModel):
     claim_id : str | None = None
+    category : Literal[
+                        "principal_claim",      # Hovedkrav / påstand
+                        "counterclaim",         # Motkrav
+                        "objection",            # Innsigelse
+                        "ancillary_claim",      # Tilleggskrav (renter, saksomkostninger)
+                        "declaratory_claim",    # Fastsettelseskrav
+                        "reimbursement_claim",  # Regresskrav (fordring)
+                        "procedural_claim",     # Prosessuelt krav (avvisning etc.)
+                        ] = None
     legal_basis: str = Field(description="Statutory basis (e.g., avtaleloven §36)")
     factual_basis: str = Field(description="Key facts supporting this claim")
     relief_sought: str = Field(description="What is being claimed (damages, injunction, etc)")
@@ -115,7 +124,7 @@ class Claim(BaseModel):
     defense: str | None = Field(None, description="Defense strategy if defending")
     file_id: str | None = None  # For claims from attachments
     email_id: str | None = None  # For claims from emails
-    party_role : PartyRole | None = None
+    party_role : PartyRole = Field(description="Party role associated with this claim, e.g., plaintiff, defendant, etc.")
     significance : significance_levels = Field(default="medium", description="Significance of the claim to the case")
 
 class Claims(BaseModel):
@@ -123,14 +132,14 @@ class Claims(BaseModel):
 
 class Damage(BaseModel):
     damage_id: str | None = None
-    category: Literal["direct_losses", "interest", "consequential", "punitive"]
+    category: Literal["direct_losses", "interest", "consequential", "punitive"] | None = Field(None, description="Type of damage/loss claimed or incurred")
     amount: int | float | None = Field(None, description="Monetary amount if amount is known and mentioned, else None")
     currency: str | None = Field(None, description="Currency of the amount, e.g., 'NOK', 'USD', etc.")
     basis: str
     supporting_evidence: list[str] = Field(description="File_IDs supporting the damage claim")
     file_id: str | None = None  # For damages from attachments
     email_id: str | None = None  # For damages from emails
-    party_role: PartyRole | None = None
+    party_role: PartyRole = Field(description="Party role associated with this damage claim, e.g., plaintiff, defendant, etc.")
     significance : significance_levels = Field(default="medium", description="Significance of the damage claim to the case")
     
 class Damages(BaseModel):
