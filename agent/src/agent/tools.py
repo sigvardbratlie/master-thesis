@@ -336,7 +336,7 @@ def show_elements(project_id: str,
     for element in element_types:
         all_elements = data.get(element, [])
         date_col = date_col_map.get(element)
-        all_elements.sort(key = lambda x: x.get(date_col)) #getattr(x, date_col))
+        all_elements.sort(key = lambda x: x.get(date_col)) if date_col else None
         
         value += f"\n\n=== {element.upper()} ===\n"
         value += f'**FORMAT** : {" | ".join(format_map[element])}\n'
@@ -390,7 +390,7 @@ def list_attachments(
     for item in element_types:
         all_elements = project.get(item) or []
         date_col = date_col_map.get(item)
-        all_elements.sort(key = lambda x : x.get(date_col)) #getattr(x, date_col))
+        all_elements.sort(key = lambda x : x.get(date_col)) if date_col else None
         
         value += f"\n\n=== {item.upper()} ===\n"
         format_view = [key if key != key_map[item] else "id" for key in format_map[item]]

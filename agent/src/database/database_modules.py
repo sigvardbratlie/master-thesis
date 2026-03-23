@@ -149,6 +149,7 @@ class SupabaseManager:
                 "claims" : "get_claims_with_dates",
                 "damages" : "get_damages_with_dates",
                 "deadlines": "get_deadlines",
+                "parties" : "get_parties", 
                 }
         result = {}
         
