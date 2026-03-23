@@ -1,3 +1,4 @@
+from functools import lru_cache
 from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings
 from pathlib import Path
@@ -110,5 +111,12 @@ class AppConfig(BaseSettings):
 
         with open(file_path, "rb") as f:
             config_dict = tomllib.load(f)
-            
+
         return cls(**config_dict)
+
+
+@lru_cache
+def get_app_config() -> AppConfig:
+    """Returns the singleton AppConfig, loaded from agent/config.toml."""
+    config_path = Path(__file__).resolve().parent.parent.parent / "config.toml"
+    return AppConfig.from_toml(config_path)

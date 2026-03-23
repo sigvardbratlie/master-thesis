@@ -14,11 +14,14 @@ from langchain.tools import tool
 
 from database import SupabaseStorageManager, BQVectorStore, SupabaseManager
 from documents import DocumentProcessor
+from utils import get_app_config,setup_logging
 
 
 load_dotenv()
-#project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+config = get_app_config()
 logger = logging.getLogger(__name__)
+setup_logging(config)
+document_processor = DocumentProcessor(config=config)
 
 def _parse_date(value: date | str | None, default: date) -> str:
     if value is None:
@@ -30,7 +33,6 @@ def _parse_date(value: date | str | None, default: date) -> str:
     if isinstance(value, date):
         return value.isoformat()
     raise ValueError("date must be a date, datetime, or ISO format string")
-
 
 
 tavily_search = TavilySearch(
@@ -54,7 +56,6 @@ def read_attachments(
     """
     db = SupabaseManager()
     storage_manager = SupabaseStorageManager()
-    document_processor = DocumentProcessor()
     paths = db.get_paths(file_ids)
     contents = storage_manager.read_attachments(paths=paths)
     def process_attachment(path, content):

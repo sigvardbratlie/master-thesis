@@ -17,6 +17,17 @@ import uuid
 from typing import Any, Literal
 logger = logging.getLogger(__name__)
 
+def _strip_null_bytes(obj: Any) -> Any:
+    """Recursively strip null bytes from strings in dicts/lists (PostgreSQL rejects \\u0000)."""
+    if isinstance(obj, str):
+        return obj.replace('\x00', '')
+    if isinstance(obj, dict):
+        return {k: _strip_null_bytes(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_strip_null_bytes(item) for item in obj]
+    return obj
+
+
 _TABLE_ID_FIELDS = {
     "project_parties": "party_id",
     "project_events": "event_id",
@@ -224,6 +235,7 @@ class SupabaseManager:
         if attachment_dicts:
             try:
                 # ========== PROJECT ATTACHMENTS ==========
+                attachment_dicts = [_strip_null_bytes(d) for d in attachment_dicts]
                 self.supabase.table("project_attachments").upsert(attachment_dicts).execute()
                 logger.debug(f'Upserted {len(attachments)} attachments for project {project_id} in Supabase.')
             except Exception as e:
@@ -313,7 +325,7 @@ class SupabaseManager:
             item["updated_by"] = llm_model
             item["updated_at"] = now
         try:
-            self.supabase.table(table_name).insert(data).execute()
+            self.supabase.table(table_name).insert([_strip_null_bytes(d) for d in data]).execute()
             logger.debug(f'Inserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error inserting items for project {project_id} in Supabase table {table_name}')
@@ -351,7 +363,7 @@ class SupabaseManager:
 
         try:
             self.supabase.table(table_name).delete().eq("project_id", project_id).execute()
-            self.supabase.table(table_name).insert(data_dicts).execute()
+            self.supabase.table(table_name).insert([_strip_null_bytes(d) for d in data_dicts]).execute()
             logger.debug(f'Replaced {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error replacing items for project {project_id} in Supabase table {table_name}: {e}')
@@ -392,7 +404,7 @@ class SupabaseManager:
         new_ids = [d[id_field] for d in data_dicts if id_field and d.get(id_field)]
 
         try:
-            self.supabase.table(table_name).upsert(data_dicts).execute()
+            self.supabase.table(table_name).upsert([_strip_null_bytes(d) for d in data_dicts]).execute()
             if new_ids:
                 self.supabase.table(table_name).delete().eq("project_id", project_id).not_.in_(id_field, new_ids).execute()
             else:
