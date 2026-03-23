@@ -168,20 +168,20 @@ class ContextManager:
                                 {documents_formatted}'''
         retry_prompt = prompt
         response = None
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 response = await structured_llm.ainvoke(retry_prompt, config=config)
+                if not response or not response.attachments:
+                    logger.warning(f"Attempt {attempt + 1} returned empty response, retrying...")
+                    retry_prompt = prompt + f"\n\nPREVIOUS ATTEMPT RETURNED EMPTY: You must return exactly {len(attachments)} AttachmentWithEvents objects. Do not return an empty list."
+                    continue
                 break
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1} failed validation: {e}")
-                if attempt == 0:
-                    retry_prompt = prompt + f"\n\nPREVIOUS ATTEMPT FAILED WITH VALIDATION ERROR:\n{e}\nPlease fix the above errors and try again."
-                else:
-                    logger.error("Both attempts failed, returning empty result.")
-                    return {"attachments": [], "events": [], "damages": [], "deadlines": [], "claims": []}
+                retry_prompt = prompt + f"\n\nPREVIOUS ATTEMPT FAILED WITH VALIDATION ERROR:\n{e}\nPlease fix the above errors and try again."
 
         if not response or not response.attachments:
-            logger.error("LLM returned empty or invalid response")
+            logger.error("LLM returned empty or invalid response after all attempts")
             return {
                 "attachments": [],
                 "events": [],
