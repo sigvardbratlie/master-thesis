@@ -7,7 +7,7 @@ from langchain_core.documents import Document
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from agent.tools import _parse_date, _as_date, show_elements, list_attachments, query_project_attachments, query_laws, read_attachments
+from agent.tools import _parse_date, show_elements, list_attachments, query_project_attachments, query_laws, read_attachments
 from tests.fixtures.tools_data import (
     get_mock_factsheet,
     get_mock_claim,
@@ -25,39 +25,25 @@ from tests.fixtures.tools_data import (
 
 def test_parse_date_none_returns_default():
     default = date(2020, 1, 1)
-    assert _parse_date(None, default) == default
+    assert _parse_date(None, default) == default.isoformat()
 
 
 def test_parse_date_iso_string():
-    assert _parse_date("2020-05-19", date.min) == date(2020, 5, 19)
+    assert _parse_date("2020-05-19", date.min) == "2020-05-19"
 
 
 def test_parse_date_iso_string_with_time():
-    assert _parse_date("2020-05-19T10:00:00", date.min) == date(2020, 5, 19)
+    assert _parse_date("2020-05-19T10:00:00", date.min) == "2020-05-19"
 
 
 def test_parse_date_date_object():
     d = date(2021, 3, 15)
-    assert _parse_date(d, date.min) == d
+    assert _parse_date(d, date.min) == "2021-03-15"
 
 
 def test_parse_date_datetime_object():
     dt = datetime(2021, 3, 15, 12, 0)
-    assert _parse_date(dt, date.min) == date(2021, 3, 15)
-
-
-def test_as_date_converts_datetime():
-    dt = datetime(2021, 3, 15, 12, 0)
-    assert _as_date(dt) == date(2021, 3, 15)
-
-
-def test_as_date_passes_date_through():
-    d = date(2021, 3, 15)
-    assert _as_date(d) == d
-
-
-def test_as_date_none():
-    assert _as_date(None) is None
+    assert _parse_date(dt, date.min) == "2021-03-15"
 
 
 # ============================================
@@ -78,15 +64,11 @@ def test_show_elements_claims_format(mock_sm_factory):
 
 
 def test_show_elements_claims_excludes_low_significance():
-    factsheet = get_mock_factsheet(include_claims=False)
-    factsheet.claims = [
-        get_mock_claim(significance="high"),
-        get_mock_claim(significance="low"),
-    ]
-    factsheet.claims[1].relief_sought = "Prisavslag"
+    high_claim = get_mock_claim(significance="high")
 
     mock_sm = MagicMock()
-    mock_sm.load_factsheet.return_value = factsheet
+    # Simulate DB returning only high-significance claims
+    mock_sm.load_elements.return_value = {"claims": [high_claim.model_dump()]}
 
     with patch('agent.tools.SupabaseManager', return_value=mock_sm):
         result = show_elements.invoke({
@@ -133,14 +115,10 @@ def test_show_elements_events_format(mock_sm_factory):
     assert "file-001" in result
 
 
-def test_show_elements_events_date_filter(mock_sm_factory):
-    factsheet = get_mock_factsheet(include_events=False)
-    factsheet.events = [
-        get_mock_event(event_date=date(2019, 8, 1)),
-        get_mock_event(event_date=date(2021, 3, 1)),
-    ]
-    factsheet.events[1].event_name = "Forlik inngått"
-    mock_sm = mock_sm_factory(factsheet)
+def test_show_elements_events_date_filter():
+    mock_sm = MagicMock()
+    # Simulate DB returning no events in the 2020 date range (both 2019 and 2021 filtered out)
+    mock_sm.load_elements.return_value = {"events": []}
 
     with patch('agent.tools.SupabaseManager', return_value=mock_sm):
         result = show_elements.invoke({
@@ -177,7 +155,7 @@ def test_show_elements_parties_format(mock_sm_factory):
 def test_list_attachments_format():
     attachment = get_mock_attachment()
     mock_sm = MagicMock()
-    mock_sm.load_attachments.return_value = {"attachments": [attachment], "emails": []}
+    mock_sm.load_attachments.return_value = {"attachments": [attachment.model_dump()], "emails": []}
 
     with patch('agent.tools.SupabaseManager', return_value=mock_sm):
         result = list_attachments.invoke({
@@ -192,14 +170,11 @@ def test_list_attachments_format():
 
 
 def test_list_attachments_significance_filter():
-    attachments = [
-        get_mock_attachment(significance="high"),
-        get_mock_attachment(significance="low"),
-    ]
-    attachments[0].title = "Viktig dokument"
-    attachments[1].title = "Uviktig dokument"
+    attachment_high = get_mock_attachment(significance="high")
+    attachment_high.title = "Viktig dokument"
     mock_sm = MagicMock()
-    mock_sm.load_attachments.return_value = {"attachments": attachments, "emails": []}
+    # Simulate DB returning only high-significance items
+    mock_sm.load_attachments.return_value = {"attachments": [attachment_high.model_dump()], "emails": []}
 
     with patch('agent.tools.SupabaseManager', return_value=mock_sm):
         result = list_attachments.invoke({
@@ -219,7 +194,7 @@ def test_list_attachments_significance_filter():
 def test_list_attachments_emails_format():
     email = get_mock_email()
     mock_sm = MagicMock()
-    mock_sm.load_attachments.return_value = {"attachments": [], "emails": [email]}
+    mock_sm.load_attachments.return_value = {"attachments": [], "emails": [email.model_dump()]}
 
     with patch('agent.tools.SupabaseManager', return_value=mock_sm):
         result = list_attachments.invoke({
@@ -235,14 +210,11 @@ def test_list_attachments_emails_format():
 
 
 def test_list_attachments_emails_date_filter():
-    emails = [
-        get_mock_email(email_date=datetime(2019, 9, 3, 10, 0)),
-        get_mock_email(email_date=datetime(2021, 3, 1, 10, 0)),
-    ]
-    emails[0].title = "Gammel e-post"
-    emails[1].title = "Ny e-post"
+    email_new = get_mock_email(email_date=datetime(2021, 3, 1, 10, 0))
+    email_new.title = "Ny e-post"
     mock_sm = MagicMock()
-    mock_sm.load_attachments.return_value = {"attachments": [], "emails": emails}
+    # Simulate DB returning only emails in the 2021 date range
+    mock_sm.load_attachments.return_value = {"attachments": [], "emails": [email_new.model_dump()]}
 
     with patch('agent.tools.SupabaseManager', return_value=mock_sm):
         result = list_attachments.invoke({
@@ -393,5 +365,12 @@ def mock_sm_factory():
     def _factory(factsheet):
         mock_sm = MagicMock()
         mock_sm.load_factsheet.return_value = factsheet
+        mock_sm.load_elements.return_value = {
+            "claims": [c.model_dump() for c in factsheet.claims],
+            "damages": [d.model_dump() for d in factsheet.damages],
+            "events": [e.model_dump() for e in factsheet.events],
+            "parties": [p.model_dump() for p in factsheet.parties],
+            "deadlines": [dl.model_dump() for dl in factsheet.deadlines],
+        }
         return mock_sm
     return _factory
