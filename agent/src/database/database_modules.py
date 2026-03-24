@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 import base64
 from google.cloud import firestore
@@ -236,6 +237,9 @@ class SupabaseManager:
             try:
                 # ========== PROJECT ATTACHMENTS ==========
                 attachment_dicts = [_strip_null_bytes(d) for d in attachment_dicts]
+                payload_size = len(json.dumps(attachment_dicts, default=str).encode())
+                if payload_size > 1 * 1024 * 1024:
+                    logger.warning(f"⚠️ Large attachment payload: {payload_size / 1024 / 1024:.1f}MB ({len(attachment_dicts)} rows) for project {project_id}")
                 self.supabase.table("project_attachments").upsert(attachment_dicts).execute()
                 logger.debug(f'Upserted {len(attachments)} attachments for project {project_id} in Supabase.')
             except Exception as e:
@@ -243,6 +247,9 @@ class SupabaseManager:
         if email_dicts:
             try:
                 # ========== PROJECT EMAILS ==========
+                payload_size = len(json.dumps(email_dicts, default=str).encode())
+                if payload_size > 1 * 1024 * 1024:
+                    logger.warning(f"⚠️ Large email payload: {payload_size / 1024 / 1024:.1f}MB ({len(email_dicts)} rows) for project {project_id}")
                 self.supabase.table("project_emails").upsert(email_dicts).execute()
                 logger.debug(f'Upserted {len(emails)} emails for project {project_id} in Supabase.')
             except Exception as e:
