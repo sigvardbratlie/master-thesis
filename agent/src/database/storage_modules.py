@@ -54,7 +54,7 @@ class SupabaseStorageManager:
         self.supabase = create_client(self.url, self.key)
         self.max_concurrent_uploads = max_concurrent_uploads
 
-    def save_attachment(self, content: bytes, path : str, bucket_name: str = "attachments", max_retries: int = 3) -> str | None:
+    def save_attachment(self, content: bytes, path : str, bucket_name: str = "attachments", max_retries: int = 3, metadata : dict = None) -> str | None:
         """Save attachment with retry logic for transient errors
         
         Args:
@@ -104,7 +104,7 @@ class SupabaseStorageManager:
                         time.sleep(wait_time)
                         continue
                 
-                logger.error(f"❌ Supabase Storage upload attempt {attempt + 1}/{max_retries} failed: {e}")
+                logger.error(f"❌ Supabase Storage upload attempt {attempt + 1}/{max_retries} failed for path {path} | filename: {metadata.get('filename') if metadata else 'Unknown'}: {e}")
                 break
             
             finally:
@@ -116,7 +116,7 @@ class SupabaseStorageManager:
                         pass
         
         # If all retries failed
-        logger.error(f"❌ Upload failed after {max_retries} attempts for {path}: {last_error}")
+        logger.error(f"❌ Upload failed after {max_retries} attempts for path {path} | filename: {metadata.get('filename') if metadata else 'Unknown'}: {last_error}")
         return None
             
 
@@ -136,7 +136,10 @@ class SupabaseStorageManager:
                     self.save_attachment,
                     content=content_bytes,
                     path=path,
-                    bucket_name=bucket_name
+                    bucket_name=bucket_name,
+                    metadata = {
+                                "filename": att.filename,
+                                "file_type": att.file_type}
                 )
                 results[att.file_id] = result
                 return result
