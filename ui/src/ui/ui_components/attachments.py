@@ -36,7 +36,7 @@ class AttachmentComponent:
             return st.session_state.attachment_cache[cache_key]
         
         # Hvis ikke i cache, hent fra database
-        content_bytes = self.database_service.read_attachment(path=path, bucket_name="attachments")
+        content_bytes = self.database_service.read_attachment(path=path)
         
         # Cache resultatet hvis det finnes
         if content_bytes:

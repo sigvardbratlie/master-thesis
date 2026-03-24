@@ -2,11 +2,15 @@ import os
 import logging
 import streamlit as st
 from supabase import create_client, Client
+from google.cloud import storage as gcs_storage
 from ui.models import *
 from ui.models import UserDetails, CompanyDetails
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+GCS_STORAGE_PREFIX = "attachments/"
 
 
 class SupabaseManager:
@@ -16,7 +20,8 @@ class SupabaseManager:
         if not st.session_state.get("supabase_client"):
             st.session_state.supabase_client = create_client(self.url, self.key)
         self.supabase = st.session_state.supabase_client
-        # Initialize Supabase client here if needed
+        gcs_client = gcs_storage.Client()
+        self.gcs_bucket = gcs_client.bucket(st.secrets["storage"]["gcs"]["GCS_BUCKET_NAME"])
 
     def load_factsheet(self, project_id: str) -> dict:
         select_query = """
@@ -294,10 +299,10 @@ class SupabaseManager:
             logger.error(f"Could not delete session {session_id}: {e}")
             return False
 
-    def delete_project_file(self, path : str) -> bool:
-        """Delete a project file from Supabase storage."""
+    def delete_project_file(self, path: str) -> bool:
+        """Delete a project file from GCS and remove its database record."""
         try:
-            self.supabase.storage.from_("attachments").remove(paths=[path])
+            self.gcs_bucket.blob(GCS_STORAGE_PREFIX + path).delete()
             self.supabase.table("project_attachments").delete().eq("path", path).execute()
             logger.info(f"Deleted project file {path}")
             return True
@@ -305,32 +310,24 @@ class SupabaseManager:
             logger.error(f"Could not delete project file {path}: {e}")
             return False
 
-    def read_attachment(self, path : str, bucket_name : str = "attachments") -> bytes | None:
-        """
-        Fetch attachment content from Supabase storage.
-        """
+    def read_attachment(self, path: str) -> bytes | None:
+        """Fetch attachment content from GCS."""
         try:
-
-            content = self.supabase.storage.from_(bucket_name).download(path)
-            
-            if content:
-                return content
-            else:
-                logger.error(f'Attachment blob not found: {path}')
-                return None
-
+            content = self.gcs_bucket.blob(GCS_STORAGE_PREFIX + path).download_as_bytes()
+            return content or None
         except Exception as e:
-            logger.error(f'Error reading attachment from Supabase: {e}', exc_info=True)
+            logger.error(f"Error reading attachment from GCS: {e}", exc_info=True)
             return None
-        
-    def delete_attachments(self, paths : list[str], bucket_name: str = "attachments") -> bool:
-        """Delete attachment from Supabase storage."""
+
+    def delete_attachments(self, paths: list[str]) -> bool:
+        """Delete attachments from GCS."""
         try:
-            self.supabase.storage.from_(bucket_name).remove(paths=paths)
-            logger.info(f"Deleted attachment {", ".join([p for p in paths])} from bucket {bucket_name}")
+            for path in paths:
+                self.gcs_bucket.blob(GCS_STORAGE_PREFIX + path).delete()
+            logger.info(f"Deleted {len(paths)} attachment(s) from GCS")
             return True
         except Exception as e:
-            logger.error(f"Could not delete attachments {', '.join([p for p in paths])} from bucket {bucket_name}: {e}")
+            logger.error(f"Could not delete attachments from GCS: {e}")
             return False
         
 @st.cache_resource
