@@ -693,7 +693,7 @@ with tab_results:
         )
         st.write("")
 
-        col_sel, col_tok, col_del = st.columns([0.72, 0.16, 0.12])
+        col_sel, col_tok, col_dl, col_del = st.columns([0.60, 0.16, 0.12, 0.12])
         with col_sel:
             selected_result_label = st.selectbox(
                 "Result run",
@@ -705,6 +705,17 @@ with tab_results:
         with col_tok:
             if st.button("🔢 Update tokens", key="btn_update_tokens", use_container_width=True):
                 st.session_state["_confirm_update_tokens"] = selected_result_label
+        with col_dl:
+            _res_fname = result_labels[result_labels.index(selected_result_label)]
+            _res_blob_name = result_blobs[result_labels.index(selected_result_label)].name
+            st.download_button(
+                "⬇️ Download",
+                data=cached_read_blob_bytes(_res_blob_name),
+                file_name=_res_blob_name.split("/")[-1],
+                mime="application/json",
+                key="btn_dl_res",
+                use_container_width=True,
+            )
         with col_del:
             if st.button("🗑️ Delete", key="btn_del_res", use_container_width=True):
                 st.session_state["_confirm_del_res"] = selected_result_label
@@ -960,7 +971,7 @@ with tab_evals:
     )
     st.write("")
     
-    col_eval_sel, col_eval_del = st.columns([0.88, 0.12])
+    col_eval_sel, col_eval_dl, col_eval_del = st.columns([0.76, 0.12, 0.12])
     with col_eval_sel:
         selected_eval_label = st.selectbox(
             "Eval run",
@@ -968,6 +979,16 @@ with tab_evals:
             index=0,
             label_visibility="collapsed",
             key="eval_run_select",
+        )
+    with col_eval_dl:
+        _eval_blob_name = eval_blobs[eval_labels.index(selected_eval_label)].name
+        st.download_button(
+            "⬇️ Download",
+            data=cached_read_blob_bytes(_eval_blob_name),
+            file_name=_eval_blob_name.split("/")[-1],
+            mime="application/json",
+            key="btn_dl_eval",
+            use_container_width=True,
         )
     with col_eval_del:
         if st.button("🗑️ Delete", key="btn_del_eval", use_container_width=True):
