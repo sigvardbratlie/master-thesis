@@ -455,74 +455,93 @@ class ContextManager:
 
     # =========== FUNCTIONS TO CLEAN AND REVISE EXISTING ELEMENTS
 
+    _CLEAN_CHUNK_SIZE = 30
+    _ITEM_MODEL_MAP = {
+        "events": (list[Event], Field(default_factory=list)),
+        "parties": (list[Party], Field(default_factory=list)),
+        "claims": (list[Claim], Field(default_factory=list)),
+        "damages": (list[Damage], Field(default_factory=list)),
+        "deadlines": (list[Deadline], Field(default_factory=list)),
+    }
+    _ID_MAP = {
+        "events": "event_id", "parties": "party_id", "claims": "claim_id",
+        "damages": "damage_id", "deadlines": "deadline_id",
+    }
+    _IDENTITY_FIELDS_MAP = {
+        "events": ["event_date", "category", "event_name"],
+        "damages": ["category", "file_id", "party_role"],
+        "claims": ["relief_sought", "file_id", "party_role"],
+        "deadlines": ["file_id", "deadline_date", "party_role"],
+        "parties": ["legal_name", "role"],
+    }
+    _NULLABLE_UUID_FIELDS = {"file_id", "email_id"}
+
+    async def _clean_chunk(self, et: str, items: list[dict]) -> list[dict]:
+        """Clean a single chunk of items for one element type. Falls back to originals if LLM returns empty."""
+        ChunkModel = create_model(f"{et.capitalize()}Chunk", **{et: self._ITEM_MODEL_MAP[et]})
+        id_field = self._ID_MAP[et]
+
+        keys = list(items[0].keys()) if items else []
+        prompt = f'Clean and de-duplicate the following {et}. Merge entries that refer to the same real-world entity.\n'
+        prompt += f'FORMAT: {" | ".join(keys)}\n'
+        for item in items:
+            prompt += f'\t* {" | ".join(str(item.get(k, "")) for k in keys)}\n'
+
+        structured_llm = self.llm.with_structured_output(ChunkModel, method="function_calling")
+        response = await structured_llm.ainvoke(prompt)
+
+        raw_items = getattr(response, et, []) or []
+        if not raw_items:
+            logger.warning(f'⚠️ LLM returned empty for {et} chunk ({len(items)} items) — keeping originals')
+            return items
+
+        cleaned = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in raw_items]
+        for item in cleaned:
+            if not item.get(id_field) or not self.is_valid_uuid(item[id_field]):
+                item[id_field] = str(uuid.uuid4())
+            for field in self._NULLABLE_UUID_FIELDS:
+                if isinstance(item.get(field), str) and item[field].lower() in ("null", "none", ""):
+                    item[field] = None
+        return cleaned
+
     async def clean_elements(self,
                              element_types: list[str],
                              project_data: ProjectData,
                              ) -> dict[str, list[dict]]:
-        """Clean multiple element types in a single LLM call. Returns {element_type: cleaned_items}."""
-        item_model_map = {
-            "events": (list[Event], Field(default_factory=list)),
-            "parties": (list[Party], Field(default_factory=list)),
-            "claims": (list[Claim], Field(default_factory=list)),
-            "damages": (list[Damage], Field(default_factory=list)),
-            "deadlines": (list[Deadline], Field(default_factory=list)),
-        }
-        id_map = {
-            "events": "event_id", "parties": "party_id", "claims": "claim_id",
-            "damages": "damage_id", "deadlines": "deadline_id",
-        }
-        identity_fields_map = {
-            "events": ["event_date", "category", "event_name"],
-            "damages": ["category", "file_id", "party_role"],
-            "claims": ["relief_sought", "file_id", "party_role"],
-            "deadlines": ["file_id", "deadline_date", "party_role"],
-            "parties": ["legal_name", "role"],
-        }
-
-        CombinedModel = create_model("CombinedElements", **{et: item_model_map[et] for et in element_types})
-
+        """Clean multiple element types using chunked concurrent LLM calls. Returns {element_type: cleaned_items}."""
         data_map = {et: project_data.factsheet.model_dump().get(et, []) for et in element_types}
 
-        prompt = (
-            f'Clean and de-duplicate elements. Merge entries that refer to the same entity within each type: {", ".join(element_types)}.\n'
-        )
+        # Build all chunk tasks across all element types
+        tasks = []
+        task_et = []
         for et in element_types:
-            prompt += f'\nCurrent {et}:\n'
-            keys = list(data_map[et][0].keys()) if data_map[et] else []
-            prompt += f'FORMAT : {" | ".join(keys)}\n'
-            for item in data_map[et]:
-                item_str = " | ".join(str(item.get(k, "")) for k in keys)
-                prompt += f'\t* {item_str}\n'
-            prompt += "\n\n"
+            items = data_map[et]
+            if not items:
+                continue
+            for i in range(0, len(items), self._CLEAN_CHUNK_SIZE):
+                tasks.append(self._clean_chunk(et, items[i:i + self._CLEAN_CHUNK_SIZE]))
+                task_et.append(et)
 
-        structured_llm = self.llm.with_structured_output(CombinedModel, method="function_calling")
-        response = await structured_llm.ainvoke(prompt)
+        chunk_results = await asyncio.gather(*tasks)
 
-        _NULLABLE_UUID_FIELDS = {"file_id", "email_id"}
+        # Merge chunk results per element type
+        merged: dict[str, list[dict]] = {et: [] for et in element_types}
+        for et, result in zip(task_et, chunk_results):
+            merged[et].extend(result)
 
+        # Final code-based dedup pass (catches cross-chunk duplicates)
         results = {}
         for et in element_types:
-            id_field = id_map[et]
-            raw_items = getattr(response, et, []) or []
-            llm_cleaned = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in raw_items]
-
-            for item in llm_cleaned:
-                if not item.get(id_field) or not self.is_valid_uuid(item[id_field]):
-                    item[id_field] = str(uuid.uuid4())
-                for field in _NULLABLE_UUID_FIELDS:
-                    if isinstance(item.get(field), str) and item[field].lower() in ("null", "none", ""):
-                        item[field] = None
-
-            identity_fields = identity_fields_map.get(et, [])
-            seen = {}
+            identity_fields = self._IDENTITY_FIELDS_MAP.get(et, [])
+            seen: dict = {}
             deduped = []
-            for item in llm_cleaned:
+            for item in merged[et]:
                 sig = tuple(item.get(f) for f in identity_fields)
                 if sig not in seen:
                     seen[sig] = True
                     deduped.append(item)
 
-            logger.info(f'✅ Cleaned {et}: {len(data_map[et])} → {len(llm_cleaned)} (LLM) → {len(deduped)} (deduplicated)')
+            logger.info(f'✅ Cleaned {et}: {len(data_map[et])} → {len(merged[et])} (LLM) → {len(deduped)} (deduplicated)')
             results[et] = deduped
 
         return results
