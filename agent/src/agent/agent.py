@@ -19,7 +19,7 @@ from langgraph.graph import StateGraph, END, START
 
 from .agent_modules import Summarizer, ToolManager
 from .context_manager import ContextManager
-from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore
+from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore, GCSManager
 from documents import DocumentProcessor, EmailHandler
 from models import *  
 from uuid import uuid4
@@ -60,7 +60,7 @@ class Agent:
         self.vs = BQVectorStore(**self.config.vectorstore.bigquery.model_dump())
         self.document_processor = DocumentProcessor(config=self.config)
         self.summarizer = Summarizer()
-        self.storage = SupabaseStorageManager() #GCSManager() 
+        self.storage = GCSManager(config=self.config)  #SupabaseStorageManager(config=self.config) #
         self.conversation_manager =  SupabaseManager() #ConversationManager()
         self.context_manager = ContextManager()
         self.tool_manager = ToolManager()

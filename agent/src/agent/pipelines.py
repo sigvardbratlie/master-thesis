@@ -12,7 +12,7 @@ from .context_manager import ContextManager
 from datetime import datetime
 import base64
 import email as python_email
-from database import SupabaseStorageManager, SupabaseManager, BQVectorStore
+from database import SupabaseStorageManager, SupabaseManager, BQVectorStore, GCSManager
 
 from models import PipelineState, AskAgentRequest, ProjectData, InitialInput
 
@@ -27,7 +27,7 @@ class ProjectPipeline:
         self.context_manager = ContextManager()
         self.document_processor = DocumentProcessor(config=self.config)
         self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
-        self.storage = SupabaseStorageManager()
+        self.storage = GCSManager(config=self.config)  #SupabaseStorageManager(config=self.config)
         self.vs = BQVectorStore(embedding_model=self.config.vectorstore.bigquery.embedding_model)
         self.conversation_manager = SupabaseManager()
 

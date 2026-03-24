@@ -12,7 +12,7 @@ from langchain_tavily import TavilySearch
 from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool
 
-from database import SupabaseStorageManager, BQVectorStore, SupabaseManager
+from database import SupabaseStorageManager, BQVectorStore, SupabaseManager, GCSManager
 from documents import DocumentProcessor
 from utils import get_app_config,setup_logging
 
@@ -55,7 +55,7 @@ def read_attachments(
         str: Processed content of the attachment.
     """
     db = SupabaseManager()
-    storage_manager = SupabaseStorageManager()
+    storage_manager = GCSManager(config=config)
     response = db.get_body_by_id(ids=ids)
     def process_attachment(path, content):
         try:

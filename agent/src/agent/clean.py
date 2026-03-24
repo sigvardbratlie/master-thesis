@@ -10,7 +10,7 @@ import asyncio
 from utils import AppConfig
 from .context_manager import ContextManager
 from datetime import datetime
-from database import SupabaseStorageManager, SupabaseManager, BQVectorStore
+from database import SupabaseStorageManager, SupabaseManager, BQVectorStore, GCSManager
 from models import PipelineState, ProjectData, Claim, Damage, Event, Deadline, Party
 
 from agent.utils import pick_llm
@@ -25,7 +25,7 @@ class ProjectClean:
         self.context_manager = ContextManager()
         self.document_processor = DocumentProcessor(config=self.config)
         self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
-        self.storage = SupabaseStorageManager()
+        self.storage = GCSManager(config=self.config)  #SupabaseStorageManager(config=self.config)
         self.vs = BQVectorStore(embedding_model=self.config.vectorstore.bigquery.embedding_model)
         self.conversation_manager = SupabaseManager()
 
