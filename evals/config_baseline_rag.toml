@@ -34,12 +34,6 @@ save_to_storage = true
 [vectorstore]
 chunk_size = 1500
 chunk_overlap = 300
-k = 3
-
-
-[vectorstore]
-chunk_size = 1500
-chunk_overlap = 300
 k = 5
 
 [vectorstore.bigquery]
