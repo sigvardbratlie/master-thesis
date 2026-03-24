@@ -23,7 +23,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate attachment assignment")
     parser.add_argument("-d","--dataset", 
                         type=str, 
-                        choices=["test", "THRD-2021-163881", "TOSL-2024-125319"], 
+                        choices=["test", "THRD-2021-163881", "TOSL-2024-125319", "TOSL-2024-125319-MIN"], 
                         help="Dataset name to evaluate")
     parser.add_argument("-m","--model", 
                         type=str, 

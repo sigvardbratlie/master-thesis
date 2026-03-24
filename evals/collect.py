@@ -37,7 +37,7 @@ async def main():
                                 ],
                         default="google_gemini-2.5-flash",
                         help="LLM model to use for evaluation")
-    parser.add_argument("-a", "--agent-type", nargs="+", type=str, choices=["custom", "baseline", "baseline_rag"], default=["custom", "baseline", "baseline_rag"],help="Agent type to run (custom, baseline, or baseline_rag)")
+    parser.add_argument("-a", "--agent-type", nargs="+", type=str, choices=["custom", "baseline", "baseline_rag"], default=["custom","baseline_rag"],help="Agent type to run (custom, baseline, or baseline_rag)")
     parser.add_argument("-n","--n-runs", type=int, default=1, help="Number of runs to execute for each agent")
     parser.add_argument("--clean-rate", type = int, help="The rate (of sessions) in which to clean the factsheet. From -1 for last msg, 1 > for all other rates")
     args = parser.parse_args()
