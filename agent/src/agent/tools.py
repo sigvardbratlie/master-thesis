@@ -12,7 +12,7 @@ from langchain_tavily import TavilySearch
 from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool
 
-from database import SupabaseStorageManager, BQVectorStore, SupabaseManager, GCSManager
+from database import GCSManager, BQVectorStore, SupabaseManager
 from documents import DocumentProcessor
 from utils import get_app_config,setup_logging
 
@@ -46,13 +46,14 @@ def read_attachments(
     # config : RunnableConfig
 ) -> str:
     """
-    Reads and processes multiple attachments from Supabase storage based on the provided paths.
+    Reads and processes multiple attachments based on the provided file IDs.
+    Content is fetched from the database body cache when available, otherwise from GCS.
 
     Args:
-        ids (str): The file IDs of the attachments in Supabase storage. 
+        ids (list[str]): The file IDs of the attachments to read.
 
     Returns:
-        str: Processed content of the attachment.
+        str: Processed content of the attachments.
     """
     db = SupabaseManager()
     storage_manager = GCSManager(config=config)
