@@ -319,41 +319,33 @@ def test_query_laws_no_results():
 
 def test_read_attachments_returns_content():
     mock_sm = MagicMock()
-    mock_sm.get_paths.return_value = {"file-001": "user/session/file-001.pdf"}
+    mock_sm.get_body_by_id.return_value = [
+        {"body": "Innholdet i dokumentet", "path": "user/session/file-001.pdf"}
+    ]
 
     mock_storage = MagicMock()
-    mock_storage.read_attachments.return_value = {
-        "user/session/file-001.pdf": b"%PDF-1.4 mock content"
-    }
-
-    mock_doc_processor = MagicMock()
-    mock_doc_processor.map_file_type.return_value = "pdf"
-    mock_doc_processor.parse.return_value = [MagicMock()]
-    mock_doc_processor.to_plain_text.return_value = "Innholdet i dokumentet"
 
     with patch('agent.tools.SupabaseManager', return_value=mock_sm), \
-         patch('agent.tools.SupabaseStorageManager', return_value=mock_storage), \
-         patch('agent.tools.DocumentProcessor', return_value=mock_doc_processor):
-        result = read_attachments.invoke({"file_ids": ["file-001"]})
+         patch('agent.tools.SupabaseStorageManager', return_value=mock_storage):
+        result = read_attachments.invoke({"ids": ["file-001"]})
 
     assert "Innholdet i dokumentet" in result
 
 
 def test_read_attachments_missing_content():
     mock_sm = MagicMock()
-    mock_sm.get_paths.return_value = {"file-999": "user/session/file-999.pdf"}
+    mock_sm.get_body_by_id.return_value = [
+        {"body": None, "path": "user/session/file-999.pdf"}
+    ]
 
     mock_storage = MagicMock()
     mock_storage.read_attachments.return_value = {"user/session/file-999.pdf": None}
 
-    mock_doc_processor = MagicMock()
-
     with patch('agent.tools.SupabaseManager', return_value=mock_sm), \
-         patch('agent.tools.SupabaseStorageManager', return_value=mock_storage), \
-         patch('agent.tools.DocumentProcessor', return_value=mock_doc_processor):
-        result = read_attachments.invoke({"file_ids": ["file-999"]})
+         patch('agent.tools.SupabaseStorageManager', return_value=mock_storage):
+        result = read_attachments.invoke({"ids": ["file-999"]})
 
-    assert "Can not find any contents" in result
+    assert "No content found" in result
 
 
 # ============================================

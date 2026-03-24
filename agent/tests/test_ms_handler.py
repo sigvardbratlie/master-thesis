@@ -56,7 +56,8 @@ def test_parse_docx_empty_document(docx_handler):
     content = b"fake docx bytes"
     metadata = get_mock_metadata()
 
-    with patch('documents.ms_modules.DocxDocument') as mock_docx:
+    with patch('documents.ms_modules.DocxDocument') as mock_docx, \
+         patch('documents.ms_modules.MarkItDown') as mock_md:
         mock_doc = MagicMock()
 
         mock_props = MagicMock()
@@ -67,13 +68,8 @@ def test_parse_docx_empty_document(docx_handler):
         mock_props.comments = None
         mock_props.language = None
         mock_doc.core_properties = mock_props
-
-        para1 = MagicMock()
-        para1.text = ""
-        para2 = MagicMock()
-        para2.text = "   "
-        mock_doc.paragraphs = [para1, para2]
         mock_docx.return_value = mock_doc
+        mock_md.return_value.convert.return_value.markdown = ""
 
         result = docx_handler.parse_docx(content, metadata)
         assert isinstance(result, tuple)
@@ -82,13 +78,13 @@ def test_parse_docx_empty_document(docx_handler):
 
 
 def test_parse_docx_invalid_bytes(docx_handler):
-    """Test parse_docx with invalid bytes returns empty list."""
+    """Test parse_docx with invalid bytes raises when metadata validation fails."""
     content = b"not a real docx file"
     metadata = get_mock_metadata()
 
     with patch('documents.ms_modules.DocxDocument', side_effect=Exception("Invalid DOCX")):
-        result = docx_handler.parse_docx(content, metadata)
-        assert result == []
+        with pytest.raises(Exception):
+            docx_handler.parse_docx(content, metadata)
 
 
 def test_parse_docx_preserves_metadata(docx_handler):
@@ -138,7 +134,8 @@ def test_parse_pptx_empty_presentation(pptx_handler):
     content = b"fake pptx bytes"
     metadata = get_mock_metadata()
 
-    with patch('documents.ms_modules.Presentation') as mock_pptx:
+    with patch('documents.ms_modules.Presentation') as mock_pptx, \
+         patch('documents.ms_modules.MarkItDown') as mock_md:
         mock_pres = MagicMock()
 
         mock_props = MagicMock()
@@ -149,13 +146,8 @@ def test_parse_pptx_empty_presentation(pptx_handler):
         mock_props.comments = None
         mock_props.language = None
         mock_pres.core_properties = mock_props
-
-        slide1 = MagicMock()
-        shape1 = MagicMock()
-        shape1.text = ""
-        slide1.shapes = [shape1]
-        mock_pres.slides = [slide1]
         mock_pptx.return_value = mock_pres
+        mock_md.return_value.convert.return_value.markdown = ""
 
         result = pptx_handler.parse_pptx(content, metadata)
         assert isinstance(result, tuple)
@@ -164,13 +156,13 @@ def test_parse_pptx_empty_presentation(pptx_handler):
 
 
 def test_parse_pptx_invalid_bytes(pptx_handler):
-    """Test parse_pptx with invalid bytes returns empty list."""
+    """Test parse_pptx with invalid bytes raises when metadata validation fails."""
     content = b"not a real pptx file"
     metadata = get_mock_metadata()
 
     with patch('documents.ms_modules.Presentation', side_effect=Exception("Invalid PPTX")):
-        result = pptx_handler.parse_pptx(content, metadata)
-        assert result == []
+        with pytest.raises(Exception):
+            pptx_handler.parse_pptx(content, metadata)
 
 
 def test_parse_pptx_preserves_metadata(pptx_handler):
