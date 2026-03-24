@@ -323,10 +323,10 @@ def test_read_attachments_returns_content():
         {"body": "Innholdet i dokumentet", "path": "user/session/file-001.pdf"}
     ]
 
-    mock_storage = MagicMock()
+    mock_gcs = MagicMock()
 
     with patch('agent.tools.SupabaseManager', return_value=mock_sm), \
-         patch('agent.tools.SupabaseStorageManager', return_value=mock_storage):
+         patch('agent.tools.GCSManager', return_value=mock_gcs):
         result = read_attachments.invoke({"ids": ["file-001"]})
 
     assert "Innholdet i dokumentet" in result
@@ -338,11 +338,11 @@ def test_read_attachments_missing_content():
         {"body": None, "path": "user/session/file-999.pdf"}
     ]
 
-    mock_storage = MagicMock()
-    mock_storage.read_attachments.return_value = {"user/session/file-999.pdf": None}
+    mock_gcs = MagicMock()
+    mock_gcs.read_attachments.return_value = {"user/session/file-999.pdf": None}
 
     with patch('agent.tools.SupabaseManager', return_value=mock_sm), \
-         patch('agent.tools.SupabaseStorageManager', return_value=mock_storage):
+         patch('agent.tools.GCSManager', return_value=mock_gcs):
         result = read_attachments.invoke({"ids": ["file-999"]})
 
     assert "No content found" in result

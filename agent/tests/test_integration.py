@@ -162,110 +162,13 @@ def test_integration_document_processor_routes_pptx():
 
 
 # ============================================
-#           STORAGE — SUPABASE
-# ============================================
-
-@pytest.mark.integration
-@requires_supabase
-def test_integration_supabase_save_and_read_attachment():
-    """Upload bytes to Supabase Storage and read them back."""
-    from database import SupabaseStorageManager
-    from utils import get_app_config
-
-    config = get_app_config()
-    manager = SupabaseStorageManager(config=config)
-
-    test_id = str(uuid.uuid4())
-    path = f"integration-test/{test_id}.txt"
-    content = b"Integration test content: " + test_id.encode()
-
-    try:
-        saved_path = manager.save_attachment(content=content, path=path)
-        assert saved_path == path, f"Expected path {path}, got {saved_path}"
-
-        downloaded = manager.read_attachment(path)
-        assert downloaded == content, "Downloaded content does not match uploaded content"
-    finally:
-        manager.delete_attachment(path)
-
-
-@pytest.mark.integration
-@requires_supabase
-def test_integration_supabase_save_attachment_idempotent():
-    """Uploading the same file twice treats the duplicate as success."""
-    from database import SupabaseStorageManager
-    from utils import get_app_config
-
-    config = get_app_config()
-    manager = SupabaseStorageManager(config=config)
-
-    test_id = str(uuid.uuid4())
-    path = f"integration-test/{test_id}.txt"
-    content = b"Idempotent upload test"
-
-    try:
-        first = manager.save_attachment(content=content, path=path)
-        second = manager.save_attachment(content=content, path=path)
-        assert first == path
-        assert second == path
-    finally:
-        manager.delete_attachment(path)
-
-
-@pytest.mark.integration
-@requires_supabase
-async def test_integration_supabase_save_raw_documents():
-    """save_raw_documents uploads all attachments and returns True."""
-    from database import SupabaseStorageManager
-    from utils import get_app_config
-    from models.api_request_models import AttachmentModel
-
-    config = get_app_config()
-    manager = SupabaseStorageManager(config=config)
-
-    uid = str(uuid.uuid4())[:8]
-    pdf_att = get_mock_pdf_attachment()
-    text_att = get_mock_text_attachment()
-    pdf_att.path = f"integration-test/pdf-{uid}.pdf"
-    text_att.path = f"integration-test/txt-{uid}.txt"
-
-    try:
-        result = await manager.save_raw_documents([pdf_att, text_att])
-        assert result is True
-
-        pdf_downloaded = manager.read_attachment(pdf_att.path)
-        txt_downloaded = manager.read_attachment(text_att.path)
-        assert pdf_downloaded is not None
-        assert txt_downloaded is not None
-    finally:
-        manager.delete_attachment(pdf_att.path)
-        manager.delete_attachment(text_att.path)
-
-
-@pytest.mark.integration
-@requires_supabase
-def test_integration_supabase_read_attachments_missing_returns_none():
-    """read_attachments returns None for paths that do not exist."""
-    from database import SupabaseStorageManager
-    from utils import get_app_config
-
-    config = get_app_config()
-    manager = SupabaseStorageManager(config=config)
-
-    missing_path = f"integration-test/does-not-exist-{uuid.uuid4()}.pdf"
-    results = manager.read_attachments([missing_path])
-
-    assert results[missing_path] is None
-
-
-# ============================================
 #           STORAGE — GCS
 # ============================================
 
 @pytest.mark.integration
 @requires_gcp
 def test_integration_gcs_save_and_read_attachment():
-    """Upload bytes to GCS and read them back."""
+    """Upload bytes to GCS and read them back (verifies prefix handling)."""
     from database import GCSManager
     from utils import get_app_config
 
@@ -286,6 +189,72 @@ def test_integration_gcs_save_and_read_attachment():
         manager.delete_attachment(path)
 
 
+@pytest.mark.integration
+@requires_gcp
+def test_integration_gcs_save_attachment_idempotent():
+    """Uploading the same file twice is treated as success."""
+    from database import GCSManager
+    from utils import get_app_config
+
+    config = get_app_config()
+    manager = GCSManager(config=config)
+
+    test_id = str(uuid.uuid4())
+    path = f"integration-test/{test_id}.txt"
+    content = b"Idempotent upload test"
+
+    try:
+        first = manager.save_attachment(content=content, path=path)
+        second = manager.save_attachment(content=content, path=path)
+        assert first == path
+        assert second == path
+    finally:
+        manager.delete_attachment(path)
+
+
+@pytest.mark.integration
+@requires_gcp
+async def test_integration_gcs_save_raw_documents():
+    """save_raw_documents uploads all attachments to GCS and returns True."""
+    from database import GCSManager
+    from utils import get_app_config
+
+    config = get_app_config()
+    manager = GCSManager(config=config)
+
+    uid = str(uuid.uuid4())[:8]
+    pdf_att = get_mock_pdf_attachment()
+    text_att = get_mock_text_attachment()
+    pdf_att.path = f"integration-test/pdf-{uid}.pdf"
+    text_att.path = f"integration-test/txt-{uid}.txt"
+
+    try:
+        result = await manager.save_raw_documents([pdf_att, text_att])
+        assert result is True
+
+        assert manager.read_attachment(pdf_att.path) is not None
+        assert manager.read_attachment(text_att.path) is not None
+    finally:
+        manager.delete_attachment(pdf_att.path)
+        manager.delete_attachment(text_att.path)
+
+
+@pytest.mark.integration
+@requires_gcp
+def test_integration_gcs_read_attachments_missing_returns_none():
+    """read_attachments returns None for paths that do not exist in GCS."""
+    from database import GCSManager
+    from utils import get_app_config
+
+    config = get_app_config()
+    manager = GCSManager(config=config)
+
+    missing_path = f"integration-test/does-not-exist-{uuid.uuid4()}.pdf"
+    results = manager.read_attachments([missing_path])
+
+    assert results[missing_path] is None
+
+
 # ============================================
 #           TOOLS
 # ============================================
@@ -293,7 +262,7 @@ def test_integration_gcs_save_and_read_attachment():
 @pytest.mark.integration
 @requires_supabase
 def test_integration_read_attachments_tool_with_body():
-    """read_attachments returns body text when the DB has cached body content."""
+    """read_attachments returns body text when the DB has cached body content (no GCS call)."""
     from unittest.mock import MagicMock, patch
     from agent.tools import read_attachments
 
@@ -301,26 +270,23 @@ def test_integration_read_attachments_tool_with_body():
     mock_sm.get_body_by_id.return_value = [
         {"body": "Cached document content from DB", "path": "user/session/file-001.pdf"}
     ]
-    mock_storage = MagicMock()
+    mock_gcs = MagicMock()
 
     with patch('agent.tools.SupabaseManager', return_value=mock_sm), \
-         patch('agent.tools.SupabaseStorageManager', return_value=mock_storage):
+         patch('agent.tools.GCSManager', return_value=mock_gcs):
         result = read_attachments.invoke({"ids": ["file-001"]})
 
     assert "Cached document content from DB" in result
-    mock_storage.read_attachments.assert_not_called()
+    mock_gcs.read_attachments.assert_not_called()
 
 
 @pytest.mark.integration
 @requires_supabase
-def test_integration_read_attachments_tool_falls_back_to_storage():
-    """read_attachments falls back to storage when body is not cached."""
+def test_integration_read_attachments_tool_falls_back_to_gcs():
+    """read_attachments falls back to GCS when body is not cached in DB."""
     from unittest.mock import MagicMock, patch
     from agent.tools import read_attachments
-    from documents import DocumentProcessor
-    from utils import get_app_config
 
-    config = get_app_config()
     pdf_bytes = get_mock_pdf_bytes_with_text()
 
     mock_sm = MagicMock()
@@ -328,14 +294,14 @@ def test_integration_read_attachments_tool_falls_back_to_storage():
         {"body": None, "path": "user/session/test-doc.pdf"}
     ]
 
-    mock_storage = MagicMock()
-    mock_storage.read_attachments.return_value = {
+    mock_gcs = MagicMock()
+    mock_gcs.read_attachments.return_value = {
         "user/session/test-doc.pdf": pdf_bytes
     }
 
     with patch('agent.tools.SupabaseManager', return_value=mock_sm), \
-         patch('agent.tools.SupabaseStorageManager', return_value=mock_storage):
+         patch('agent.tools.GCSManager', return_value=mock_gcs):
         result = read_attachments.invoke({"ids": ["test-doc"]})
 
     assert "CONTENT FOR FILE-ID test-doc" in result
-    mock_storage.read_attachments.assert_called_once_with(paths=["user/session/test-doc.pdf"])
+    mock_gcs.read_attachments.assert_called_once_with(paths=["user/session/test-doc.pdf"])
