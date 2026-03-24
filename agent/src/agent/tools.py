@@ -42,22 +42,21 @@ tavily_search = TavilySearch(
 
 @tool
 def read_attachments(
-    file_ids: list[str],
+    ids: list[str],
     # config : RunnableConfig
 ) -> str:
     """
     Reads and processes multiple attachments from Supabase storage based on the provided paths.
 
     Args:
-        file_ids (str): The file IDs of the attachments in Supabase storage. 
+        ids (str): The file IDs of the attachments in Supabase storage. 
 
     Returns:
         str: Processed content of the attachment.
     """
     db = SupabaseManager()
     storage_manager = SupabaseStorageManager()
-    paths = db.get_paths(file_ids)
-    contents = storage_manager.read_attachments(paths=paths)
+    response = db.get_body_by_id(ids=ids)
     def process_attachment(path, content):
         try:
             file_id = (
@@ -69,7 +68,7 @@ def read_attachments(
             return None
         if ext in [".pdf", ".docx", ".pptx", ".eml", ".txt", ".md"]:
             file_type = document_processor.map_file_type(ext)
-            docs = document_processor.parse(
+            md, _ = document_processor.parse(
                 content=content,
                 metadata={
                     "file_id": file_id,
@@ -80,21 +79,23 @@ def read_attachments(
                 file_type=file_type,
                 force_metadata_model=False,
             )
-            content_txt = document_processor.to_plain_text(docs)
-            return f"CONTENT FOR FILEPATH {path}: \n\n{content_txt}\n\n"
+            return md
         else:
             logger.error(f"Unsupported file extension: {ext}")
             return []
 
-    results = "Results for reading attachments:" + "\n" + "-" * 50 + "\n\n"
-    for path, content in contents.items():
-        if content is not None:
-            results += process_attachment(path, content)
-            results += "\n" + "-" * 50 + "\n\n"
-        else:
-            results += f"Can not find any contents for {path}\n"
-            results += "\n" + "-" * 50 + "\n\n"
+    results = "Results from reading attachments:" + "\n" + "-" * 50 + "\n\n"
+    for i in range(len(ids)):
+        res = response[i]
+        content = res.get("body")
+        if not content:
+            read_res = storage_manager.read_attachments(paths = [res["path"]])
+            raw_bytes = read_res.get(res["path"])
+            content = process_attachment(res["path"], raw_bytes) if raw_bytes else None
+        results +=  f"CONTENT FOR FILE-ID {ids[i]}: \n\n{content}\n\n" if content else f"No content found for file ID {ids[i]}, path {res['path']}.\n"
+        results += "\n" + "-" * 50 + "\n\n"
     return results
+
 
 @tool
 def query_project_attachments(query: str, project_id: str, k: int = 10, metadata : dict = None) -> str:

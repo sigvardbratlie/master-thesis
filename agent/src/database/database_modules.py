@@ -561,3 +561,12 @@ class SupabaseManager:
         paths = [item["path"] for item in response_att.data]
         emails = [item["path"] for item in response_emails.data]
         return emails + paths
+    
+    def get_body_by_id(self, ids: list[str]) -> list[dict]:
+        """Get email bodies for given email IDs from Supabase"""
+        try:
+            response = self.supabase.rpc("get_body_by_id", {"file_ids" : ids}).execute()
+            return response.data if response.data else []
+        except Exception:
+            logger.exception(f"Error reading bodies for ids {ids} from Supabase")
+            return []
