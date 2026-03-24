@@ -65,6 +65,7 @@ async def main():
     if "custom" in agent_types:
         ds_custom = Dataset(dataset_name)
         data_custom = ds_custom.load_dataset()
+        data_custom.dataset_name = dataset_name
         if not data_custom or not data_custom.sessions:
             logger.error("Custom dataset is empty or missing 'sessions' key.")
             exit()
@@ -94,6 +95,7 @@ async def main():
         config_baseline = AppConfig.from_toml(f"config_baseline.toml")
         ds_baseline = Dataset(dataset_name)
         data_baseline = ds_baseline.load_dataset()
+        data_baseline.dataset_name = dataset_name
         if not data_baseline or not data_baseline.sessions:
             logger.error("Baseline dataset is empty or missing 'sessions' key.")
             exit()
@@ -119,6 +121,7 @@ async def main():
         config_baseline_rag = AppConfig.from_toml(f"config_baseline_rag.toml")
         ds_baseline_rag = Dataset(dataset_name)
         data_baseline_rag = ds_baseline_rag.load_dataset()
+        data_baseline_rag.dataset_name = dataset_name
         if not data_baseline_rag or not data_baseline_rag.sessions:
             logger.error("Baseline RAG dataset is empty or missing 'sessions' key.")
             exit()
