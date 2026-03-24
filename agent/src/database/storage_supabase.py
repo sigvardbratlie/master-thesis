@@ -9,52 +9,24 @@ from google.cloud import storage
 
 from models.api_request_models import *
 from supabase import create_client
+from .storage_base import BaseStorageManager
+from utils import AppConfig
 
 logger = logging.getLogger(__name__)
 
-
-class GCSManager:
-    #OUTDATED - MUST BE REWRITTEN TO SUPPORT CODE
-    def __init__(self):
-        self.client = storage.Client()
-        self.bucket_name = os.getenv("GCS_BUCKET_NAME", "attachments")
-        self.bucket = self.client.bucket(self.bucket_name)
-    
-    async def save_attachment(self,content : bytes | str, path : str):
-        try:
-            blob = self.bucket.blob(path)
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, blob.upload_from_string, content)
-            logger.info(f"✅ Saved to GCS: {path}")
-        except Exception as e:
-            logger.error(f"❌ GCS upload failed: {e}")
-
-    async def save_raw_documents(self, attachments: list[AttachmentModel], bucket_name: str = "attachments"):
-        """Lagrer alle vedlegg parallelt"""
-        tasks = []
-        
-        for att in attachments:
-            content = att.content
-            
-            # Decode content
-            if att.file_type == "application/pdf":
-                content_bytes = base64.b64decode(content)
-                tasks.append(self.save_attachment(content_bytes, path=att.path, bucket_name=bucket_name))
-            else:
-                tasks.append(self.save_attachment(content, path=att.path, bucket_name=bucket_name))
-        
-        # Kjør alle uploads parallelt
-        await asyncio.gather(*tasks)
-
-
-class SupabaseStorageManager:
-    def __init__(self, max_concurrent_uploads: int = 1):
+class SupabaseStorageManager(BaseStorageManager):
+    def __init__(self, config: AppConfig):
+        super().__init__(config)
         self.url = os.getenv("SUPABASE_URL")
         self.key = os.getenv("SUPABASE_KEY")
         self.supabase = create_client(self.url, self.key)
-        self.max_concurrent_uploads = max_concurrent_uploads
+        self.bucket = self.supabase.storage.from_(self.config.storage.supabase.bucket_name)
+        self.config = config
 
-    def save_attachment(self, content: bytes, path : str, bucket_name: str = "attachments", max_retries: int = 3, metadata : dict = None) -> str | None:
+    def save_attachment(self, 
+                        content: bytes, 
+                        path : str, 
+                        metadata : dict = None) -> str | None:
         """Save attachment with retry logic for transient errors
         
         Args:
@@ -70,7 +42,7 @@ class SupabaseStorageManager:
         tmp_path = None
         last_error = None
         
-        for attempt in range(max_retries):
+        for attempt in range(self.config.storage.max_retries):
             try:
                 # Opprett midlertidig fil med unikt navn
                 with tempfile.NamedTemporaryFile(delete=False, mode='wb') as tmp:
@@ -79,7 +51,7 @@ class SupabaseStorageManager:
                 
                 # Last opp fra midlertidig fil
                 with open(tmp_path, 'rb') as f:
-                    self.supabase.storage.from_(bucket_name).upload(
+                    self.bucket.upload(
                         path=path,
                         file=f,
                         file_options={"content-type": "application/octet-stream"}
@@ -98,13 +70,13 @@ class SupabaseStorageManager:
                 
                 # Retry on transient errors
                 if "Resource temporarily unavailable" in error_msg or "[Errno 35]" in error_msg:
-                    if attempt < max_retries - 1:
+                    if attempt < self.config.storage.max_retries - 1:
                         wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
-                        logger.warning(f"⚠️  Retry {attempt + 1}/{max_retries} for {path} after {wait_time}s: {e}")
+                        logger.warning(f"⚠️  Retry {attempt + 1}/{self.config.storage.max_retries} for {path} after {wait_time}s: {e}")
                         time.sleep(wait_time)
                         continue
                 
-                logger.error(f"❌ Supabase Storage upload attempt {attempt + 1}/{max_retries} failed for path {path} | filename: {metadata.get('filename') if metadata else 'Unknown'}: {e}")
+                logger.error(f"❌ Supabase Storage upload attempt {attempt + 1}/{self.config.storage.max_retries} failed for path {path} | filename: {metadata.get('filename') if metadata else 'Unknown'}: {e}")
                 break
             
             finally:
@@ -116,13 +88,14 @@ class SupabaseStorageManager:
                         pass
         
         # If all retries failed
-        logger.error(f"❌ Upload failed after {max_retries} attempts for path {path} | filename: {metadata.get('filename') if metadata else 'Unknown'}: {last_error}")
+        logger.error(f"❌ Upload failed after {self.config.storage.max_retries} attempts for path {path} | filename: {metadata.get('filename') if metadata else 'Unknown'}: {last_error}")
         return None
             
-
-    async def save_raw_documents(self, attachments: list[AttachmentModel], bucket_name: str = "attachments") -> bool:
+    async def save_raw_documents(self, 
+                                 attachments: list[AttachmentModel], 
+                                 ) -> bool:
         """Save attachments with controlled concurrency using semaphore"""
-        semaphore = asyncio.Semaphore(self.max_concurrent_uploads)
+        semaphore = asyncio.Semaphore(self.config.storage.max_concurrent_uploads)
         results = {}
 
         async def upload_with_semaphore(att: AttachmentModel):
@@ -131,12 +104,10 @@ class SupabaseStorageManager:
                 path = att.path
                 content_bytes = base64.b64decode(att.content)
 
-                # Kjør blocking I/O i thread → slipper å blokkere event loop
                 result = await asyncio.to_thread(
                     self.save_attachment,
                     content=content_bytes,
                     path=path,
-                    bucket_name=bucket_name,
                     metadata = {
                                 "filename": att.filename,
                                 "file_type": att.file_type}
@@ -155,20 +126,20 @@ class SupabaseStorageManager:
         
         return True
     
-    def read_attachment(self, path : str, bucket_name: str = "attachments") -> bytes:
-        response = self.supabase.storage.from_(bucket_name)\
-            .download(path)
+    def read_attachment(self, path : str) -> bytes:
+        response = self.bucket.download(path)
         return response
-    def read_attachments(self, paths: list[str], bucket_name: str = "attachments") -> dict[str, bytes | None]:
+    
+    def read_attachments(self, paths: list[str]) -> dict[str, bytes | None]:
         results = {}
         for path in paths:
             try:
-                content = self.read_attachment(path, bucket_name)
+                content = self.read_attachment(path)
                 results[path] = content
             except Exception as e:
                 logger.error(f"❌ Failed to read {path} from Supabase Storage: {e}")
                 results[path] = None
         return results
     
-    def delete_attachment(self, path : str, bucket_name: str = "attachments") -> None:
-        self.supabase.storage.from_(bucket_name).remove([path])
+    def delete_attachment(self, path : str) -> None:
+        self.bucket.remove([path])

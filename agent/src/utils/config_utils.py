@@ -65,6 +65,8 @@ class StorageSupabaseConfig(BaseModel):
 
 
 class StorageConfig(BaseModel):
+    max_concurrent_uploads: int = 1
+    max_retries: int = 3
     aws: StorageAWSConfig = Field(default_factory=StorageAWSConfig)
     gcs: StorageGCSConfig = Field(default_factory=StorageGCSConfig)
     supabase: StorageSupabaseConfig = Field(default_factory=StorageSupabaseConfig)
