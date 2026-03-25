@@ -14,14 +14,18 @@ from datetime import date, datetime
 from langchain.chat_models import init_chat_model
 
 from models import *
+from utils import AppConfig
 
 logger = logging.getLogger(__name__)
 
 class ContextManager:
-    def __init__(self, llm: BaseChatModel = None,
+    def __init__(self, 
+                 config : AppConfig,
+                 llm: BaseChatModel = None,
                  ):
         self._llm = init_chat_model("gemini-2.5-flash", model_provider="google_genai") if llm is None else llm
         #self.vector_search = VectorSearch()
+        self.config = config
 
     @property
     def llm(self):
@@ -455,7 +459,6 @@ class ContextManager:
 
     # =========== FUNCTIONS TO CLEAN AND REVISE EXISTING ELEMENTS
 
-    _CLEAN_CHUNK_SIZE = 30
     _ITEM_MODEL_MAP = {
         "events": (list[Event], Field(default_factory=list)),
         "parties": (list[Party], Field(default_factory=list)),
@@ -512,14 +515,21 @@ class ContextManager:
         data_map = {et: project_data.factsheet.model_dump().get(et, []) for et in element_types}
 
         # Build all chunk tasks across all element types
+        sem = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
+        chunk_size = self.config.project.clean.chunk_size
+
+        async def _guarded(et: str, items: list[dict]) -> list[dict]:
+            async with sem:
+                return await self._clean_chunk(et, items)
+
         tasks = []
         task_et = []
         for et in element_types:
             items = data_map[et]
             if not items:
                 continue
-            for i in range(0, len(items), self._CLEAN_CHUNK_SIZE):
-                tasks.append(self._clean_chunk(et, items[i:i + self._CLEAN_CHUNK_SIZE]))
+            for i in range(0, len(items), chunk_size):
+                tasks.append(_guarded(et, items[i:i + chunk_size]))
                 task_et.append(et)
 
         chunk_results = await asyncio.gather(*tasks)

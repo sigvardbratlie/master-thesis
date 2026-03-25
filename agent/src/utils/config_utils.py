@@ -71,7 +71,8 @@ class StorageConfig(BaseModel):
     gcs: StorageGCSConfig = Field(default_factory=StorageGCSConfig)
     supabase: StorageSupabaseConfig = Field(default_factory=StorageSupabaseConfig)
 
-
+class ProjectCleanConfig(BaseModel):
+    chunk_size : int = 50
 
 class ProjectConfig(BaseModel):
     threshold: int = 5120000     # 500 * 1024
@@ -79,6 +80,7 @@ class ProjectConfig(BaseModel):
     max_emails: int = 15
     embed_to_vectorstore: bool = True
     save_to_storage: bool = True
+    clean : ProjectCleanConfig = Field(default_factory=ProjectCleanConfig)
     
 class VectorstoreBQConfig(BaseModel):
     embedding_model: str = "google_gemini-embedding-001"

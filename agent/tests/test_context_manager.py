@@ -11,6 +11,7 @@ from tests.fixtures.email_data import get_mock_email_model_list, get_mock_email_
 import tiktoken
 from models import *
 from pydantic import BaseModel
+from utils import AppConfig
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from agent import ContextManager
@@ -29,7 +30,8 @@ def mock_context_manager():
     """
     
     llm_mock = MagicMock()
-    manager = ContextManager(llm = llm_mock)
+    manager = ContextManager(llm = llm_mock,
+                             config = AppConfig())
     yield manager
 
 def test_truncate_tokens(mock_context_manager):
@@ -446,7 +448,7 @@ async def test_analyze_emails_real_data_integration():
     if not os.getenv("GOOGLE_API_KEY"):
         print(f' \n\n==== NOT FOUND GOOGLE_API_KEY in environment variables, skipping integration test. Set GOOGLE_API_KEY in .env file to run this test. ====\n\n')
     
-    cm = ContextManager()  # Real LLM, not mocked
+    cm = ContextManager(config=AppConfig)  # Real LLM, not mocked
     
     # Load real email from test-file.eml
     test_email = load_real_test_email()
@@ -511,7 +513,7 @@ async def test_analyze_emails_multiple_emails_integration():
     load_dotenv()  # Load environment variables from .env file, including LLM API keys
     if not os.getenv("GOOGLE_API_KEY"):
         print(f' \n\n==== NOT FOUND GOOGLE_API_KEY in environment variables, skipping integration test. Set GOOGLE_API_KEY in .env file to run this test. ====\n\n')
-    cm = ContextManager()  # Real LLM
+    cm = ContextManager(config = AppConfig)  # Real LLM
     
     # Use mock emails (faster than parsing multiple real EMLs)
     emails = get_mock_email_model_list()

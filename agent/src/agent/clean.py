@@ -22,7 +22,7 @@ class ProjectClean:
     def __init__(self, name: str, config: AppConfig):
         self.name = name
         self.config = config or AppConfig()
-        self.context_manager = ContextManager()
+        self.context_manager = ContextManager(config = self.config)
         self.document_processor = DocumentProcessor(config=self.config)
         self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
         self.storage = GCSManager(config=self.config)  #SupabaseStorageManager(config=self.config)

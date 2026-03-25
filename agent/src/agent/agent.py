@@ -62,7 +62,7 @@ class Agent:
         self.summarizer = Summarizer()
         self.storage = GCSManager(config=self.config)  #SupabaseStorageManager(config=self.config) #
         self.conversation_manager =  SupabaseManager() #ConversationManager()
-        self.context_manager = ContextManager()
+        self.context_manager = ContextManager(config = self.config)
         self.tool_manager = ToolManager()
 
         self.llm  = llm

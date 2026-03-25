@@ -31,6 +31,9 @@ max_emails = 10
 embed_to_vectorstore = true
 save_to_storage = true
 
+[project.clean]
+chunk_size = 50
+
 [vectorstore]
 chunk_size = 1500
 chunk_overlap = 300
