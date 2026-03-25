@@ -6,6 +6,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain.chat_models import init_chat_model
 from langchain_openai import ChatOpenAI
+from datetime import date, datetime
 
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -21,6 +22,19 @@ def to_thread_config(query: AskAgentRequest | CleanupElementsRequest, user_id: s
                             "llm_model" : query.llm_model},
             "metadata": {"query_id": query.query_id},
         }
+
+
+def _parse_date(value: date | str | None, default: date) -> str:
+    if value is None:
+        return default.isoformat()
+    if isinstance(value, str):
+        return date.fromisoformat(value[:10]).isoformat()
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    raise ValueError("date must be a date, datetime, or ISO format string")
+
 
 PROVIDER_MAP = {
         "google": "google_genai",

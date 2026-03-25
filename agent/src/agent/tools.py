@@ -15,24 +15,13 @@ from langchain.tools import tool
 from database import GCSManager, BQVectorStore, SupabaseManager
 from documents import DocumentProcessor
 from utils import get_app_config,setup_logging
-
+from .utils import _parse_date
 
 load_dotenv()
 config = get_app_config()
 logger = logging.getLogger(__name__)
 setup_logging(config)
 document_processor = DocumentProcessor(config=config)
-
-def _parse_date(value: date | str | None, default: date) -> str:
-    if value is None:
-        return default.isoformat()
-    if isinstance(value, str):
-        return date.fromisoformat(value[:10]).isoformat()
-    if isinstance(value, datetime):
-        return value.date().isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    raise ValueError("date must be a date, datetime, or ISO format string")
 
 
 tavily_search = TavilySearch(
