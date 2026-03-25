@@ -1,5 +1,6 @@
 
 import json
+from agent.tools import _parse_date
 import tiktoken
 import logging
 from uuid import uuid4
@@ -15,6 +16,7 @@ from langchain.chat_models import init_chat_model
 
 from models import *
 from utils import AppConfig
+from .utils import _parse_date
 
 logger = logging.getLogger(__name__)
 
@@ -555,6 +557,78 @@ class ContextManager:
             results[et] = deduped
 
         return results
+
+    async def deduplicate_elements(self,
+                  elements: dict[str, list[dict]]) -> dict[str, list[dict]]:
+        """Deduplicate elements using LLM. Sends minimal key fields per type, returns filtered original items."""
+
+        class KeepIds(BaseModel):
+            ids: list[str] = Field(description="List of IDs to keep (one per unique real-world entity)")
+
+        date_col_map = {
+            "events": "event_start_date",
+            "deadlines": "deadline_date",
+            "claims": "source_date",
+            "damages": "source_date",
+        }
+        format_map = {
+            "events": ["event_id", "event_start_date", "event_name", "file_id", "description", "disputed"],
+            "parties": ["party_id", "legal_name", "entity_type", "role", "role_description"],
+            "claims": ["claim_id", "party_role", "relief_sought", "factual_basis", "legal_basis", "strength_assessment", "source_date"],
+            "damages": ["damage_id", "party_role", "category", "amount", "currency", "basis", "source_date"],
+            "deadlines": ["deadline_id", "deadline_date", "description", "file_id", "email_id"],
+        }
+
+        element_types = list(elements.keys())
+        org_ids = {et: set(item.get(self._ID_MAP[et]) for item in elements.get(et, [])) for et in element_types}
+
+        structured_llm = self.llm.with_structured_output(KeepIds, method="function_calling")
+
+        tasks = []
+        for et in element_types:
+            all_items = elements.get(et, [])
+            date_col = date_col_map.get(et)
+            if date_col:
+                all_items = sorted(all_items, key=lambda x: x.get(date_col) or "")
+
+            fields = format_map[et]
+            prompt = (
+                f'These are the existing {et} extracted for this legal project. '
+                f'De-duplicate this list by identifying entries that refer to the same real-world entity. '
+                f'Return the IDs of the entries to KEEP (one per unique entity) Keep the ones that are most complete or accurate.\n\n'
+                f'FORMAT: {" | ".join(fields)}\n'
+            )
+            for item in all_items:
+                prompt += "\t- " + " | ".join(str(item.get(f, "")) for f in fields) + "\n"
+
+            tasks.append(structured_llm.ainvoke(prompt))
+
+        # gather preserves order — result[i] corresponds to element_types[i]
+        llm_results = await asyncio.gather(*tasks)
+
+        output: dict[str, list[dict]] = {}
+        for et, res in zip(element_types, llm_results):
+            id_field = self._ID_MAP[et]
+            keep_ids = set(res.ids) if res and res.ids else set()
+
+            # Warn on hallucinated IDs and fall back to originals
+            invalid = keep_ids - org_ids[et]
+            if invalid:
+                logger.warning(f'⚠️ {et}: LLM returned unknown IDs {invalid} — falling back to all originals')
+                output[et] = elements[et]
+                continue
+
+            # If LLM returns nothing, keep all
+            if not keep_ids:
+                logger.warning(f'⚠️ {et}: LLM returned no IDs — keeping all originals')
+                output[et] = elements[et]
+                continue
+
+            kept = [item for item in elements[et] if item.get(id_field) in keep_ids]
+            logger.info(f'✅ Deduplicated {et}: {len(elements[et])} → {len(kept)}')
+            output[et] = kept
+
+        return output
 
     async def clean_metadata(self, 
                              project_data : ProjectData,

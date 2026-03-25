@@ -68,6 +68,28 @@ class ProjectClean:
     
     # ======== NODE METHODS =========
 
+    async def _dedup_elements_node(self, state : PipelineState,):
+        writer = get_stream_writer()
+        query = state.query
+        element_types = query.element_types
+        project_data = state.input_
+
+        data_map = {et: project_data.factsheet.model_dump().get(et, []) for et in element_types}
+        results = await self.context_manager.deduplicate_elements(data_map)
+        for et, cleaned in results.items():
+            logger.debug(f'  Deduplicated {et}: {len(cleaned)} items (before: {len(data_map.get(et, []))})')
+            writer({
+                "type": "status",
+                "phase": ["deduplication"],
+                "status": "complete",
+                "data": {"element_type": et, "cleaned_count": len(cleaned), "storage_type": ["database"]},
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            })
+            project_data.factsheet.__setattr__(et, cleaned)
+        return {"input_":  project_data}
+
+    
     async def _clean_elements_node(self, state : PipelineState,):
         writer = get_stream_writer()
         query = state.query
