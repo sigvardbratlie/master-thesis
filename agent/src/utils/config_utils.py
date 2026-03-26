@@ -22,9 +22,18 @@ class LoggingConfig(BaseModel):
     file: FileLoggingConfig = Field(default_factory=FileLoggingConfig)
     console: ConsoleLoggingConfig = Field(default_factory=ConsoleLoggingConfig)
 
-class AsyncConfig(BaseModel):
+class AsyncBaseConfig(BaseModel):
     max_concurrent_requests: int = 20
     throttle_value: float = 0.0
+    requests_per_second: float | None = None  # rate limiter (LLM only)
+    max_burst_size: int = 10                  # token bucket burst capacity (LLM only)
+    retry_attempts: int = 0                   # with_retry stop_after_attempt (LLM only, 0 = disabled)
+
+class AsyncConfig(BaseModel):
+    llm: AsyncBaseConfig = Field(default_factory=AsyncBaseConfig)
+    vectorstore: AsyncBaseConfig = Field(default_factory=AsyncBaseConfig)
+    storage: AsyncBaseConfig = Field(default_factory=AsyncBaseConfig)
+    database: AsyncBaseConfig = Field(default_factory=AsyncBaseConfig)
 
 class ModelProviderConfig(BaseModel):
     base_url: str = ""
