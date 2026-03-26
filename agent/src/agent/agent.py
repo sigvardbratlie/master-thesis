@@ -603,7 +603,7 @@ class Agent:
         if query.attachments:
             docs = []
             for att in query.attachments:
-                extracted_docs = self.document_processor.parse(
+                extracted_docs = self.document_processor.parse_to_docs(
                     content=base64.b64decode(att.content),
                     metadata={"file_id": att.file_id,
                               "filename": att.filename,

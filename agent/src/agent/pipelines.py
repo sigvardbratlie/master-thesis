@@ -281,7 +281,7 @@ class ProjectPipeline:
             if att.file_type == "message/rfc822" and shortened_email_ids is not None and att.file_id not in shortened_email_ids:
                 continue
             extracted_docs = await asyncio.to_thread(
-                self.document_processor.parse,
+                self.document_processor.parse_to_docs,
                 content=content_bytes,
                 file_type=att.file_type,
                 ocr=ocr_needed,

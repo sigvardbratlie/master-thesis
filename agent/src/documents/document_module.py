@@ -42,7 +42,7 @@ class DocumentProcessor(BaseHandler):
               file_type: FileType,
               metadata: dict = None,
               force_metadata_model: bool = True,
-              ocr: bool | None = None) -> list[Document]:
+              ocr: bool | None = None) -> tuple[str, dict]:
         '''Main entry point for parsing attachments. Handles different file types and routes to appropriate parsers.
         Args:
             content (bytes): The raw binary content of the attachment.
@@ -50,7 +50,7 @@ class DocumentProcessor(BaseHandler):
             metadata (dict): Additional metadata to attach to each Document, such as file_id and session_id.
             force_metadata_model (bool): Validate and serialize metadata through VectorStoreMetadata. Defaults to True.
         Returns:
-            list[Document]: A list of Document objects extracted from the attachment, ready for embedding and storage.
+            tuple[str, dict]: A tuple containing the parsed string content and metadata.
         '''
 
         # if "file_id" not in metadata or "session_id" not in metadata or "embedding_model" not in metadata:
@@ -81,6 +81,15 @@ class DocumentProcessor(BaseHandler):
             string = ""
             metadata = {}
 
+        return string, metadata
+    
+    def parse_to_docs(self, content: bytes,
+              file_type: FileType,
+              metadata: dict = None,
+              force_metadata_model: bool = True,
+              ocr: bool | None = None) -> list[Document]:
+        '''Convenience method to parse content and directly return a list of Document objects.'''
+        string, metadata = self.parse(content, file_type, metadata, force_metadata_model, ocr)
         return self.to_docs(string, metadata)
 
 
