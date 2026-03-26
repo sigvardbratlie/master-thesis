@@ -60,8 +60,11 @@ def mock_clean():
         mock_db.return_value = mock_db_instance
 
         mock_config = MagicMock()
-        mock_config.async_tasks.max_concurrent_requests = 3
-        mock_config.async_tasks.throttle_value = 0
+        mock_config.async_tasks.llm.max_concurrent_requests = 3
+        mock_config.async_tasks.llm.throttle_value = 0
+        mock_config.async_tasks.llm.requests_per_second = None
+        mock_config.async_tasks.llm.retry_attempts = 0
+        mock_config.async_tasks.database.max_concurrent_requests = 2
         mock_config.project.embed_to_vectorstore = True
         mock_config.project.save_to_storage = True
 

@@ -60,8 +60,13 @@ def mock_agent():
         mock_tool_manager.return_value = mock_tool_manager_instance
 
         mock_config = MagicMock()
-        mock_config.async_tasks.max_concurrent_requests = 3
-        mock_config.async_tasks.throttle_value = 0
+        mock_config.async_tasks.llm.max_concurrent_requests = 3
+        mock_config.async_tasks.llm.throttle_value = 0
+        mock_config.async_tasks.llm.requests_per_second = None
+        mock_config.async_tasks.llm.retry_attempts = 0
+        mock_config.async_tasks.database.max_concurrent_requests = 2
+        mock_config.async_tasks.storage.max_concurrent_requests = 1
+        mock_config.async_tasks.vectorstore.max_concurrent_requests = 2
         mock_config.agent.max_token_tool = 10000
         mock_config.agent.sum_rate = 20
         mock_config.agent.use_factsheet = False
@@ -540,23 +545,36 @@ def test_compile_agent(mock_agent):
 
 def test_pick_llm_google():
     """Test pick_llm with google provider."""
+    cfg = MagicMock()
+    cfg.async_tasks.llm.requests_per_second = None
     with patch('agent.utils.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
-        pick_llm("google_gemini-2.5-flash", config=MagicMock())
-        mock_init.assert_called_once_with("gemini-2.5-flash", model_provider="google_genai", include_thoughts=False)
+        pick_llm("google_gemini-2.5-flash", config=cfg)
+        args, kwargs = mock_init.call_args
+        assert args == ("gemini-2.5-flash",)
+        assert kwargs["model_provider"] == "google_genai"
+        assert kwargs["include_thoughts"] is False
+        assert kwargs["rate_limiter"] is None
 
 
 def test_pick_llm_openai():
     """Test pick_llm with openai provider."""
+    cfg = MagicMock()
+    cfg.async_tasks.llm.requests_per_second = None
     with patch('agent.utils.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
-        pick_llm("openai_gpt-4o", config=MagicMock())
-        mock_init.assert_called_once_with("gpt-4o", model_provider="openai")
+        pick_llm("openai_gpt-4o", config=cfg)
+        args, kwargs = mock_init.call_args
+        assert args == ("gpt-4o",)
+        assert kwargs["model_provider"] == "openai"
 
 
 def test_pick_llm_unknown_provider():
     """Test pick_llm with unknown provider defaults to google_genai."""
+    cfg = MagicMock()
+    cfg.async_tasks.llm.requests_per_second = None
     with patch('agent.utils.init_chat_model') as mock_init:
         mock_init.return_value = MagicMock()
-        pick_llm("unknown_some-model", config=MagicMock())
-        mock_init.assert_called_once_with("some-model", model_provider="google_genai")
+        pick_llm("unknown_some-model", config=cfg)
+        _, kwargs = mock_init.call_args
+        assert kwargs["model_provider"] == "google_genai"

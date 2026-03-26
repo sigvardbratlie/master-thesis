@@ -23,7 +23,8 @@ def mock_context_manager():
     """Creates a ContextManager with a mocked LLM and config."""
     llm_mock = MagicMock()
     mock_config = MagicMock()
-    mock_config.async_tasks.max_concurrent_requests = 5
+    mock_config.async_tasks.llm.max_concurrent_requests = 5
+    mock_config.async_tasks.llm.retry_attempts = 0
     mock_config.project.clean.chunk_size = 30
     manager = ContextManager(llm=llm_mock, config=mock_config)
     yield manager
