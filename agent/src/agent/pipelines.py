@@ -899,6 +899,7 @@ class ProjectPipeline:
             existing_init_input = project_data
 
         events = existing_events + (state.events or [])
+        events = [e for e in events if e.significance in ["high", "medium"]]  # filter out events missing description or date
 
         writer({
             "type": "status",
