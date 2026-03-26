@@ -332,7 +332,7 @@ class SupabaseManager:
             item["updated_by"] = llm_model
             item["updated_at"] = now
         try:
-            self.supabase.table(table_name).insert([_strip_null_bytes(d) for d in data]).execute()
+            self.supabase.table(table_name).upsert([_strip_null_bytes(d) for d in data], ignore_duplicates=True).execute()
             logger.debug(f'Inserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error inserting items for project {project_id} in Supabase table {table_name}')
