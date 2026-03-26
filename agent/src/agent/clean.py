@@ -24,7 +24,8 @@ class ProjectClean:
         self.config = config or AppConfig()
         self.context_manager = ContextManager(config = self.config)
         self.document_processor = DocumentProcessor(config=self.config)
-        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
+        self._semaphore_llm = asyncio.Semaphore(self.config.async_tasks.llm.max_concurrent_requests)
+        self._semaphore_db = asyncio.Semaphore(self.config.async_tasks.database.max_concurrent_requests)
         self.storage = GCSManager(config=self.config)  #SupabaseStorageManager(config=self.config)
         self.vs = BQVectorStore(embedding_model=self.config.vectorstore.bigquery.embedding_model)
         self.conversation_manager = SupabaseManager()
@@ -227,30 +228,33 @@ class ProjectClean:
         results = state.input_.factsheet.model_dump(mode='json', include=set(element_types))
         logger.info(f'💾 Saving {element_types} to DB | project={query.project_id}')
 
-        for et, cleaned in results.items():
-            logger.debug(f'  Replacing {et}: {len(cleaned)} items')
-            writer({
-                "type": "status",
-                "phase": ["storage"],
-                "status": "starting",
-                "data": {"element_type": et, "cleaned_count": len(cleaned), "storage_type": ["database"]},
-                "timestamp": datetime.now().isoformat(),
-                "query_id": query.query_id,
-            })
-            await asyncio.to_thread(self.conversation_manager.upsert_replace_project_element,
-                data=cleaned,
-                project_id=query.project_id,
-                table_name=f"project_{et}",
-                llm_model=query.llm_model,
-            )
-            writer({
-                "type": "status",
-                "phase": ["storage"],
-                "status": "complete",
-                "data": {"element_type": et, "cleaned_count": len(cleaned), "storage_type": ["database"]},
-                "timestamp": datetime.now().isoformat(),
-                "query_id": query.query_id,
-            })
+        async def save_element(et, cleaned):
+            async with self._semaphore_db:
+                logger.debug(f'  Replacing {et}: {len(cleaned)} items')
+                writer({
+                    "type": "status",
+                    "phase": ["storage"],
+                    "status": "starting",
+                    "data": {"element_type": et, "cleaned_count": len(cleaned), "storage_type": ["database"]},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id,
+                })
+                await asyncio.to_thread(self.conversation_manager.upsert_replace_project_element,
+                    data=cleaned,
+                    project_id=query.project_id,
+                    table_name=f"project_{et}",
+                    llm_model=query.llm_model,
+                )
+                writer({
+                    "type": "status",
+                    "phase": ["storage"],
+                    "status": "complete",
+                    "data": {"element_type": et, "cleaned_count": len(cleaned), "storage_type": ["database"]},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id,
+                })
+
+        await asyncio.gather(*[save_element(et, cleaned) for et, cleaned in results.items()])
 
         logger.info(f'✅ Save complete for {element_types} | project={query.project_id}')
         writer({"type": "result", "data": {"success": True, "element_types": element_types}})
@@ -270,8 +274,10 @@ class ProjectClean:
             "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id,
         })
-        self.conversation_manager.upsert_project(result["title"], element_type="title", project_id=query.project_id, llm_model=query.llm_model)
-        self.conversation_manager.upsert_project(result["background"], element_type="background", project_id=query.project_id, llm_model=query.llm_model)
+        await asyncio.gather(
+            asyncio.to_thread(self.conversation_manager.upsert_project, result["title"], element_type="title", project_id=query.project_id, llm_model=query.llm_model),
+            asyncio.to_thread(self.conversation_manager.upsert_project, result["background"], element_type="background", project_id=query.project_id, llm_model=query.llm_model),
+        )
         logger.debug(f'Metadata saved: title={bool(result.get("title"))}, background={bool(result.get("background"))}')
         writer({
             "type": "status",
