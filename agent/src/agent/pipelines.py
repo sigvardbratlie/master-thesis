@@ -26,7 +26,10 @@ class ProjectPipeline:
         self.config = config or AppConfig()
         self.context_manager = ContextManager(config=self.config)
         self.document_processor = DocumentProcessor(config=self.config)
-        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
+        self._semaphore_llm = asyncio.Semaphore(self.config.async_tasks.llm.max_concurrent_requests)
+        self._semaphore_db = asyncio.Semaphore(self.config.async_tasks.database.max_concurrent_requests)
+        self._semaphore_storage = asyncio.Semaphore(self.config.async_tasks.storage.max_concurrent_requests)
+        self._semaphore_vs = asyncio.Semaphore(self.config.async_tasks.vectorstore.max_concurrent_requests)
         self.storage = GCSManager(config=self.config)  #SupabaseStorageManager(config=self.config)
         self.vs = BQVectorStore(embedding_model=self.config.vectorstore.bigquery.embedding_model)
         self.conversation_manager = SupabaseManager()
@@ -103,7 +106,7 @@ class ProjectPipeline:
         """Route attachments to doc/email analysis tasks, batching emails by size/count."""
 
         async def analyze_docs_with_limit(attachments: list[AttachmentModel], input_, thread: RunnableConfig):
-            async with self._semaphore:
+            async with self._semaphore_llm:
                 _writer = get_stream_writer()
                 filenames = [a.filename for a in attachments if a.filename]
                 _writer({
@@ -119,13 +122,13 @@ class ProjectPipeline:
                     attachments=attachments,
                     config=thread,
                 )
-                if self.config.async_tasks.throttle_value > 0:
-                    await asyncio.sleep(self.config.async_tasks.throttle_value)
+                if self.config.async_tasks.llm.throttle_value > 0:
+                    await asyncio.sleep(self.config.async_tasks.llm.throttle_value)
                 result["_source_filenames"] = filenames
                 return result
 
         async def analyze_emails_with_limit(emails: list[EmailModel], input_, thread: RunnableConfig):
-            async with self._semaphore:
+            async with self._semaphore_llm:
                 _writer = get_stream_writer()
                 subjects = [e.subject for e in emails if e.subject]
                 _writer({
@@ -141,8 +144,8 @@ class ProjectPipeline:
                     emails=emails,
                     config=thread,
                 )
-                if self.config.async_tasks.throttle_value > 0:
-                    await asyncio.sleep(self.config.async_tasks.throttle_value)
+                if self.config.async_tasks.llm.throttle_value > 0:
+                    await asyncio.sleep(self.config.async_tasks.llm.throttle_value)
                 return result
 
         attachments = state.query.attachments
@@ -243,92 +246,84 @@ class ProjectPipeline:
         if not attachments:
             return {"docs_by_file": docs_by_file}
 
+        filtered_attachments = [
+            att for att in attachments
+            if not (att.file_type == "message/rfc822" and shortened_email_ids is not None and att.file_id not in shortened_email_ids)
+        ]
+
         writer({
             "type": "status",
             "phase": ["parse_documents"],
             "status": "starting",
-            "data": {"total": len(attachments)},
+            "data": {"total": len(filtered_attachments)},
             "timestamp": datetime.now().isoformat(),
             "query_id": query_id,
         })
 
-        docs = []
-        completed_text_extraction = 0
+        async def parse_with_limit(att):
+            async with self._semaphore_storage:
+                content_bytes = base64.b64decode(att.content)
+                ocr_needed = None
+                if att.file_type == "application/pdf":
+                    ocr_needed = PDFHandler(
+                        aws_region=self.config.storage.aws.region,
+                        aws_bucket_name=self.config.storage.aws.bucket_name,
+                    )._needs_ocr(content_bytes)
 
-        for att in attachments:
-            content_bytes = base64.b64decode(att.content)
-
-            ocr_needed = None
-            if att.file_type == "application/pdf":
-                ocr_needed = PDFHandler(
-                    aws_region=self.config.storage.aws.region,
-                    aws_bucket_name=self.config.storage.aws.bucket_name,
-                )._needs_ocr(content_bytes)
-
-            writer({
-                "type": "status",
-                "phase": ["parse_doc"],
-                "status": "ocr" if ocr_needed else "starting",
-                "data": {
-                    "filename": att.filename,
-                    "file_id": att.file_id,
-                    "progress": completed_text_extraction,
-                    "total": len(attachments),
-                },
-                "timestamp": datetime.now().isoformat(),
-                "query_id": query_id,
-            })
-            if att.file_type == "message/rfc822" and shortened_email_ids is not None and att.file_id not in shortened_email_ids:
-                continue
-            extracted_docs = await asyncio.to_thread(
-                self.document_processor.parse_to_docs,
-                content=content_bytes,
-                file_type=att.file_type,
-                ocr=ocr_needed,
-                metadata={
-                    "file_id": att.file_id,
-                    "filename": att.filename,
-                    "user_id": user_id,
+                writer({
+                    "type": "status",
+                    "phase": ["parse_doc"],
+                    "status": "ocr" if ocr_needed else "starting",
+                    "data": {"filename": att.filename, "file_id": att.file_id, "total": len(filtered_attachments)},
+                    "timestamp": datetime.now().isoformat(),
                     "query_id": query_id,
-                    "path": att.path,
-                    "file_type": att.file_type,
-                    "project_id": project_id,
-                    "size": att.size,
-                    "session_id": session_id,
-                    "embedding_model": self.vs.embedding_model,
-                },
-            )
-            completed_text_extraction += 1
+                })
 
-            writer({
-                "type": "status",
-                "phase": ["parse_doc"],
-                "status": "complete",
-                "data": {
-                    "filename": att.filename,
-                    "file_id": att.file_id,
-                    "progress": completed_text_extraction,
-                    "total": len(attachments),
-                },
-                "timestamp": datetime.now().isoformat(),
-                "query_id": query_id,
-            })
+                extracted_docs = await asyncio.to_thread(
+                    self.document_processor.parse_to_docs,
+                    content=content_bytes,
+                    file_type=att.file_type,
+                    ocr=ocr_needed,
+                    metadata={
+                        "file_id": att.file_id,
+                        "filename": att.filename,
+                        "user_id": user_id,
+                        "query_id": query_id,
+                        "path": att.path,
+                        "file_type": att.file_type,
+                        "project_id": project_id,
+                        "size": att.size,
+                        "session_id": session_id,
+                        "embedding_model": self.vs.embedding_model,
+                    },
+                )
 
-            docs.extend(extracted_docs)
-            att.body = self.document_processor.to_plain_text(extracted_docs)
+                att.body = self.document_processor.to_plain_text(extracted_docs)
+
+                writer({
+                    "type": "status",
+                    "phase": ["parse_doc"],
+                    "status": "complete",
+                    "data": {"filename": att.filename, "file_id": att.file_id, "total": len(filtered_attachments)},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query_id,
+                })
+
+                return att.file_id, extracted_docs
+
+        results = await asyncio.gather(*[parse_with_limit(att) for att in filtered_attachments])
+
+        for file_id, extracted_docs in results:
+            docs_by_file[file_id] = extracted_docs
 
         writer({
             "type": "status",
             "phase": ["parse_documents"],
             "status": "complete",
-            "data": {"total": len(attachments)},
+            "data": {"total": len(filtered_attachments)},
             "timestamp": datetime.now().isoformat(),
             "query_id": query_id,
         })
-
-        for doc in docs:
-            fid = doc.metadata.get("file_id", "unknown")
-            docs_by_file.setdefault(fid, []).append(doc)
 
         #strip attachment for contents
         stripped_query = state.query.model_copy(update={
@@ -721,53 +716,44 @@ class ProjectPipeline:
         })
 
         # ============= PHASE 2 =================
-        # Insert new documents to database (must be inserted first to avoid foreign key constraint issues)
+        # Insert FK-parent tables in parallel (must complete before data tables)
         # ========================================
-        key_constraint_elements = {
-            "project_attachments": attachments,
-            "project_emails": emails,
-        }
-        for table_name, elements in key_constraint_elements.items():
-            if not elements:
+        async def insert_fk_table(table_name, elements):
+            if not elements or not hasattr(elements[0], "model_dump"):
                 logger.info(f"No new elements to save for {table_name}, skipping.")
-                continue
-            if not hasattr(elements[0], "model_dump"):
-                logger.warning(f"Elements for {table_name} are missing model_dump method. Unexpected type {type(elements[0])}. Skipping storage for this table.")
-                continue
-            writer({
-                "type": "status",
-                "phase": ["storage"],
-                "status": "starting",
-                "data": {
-                    "total": len(elements),
-                    "storage_type": ["database"],
-                    "table_name": table_name,
-                },
-                "timestamp": datetime.now().isoformat(),
-                "query_id": query.query_id,
-            })
-            await asyncio.to_thread(
-                self.conversation_manager.insert_project_element,
-                data=[element.model_dump(mode="json", exclude={"claims", "damages", "deadlines", "events"}) for element in elements],
-                project_id=query.project_id,
-                table_name=table_name,
-                llm_model=query.llm_model,
-            )
-            writer({
-                "type": "status",
-                "phase": ["storage"],
-                "status": "complete",
-                "data": {
-                    "total": len(elements),
-                    "storage_type": ["database"],
-                    "table_name": table_name,
-                },
-                "timestamp": datetime.now().isoformat(),
-                "query_id": query.query_id,
-            })
+                return
+            async with self._semaphore_db:
+                writer({
+                    "type": "status",
+                    "phase": ["storage"],
+                    "status": "starting",
+                    "data": {"total": len(elements), "storage_type": ["database"], "table_name": table_name},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id,
+                })
+                await asyncio.to_thread(
+                    self.conversation_manager.insert_project_element,
+                    data=[element.model_dump(mode="json", exclude={"claims", "damages", "deadlines", "events"}) for element in elements],
+                    project_id=query.project_id,
+                    table_name=table_name,
+                    llm_model=query.llm_model,
+                )
+                writer({
+                    "type": "status",
+                    "phase": ["storage"],
+                    "status": "complete",
+                    "data": {"total": len(elements), "storage_type": ["database"], "table_name": table_name},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id,
+                })
+
+        await asyncio.gather(
+            insert_fk_table("project_attachments", attachments),
+            insert_fk_table("project_emails", emails),
+        )
 
         # ============= PHASE 3 =================
-        # Insert new data to database
+        # Insert data tables + metadata in parallel (FK parents already committed)
         # ========================================
         to_insert = {
             "project_events": events,
@@ -779,61 +765,54 @@ class ProjectPipeline:
             "project_parties": init_input.parties or [],
         }
 
-        for table_name, items in {**to_insert, **to_replace}.items():
-            if not items:
+        async def insert_data_table(table_name, items, replace=False):
+            if not items or not hasattr(items[0], "model_dump"):
                 logger.warning(f"No valid items to save for {table_name}. Skipping storage for this table.")
-                continue
-            if not hasattr(items[0], "model_dump"):
-                logger.warning(f"Items for {table_name} are missing model_dump method. Unexpected type {type(items[0])}.")
-                continue
-            writer({
-                "type": "status",
-                "phase": ["storage"],
-                "status": "starting",
-                "data": {
-                    "total": len(items),
-                    "storage_type": ["database"],
-                    "table_name": table_name,
-                },
-                "timestamp": datetime.now().isoformat(),
-                "query_id": query.query_id,
-            })
-            if table_name in to_replace:
-                await asyncio.to_thread(
-                    self.conversation_manager.upsert_replace_project_element,
-                    data=items,
-                    project_id=query.project_id,
-                    table_name=table_name,
-                    llm_model=query.llm_model,
-                )
-            else:
-                await asyncio.to_thread(
-                    self.conversation_manager.insert_project_element,
-                    data=[item.model_dump(mode="json") for item in items],
-                    project_id=query.project_id,
-                    table_name=table_name,
-                    llm_model=query.llm_model,
-                )
-            writer({
-                "type": "status",
-                "phase": ["storage"],
-                "status": "complete",
-                "data": {
-                    "total": len(items),
-                    "storage_type": ["database"],
-                    "table_name": table_name,
-                },
-                "timestamp": datetime.now().isoformat(),
-                "query_id": query.query_id,
-            })
+                return
+            async with self._semaphore_db:
+                writer({
+                    "type": "status",
+                    "phase": ["storage"],
+                    "status": "starting",
+                    "data": {"total": len(items), "storage_type": ["database"], "table_name": table_name},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id,
+                })
+                if replace:
+                    await asyncio.to_thread(
+                        self.conversation_manager.upsert_replace_project_element,
+                        data=items,
+                        project_id=query.project_id,
+                        table_name=table_name,
+                        llm_model=query.llm_model,
+                    )
+                else:
+                    await asyncio.to_thread(
+                        self.conversation_manager.insert_project_element,
+                        data=[item.model_dump(mode="json") for item in items],
+                        project_id=query.project_id,
+                        table_name=table_name,
+                        llm_model=query.llm_model,
+                    )
+                writer({
+                    "type": "status",
+                    "phase": ["storage"],
+                    "status": "complete",
+                    "data": {"total": len(items), "storage_type": ["database"], "table_name": table_name},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id,
+                })
 
-        #save metadata (background & title)
-        await asyncio.to_thread(
-            self.conversation_manager.upsert_project,
-            data={"background": init_input.background, "title": init_input.title},
-            element_type="metadata",
-            project_id=query.project_id,
-            llm_model=query.llm_model,
+        await asyncio.gather(
+            *[insert_data_table(t, items) for t, items in to_insert.items()],
+            *[insert_data_table(t, items, replace=True) for t, items in to_replace.items()],
+            asyncio.to_thread(
+                self.conversation_manager.upsert_project,
+                data={"background": init_input.background, "title": init_input.title},
+                element_type="metadata",
+                project_id=query.project_id,
+                llm_model=query.llm_model,
+            ),
         )
 
         writer({
