@@ -321,7 +321,7 @@ def show_elements(project_id: str,
             "parties": ["legal_name", "entity_type", "role", "role_description"],
             "claims": ["party_role", "relief_sought", "factual_basis", "legal_basis", "strength_assessment", "source_date"],
             "damages": ["party_role", "category", "amount", "currency", "basis", "source_date"],
-            "deadlines": ["deadline_date", "description", "file_id", "email_id", ]}
+            "deadlines": ["deadline_date", "description"]}
 
     value = f"=== List of {', '.join(element_types)} ===\n"
 
