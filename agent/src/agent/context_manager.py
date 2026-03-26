@@ -16,7 +16,7 @@ from langchain.chat_models import init_chat_model
 
 from models import *
 from utils import AppConfig
-from .utils import _parse_date
+from .utils import _parse_date, apply_retry
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +26,21 @@ class ContextManager:
                  llm: BaseChatModel = None,
                  ):
         self._llm = init_chat_model("gemini-2.5-flash", model_provider="google_genai") if llm is None else llm
-        #self.vector_search = VectorSearch()
         self.config = config
 
     @property
     def llm(self):
         return self._llm
+
     @llm.setter
     def llm(self, value: BaseChatModel):
         self._llm = value
-    
+
+    def _structured(self, schema):
+        """Return a structured output chain with retry applied after chaining."""
+        chain = self._llm.with_structured_output(schema, method="function_calling")
+        return apply_retry(chain, self.config)
+
     # ===== HELPERS =====
     def truncate_tokens(self, messages, max_tokens=7000):
         """Truncate messages to fit within max_tokens while preserving tool-call structure."""
@@ -111,7 +116,7 @@ class ContextManager:
 
     # ===== FUNCTIONS FOR INITIAL FACTSHEET CREATION =====
     async def analyze_init_input(self, init_input : str, config: RunnableConfig = None) -> InitialInput:
-        structured_llm = self.llm.with_structured_output(InitialInput, method="function_calling")
+        structured_llm = self._structured(InitialInput)
         prompt = f'Analyze the following project description and extract key information into the InitialInput structure. If not sufficient information, leave blank:\n\n{init_input}.'
         init_input = await structured_llm.ainvoke(prompt, config=config)
         for party in init_input.parties or []:
@@ -153,7 +158,7 @@ class ContextManager:
             for idx, att in enumerate(attachments)
         ])
 
-        structured_llm = self.llm.with_structured_output(MultipleAttachmentsResult, method="function_calling")
+        structured_llm = self._structured(MultipleAttachmentsResult)
         if isinstance(input_, ProjectData):
             init_prompt = f'{input_.factsheet.shorten_factsheet()}\n\n'
         elif isinstance(input_, str):
@@ -321,7 +326,7 @@ class ContextManager:
         claims = []
         events = []
 
-        structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
+        structured_llm = self._structured(EmailsAnalysisResult)
         if isinstance(input_, ProjectData):
             init_prompt = f'{input_.factsheet.shorten_factsheet()}\n\n'
         elif isinstance(input_, str):
@@ -492,7 +497,7 @@ class ContextManager:
         for item in items:
             prompt += f'\t* {" | ".join(str(item.get(k, "")) for k in keys)}\n'
 
-        structured_llm = self.llm.with_structured_output(ChunkModel, method="function_calling")
+        structured_llm = self._structured(ChunkModel)
         response = await structured_llm.ainvoke(prompt)
 
         raw_items = getattr(response, et, []) or []
@@ -517,7 +522,7 @@ class ContextManager:
         data_map = {et: project_data.factsheet.model_dump().get(et, []) for et in element_types}
 
         # Build all chunk tasks across all element types
-        sem = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
+        sem = asyncio.Semaphore(self.config.async_tasks.llm.max_concurrent_requests)
         chunk_size = self.config.project.clean.chunk_size
 
         async def _guarded(et: str, items: list[dict]) -> list[dict]:
@@ -582,7 +587,7 @@ class ContextManager:
         element_types = list(elements.keys())
         logger.info("Original element counts: " + ", ".join(f"{et}={len(elements.get(et, []))}" for et in element_types))
 
-        structured_llm = self.llm.with_structured_output(KeepIds, method="function_calling")
+        structured_llm = self._structured(KeepIds)
 
         task_meta: list[tuple[str, set]] = []  # parallel to tasks: (et, chunk_ids)
         tasks = []
@@ -658,7 +663,7 @@ class ContextManager:
             f'Return ONLY the cleaned metadata content itself, no explanation or preamble.\n\n'
             f'Original metadata content:\nCurrent Title: {project_data.factsheet.title}\nCurrent Background: {project_data.factsheet.background}'
         )        
-        structured_llm = self.llm.with_structured_output(ProjectMetadata, method="function_calling")
+        structured_llm = self._structured(ProjectMetadata)
         response = await structured_llm.ainvoke(prompt)
         
         return {
@@ -692,7 +697,7 @@ class ContextManager:
             f'Extract initial input (All parties and updated title and background) based on the project events'
             f'**IMPORTANT**: Keep all party_ids for existing parties, and update the additional information if nececcary (i.e role, role_description, key_contact, etc)'
         )
-        structured_llm = self.llm.with_structured_output(InitialInput, method="function_calling")
+        structured_llm = self._structured(InitialInput)
         updated_input = await structured_llm.ainvoke(prompt)
         org_ids = set(p.party_id for p in existing_initial_input.parties or [] if p.party_id)
 
