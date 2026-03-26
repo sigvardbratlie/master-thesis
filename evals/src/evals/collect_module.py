@@ -152,6 +152,35 @@ class CollectAgentResult:
             # ) #saving a empty project for BASELINE + RAG for the purpose of using vector store on project_id
             # logger.info(f"Baseline Rag agent: created minimal project entry for {eval_run_id}")
 
+        semaphore = asyncio.Semaphore(self.config.async_tasks.storage.max_concurrent_requests)
+
+        async def download_and_parse(att_path, query_id, session_id, project_id, user_id):
+            async with semaphore:
+                att_model = await asyncio.to_thread(
+                    self.parse_attachments,
+                    attachment_path=att_path,
+                    query_id=query_id,
+                    session_id=session_id,
+                    user_id=user_id,
+                )
+                doc = await asyncio.to_thread(
+                    self.dp.parse_to_docs,
+                    content=b64decode(att_model.content),
+                    file_type=att_model.file_type,
+                    metadata={
+                        "file_id": att_model.file_id,
+                        "session_id": session_id,
+                        "project_id": project_id,
+                        "query_id": query_id,
+                        "filename": att_model.filename,
+                        "file_type": att_model.file_type,
+                        "size": att_model.size,
+                        "user_id": user_id,
+                    },
+                )
+                att_model.body = self.dp.to_plain_text(doc)
+                return att_model, doc
+
         starttime = datetime.now()
         with tracing_context(
             tags=[eval_run_id],
@@ -167,33 +196,14 @@ class CollectAgentResult:
                     f"{len(session.attachments)} attachments"
                 )
                 query_id = session.init_query_id if session.init_query_id else str(uuid.uuid4())
-                attachments = []
-                docs = []
-                for att in session.attachments:
-                    att_model = self.parse_attachments(
-                        attachment_path=att,
-                        query_id=query_id,
-                        session_id=runtime_session_id,
-                        user_id=self.data.user_id,
-                    )
-                    attachments.append(att_model)
 
-                    doc = self.dp.parse(content=b64decode(att_model.content), 
-                                        file_type=att_model.file_type, 
-                                        #force_metadata_model=False,
-                                        metadata={"file_id": att_model.file_id, 
-                                                  "session_id": runtime_session_id,
-                                                  "project_id": eval_run_id,
-                                                  "query_id": query_id,
-                                                  "filename": att_model.filename,
-                                                  "file_type": att_model.file_type,
-                                                  "size": att_model.size,
-                                                  "user_id": self.data.user_id,
-                                                  })
-                    att_model.body = self.dp.to_plain_text(doc)
-                    docs.extend(doc)
+                parsed_results = await asyncio.gather(*[
+                    download_and_parse(att, query_id, runtime_session_id, eval_run_id, self.data.user_id)
+                    for att in session.attachments
+                ])
+                attachments = [att_model for att_model, _ in parsed_results]
+                docs = [d for _, doc_list in parsed_results for d in doc_list]
 
-                
                 if self.agent_type == "custom":
                     input_obj = AskAgentRequest(
                     question=session.init_query,
@@ -235,7 +245,7 @@ class CollectAgentResult:
                 
                 elif self.agent_type == "baseline_rag":
                     logger.info(f'Embed documents for the purpose of the RAG run')
-                    self.vs.add_documents(docs)
+                    await asyncio.to_thread(self.vs.add_documents, docs)
                     session.conversation[0].input = f"Project-Id: {eval_run_id}\n" + (str(session.init_query) if session.init_query else "") + "\n" + session.conversation[0].input
 
                 
