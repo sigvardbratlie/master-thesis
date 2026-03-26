@@ -32,7 +32,7 @@ embed_to_vectorstore = true
 save_to_storage = true
 
 [project.clean]
-chunk_size = 50
+chunk_size = 200
 
 [vectorstore]
 chunk_size = 1500

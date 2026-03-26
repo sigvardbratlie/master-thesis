@@ -572,61 +572,74 @@ class ContextManager:
             "damages": "source_date",
         }
         format_map = {
-            "events": ["event_id", "event_start_date", "event_name", "file_id", "description", "disputed"],
+            "events": ["event_id", "event_start_date", "event_name", "description"],
             "parties": ["party_id", "legal_name", "entity_type", "role", "role_description"],
-            "claims": ["claim_id", "party_role", "relief_sought", "factual_basis", "legal_basis", "strength_assessment", "source_date"],
-            "damages": ["damage_id", "party_role", "category", "amount", "currency", "basis", "source_date"],
-            "deadlines": ["deadline_id", "deadline_date", "description", "file_id", "email_id"],
+            "claims": ["claim_id", "party_role", "relief_sought", "factual_basis", "legal_basis", "strength_assessment"],
+            "damages": ["damage_id", "party_role", "category", "amount", "currency", "basis"],
+            "deadlines": ["deadline_id", "deadline_date", "description"],
         }
 
         element_types = list(elements.keys())
-        org_ids = {et: set(item.get(self._ID_MAP[et]) for item in elements.get(et, [])) for et in element_types}
+        logger.info("Original element counts: " + ", ".join(f"{et}={len(elements.get(et, []))}" for et in element_types))
 
         structured_llm = self.llm.with_structured_output(KeepIds, method="function_calling")
 
+        task_meta: list[tuple[str, set]] = []  # parallel to tasks: (et, chunk_ids)
         tasks = []
         for et in element_types:
             all_items = elements.get(et, [])
-            date_col = date_col_map.get(et)
-            if date_col:
-                all_items = sorted(all_items, key=lambda x: x.get(date_col) or "")
+            for i in range(0, len(all_items), self.config.project.clean.chunk_size):
+                chunk = all_items[i:i + self.config.project.clean.chunk_size]
+                chunk_num = i // self.config.project.clean.chunk_size + 1
+                logger.info(f'Creating deduplication task for {et} chunk {chunk_num} ({len(chunk)} items)')
 
-            fields = format_map[et]
-            prompt = (
-                f'These are the existing {et} extracted for this legal project. '
-                f'De-duplicate this list by identifying entries that refer to the same real-world entity. '
-                f'Return the IDs of the entries to KEEP (one per unique entity) Keep the ones that are most complete or accurate.\n\n'
-                f'FORMAT: {" | ".join(fields)}\n'
-            )
-            for item in all_items:
-                prompt += "\t- " + " | ".join(str(item.get(f, "")) for f in fields) + "\n"
+                date_col = date_col_map.get(et)
+                if date_col:
+                    chunk = sorted(chunk, key=lambda x: _parse_date(x.get(date_col), default=date.min) or "")
 
-            tasks.append(structured_llm.ainvoke(prompt))
+                fields = format_map[et]
+                prompt = (
+                    f'These are the existing {et} extracted for this legal project. '
+                    f'De-duplicate this list by identifying entries that refer to the same real-world entity. '
+                    f'Also remove any redundant or low-quality entries. '
+                    f'Return the IDs of the entries to KEEP (one per unique entity). Keep the ones that are most complete or accurate.\n\n'
+                    f'FORMAT: {" | ".join(fields)}\n'
+                )
+                for item in chunk:
+                    prompt += "\t- " + " | ".join(str(item.get(f, "")) for f in fields) + "\n"
 
-        # gather preserves order — result[i] corresponds to element_types[i]
+                tasks.append(structured_llm.ainvoke(prompt))
+                task_meta.append((et, set(item.get(self._ID_MAP[et]) for item in chunk)))
+
         llm_results = await asyncio.gather(*tasks)
 
-        output: dict[str, list[dict]] = {}
-        for et, res in zip(element_types, llm_results):
-            id_field = self._ID_MAP[et]
+        # Collect keep_ids per element type across all chunks
+        keep_ids_per_et: dict[str, set] = {et: set() for et in element_types}
+        for i, res in enumerate(llm_results):
+            et, chunk_ids = task_meta[i]
             keep_ids = set(res.ids) if res and res.ids else set()
 
-            # Warn on hallucinated IDs and fall back to originals
-            invalid = keep_ids - org_ids[et]
+            invalid = keep_ids - chunk_ids
             if invalid:
-                logger.warning(f'⚠️ {et}: LLM returned unknown IDs {invalid} — falling back to all originals')
-                output[et] = elements[et]
+                logger.warning(f'⚠️ {et}: LLM returned unknown IDs {invalid} — keeping all from this chunk')
+                keep_ids_per_et[et] |= chunk_ids
                 continue
 
-            # If LLM returns nothing, keep all
             if not keep_ids:
-                logger.warning(f'⚠️ {et}: LLM returned no IDs — keeping all originals')
-                output[et] = elements[et]
+                logger.warning(f'⚠️ {et}: LLM returned no IDs — keeping all from this chunk')
+                keep_ids_per_et[et] |= chunk_ids
                 continue
 
-            kept = [item for item in elements[et] if item.get(id_field) in keep_ids]
+            keep_ids_per_et[et] |= keep_ids
+
+        output: dict[str, list[dict]] = {}
+        for et in element_types:
+            id_field = self._ID_MAP[et]
+            kept = [item for item in elements[et] if item.get(id_field) in keep_ids_per_et[et]]
             logger.info(f'✅ Deduplicated {et}: {len(elements[et])} → {len(kept)}')
             output[et] = kept
+
+        logger.info("Final deduplicated counts: " + ", ".join(f"{et}={len(output.get(et, []))}" for et in element_types))
 
         return output
 

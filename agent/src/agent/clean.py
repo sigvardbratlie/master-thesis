@@ -37,7 +37,8 @@ class ProjectClean:
         """
         workflow = StateGraph(PipelineState)
         workflow.add_node("load_project", self._load_project_node)
-        workflow.add_node("clean", self._clean_elements_node)
+        #workflow.add_node("clean", self._clean_elements_node)
+        workflow.add_node("clean", self._dedup_elements_node)
         workflow.add_node("save_results", self._save_elements_node)
 
         workflow.add_edge(START, "load_project")
@@ -69,6 +70,7 @@ class ProjectClean:
     # ======== NODE METHODS =========
 
     async def _dedup_elements_node(self, state : PipelineState,):
+        logger.info(f'🧹 Starting deduplication | project={state.query.project_id} | element_types={state.query.element_types}')
         writer = get_stream_writer()
         query = state.query
         element_types = query.element_types
@@ -86,7 +88,9 @@ class ProjectClean:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id,
             })
-            project_data.factsheet.__setattr__(et, cleaned)
+            model_cls = {"claims": Claim, "damages": Damage, "events": Event, "deadlines": Deadline, "parties": Party}.get(et)
+            setattr(project_data.factsheet, et, [model_cls(**item) for item in cleaned] if model_cls else cleaned)
+        logger.info(f'✅ Deduplication complete for {element_types} | project={query.project_id}')
         return {"input_":  project_data}
 
     
@@ -220,7 +224,7 @@ class ProjectClean:
         writer = get_stream_writer()
         query = state.query
         element_types = query.element_types
-        results = state.input_.factsheet.model_dump(include=set(element_types))
+        results = state.input_.factsheet.model_dump(mode='json', include=set(element_types))
         logger.info(f'💾 Saving {element_types} to DB | project={query.project_id}')
 
         for et, cleaned in results.items():
