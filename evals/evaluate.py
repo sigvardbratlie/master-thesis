@@ -23,7 +23,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate attachment assignment")
     parser.add_argument("-d","--dataset", 
                         type=str, 
-                        choices=["test", "THRD-2021-163881", "TOSL-2024-125319", "TOSL-2024-125319-MIN"], 
+                        choices=["test", 
+                                 "THRD-2021-163881", 
+                                 "TOSL-2024-125319", 
+                                 "TOSL-2024-125319-MIN"], 
                         help="Dataset name to evaluate")
     parser.add_argument("-m","--model", 
                         type=str, 
@@ -35,8 +38,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     dataset_name = args.dataset
     model = args.model
-    throttle = config.async_tasks.throttle_value
-    concurrent = config.async_tasks.max_concurrent_requests
+    throttle = config.async_tasks.llm.throttle_value
+    concurrent = config.async_tasks.llm.max_concurrent_requests
     threshold = args.threshold
     eval_runtime_id = args.id
 
