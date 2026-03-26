@@ -72,7 +72,7 @@ class StorageConfig(BaseModel):
     supabase: StorageSupabaseConfig = Field(default_factory=StorageSupabaseConfig)
 
 class ProjectCleanConfig(BaseModel):
-    chunk_size : int = 50
+    chunk_size : int = 200
 
 class ProjectConfig(BaseModel):
     threshold: int = 5120000     # 500 * 1024
