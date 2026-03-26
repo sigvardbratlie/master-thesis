@@ -220,7 +220,7 @@ async def test_parsing_node_with_attachments(mock_pipeline):
     state = PipelineState(query=query)
 
     mock_docs = get_mock_vector_store_docs()
-    mock_pipeline.document_processor.parse.return_value = mock_docs
+    mock_pipeline.document_processor.parse_to_docs.return_value = mock_docs
     mock_pipeline.document_processor.to_plain_text.return_value = "plain text content"
 
     mock_writer = MagicMock()
@@ -449,7 +449,7 @@ async def test_initialize_project_saves_project(mock_pipeline):
         "_source_filenames": ["test.pdf"],
     })
     mock_pipeline.context_manager.update_initial_input = AsyncMock(return_value=initial_input)
-    mock_pipeline.document_processor.parse.return_value = get_mock_vector_store_docs()
+    mock_pipeline.document_processor.parse_to_docs.return_value = get_mock_vector_store_docs()
     mock_pipeline.document_processor.to_plain_text.return_value = "plain text"
     mock_pipeline.storage.save_raw_documents = AsyncMock(return_value=True)
     mock_pipeline.vs.add_documents = MagicMock()

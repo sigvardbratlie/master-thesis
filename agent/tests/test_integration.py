@@ -96,7 +96,7 @@ def test_integration_document_processor_routes_pdf():
     metadata = get_mock_metadata()
     file_type = processor.map_file_type(".pdf")
 
-    docs = processor.parse(
+    docs = processor.parse_to_docs(
         content=content,
         metadata=metadata,
         file_type=file_type,
@@ -123,7 +123,7 @@ def test_integration_document_processor_routes_docx():
     metadata = get_mock_metadata()
     file_type = processor.map_file_type(".docx")
 
-    docs = processor.parse(
+    docs = processor.parse_to_docs(
         content=content,
         metadata=metadata,
         file_type=file_type,
@@ -149,7 +149,7 @@ def test_integration_document_processor_routes_pptx():
     metadata = get_mock_metadata()
     file_type = processor.map_file_type(".pptx")
 
-    docs = processor.parse(
+    docs = processor.parse_to_docs(
         content=content,
         metadata=metadata,
         file_type=file_type,

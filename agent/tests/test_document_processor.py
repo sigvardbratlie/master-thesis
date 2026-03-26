@@ -173,14 +173,14 @@ def test_parse_routes_pptx(doc_processor):
 
 
 def test_parse_invalid_base64(doc_processor):
-    """Test parse() with unsupported file type returns empty list."""
+    """Test parse() with unsupported file type returns empty string and empty metadata."""
     metadata = get_mock_metadata()
     result = doc_processor.parse(
         content=b"some content",
         file_type="application/unknown",
         metadata=metadata,
     )
-    assert result == []
+    assert result == ("", {})
 
 
 def test_parse_missing_metadata_raises(doc_processor):
@@ -201,11 +201,43 @@ def test_parse_missing_metadata_raises(doc_processor):
 
 
 def test_parse_unsupported_file_type(doc_processor):
-    """Test parse() returns empty list for unsupported file types."""
+    """Test parse() returns empty string and empty metadata for unsupported file types."""
     metadata = get_mock_metadata()
     result = doc_processor.parse(
         content="dGVzdA==",
         file_type="application/unknown",
         metadata=metadata,
+    )
+    assert result == ("", {})
+
+
+# --- parse_to_docs ---
+
+def test_parse_to_docs_returns_documents(doc_processor):
+    """Test parse_to_docs() returns a list of Document objects."""
+    from langchain_core.documents import Document
+
+    mock_config = MagicMock()
+    mock_config.storage.aws.region = "eu-west-1"
+    mock_config.storage.aws.bucket_name = "test-bucket"
+    doc_processor.config = mock_config
+
+    with patch.object(PDFHandler, 'parse_pdf', return_value=("some parsed text", {})):
+        result = doc_processor.parse_to_docs(
+            content=get_mock_pdf_bytes_with_text(),
+            file_type="application/pdf",
+            metadata=get_mock_metadata(),
+        )
+
+    assert isinstance(result, list)
+    assert all(isinstance(d, Document) for d in result)
+
+
+def test_parse_to_docs_unsupported_type_returns_empty(doc_processor):
+    """Test parse_to_docs() returns empty list for unsupported file types."""
+    result = doc_processor.parse_to_docs(
+        content=b"some content",
+        file_type="application/unknown",
+        metadata=get_mock_metadata(),
     )
     assert result == []
