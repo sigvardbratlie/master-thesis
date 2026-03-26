@@ -24,7 +24,7 @@ from documents import DocumentProcessor, EmailHandler
 from models import *  
 from uuid import uuid4
 from utils import AppConfig
-from .utils import pick_llm
+from .utils import pick_llm, apply_retry
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 logger = logging.getLogger(__name__)
@@ -50,8 +50,9 @@ class Agent:
 
         """
         self.config = config or AppConfig()
-        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
-        logger.debug(f"⚙️  AgentConfig: max_concurrent={self.config.async_tasks.max_concurrent_requests}, throttle_value={self.config.async_tasks.throttle_value}s")
+        self._semaphore_llm = asyncio.Semaphore(self.config.async_tasks.llm.max_concurrent_requests)
+        self._semaphore_storage = asyncio.Semaphore(self.config.async_tasks.storage.max_concurrent_requests)
+        logger.debug(f"⚙️  AgentConfig: llm_concurrent={self.config.async_tasks.llm.max_concurrent_requests}, storage_concurrent={self.config.async_tasks.storage.max_concurrent_requests}, throttle={self.config.async_tasks.llm.throttle_value}s")
         
         self.tools = tools
         self.checkpointer = checkpointer
@@ -301,11 +302,11 @@ class Agent:
 
         try:
             accumulated: AIMessageChunk | None = None
-            async with self._semaphore:
+            async with self._semaphore_llm:
                 async for chunk in llm_with_tools.astream(payload, config=thread):
                     accumulated = chunk if accumulated is None else accumulated + chunk
-                if self.config.async_tasks.throttle_value > 0:
-                    await asyncio.sleep(self.config.async_tasks.throttle_value)
+                if self.config.async_tasks.llm.throttle_value > 0:
+                    await asyncio.sleep(self.config.async_tasks.llm.throttle_value)
             if accumulated is None:
                 raise ValueError("LLM returned no response chunks")
 
@@ -434,8 +435,8 @@ class Agent:
         """
         logger.info(f'\n\n ================ COMPILING LLM PIPELINE ================ \n\n')
         logger.debug(f"🤖 Compiling agent | model={llm_model}")
-        selected_llm = pick_llm(llm_model, config=self.config,)
-        self.llm = selected_llm.bind_tools(self.tools)
+        selected_llm = pick_llm(llm_model, config=self.config)
+        self.llm = apply_retry(selected_llm.bind_tools(self.tools), self.config)
 
         graph = StateGraph(AgentState)
         graph.add_node("init", self._init_node)
@@ -601,26 +602,30 @@ class Agent:
 
         # SAVE ATTACHMENTS to both vector store and file storage
         if query.attachments:
-            docs = []
-            for att in query.attachments:
-                extracted_docs = self.document_processor.parse_to_docs(
-                    content=base64.b64decode(att.content),
-                    metadata={"file_id": att.file_id,
-                              "filename": att.filename,
-                              "user_id": user_id,
-                              "query_id": query.query_id,
-                              "path": att.path,
-                              "file_type": att.file_type,
-                              "size": att.size,
-                              "session_id": query.session_id,
-                              "project_id": query.project_id,
-                              "embedding_model" : self.in_memory_store.embedding_model,
-                              },
-                    file_type=att.file_type)
-                docs.extend(extracted_docs)
-                att.body = self.document_processor.to_plain_text(extracted_docs)
+            async def parse_att(att):
+                async with self._semaphore_storage:
+                    extracted_docs = await asyncio.to_thread(
+                        self.document_processor.parse_to_docs,
+                        content=base64.b64decode(att.content),
+                        metadata={"file_id": att.file_id,
+                                  "filename": att.filename,
+                                  "user_id": user_id,
+                                  "query_id": query.query_id,
+                                  "path": att.path,
+                                  "file_type": att.file_type,
+                                  "size": att.size,
+                                  "session_id": query.session_id,
+                                  "project_id": query.project_id,
+                                  "embedding_model": self.in_memory_store.embedding_model,
+                                  },
+                        file_type=att.file_type)
+                    att.body = self.document_processor.to_plain_text(extracted_docs)
+                    return extracted_docs
+
+            parsed = await asyncio.gather(*[parse_att(att) for att in query.attachments])
+            docs = [doc for extracted in parsed for doc in extracted]
             if not self.config.agent.use_factsheet and self.config.agent.embed_to_vectorstore:
-                self.vs.add_documents(docs, collection_id="attachments",)
+                await asyncio.to_thread(self.vs.add_documents, docs, collection_id="attachments")
             # Store (same API regardless of implementation)
             #self.in_memory_store.add_documents(docs, collection_id="attachments") #for testing with in-memory store
             if self.config.agent.save_to_storage:
