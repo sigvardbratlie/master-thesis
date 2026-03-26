@@ -606,7 +606,7 @@ class ProjectPipeline:
 
     def _qc_analysis_node(self, state):
         input_emails = {e.message_id: getattr(e, "subject", "unknown subject") for e in state.email_models or [] if hasattr(e, "message_id")}
-        input_attachments = {a.file_id: getattr(a, "filename", "unknown file") for a in state.query.attachments or [] if hasattr(a, "file_id")}
+        input_attachments = {a.file_id: getattr(a, "filename", "unknown file") for a in state.query.attachments or [] if hasattr(a, "file_id") and getattr(a, "file_type", "") != "message/rfc822"}
 
         output_emails = {e.message_id for e in state.emails or [] if hasattr(e, "message_id")}
         output_attachments = {a.file_id for a in state.attachments or [] if hasattr(a, "file_id")}
