@@ -237,7 +237,7 @@ class Dataset:
                 if (prev_dt is None or fd > prev_dt) and fd <= current_dt
                 for f in date_to_files_dt[fd]
             ]
-            new_files = [f for f in candidates if f not in seen]
+            new_files = list(dict.fromkeys(f for f in candidates if f not in seen))
             seen.update(new_files)
             session.attachments = new_files
 
