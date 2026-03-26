@@ -213,7 +213,8 @@ class CollectAgentResult:
                         update_graph = pm.compile_update_pipeline()
                         async for chunk in update_graph.astream({"query": input_obj}, config=thread, stream_mode="custom"):
                             logger.debug(f"Update response: {chunk}")
-                    if len(self.data.sessions) // 2 == idx:
+                    
+                    if idx % 2 != 0 or idx == len(self.data.sessions) - 1: #Clean after every 2 sessions or after the last session
                         cleanup_query = CleanupElementsRequest(
                                 **input_obj.model_dump(),
                                 element_types=["events", "claims"],)
