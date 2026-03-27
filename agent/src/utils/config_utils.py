@@ -84,7 +84,8 @@ class ProjectCleanConfig(BaseModel):
     chunk_size : int = 200
 
 class ProjectConfig(BaseModel):
-    threshold: int = 5120000     # 500 * 1024
+    size_threshold: int = 5120000     # 500 * 1024
+    token_threshold: int = 128000
     max_attachments: int = 10
     max_emails: int = 15
     embed_to_vectorstore: bool = True
