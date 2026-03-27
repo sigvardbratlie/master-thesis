@@ -625,7 +625,18 @@ class Agent:
             parsed = await asyncio.gather(*[parse_att(att) for att in query.attachments])
             docs = [doc for extracted in parsed for doc in extracted]
             if not self.config.agent.use_factsheet and self.config.agent.embed_to_vectorstore:
-                await asyncio.to_thread(self.vs.add_documents, docs, collection_id="attachments")
+                for attempt in range(self.config.async_tasks.vectorstore.retry_attempts + 1):
+                    try:
+                        await asyncio.to_thread(self.vs.add_documents, docs, collection_id="attachments")
+                        break
+                    except Exception as e:
+                        if attempt < self.config.async_tasks.vectorstore.retry_attempts:
+                            wait_time = 2 ** attempt
+                            logger.warning(f"⚠️ Retry {attempt + 1}/{self.config.async_tasks.vectorstore.retry_attempts} for add_documents after {wait_time}s: {e}")
+                            await asyncio.sleep(wait_time)
+                        else:
+                            logger.error(f"❌ add_documents failed after {attempt + 1} attempts: {e}")
+                            raise
             # Store (same API regardless of implementation)
             #self.in_memory_store.add_documents(docs, collection_id="attachments") #for testing with in-memory store
             if self.config.agent.save_to_storage:

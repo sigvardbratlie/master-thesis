@@ -28,6 +28,7 @@ throttle_value = 0.0
 [async.vectorstore]
 max_concurrent_requests = 2
 throttle_value = 0.0
+retry_attempts = 2
 
 [models.together]
 base_url = "https://api.together.xyz/v1"

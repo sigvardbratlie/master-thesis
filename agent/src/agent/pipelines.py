@@ -510,7 +510,18 @@ class ProjectPipeline:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id,
             })
-            await asyncio.to_thread(self.vs.add_documents, all_docs, collection_id="attachments")
+            for attempt in range(self.config.async_tasks.vectorstore.retry_attempts + 1):
+                try:
+                    await asyncio.to_thread(self.vs.add_documents, all_docs, collection_id="attachments")
+                    break
+                except Exception as e:
+                    if attempt < self.config.async_tasks.vectorstore.retry_attempts:
+                        wait_time = 2 ** attempt
+                        logger.warning(f"⚠️ Retry {attempt + 1}/{self.config.async_tasks.vectorstore.retry_attempts} for add_documents after {wait_time}s: {e}")
+                        await asyncio.sleep(wait_time)
+                    else:
+                        logger.error(f"❌ add_documents failed after {attempt + 1} attempts: {e}")
+                        raise
             writer({
                 "type": "status",
                 "phase": ["storage"],
