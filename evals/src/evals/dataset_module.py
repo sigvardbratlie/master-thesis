@@ -90,7 +90,7 @@ class Dataset:
         f"{data.llm_model.replace("/","-")}_{data.agent_type.replace("/","-")}_{data.eval_run_id.replace("/","-")}.json")
         try:
             self.bucket.blob(path).upload_from_string(
-                json.dumps(data.model_dump(mode="json"), indent=4), content_type="application/json"
+                json.dumps(data.model_dump(mode="json"), indent=4, ensure_ascii = False), content_type="application/json"
             )
             logger.info(f"Results saved to {path}")
         except Exception as e:
@@ -237,7 +237,7 @@ class Dataset:
                 if (prev_dt is None or fd > prev_dt) and fd <= current_dt
                 for f in date_to_files_dt[fd]
             ]
-            new_files = [f for f in candidates if f not in seen]
+            new_files = list(dict.fromkeys(f for f in candidates if f not in seen))
             seen.update(new_files)
             session.attachments = new_files
 

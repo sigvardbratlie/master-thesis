@@ -159,10 +159,11 @@ class BQVectorStore(VectorStoreInterface):
         })
         document.metadata = metadata
     
-    def query(self, query: str, collection_id: str = "attachments", k: int = 3, filter= {}) -> list[Document]:
+    def query(self, query: str, collection_id: str = "attachments", k: int = 3, filters= {}) -> list[Document]:
         store = self._get_store(collection_id)
-        retriever = store.as_retriever(search_kwargs={"k": k},
-                                       filter = filter)
+        retriever = store.as_retriever(search_kwargs={"k": k,
+                                                      "filter": filters},
+                                       )
         return retriever.invoke(query)
     
     def delete_project(self, project_id: str,collection_id: str= "attachments") -> None:

@@ -34,7 +34,8 @@ class CollectMetrics:
         return runs
 
     def _extract_query_metrics(self, query):
-        correctness = relevancy = completeness = 0.0
+        correctness = relevancy = 0.0
+        completeness = None
         for metric in query.metrics_data:
             if metric.name == 'correctness [GEval]':
                 correctness = metric.score
@@ -159,9 +160,10 @@ class CollectMetrics:
                         llm_model=run.llm_model,
                         agent_type=run.agent_type,
                         name=query.name,
+                        question_type=query.additional_metadata.get("question_type"),
                         correctness=m["correctness"],
                         relevancy=m["relevancy"],
-                        completeness=m["completeness"],
+                        completeness=m["completeness"],  # None for summary/analytical
                         success=query.success,
                     ))
         return observations

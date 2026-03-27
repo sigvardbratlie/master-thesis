@@ -55,8 +55,13 @@ def mock_pipeline():
         mock_db.return_value = mock_db_instance
 
         mock_config = MagicMock()
-        mock_config.async_tasks.max_concurrent_requests = 3
-        mock_config.async_tasks.throttle_value = 0
+        mock_config.async_tasks.llm.max_concurrent_requests = 3
+        mock_config.async_tasks.llm.throttle_value = 0
+        mock_config.async_tasks.llm.requests_per_second = None
+        mock_config.async_tasks.llm.retry_attempts = 0
+        mock_config.async_tasks.database.max_concurrent_requests = 2
+        mock_config.async_tasks.storage.max_concurrent_requests = 1
+        mock_config.async_tasks.vectorstore.max_concurrent_requests = 2
         mock_config.project.embed_to_vectorstore = True
         mock_config.project.save_to_storage = True
         mock_config.project.threshold = 5120000
@@ -220,7 +225,7 @@ async def test_parsing_node_with_attachments(mock_pipeline):
     state = PipelineState(query=query)
 
     mock_docs = get_mock_vector_store_docs()
-    mock_pipeline.document_processor.parse.return_value = mock_docs
+    mock_pipeline.document_processor.parse_to_docs.return_value = mock_docs
     mock_pipeline.document_processor.to_plain_text.return_value = "plain text content"
 
     mock_writer = MagicMock()
@@ -258,7 +263,7 @@ async def test_embedding_node_disabled(mock_pipeline):
     mock_docs = get_mock_vector_store_docs()
     state = PipelineState(query=query, docs_by_file={"file-001": mock_docs})
 
-    mock_pipeline.embed_to_vectorstore = False
+    mock_pipeline.config.project.embed_to_vectorstore = False
     mock_writer = MagicMock()
 
     with patch('agent.pipelines.get_stream_writer', return_value=mock_writer):
@@ -449,7 +454,7 @@ async def test_initialize_project_saves_project(mock_pipeline):
         "_source_filenames": ["test.pdf"],
     })
     mock_pipeline.context_manager.update_initial_input = AsyncMock(return_value=initial_input)
-    mock_pipeline.document_processor.parse.return_value = get_mock_vector_store_docs()
+    mock_pipeline.document_processor.parse_to_docs.return_value = get_mock_vector_store_docs()
     mock_pipeline.document_processor.to_plain_text.return_value = "plain text"
     mock_pipeline.storage.save_raw_documents = AsyncMock(return_value=True)
     mock_pipeline.vs.add_documents = MagicMock()

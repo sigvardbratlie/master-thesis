@@ -9,8 +9,23 @@ path = "log/app.log"
 [logging.console]
 level = "info"
 
-[async]
+[async.llm]
 max_concurrent_requests = 20
+throttle_value = 0.0
+requests_per_second = 0.5   # 30 RPM — tune per provider/tier
+max_burst_size = 10
+retry_attempts = 6
+
+[async.database]
+max_concurrent_requests = 2
+throttle_value = 0.0
+
+[async.storage]
+max_concurrent_requests = 1
+throttle_value = 0.0
+
+[async.vectorstore]
+max_concurrent_requests = 2
 throttle_value = 0.0
 
 [models.together]
@@ -18,11 +33,39 @@ base_url = "https://api.together.xyz/v1"
 max_tokens = 4096
 
 [agent]
-max_token_tool = 10000
+sum_rate = 20
+embed_to_vectorstore = false
+save_to_storage = true
+minimal_context = true
+prompt_file_path = "system_prompt.txt"
 
 [project]
 threshold = 5120000     # 500 * 1024
 max_attachments = 10
-max_emails = 15
+max_emails = 10
 embed_to_vectorstore = true
 save_to_storage = true
+
+[project.clean]
+chunk_size = 200
+
+[vectorstore]
+chunk_size = 1500
+chunk_overlap = 300
+k = 5
+
+[vectorstore.bigquery]
+embedding_model =  "google_gemini-embedding-001"
+dataset = "vector_store"
+region = "europe-north2"
+
+[storage.gcs]
+bucket_name = "master-thesis-prod"
+region = "europe-north2"
+
+[storage.aws]
+bucket_name = "master-thesis-prod-533267386321-eu-west-1-an"
+region = "eu-west-1"
+
+[storage.supabase]
+bucket_name = "attachments"

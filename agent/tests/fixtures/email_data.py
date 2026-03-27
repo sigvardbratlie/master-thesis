@@ -216,6 +216,7 @@ def get_mock_email_model_list() -> list[EmailModel]:
 def get_mock_email_extracted() -> EmailExtracted:
     """A mock EmailExtracted result from LLM analysis."""
     return EmailExtracted(
+        title="Property Case Update Fjellveien 42A",
         description="Email about property case updates for Fjellveien 42A",
         significance="high",
         party_roles=["plaintiff", "legal_rep_plaintiff"],

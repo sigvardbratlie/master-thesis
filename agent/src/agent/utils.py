@@ -4,8 +4,10 @@ import logging
 from models import AskAgentRequest, CleanupElementsRequest
 from langchain_core.runnables import RunnableConfig
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain.chat_models import init_chat_model
 from langchain_openai import ChatOpenAI
+from datetime import date, datetime
 
 load_dotenv()
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
@@ -21,6 +23,35 @@ def to_thread_config(query: AskAgentRequest | CleanupElementsRequest, user_id: s
                             "llm_model" : query.llm_model},
             "metadata": {"query_id": query.query_id},
         }
+
+
+def _parse_date(value: date | str | None, default: date) -> str:
+    if value is None:
+        return default.isoformat()
+    if isinstance(value, str):
+        return date.fromisoformat(value[:10]).isoformat()
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    raise ValueError("date must be a date, datetime, or ISO format string")
+
+
+_rate_limiters: dict[str, InMemoryRateLimiter] = {}
+
+def _get_rate_limiter(model_name: str, config) -> InMemoryRateLimiter | None:
+    """Return a shared (stateful) rate limiter for the given model, or None if disabled."""
+    rps = config.async_tasks.llm.requests_per_second
+    if not rps:
+        return None
+    if model_name not in _rate_limiters:
+        _rate_limiters[model_name] = InMemoryRateLimiter(
+            requests_per_second=rps,
+            check_every_n_seconds=0.1,
+            max_bucket_size=config.async_tasks.llm.max_burst_size,
+        )
+    return _rate_limiters[model_name]
+
 
 PROVIDER_MAP = {
         "google": "google_genai",
@@ -49,7 +80,10 @@ def pick_llm(llm_model: str, config) -> BaseChatModel:
         if model_provider == provider and name_hint in model_name:
             kwargs.update(thinking_kwargs)
             break
-    logger.debug(f'🤖 LLM: provider={model_provider} model={model_name} thinking={bool(kwargs)}')
+
+    rate_limiter = _get_rate_limiter(model_name, config)
+    logger.debug(f'🤖 LLM: provider={model_provider} model={model_name} thinking={bool(kwargs)} rps={config.async_tasks.llm.requests_per_second}')
+
     if model_provider in ["together"]:
         is_qwen3 = "Qwen3" in model_name
         return ChatOpenAI(
@@ -57,81 +91,19 @@ def pick_llm(llm_model: str, config) -> BaseChatModel:
                     api_key=os.getenv("TOGETHER_API_KEY"),
                     model=model_name,
                     max_tokens=config.models.together.max_tokens,
-                    stream_usage=False,  # Together AI doesn't support stream_options/include_usage
+                    stream_usage=False,
                     stop=["<|im_end|>", "<|endoftext|>"] if is_qwen3 else None,
                     extra_body={"enable_thinking": False} if is_qwen3 else {},
+                    rate_limiter=rate_limiter,
                 )
 
-    return init_chat_model(model_name, model_provider=model_provider, **kwargs)
+    return init_chat_model(model_name, model_provider=model_provider, rate_limiter=rate_limiter, **kwargs)
 
 
-
-PROMPT = """**Role:**
-You are a specialized Norwegian Legal Case Assistant. Your goal is to help lawyers analyze cases, manage factsheets, and process legal documents with high precision.
-
-**Language of Output:**
-- MANDATORY: Always respond in Norwegian (Bokmål).
-- Use professional Norwegian legal terminology (e.g., "avhendingslova", "reklamasjon", "mangel").
-
-**Document Retrieval Protocol (CRITICAL):**
-The "Factsheet" provided in the context is ONLY a summary for orientation. 
-1. If a user asks about the content, clauses, specific wording, or details of a document: 
-   - DO NOT rely on the Factsheet summary.
-   - YOU MUST call the tool `read_attachments` with the correct `path` from the attachment index.
-   - If the `path` is not visible, call `list_project_files_emails` first to find it.
-2. Only after reading the actual document content via the tool should you formulate your answer.
-3. If the user asks about a document mentioned in the Factsheet, your first step is always to use `read_attachments`.
-
-**Tool Usage Hierarchy:**
-- **Specific Document Details:** Use `read_attachments`.
-- **Broad Search/Keywords:** Use `query_project_attachments`.
-- **Norwegian Law:** Use `read_specific_law` for known paragraphs or `query_laws` for general legal searches.
-- **External/Current Info:** Use `web_search`.
-
-**Guidelines & Constraints:**
-- Always cite your sources. State the filename or `file_id` for every document you reference.
-- Unless explicitly asked otherwise, remain objective. Do not be swayed by persuasion if the facts indicate something else. Stick to the facts.
-- Distinguish clearly between the factual aspects of the case and the legal aspects.
-- Do not be influenced by the parties’ arguments; respond strictly based on the facts.
-- If a document is missing or the tool returns no content, state clearly: "Jeg kan ikke finne innholdet i dokumentet [filnavn], og kan derfor ikke svare spesifikt på dette."
-- Accuracy is paramount. Never hallucinate legal clauses or facts.
-
-**Tone:**
-Professional, objective, and analytical.
-"""
-
-PROMPT_BASELINE = """You are a legal case management assistant specializing in Norwegian law. You assist lawyers in analyzing cases and processing legal documents.
-
-Your role:
-- Answer questions about the case based on documents provided in the conversation and the conversation history.
-
-**Guidelines & Constraints:**
-- Always cite your sources. State the filename or `file_id` for every document you reference.
-- Unless explicitly asked otherwise, remain objective. Do not be swayed by persuasion if the facts indicate something else. Stick to the facts.
-- Distinguish clearly between the factual aspects of the case and the legal aspects.
-- Do not be influenced by the parties’ arguments; respond strictly based on the facts.
-- If a document is missing or the tool returns no content, state clearly: "Jeg kan ikke finne innholdet i dokumentet [filnavn], og kan derfor ikke svare spesifikt på dette."
-- Accuracy is paramount. Never hallucinate legal clauses or facts.
-
-**Tone:**
-Professional, objective, and analytical.
-"""
-PROMPT_BASELINE_RAG = """You are a legal case management assistant specializing in Norwegian law. You assist lawyers in analyzing cases and processing legal documents.
-
-Your role:
-- Answer questions about the case based on documents provided in the conversation and the conversation history.
-- When documents are provided in the conversation, analyze the content carefully and link it to the facts of the case.
-- Use available tools when necessary: search the web for legal information, read attachments from storage, search the project's document vector database for relevant passages, or look up Norwegian laws and regulations.
-
-**Guidelines & Constraints:**
-- Always cite your sources. State the filename or `file_id` for every document you reference.
-- Unless explicitly asked otherwise, remain objective. Do not be swayed by persuasion if the facts indicate something else. Stick to the facts.
-- Distinguish clearly between the factual aspects of the case and the legal aspects.
-- Do not be influenced by the parties’ arguments; respond strictly based on the facts.
-- If a document is missing or the tool returns no content, state clearly: "Jeg kan ikke finne innholdet i dokumentet [filnavn], og kan derfor ikke svare spesifikt på dette."
-- Accuracy is paramount. Never hallucinate legal clauses or facts.
-
-**Tone:**
-Professional, objective, and analytical.
-"""
+def apply_retry(llm: BaseChatModel, config) -> BaseChatModel:
+    """Wrap a chain with retry logic. Must be called AFTER bind_tools/with_structured_output."""
+    retry_attempts = config.async_tasks.llm.retry_attempts
+    if retry_attempts > 0:
+        return llm.with_retry(stop_after_attempt=retry_attempts, wait_exponential_jitter=True)
+    return llm
 

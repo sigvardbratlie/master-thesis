@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 class EmailHandler(BaseHandler):
-    def __init__(self):
-        super().__init__()
+    def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
+        super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     def _extract_email_body(self, msg : Message) -> dict:
         if msg.is_multipart():
@@ -70,7 +70,7 @@ class EmailHandler(BaseHandler):
                     logger.warning("⚠️  Attachment part found without filename — skipping")
         return attachments
  
-    def _extract_email_data(self, msg : Message, file_id : str, query_id : str, user_id: str , session_id : str) -> dict:
+    def extract_email_data(self, msg : Message, file_id : str, query_id : str, user_id: str , session_id : str) -> dict:
         #file_id = str(uuid.uuid4())
         attachments_list = self._extract_attachments(msg)
         attachments = []
@@ -138,7 +138,7 @@ class EmailHandler(BaseHandler):
         try:
             msg = email.message_from_bytes(content)
         except Exception as e:
-            logger.error(f"❌ EML parse failed: {e}", exc_info=True)
+            logger.exception(f"❌ EML parse failed")
             raise ValueError("Invalid EML content") from e
         email_data = self._extract_email_data(msg, 
                                               query_id=query_id, 
@@ -147,7 +147,7 @@ class EmailHandler(BaseHandler):
                                               file_id=file_id)
         return email_data
     
-    def parse_eml_to_docs(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> list[Document]:
+    def parse_eml(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> tuple[str, dict]:
         '''Process EML content and extract email data and attachments
 
         Args:
@@ -155,19 +155,15 @@ class EmailHandler(BaseHandler):
             metadata (dict): Additional metadata to attach to each Document.
             force_metadata_model (bool): Validate and serialize metadata through VectorStoreMetadata. Defaults to True.
         Returns:
-            list[Document]: A list of Document objects extracted from the email body.
+            tuple[str, dict]: A tuple containing the extracted email body text and metadata.
 
         '''
         try:
             msg = email.message_from_bytes(content)
         except Exception as e:
-            logger.error(f"❌ EML parse failed: {e}", exc_info=True)
+            logger.exception(f"❌ EML parse failed")
             raise ValueError("Invalid EML content") from e
         body = self._extract_email_body(msg)
-        chunks = self.splitter.split_text(body.get("text", ""))
-        if not chunks:
-            logger.warning("⚠️  No text chunks from email body — using raw text")
-            chunks = [body.get("text", "")]
         metadata_all = {**metadata,
                         "file_size": len(content),
                         "file_type": "message/rfc822",
@@ -175,12 +171,9 @@ class EmailHandler(BaseHandler):
                         "title": msg.get("Subject"),
                         "created_at": email.utils.parsedate_to_datetime(msg.get("Date")) if msg.get("Date") else None,
                         }
-        final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump() if force_metadata_model else metadata_all
-        return [
-            Document(page_content=chunk, metadata={**final_metadata, "chunk": i+1, "total_chunks": len(chunks)})
-            for i, chunk in enumerate(chunks)
-        ]
-    
+        final_metadata = VectorStoreMetadata.model_validate(metadata_all).model_dump(mode="json") if force_metadata_model else metadata_all
+        return body.get("text", ""), final_metadata
+
     def mk_eml(self, email_data : WriteEmail) -> bytes:
         msg = email.message.EmailMessage()
         msg["Subject"] = email_data.subject

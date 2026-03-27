@@ -11,6 +11,7 @@ from tests.fixtures.email_data import get_mock_email_model_list, get_mock_email_
 import tiktoken
 from models import *
 from pydantic import BaseModel
+from utils import AppConfig
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 from agent import ContextManager
@@ -19,17 +20,13 @@ logger = logging.getLogger(__name__)
 
 @pytest.fixture
 def mock_context_manager():
-    """
-    Pytest fixture som oppretter en ContextManager med mocket data.
-    
-    Eksempel bruk:
-    def test_something(mock_context_manager):
-        # mock_context_manager er allerede konfigurert
-        pass
-    """
-    
+    """Creates a ContextManager with a mocked LLM and config."""
     llm_mock = MagicMock()
-    manager = ContextManager(llm = llm_mock)
+    mock_config = MagicMock()
+    mock_config.async_tasks.llm.max_concurrent_requests = 5
+    mock_config.async_tasks.llm.retry_attempts = 0
+    mock_config.project.clean.chunk_size = 30
+    manager = ContextManager(llm=llm_mock, config=mock_config)
     yield manager
 
 def test_truncate_tokens(mock_context_manager):
@@ -59,7 +56,7 @@ def test_truncate_messages(mock_context_manager):
 
 
 def test_truncate_messages_removes_orphan_tool_messages_at_start(mock_context_manager):
-    """Truncation should remove orphan ToolMessages at the beginning."""
+    """Truncation should remove non-HumanMessages at the beginning after slicing."""
     from langchain_core.messages import ToolMessage
     messages = [
         HumanMessage(content="Q1"),
@@ -70,11 +67,12 @@ def test_truncate_messages_removes_orphan_tool_messages_at_start(mock_context_ma
         AIMessage(content="A2"),
     ]
     # max_messages=3 takes last 3: [AIMessage(A1 final), HumanMessage(Q2), AIMessage(A2)]
+    # then drops leading non-HumanMessage (AIMessage "A1 final"), leaving 2
     result = mock_context_manager.truncate_messages(messages, max_messages=3)
-    assert len(result) == 3
+    assert len(result) == 2
     assert not any(isinstance(m, ToolMessage) for m in result)
-    assert isinstance(result[0], AIMessage)
-    assert result[0].content == "A1 final"
+    assert isinstance(result[0], HumanMessage)
+    assert result[0].content == "Q2"
 
 
 def test_truncate_messages_removes_trailing_ai_with_tool_calls(mock_context_manager):
@@ -198,6 +196,7 @@ async def test_analyze_docs_returns_dict(mock_context_manager):
         attachments: list[AttachmentWithEvents]
 
     att1 = AttachmentExtracted(
+        title="Purchase Agreement Granveien 15B",
         file_id="att-file-id-001",
         description="Purchase agreement for the property",
         significance="high",
@@ -207,6 +206,7 @@ async def test_analyze_docs_returns_dict(mock_context_manager):
         category="agreement",
     )
     att2 = AttachmentExtracted(
+        title="Seller Email House Condition",
         file_id="att-file-id-002",
         description="Email from seller about house condition",
         significance="medium",
@@ -301,6 +301,7 @@ async def test_analyze_docs_file_id_mismatch_fallback(mock_context_manager):
 
     # LLM returns wrong file_ids (hallucinated)
     att1 = AttachmentExtracted(
+        title="Purchase Agreement",
         file_id="hallucinated-id-999",
         description="Purchase agreement",
         significance="high",
@@ -308,6 +309,7 @@ async def test_analyze_docs_file_id_mismatch_fallback(mock_context_manager):
         category="agreement",
     )
     att2 = AttachmentExtracted(
+        title="Seller Email",
         file_id="hallucinated-id-888",
         description="Email from seller",
         significance="medium",
@@ -370,6 +372,7 @@ async def test_analyze_emails_returns_dict(mock_context_manager):
             EmailAnalysisResult(email=mock_extracted, events=[event]),
             EmailAnalysisResult(
                 email=EmailExtracted(
+                    title="Befaring Update",
                     description="Befaring update email",
                     significance="medium",
                     party_roles=["expert"],
@@ -377,7 +380,6 @@ async def test_analyze_emails_returns_dict(mock_context_manager):
                     damages=None,
                     claims=None,
                     key_points=["Befaring done"],
-                    privilege_status=None,
                     email_id="test-file-id-002",
                 ),
                 events=[]
@@ -429,6 +431,109 @@ async def test_analyze_emails_empty_list(mock_context_manager):
 
 
 # ============================================
+#     deduplicate_elements TESTS
+# ============================================
+
+@pytest.mark.asyncio
+async def test_deduplicate_elements_keeps_returned_ids(mock_context_manager):
+    """deduplicate_elements should return only items whose IDs the LLM chose to keep."""
+    from pydantic import BaseModel, Field as PField
+
+    class KeepIds(BaseModel):
+        ids: list[str] = PField(default_factory=list)
+
+    items = [
+        {"event_id": "id-001", "event_start_date": "2023-01-01", "event_name": "A", "file_id": None, "description": "First", "disputed": False},
+        {"event_id": "id-002", "event_start_date": "2023-06-01", "event_name": "A duplicate", "file_id": None, "description": "Duplicate of first", "disputed": False},
+        {"event_id": "id-003", "event_start_date": "2023-12-01", "event_name": "B", "file_id": None, "description": "Unique", "disputed": False},
+    ]
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    # LLM decides id-001 and id-003 are unique; id-002 is a duplicate of id-001
+    structured_llm.ainvoke.return_value = KeepIds(ids=["id-001", "id-003"])
+
+    result = await mock_context_manager.deduplicate_elements({"events": items})
+
+    assert "events" in result
+    kept_ids = {item["event_id"] for item in result["events"]}
+    assert kept_ids == {"id-001", "id-003"}
+    assert len(result["events"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_deduplicate_elements_invalid_ids_fallback(mock_context_manager):
+    """deduplicate_elements should keep all originals when LLM returns unknown IDs."""
+    from pydantic import BaseModel, Field as PField
+
+    class KeepIds(BaseModel):
+        ids: list[str] = PField(default_factory=list)
+
+    items = [
+        {"event_id": "id-001", "event_start_date": "2023-01-01", "event_name": "A", "file_id": None, "description": "", "disputed": False},
+        {"event_id": "id-002", "event_start_date": "2023-06-01", "event_name": "B", "file_id": None, "description": "", "disputed": False},
+    ]
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    structured_llm.ainvoke.return_value = KeepIds(ids=["hallucinated-id-999"])
+
+    result = await mock_context_manager.deduplicate_elements({"events": items})
+
+    # Fallback: all originals preserved
+    assert len(result["events"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_deduplicate_elements_empty_response_fallback(mock_context_manager):
+    """deduplicate_elements should keep all originals when LLM returns empty ID list."""
+    from pydantic import BaseModel, Field as PField
+
+    class KeepIds(BaseModel):
+        ids: list[str] = PField(default_factory=list)
+
+    items = [
+        {"event_id": "id-001", "event_start_date": "2023-01-01", "event_name": "A", "file_id": None, "description": "", "disputed": False},
+    ]
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    structured_llm.ainvoke.return_value = KeepIds(ids=[])
+
+    result = await mock_context_manager.deduplicate_elements({"events": items})
+
+    assert len(result["events"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_deduplicate_elements_multiple_types_order_preserved(mock_context_manager):
+    """gather result order must match element_types order — each type gets its own LLM response."""
+    from pydantic import BaseModel, Field as PField
+
+    class KeepIds(BaseModel):
+        ids: list[str] = PField(default_factory=list)
+
+    events = [
+        {"event_id": "ev-001", "event_start_date": "2023-01-01", "event_name": "A", "file_id": None, "description": "", "disputed": False},
+        {"event_id": "ev-002", "event_start_date": "2023-06-01", "event_name": "A dup", "file_id": None, "description": "", "disputed": False},
+    ]
+    parties = [
+        {"party_id": "p-001", "legal_name": "Alice", "entity_type": "individual", "role": "plaintiff", "role_description": ""},
+        {"party_id": "p-002", "legal_name": "Alice Corp", "entity_type": "company", "role": "plaintiff", "role_description": ""},
+    ]
+    structured_llm = AsyncMock()
+    mock_context_manager.llm.with_structured_output.return_value = structured_llm
+    # First call = events (keep ev-001), second call = parties (keep both)
+    structured_llm.ainvoke.side_effect = [
+        KeepIds(ids=["ev-001"]),
+        KeepIds(ids=["p-001", "p-002"]),
+    ]
+
+    result = await mock_context_manager.deduplicate_elements({"events": events, "parties": parties})
+
+    assert len(result["events"]) == 1
+    assert result["events"][0]["event_id"] == "ev-001"
+    assert len(result["parties"]) == 2
+
+
+# ============================================
 #      INTEGRATION TESTS (with real LLM)
 # ============================================
 
@@ -441,7 +546,7 @@ async def test_analyze_emails_real_data_integration():
     if not os.getenv("GOOGLE_API_KEY"):
         print(f' \n\n==== NOT FOUND GOOGLE_API_KEY in environment variables, skipping integration test. Set GOOGLE_API_KEY in .env file to run this test. ====\n\n')
     
-    cm = ContextManager()  # Real LLM, not mocked
+    cm = ContextManager(config=AppConfig)  # Real LLM, not mocked
     
     # Load real email from test-file.eml
     test_email = load_real_test_email()
@@ -506,7 +611,7 @@ async def test_analyze_emails_multiple_emails_integration():
     load_dotenv()  # Load environment variables from .env file, including LLM API keys
     if not os.getenv("GOOGLE_API_KEY"):
         print(f' \n\n==== NOT FOUND GOOGLE_API_KEY in environment variables, skipping integration test. Set GOOGLE_API_KEY in .env file to run this test. ====\n\n')
-    cm = ContextManager()  # Real LLM
+    cm = ContextManager(config = AppConfig)  # Real LLM
     
     # Use mock emails (faster than parsing multiple real EMLs)
     emails = get_mock_email_model_list()

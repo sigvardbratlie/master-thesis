@@ -10,8 +10,8 @@ import asyncio
 from utils import AppConfig
 from .context_manager import ContextManager
 from datetime import datetime
-from database import SupabaseStorageManager, SupabaseManager, BQVectorStore
-from models import PipelineState, ProjectData
+from database import SupabaseStorageManager, SupabaseManager, BQVectorStore, GCSManager
+from models import PipelineState, ProjectData, Claim, Damage, Event, Deadline, Party
 
 from agent.utils import pick_llm
 
@@ -22,14 +22,13 @@ class ProjectClean:
     def __init__(self, name: str, config: AppConfig):
         self.name = name
         self.config = config or AppConfig()
-        self.context_manager = ContextManager()
-        self.document_processor = DocumentProcessor()
-        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
-        self.storage = SupabaseStorageManager()
-        self.vs = BQVectorStore()
+        self.context_manager = ContextManager(config = self.config)
+        self.document_processor = DocumentProcessor(config=self.config)
+        self._semaphore_llm = asyncio.Semaphore(self.config.async_tasks.llm.max_concurrent_requests)
+        self._semaphore_db = asyncio.Semaphore(self.config.async_tasks.database.max_concurrent_requests)
+        self.storage = GCSManager(config=self.config)  #SupabaseStorageManager(config=self.config)
+        self.vs = BQVectorStore(embedding_model=self.config.vectorstore.bigquery.embedding_model)
         self.conversation_manager = SupabaseManager()
-        self.embed_to_vectorstore = self.config.project.embed_to_vectorstore
-        self.save_to_storage = self.config.project.save_to_storage
 
     # ======== COMPILE METHODS =========
     
@@ -39,7 +38,8 @@ class ProjectClean:
         """
         workflow = StateGraph(PipelineState)
         workflow.add_node("load_project", self._load_project_node)
-        workflow.add_node("clean", self._clean_elements_node)
+        #workflow.add_node("clean", self._clean_elements_node)
+        workflow.add_node("clean", self._dedup_elements_node)
         workflow.add_node("save_results", self._save_elements_node)
 
         workflow.add_edge(START, "load_project")
@@ -70,6 +70,31 @@ class ProjectClean:
     
     # ======== NODE METHODS =========
 
+    async def _dedup_elements_node(self, state : PipelineState,):
+        logger.info(f'🧹 Starting deduplication | project={state.query.project_id} | element_types={state.query.element_types}')
+        writer = get_stream_writer()
+        query = state.query
+        element_types = query.element_types
+        project_data = state.input_
+
+        data_map = {et: project_data.factsheet.model_dump().get(et, []) for et in element_types}
+        results = await self.context_manager.deduplicate_elements(data_map)
+        for et, cleaned in results.items():
+            logger.debug(f'  Deduplicated {et}: {len(cleaned)} items (before: {len(data_map.get(et, []))})')
+            writer({
+                "type": "status",
+                "phase": ["deduplication"],
+                "status": "complete",
+                "data": {"element_type": et, "cleaned_count": len(cleaned), "storage_type": ["database"]},
+                "timestamp": datetime.now().isoformat(),
+                "query_id": query.query_id,
+            })
+            model_cls = {"claims": Claim, "damages": Damage, "events": Event, "deadlines": Deadline, "parties": Party}.get(et)
+            setattr(project_data.factsheet, et, [model_cls(**item) for item in cleaned] if model_cls else cleaned)
+        logger.info(f'✅ Deduplication complete for {element_types} | project={query.project_id}')
+        return {"input_":  project_data}
+
+    
     async def _clean_elements_node(self, state : PipelineState,):
         writer = get_stream_writer()
         query = state.query
@@ -102,8 +127,13 @@ class ProjectClean:
             "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id,
         })
+        _ET_TO_MODEL = {
+            "claims": Claim, "damages": Damage, "events": Event,
+            "deadlines": Deadline, "parties": Party,
+        }
         for et, cleaned in results.items():
-            setattr(project_data.factsheet, et, cleaned)
+            model_cls = _ET_TO_MODEL.get(et)
+            setattr(project_data.factsheet, et, [model_cls(**item) for item in cleaned] if model_cls else cleaned)
         return {"input_":  project_data}
 
     async def _clean_metadata_node(self, state : PipelineState):
@@ -153,10 +183,17 @@ class ProjectClean:
             "query_id": query.query_id,
         })
 
-        project_data = await asyncio.to_thread(
-            self.conversation_manager.load_project,
+        # project_data = await asyncio.to_thread(
+        #     self.conversation_manager.load_project,
+        #     project_id=query.project_id
+        # )
+        factsheet = await asyncio.to_thread(
+            self.conversation_manager.load_factsheet,
             project_id=query.project_id
         )
+        project_data = ProjectData(factsheet=factsheet,
+                                   attachments=[],
+                                   emails=[])
         if not project_data:
             logger.error(f'No project found for project_id={query.project_id}')
             raise ValueError(f"No project found for project_id={query.project_id}")
@@ -188,32 +225,36 @@ class ProjectClean:
         writer = get_stream_writer()
         query = state.query
         element_types = query.element_types
-        results = state.input_.factsheet.model_dump(include=set(element_types))
+        results = state.input_.factsheet.model_dump(mode='json', include=set(element_types))
         logger.info(f'💾 Saving {element_types} to DB | project={query.project_id}')
 
-        for et, cleaned in results.items():
-            logger.debug(f'  Replacing {et}: {len(cleaned)} items')
-            writer({
-                "type": "status",
-                "phase": ["storage"],
-                "status": "starting",
-                "data": {"element_type": et, "cleaned_count": len(cleaned), "storage_type": ["database"]},
-                "timestamp": datetime.now().isoformat(),
-                "query_id": query.query_id,
-            })
-            await asyncio.to_thread(self.conversation_manager.replace_project_element,
-                data=cleaned,
-                project_id=query.project_id,
-                table_name=f"project_{et}",
-            )
-            writer({
-                "type": "status",
-                "phase": ["storage"],
-                "status": "complete",
-                "data": {"element_type": et, "cleaned_count": len(cleaned), "storage_type": ["database"]},
-                "timestamp": datetime.now().isoformat(),
-                "query_id": query.query_id,
-            })
+        async def save_element(et, cleaned):
+            async with self._semaphore_db:
+                logger.debug(f'  Replacing {et}: {len(cleaned)} items')
+                writer({
+                    "type": "status",
+                    "phase": ["storage"],
+                    "status": "starting",
+                    "data": {"element_type": et, "cleaned_count": len(cleaned), "storage_type": ["database"]},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id,
+                })
+                await asyncio.to_thread(self.conversation_manager.upsert_replace_project_element,
+                    data=cleaned,
+                    project_id=query.project_id,
+                    table_name=f"project_{et}",
+                    llm_model=query.llm_model,
+                )
+                writer({
+                    "type": "status",
+                    "phase": ["storage"],
+                    "status": "complete",
+                    "data": {"element_type": et, "cleaned_count": len(cleaned), "storage_type": ["database"]},
+                    "timestamp": datetime.now().isoformat(),
+                    "query_id": query.query_id,
+                })
+
+        await asyncio.gather(*[save_element(et, cleaned) for et, cleaned in results.items()])
 
         logger.info(f'✅ Save complete for {element_types} | project={query.project_id}')
         writer({"type": "result", "data": {"success": True, "element_types": element_types}})
@@ -233,8 +274,10 @@ class ProjectClean:
             "timestamp": datetime.now().isoformat(),
             "query_id": query.query_id,
         })
-        self.conversation_manager.upsert_project(result["title"], element_type="title", project_id=query.project_id)
-        self.conversation_manager.upsert_project(result["background"], element_type="background", project_id=query.project_id)
+        await asyncio.gather(
+            asyncio.to_thread(self.conversation_manager.upsert_project, result["title"], element_type="title", project_id=query.project_id, llm_model=query.llm_model),
+            asyncio.to_thread(self.conversation_manager.upsert_project, result["background"], element_type="background", project_id=query.project_id, llm_model=query.llm_model),
+        )
         logger.debug(f'Metadata saved: title={bool(result.get("title"))}, background={bool(result.get("background"))}')
         writer({
             "type": "status",

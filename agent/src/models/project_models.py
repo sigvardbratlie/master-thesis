@@ -1,11 +1,12 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Literal, TypedDict, Annotated, Sequence
 from langchain_core.messages import BaseMessage
 from datetime import datetime,date
 import uuid
 from langgraph.graph.message import add_messages
 from .api_request_models import FileType
-
+import logging
+logger = logging.getLogger(__name__)
 
 # ===== CONTEXT MANAGER MODELS
 PartyRole = Literal[
@@ -59,24 +60,61 @@ entity_types = Literal["individual", "company", "government"]
 
 significance_levels = Literal["high", "medium", "low"]
 
-# === #Custom fields === 
-class GoverningLaw(BaseModel):
-    primary_jurisdiction: str = Field(default = "norwegian_law" , description="Which law governs (e.g., Norwegian law)")
-    key_areas: list[str] | None = Field(default_factory=list, description="Relevant legal areas (contract law, tort, etc)")
-    international_elements: str | None = Field(
-        None, description="Cross-border or conflicts of law issues"
-    )
-    procedural_law: Literal[
-        "tvisteloven", "straffeprosessloven", "arbeidstvistloven", "voldgiftsloven",
-        "forvaltningsloven", "domstolloven"
-    ] = Field(default="tvisteloven",description="Applicable procedural law, if relevant")
+def shorten_element(elements : list,  
+                    element_name : Literal["attachments", "emails","events", "parties", "claims", "damages", "deadlines"] , 
+                    format_keys : list[str], 
+                    significance: list[Literal["high", "medium", "low"]] = None,
+                    include_reference_ids: bool = False) -> str:
+        type_map = {
+            "attachments": Attachment, 
+            "emails": Email,
+            "events" : Event,
+            "parties" : Party,
+            "claims" : Claim,
+            "damages" : Damage,
+            "deadlines" : Deadline
+            }
+        if not elements:
+            return f"No {element_name.capitalize()}.\n\n"
+        element_id_map = {
+            "attachments": "file_id",
+            "emails": "email_id",
+            "events": "event_id",
+            "parties": "party_id",
+            "claims": "claim_id",
+            "damages": "damage_id",
+            "deadlines": "deadline_id"
+        }
+        element_id_key = element_id_map.get(element_name)
+        presented_format_keys = ["id" if key == element_id_key else key for key in format_keys] + (["reference_id"] if include_reference_ids and element_name not in ["attachments", "emails", "parties"] else [])
+        view = ""
+        view += "**FORMAT: " + " | ".join(presented_format_keys) + "**\n"
+        for item in elements:
+            if not isinstance(item, type_map[element_name]):
+                logger.warning(f'Item is of wrong type: {type(item)}. Expected type {type_map[element_name]. __name__}. Skipping item.')
+                continue
+            if significance and item.significance not in significance:
+                continue
+            row = " | ".join([str(getattr(item, key)) for key in format_keys])
+            if include_reference_ids and element_name not in ["attachments", "emails", "parties"]:
+                reference_id = getattr(item, "email_id", None) or getattr(item, "file_id", None)
+                row += f" | {reference_id}" if reference_id else " | "
+            view += f"\t* {row}\n"
+        return f"{element_name.capitalize()}:\n" + view + "\n\n"
 
-class FactualFacts(BaseModel):
-    disputed_facts: list[str] | None = Field(None, description="Key facts that are in dispute between the parties")
-    undisputed_facts: list[str] | None = Field(None, description="Key facts that are undisputed between the parties")
+# === #Custom fields === 
 
 class Claim(BaseModel):
     claim_id : str | None = None
+    category : Literal[
+                        "principal_claim",      # Hovedkrav / påstand
+                        "counterclaim",         # Motkrav
+                        "objection",            # Innsigelse
+                        "ancillary_claim",      # Tilleggskrav (renter, saksomkostninger)
+                        "declaratory_claim",    # Fastsettelseskrav
+                        "reimbursement_claim",  # Regresskrav (fordring)
+                        "procedural_claim",     # Prosessuelt krav (avvisning etc.)
+                        ] | None = None
     legal_basis: str = Field(description="Statutory basis (e.g., avtaleloven §36)")
     factual_basis: str = Field(description="Key facts supporting this claim")
     relief_sought: str = Field(description="What is being claimed (damages, injunction, etc)")
@@ -86,7 +124,7 @@ class Claim(BaseModel):
     defense: str | None = Field(None, description="Defense strategy if defending")
     file_id: str | None = None  # For claims from attachments
     email_id: str | None = None  # For claims from emails
-    party_role : PartyRole | None = None
+    party_role : PartyRole = Field(description="Party role associated with this claim, e.g., plaintiff, defendant, etc.")
     significance : significance_levels = Field(default="medium", description="Significance of the claim to the case")
 
 class Claims(BaseModel):
@@ -94,24 +132,46 @@ class Claims(BaseModel):
 
 class Damage(BaseModel):
     damage_id: str | None = None
-    category: Literal["direct_losses", "interest", "consequential", "punitive"]
+    category: Literal["direct_losses", "interest", "consequential", "punitive"] | None = Field(None, description="Type of damage/loss claimed or incurred")
     amount: int | float | None = Field(None, description="Monetary amount if amount is known and mentioned, else None")
     currency: str | None = Field(None, description="Currency of the amount, e.g., 'NOK', 'USD', etc.")
     basis: str
     supporting_evidence: list[str] = Field(description="File_IDs supporting the damage claim")
     file_id: str | None = None  # For damages from attachments
     email_id: str | None = None  # For damages from emails
-    party_role: PartyRole | None = None
+    party_role: PartyRole = Field(description="Party role associated with this damage claim, e.g., plaintiff, defendant, etc.")
     significance : significance_levels = Field(default="medium", description="Significance of the damage claim to the case")
-
     
-
 class Damages(BaseModel):
     damages: list[Damage] = Field(description="Information about damages claimed or incurred in the case, including type, amount if mentioned, evidentiary basis, and associated party roles")
 
+def _coerce_partial_date(v):
+    """Coerce YYYY-MM or YYYY to YYYY-MM-01 / YYYY-01-01. Returns None for non-date strings."""
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    if isinstance(v, str):
+        parts = v.split("-")
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            v = f"{v}-01"
+        elif len(parts) == 1 and parts[0].isdigit():
+            v = f"{v}-01-01"
+        try:
+            return date.fromisoformat(v[:10])
+        except ValueError:
+            return None
+    return v
+
+
 class Deadline(BaseModel):
     deadline_id: str | None = None
-    deadline_date: date |datetime
+    deadline_date: date | None
+
+    @field_validator("deadline_date", mode="before")
+    @classmethod
+    def coerce_deadline_date(cls, v):
+        return _coerce_partial_date(v)
     description: str
     file_id: str | None = Field(None, description="Related attachment reference")
     email_id: str | None = None  # For deadlines from emails
@@ -148,8 +208,13 @@ class Event(BaseModel):
     file_id: str | None = None  # For events from attachments
     email_id: str | None = None  # For events from emails
     event_name: str
-    event_start_date: date | datetime
-    event_end_date: date | datetime | None = None
+    event_start_date: date
+    event_end_date: date | None = None
+
+    @field_validator("event_start_date", "event_end_date", mode="before")
+    @classmethod
+    def coerce_event_dates(cls, v):
+        return _coerce_partial_date(v)
     description: str
     category: str = Field(description="Categorization of the event, e.g., 'court_filing', 'evidence_submission', 'contract_signing', 'communication', etc.")
     parties: list[str] | None = Field(None, description="Roles of parties involved in the event")
@@ -164,9 +229,16 @@ class InitialInput(BaseModel):
     parties: list[Party] | None = Field([], description="List of parties involved in the case.")
     background: str | None = Field("", description="Brief factual background of the case, including key events, timeline, and context")
     title : str | None = Field("", description="Title of the case or matter (MAX 10 words)")
+    start_date: date | None = Field(None, description="Start date of the case or matter (e.g., '2023-05-01')")
+
+    @field_validator("start_date", mode="before")
+    @classmethod
+    def coerce_start_date(cls, v):
+        return _coerce_partial_date(v)
 
 class BaseExtracted(BaseModel):
     """Common extraction fields for all document types and emails"""
+    title : str = Field(description="Concise title of the content (MAX 10 words)")
     description: str = Field(description="Concise summary of the content")
     significance: significance_levels = Field(default="medium", description="Importance level")
     party_roles: list[str] | None = Field(None, description="Party roles mentioned")
@@ -178,7 +250,14 @@ class AttachmentExtracted(BaseExtracted):
     """Document-specific extraction fields"""
     file_id: str | None = None
     key_provisions: list[str] | None = Field(None, description="Important clauses or sections (for agreements)")
-    file_date: date | datetime | None = Field(None, description="Date of the document (when it was created/sent, not when it was received). Must be a valid date or datetime (e.g., '2023-05-01' or '2023-05-01T14:30:00')")
+    file_date: date | None = Field(None, description="Date of the document (when it was created/sent, not when it was received), e.g. '2023-05-01'")
+
+    @field_validator("file_date", mode="before")
+    @classmethod
+    def coerce_empty_date(cls, v):
+        if v == "" or v is None:
+            return None
+        return _coerce_partial_date(v)
     category: Literal[
         "agreement", "correspondence", "meeting_minutes", "pleading", "evidence",
         "court_order", "invoice", "expert_report", "witness_statement", "internal_memo",
@@ -199,89 +278,6 @@ class Attachment(AttachmentExtracted):
     email_id: str | None = Field(None, description="If this attachment was extracted from an email, reference the email_id here")
 
 
-class FactSheet(InitialInput,
-                #FactualFacts
-                ):
-    """Structured representation of case facts for legal analysis."""
-    project_id: str | None = None
-    events: list[Event] #prior variable name: timeline 
-    #governing_law: GoverningLaw | None = None
-    claims: list[Claim] | None = None
-    damages: list[Damage] | None = None
-    deadlines: list[Deadline] | None = None
-
-    def shorten_events(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
-        if not self.events:
-            return ""
-        view = ""
-        view += "\t* Format: event_start_date | event_name | file_id | description" + "(Disputed)"  + "\n"
-        if isinstance(self.events, list):
-            self.events.sort(key=lambda e: str(e.event_start_date))
-        else:
-            raise ValueError(f'Events should be of type list, but actual type is {type(self.events)}')
-        for e in self.events:
-            if significance and e.significance not in significance:
-                continue
-            view += f"\t* {e.event_start_date} | {e.event_name} | {e.file_id or 'No file ID'} | {e.description or ''}"
-            if e.disputed:
-                view += " | Disputed"
-            view += "\n"
-        return "Events:\n" + view + "\n\n"
-
-    def shorten_parties(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
-        if not self.parties:
-            return ""
-        view = ""
-        view += "\t* Format: legal_name (entity_type) | role | role_description\n"
-        for p in self.parties:
-            if significance and p.significance not in significance:
-                continue
-            view += f"\t* {p.legal_name} ({p.entity_type}) | {p.role}"
-            if p.role_description:
-                view += f" | {p.role_description}"
-            view += "\n"
-        return "Parties:\n" + view + "\n\n"
-
-    def shorten_claims(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
-        if not self.claims:
-            return ""
-        view = ""
-        view += "\t* Format: relief_sought | factual_basis | legal_basis\n"
-        for c in self.claims:
-            if significance and c.significance not in significance:
-                continue
-            view += f"\t* Relief sought: {c.relief_sought} | Factual basis: {c.factual_basis} | Legal basis: {c.legal_basis}"
-        return "Claims:\n" + view + "\n\n"
-
-    def shorten_damages(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
-        if not self.damages:
-            return ""
-        rows = []
-        for d in self.damages:
-            if significance and d.significance not in significance:
-                continue
-            row = f"\t* {d.basis} | Category: {d.category}"
-            if d.amount is not None:
-                row += f" | Amount: {d.amount} {d.currency}"
-            rows.append(row)
-        return "Damages:\n" + "\n".join(rows) + "\n\n"
-
-    def shorten_factsheet(self, 
-                          excluded_fields: list[Literal["events", "parties", "claims", "damages", "title", "background"]] = None,
-                          significance: list[Literal["high", "medium", "low"]] = None) -> str:
-        view = f"Factsheet for project: {self.title} (ProjectId : {self.project_id}):\n\n" if not excluded_fields or "title" not in excluded_fields else ""
-        view += f"Background\n {self.background}\n\n" if self.background and (not excluded_fields or "background" not in excluded_fields) else ""
-        view += self.shorten_parties(significance) if not excluded_fields or "parties" not in excluded_fields else ""
-        view += self.shorten_events(significance) if not excluded_fields or "events" not in excluded_fields else ""
-        view += self.shorten_claims(significance) if self.claims and (not excluded_fields or "claims" not in excluded_fields) else ""
-        view += self.shorten_damages(significance) if self.damages and (not excluded_fields or "damages" not in excluded_fields) else ""
-        return view
-
-
-class RelevanceCheck(BaseModel):
-    is_relevant: bool
-    reasoning: str
-
 class EmailExtracted(BaseExtracted):
     """Email-specific extraction fields - what LLM extracts from email content"""
     key_points: list[str] | None = Field(None, description="Important points, decisions, or action items from the email")
@@ -293,7 +289,6 @@ class EmailExtracted(BaseExtracted):
 
 class Email(EmailExtracted):
     """Email model - Python-friendly names with RFC aliases"""
-    
     # IDs
     #email_id: str | None = None
     project_id: str | None = None
@@ -332,4 +327,81 @@ class Email(EmailExtracted):
 class Emails(BaseModel):
     emails: list[Email] = Field(description="List of emails in the project")
     
+class FactSheet(InitialInput,
+                #FactualFacts
+                ):
+    """Structured representation of case facts for legal analysis."""
+    project_id: str | None = None
+    events: list[Event] 
+    claims: list[Claim] | None = None
+    damages: list[Damage] | None = None
+    deadlines: list[Deadline] | None = None
+
+    def shorten_events(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
+        shorten_keys = ["event_start_date", "event_name", "file_id", "description", "disputed"]
+        return shorten_element(self.events,  
+                               element_name="events", 
+                               format_keys=shorten_keys, 
+                               significance=significance)
+        # return self.shorten_element(  
+        #                        element_name="events", 
+        #                        format_keys=shorten_keys, 
+        #                        significance=significance)
+        
+
+    def shorten_parties(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
+        shorten_keys = ["legal_name", "entity_type", "role", "role_description"]
+        return shorten_element(self.parties, 
+                                element_name="parties", 
+                                format_keys=shorten_keys, 
+                                significance=significance)
+        # return self.shorten_element(
+        #                         element_name="parties", 
+        #                         format_keys=shorten_keys, 
+        #                         significance=significance)
+        
+
+    def shorten_claims(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
+        shorten_keys = ["relief_sought", "factual_basis", "legal_basis"]
+        return shorten_element(self.claims, 
+                                element_name="claims", 
+                               format_keys=shorten_keys, significance=significance)
+        # return self.shorten_element( 
+        #                         element_name="claims", 
+        #                        format_keys=shorten_keys, significance=significance)
+        
+
+    def shorten_damages(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
+        shorten_keys = ["category", "amount", "currency", "basis",]
+        return shorten_element(self.damages, 
+                                element_name="damages", 
+                                format_keys=shorten_keys, 
+                                significance=significance)
+        # return self.shorten_element(
+        #                         element_name="damages", 
+        #                         format_keys=shorten_keys, 
+        #                         significance=significance)
+
+    def shorten_deadlines(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
+        shorten_keys = ["deadline_date", "description","file_id", "email_id"]
+        return shorten_element(self.deadlines, 
+                                element_name="deadlines", 
+                                format_keys=shorten_keys, 
+                                significance=significance)
+        # return self.shorten_element(
+        #                         element_name="deadlines", 
+        #                         format_keys=shorten_keys, 
+        #                         significance=significance)
+    
+    def shorten_factsheet(self, 
+                          excluded_fields: list[Literal["events", "parties", "claims", "damages", "deadlines", "background"]] = None,
+                          significance: list[Literal["high", "medium", "low"]] = None) -> str:
+        view = f"Factsheet for project: {self.title} (ProjectId : {self.project_id}):\n\n"
+        view += f"Background\n {self.background}\n\n" if self.background and (not excluded_fields or "background" not in excluded_fields) else ""
+        view += self.shorten_parties(significance) if not excluded_fields or "parties" not in excluded_fields else ""
+        view += self.shorten_events(significance) if not excluded_fields or "events" not in excluded_fields else ""
+        view += self.shorten_claims(significance) if self.claims and (not excluded_fields or "claims" not in excluded_fields) else ""
+        view += self.shorten_damages(significance) if self.damages and (not excluded_fields or "damages" not in excluded_fields) else ""
+        view += self.shorten_deadlines(significance) if self.deadlines and (not excluded_fields or "deadlines" not in excluded_fields) else ""
+        return view
     

@@ -1,4 +1,5 @@
 import os
+import json
 import base64
 import logging
 import tiktoken
@@ -18,12 +19,12 @@ from langgraph.graph import StateGraph, END, START
 
 from .agent_modules import Summarizer, ToolManager
 from .context_manager import ContextManager
-from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore
+from database import SupabaseManager,SupabaseStorageManager, BQVectorStore, ChromaVectorStore, GCSManager
 from documents import DocumentProcessor, EmailHandler
 from models import *  
 from uuid import uuid4
 from utils import AppConfig
-from .utils import pick_llm
+from .utils import pick_llm, apply_retry
 
 project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
 logger = logging.getLogger(__name__)
@@ -33,13 +34,9 @@ class Agent:
     '''Main Agent class handling the agent operations'''
     def __init__(self,
                  tools : list[tool],
-                 prompt : str,
                  checkpointer = None,
-                 use_factsheet : bool = True,
-                 embed_to_vectorstore : bool = True,
-                 save_to_storage : bool = True,
                  config: AppConfig = None,
-                 llm : BaseChatModel = None
+                 llm : BaseChatModel = None,
                  ):
         """
         Initializes the Agent with tools, prompt, LLMs, and checkpointer.
@@ -52,29 +49,41 @@ class Agent:
             None
 
         """
+        self.config = config or AppConfig()
+        self._semaphore_llm = asyncio.Semaphore(self.config.async_tasks.llm.max_concurrent_requests)
+        self._semaphore_storage = asyncio.Semaphore(self.config.async_tasks.storage.max_concurrent_requests)
+        logger.debug(f"⚙️  AgentConfig: llm_concurrent={self.config.async_tasks.llm.max_concurrent_requests}, storage_concurrent={self.config.async_tasks.storage.max_concurrent_requests}, throttle={self.config.async_tasks.llm.throttle_value}s")
+        
         self.tools = tools
-        self.prompt = prompt
         self.checkpointer = checkpointer
         self.summary = "" #rolling summary for long conversations
         self.in_memory_store = ChromaVectorStore()
-        self.vs = BQVectorStore()
-        self.document_processor = DocumentProcessor()
+        self.vs = BQVectorStore(**self.config.vectorstore.bigquery.model_dump())
+        self.document_processor = DocumentProcessor(config=self.config)
         self.summarizer = Summarizer()
-        self.storage = SupabaseStorageManager() #GCSManager() 
+        self.storage = GCSManager(config=self.config)  #SupabaseStorageManager(config=self.config) #
         self.conversation_manager =  SupabaseManager() #ConversationManager()
-        self.context_manager = ContextManager()
+        self.context_manager = ContextManager(config = self.config)
         self.tool_manager = ToolManager()
 
-        #TOGGLES
-        self.use_factsheet = use_factsheet
-        self.embed_to_vectorstore = embed_to_vectorstore
-        self.save_to_storage = save_to_storage
+        self.llm  = llm
+        self._tool_cache: dict[str, dict[str, str]] = {}  # session_id -> {cache_key -> result}
 
-        self.llm  = llm 
+        
 
-        self.config = config or AppConfig()
-        self._semaphore = asyncio.Semaphore(self.config.async_tasks.max_concurrent_requests)
-        logger.debug(f"⚙️  AgentConfig: max_concurrent={self.config.async_tasks.max_concurrent_requests}, throttle_value={self.config.async_tasks.throttle_value}s")
+        self.prompt = self.load_prompt(self.config.agent.prompt_file_path)
+    
+    
+    def load_prompt(self, path: str) -> str:
+        """Loads the system prompt from a file."""
+        try:
+            with open(path, "r") as f:
+                prompt = f.read()
+            logger.debug(f"✅ Loaded system prompt from {path}")
+            return prompt
+        except Exception as e:
+            logger.error(f"❌ Failed to load system prompt from {path}: {e}")
+            raise FileNotFoundError()
     
     # =================================
     #         GRAPH ELEMENTS
@@ -240,11 +249,14 @@ class Agent:
             user_input=user_input
         )
 
-        project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.use_factsheet else None
+        project = self.conversation_manager.load_project(project_id=project_id,) if project_id and self.config.agent.use_factsheet else None
         if project and isinstance(project, ProjectData) and isinstance(project.factsheet, FactSheet):
-            content = project.shorten_factsheet() + "\n\n"
-            content += project.shorten_attachments(excluded_fields=["description"]) + "\n\n"
-            content += project.shorten_emails(excluded_fields=["description"]) + "\n\n"
+            if self.config.agent.minimal_context:
+                inclued_fields=["title", 
+                                "background",
+                                ]
+                significance = self.config.agent.significance
+            content = project.shorten_project(excluded_keys=["description"], significance=significance, inclued_fields=inclued_fields)
             prompt = self.prompt + "\n\n" + content
         else:
             prompt = self.prompt
@@ -254,7 +266,7 @@ class Agent:
         
 
         # ---- LONG CONVERSATION HANDLING ----
-        sum_rate = 8
+        sum_rate = self.config.agent.sum_rate
         messages = [m for m in state.messages if not isinstance(m, SystemMessage)]
 
         if len(state.messages) > sum_rate:
@@ -290,11 +302,11 @@ class Agent:
 
         try:
             accumulated: AIMessageChunk | None = None
-            async with self._semaphore:
+            async with self._semaphore_llm:
                 async for chunk in llm_with_tools.astream(payload, config=thread):
                     accumulated = chunk if accumulated is None else accumulated + chunk
-                if self.config.async_tasks.throttle_value > 0:
-                    await asyncio.sleep(self.config.async_tasks.throttle_value)
+                if self.config.async_tasks.llm.throttle_value > 0:
+                    await asyncio.sleep(self.config.async_tasks.llm.throttle_value)
             if accumulated is None:
                 raise ValueError("LLM returned no response chunks")
 
@@ -331,7 +343,8 @@ class Agent:
 
         thread = get_config()
         query_id = thread.get("metadata", {}).get("query_id")
-        
+        session_id = thread.get("configurable", {}).get("thread_id", "")
+
         if not isinstance(state.messages[-1], AIMessage):
             raise TypeError(f'The last message is not an AI message and has not attr "tool_calls"')
 
@@ -342,7 +355,7 @@ class Agent:
         enc = tiktoken.encoding_for_model("gpt-4o-mini")
         DATA_PROD_TOOLS = []
         TOKEN_LIMIT = self.config.agent.max_token_tool
-        
+
 
         if not tool_calls:
             logger.debug("No tool calls in message")
@@ -355,36 +368,42 @@ class Agent:
             logger.debug(f'🔧 Calling tool: {name} | args={args}')
 
             if name in tools_dict:
-                # ---- CALL TOOL ----
                 tool_to_call = tools_dict[name]
-                try:
-                    #result = tool_to_call.invoke(input_to_tool)
-                    result = await tool_to_call.ainvoke(args)
-                except Exception as e:
-                    result = f'Something went wrong when calling tool {name} with args {args} : {e}.'
-                    logger.error(f"❌ {result}", exc_info=True)
-                
-                n_tokens = len(enc.encode(str(result)))
-                logger.debug(f'Result: {n_tokens} tokens')
+                session_cache = self._tool_cache.setdefault(session_id, {})
 
-                # ---- PROCESS DATA PRODUCTION TOOLS ----
-                if name in DATA_PROD_TOOLS:
-                    raw_tool_data = {
-                        "tool_name": name,
-                        "tool_args": args,
-                        "tool_data": result,
-                        "n_tokens": n_tokens,
-                        "timestamp": pd.Timestamp.now().isoformat(),
-                        "tool_call_id": tool["id"],
-                        "query_id": query_id,
-                    }                
-                    tool_data_results.append(raw_tool_data)
-
-                # ---- HANDLE LONG TOOL RESULTS FOR LLM MEMORY ----
-                if n_tokens > TOKEN_LIMIT:
-                    formatted_result = "Executive summary of the tool result: " + self.summarizer.summarize(str(result), limit=TOKEN_LIMIT)
+                cache_key = f"{name}:{json.dumps(args, sort_keys=True)}"
+                if cache_key in session_cache:
+                    logger.debug(f'💾 Cache hit — skipping tool call: {name}')
+                    formatted_result = f"[Already retrieved this session — refer to the earlier {name} result in this conversation.]"
                 else:
-                    formatted_result = self.tool_manager.format_tool_result(result)
+                    try:
+                        result = await tool_to_call.ainvoke(args)
+                    except Exception as e:
+                        logger.exception(f"❌ Tool '{name}' failed (args={args})")
+                        result = f'Something went wrong when calling tool {name}: {e}.'
+                    session_cache[cache_key] = result
+
+                    n_tokens = len(enc.encode(str(result)))
+                    logger.debug(f'Result: {n_tokens} tokens')
+
+                    # ---- PROCESS DATA PRODUCTION TOOLS ----
+                    if name in DATA_PROD_TOOLS:
+                        raw_tool_data = {
+                            "tool_name": name,
+                            "tool_args": args,
+                            "tool_data": result,
+                            "n_tokens": n_tokens,
+                            "timestamp": pd.Timestamp.now().isoformat(),
+                            "tool_call_id": tool["id"],
+                            "query_id": query_id,
+                        }
+                        tool_data_results.append(raw_tool_data)
+
+                    if TOKEN_LIMIT and n_tokens > TOKEN_LIMIT:
+                        formatted_result = "Executive summary of the tool result: " + self.summarizer.summarize(str(result), limit=TOKEN_LIMIT)
+                    else:
+                        formatted_result = self.tool_manager.format_tool_result(result)
+
                 results.append(ToolMessage(tool_call_id=tool_id, name=name, content=str(formatted_result)))
 
             else:
@@ -416,8 +435,8 @@ class Agent:
         """
         logger.info(f'\n\n ================ COMPILING LLM PIPELINE ================ \n\n')
         logger.debug(f"🤖 Compiling agent | model={llm_model}")
-        selected_llm = pick_llm(llm_model, config=self.config,)
-        self.llm = selected_llm.bind_tools(self.tools)
+        selected_llm = pick_llm(llm_model, config=self.config)
+        self.llm = apply_retry(selected_llm.bind_tools(self.tools), self.config)
 
         graph = StateGraph(AgentState)
         graph.add_node("init", self._init_node)
@@ -583,29 +602,33 @@ class Agent:
 
         # SAVE ATTACHMENTS to both vector store and file storage
         if query.attachments:
-            docs = []
-            for att in query.attachments:
-                extracted_docs = self.document_processor.parse(
-                    content=base64.b64decode(att.content),
-                    metadata={"file_id": att.file_id,
-                              "filename": att.filename,
-                              "user_id": user_id,
-                              "query_id": query.query_id,
-                              "path": att.path,
-                              "file_type": att.file_type,
-                              "size": att.size,
-                              "session_id": query.session_id,
-                              "project_id": query.project_id,
-                              "embedding_model" : self.in_memory_store.embedding_model,
-                              },
-                    file_type=att.file_type)
-                docs.extend(extracted_docs)
-                att.body = self.document_processor.to_plain_text(extracted_docs)
-            if not self.use_factsheet and self.embed_to_vectorstore:
-                self.vs.add_documents(docs, collection_id="attachments",)
+            async def parse_att(att):
+                async with self._semaphore_storage:
+                    extracted_docs = await asyncio.to_thread(
+                        self.document_processor.parse_to_docs,
+                        content=base64.b64decode(att.content),
+                        metadata={"file_id": att.file_id,
+                                  "filename": att.filename,
+                                  "user_id": user_id,
+                                  "query_id": query.query_id,
+                                  "path": att.path,
+                                  "file_type": att.file_type,
+                                  "size": att.size,
+                                  "session_id": query.session_id,
+                                  "project_id": query.project_id,
+                                  "embedding_model": self.in_memory_store.embedding_model,
+                                  },
+                        file_type=att.file_type)
+                    att.body = self.document_processor.to_plain_text(extracted_docs)
+                    return extracted_docs
+
+            parsed = await asyncio.gather(*[parse_att(att) for att in query.attachments])
+            docs = [doc for extracted in parsed for doc in extracted]
+            if not self.config.agent.use_factsheet and self.config.agent.embed_to_vectorstore:
+                await asyncio.to_thread(self.vs.add_documents, docs, collection_id="attachments")
             # Store (same API regardless of implementation)
             #self.in_memory_store.add_documents(docs, collection_id="attachments") #for testing with in-memory store
-            if self.save_to_storage:
+            if self.config.agent.save_to_storage:
                 await self.storage.save_raw_documents(attachments=query.attachments)
 
         #add attachments without content to user message

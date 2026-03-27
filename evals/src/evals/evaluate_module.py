@@ -30,7 +30,7 @@ class Evaluater:
     
     def _pick_llm(self, model : str):
         if "gemini" in model:
-            return GeminiModel(model=model, api_key=os.getenv("GOOGLE_API_LEY"),)
+            return GeminiModel(model=model, api_key=os.getenv("GOOGLE_API_KEY"),)
         elif "gpt" in model:
             return model
         else:
@@ -49,9 +49,10 @@ class Evaluater:
             additional_metadata={
                 "turn_order": conversation_turn.order,
                 "query_id": conversation_turn.query_id,
-                "session_name" : session_name,
+                "session_name": session_name,
                 "session_id": session_id,
-                "session": session,  
+                "session": session,
+                "question_type": conversation_turn.question_type,
             },
         )
 
@@ -72,54 +73,93 @@ class Evaluater:
 
         return evaluate(test_cases=[convo_test_case], metrics=[metric], async_config=AsyncConfig(max_concurrent=self.max_concurrent, throttle_value=self.throttle_value))
 
-    def run_session_eval(self, session: Session):
+    def _build_metrics(self, include_completeness: bool):
+        correctness = GEval(
+            name="correctness",
+            criteria=(
+                "Evaluate whether the factual claims in actual_output are accurate with respect to the expected answer. "
+                "Treat expected_output as a minimum baseline; additional facts in actual_output must not lower the score. "
+                "Reduce the score only for claims that are directly and demonstrably incorrect."
+            ),
+            evaluation_steps=[
+                "Identify every factual claim in actual_output.",
+                "Assess whether each claim is accurate.",
+                "Identify direct contradictions with expected_output — where actual_output asserts something demonstrably false.",
+                "Score 1.0 for a fully correct answer; reduce only in proportion to genuine factual errors.",
+            ],
+            evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
+            model=self.model,
+            threshold=self.threshold,
+        )
+
+        relevancy = GEval(
+            name="relevancy",
+            criteria=(
+                "Evaluate whether actual_output addresses the user's query. "
+                "Treat expected_output as a minimum baseline; additional facts in actual_output must not lower the score. "
+                "Score low only if the response is clearly off-topic or fails to address the query."
+            ),
+            evaluation_steps=[
+                "Identify the subject and intent of the input question.",
+                "Determine whether actual_output attempts to answer it.",
+                "Score high if on-topic, low only if the response addresses a substantially different question.",
+            ],
+            evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
+            model=self.model,
+            threshold=self.threshold,
+        )
+
+        if not include_completeness:
+            return [correctness, relevancy]
+
+        completeness = GEval(
+            name="completeness",
+            criteria=(
+                "Evaluate whether actual_output covers the key claims listed in expected_output. "
+                "expected_output contains only the minimum required claims — it is not an exhaustive model answer. "
+                "Check that each individual claim in expected_output is addressed in actual_output. "
+                "Additional correct facts in actual_output must not lower the score."
+            ),
+            evaluation_steps=[
+                "Identify the key claims in expected_output.",
+                "For each claim, determine whether actual_output addresses it.",
+                "Treat additional correct facts in actual_output as a positive signal.",
+                "Do not penalize for omitting information not present in expected_output.",
+            ],
+            evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
+            model=self.model,
+            threshold=self.threshold,
+        )
+
+        return [correctness, completeness, relevancy]
+
+    def run_session_eval(self, session: Session) -> list:
         test_cases = [
             tc for conv in session.conversation
-            if (tc := self.collect_single(conversation_turn=conv, 
-                                          session_name=session.session_name, 
-                                          session_id=session.runtime_session_id, 
+            if (tc := self.collect_single(conversation_turn=conv,
+                                          session_name=session.session_name,
+                                          session_id=session.runtime_session_id,
                                           session=session.session)) is not None
         ]
 
-        
-        completeness = GEval(
-                        name="completeness",
-                        criteria="""Assess if the actual_output covers all key points mentioned in the expected_output.
-                        The goal is 100% recall of the expected_output. 
-                        If the agent provides additional relevant information beyond thes expected_output, it should NOT decrease the completeness score.""",
-                        evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
-                        model=self.model,
-                        threshold=self.threshold,
-                    )
+        # Split by question_type: only factual questions get completeness
+        factual = [tc for tc in test_cases if tc.additional_metadata.get("question_type") == "factual"]
+        non_factual = [tc for tc in test_cases if tc.additional_metadata.get("question_type") != "factual"]
 
-        correctness = GEval(
-                    name="correctness",
-                    criteria="""Determine if actual_output is factually correct. 
-                    Use expected_output as a primary guide, but do not penalize the actual_output 
-                    for providing additional relevant facts found in the documents that are 
-                    missing from the expected_output. Only penalize direct contradictions.""",
-                    evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
-                    model=self.model,
-                    threshold=self.threshold,
-                )
+        results = []
+        async_cfg = AsyncConfig(max_concurrent=self.max_concurrent, throttle_value=self.throttle_value)
 
-        relevancy = GEval(
-                    name="relevancy",
-                    criteria="""Evaluate if the response addresses the user's query. 
-                    In 'sequence of events' queries, providing extra events within the requested 
-                    timeframe is acceptable and should not be penalized as 'irrelevant' unless 
-                    they are completely unrelated to the legal case at hand.""",
-                    evaluation_params=[LLMTestCaseParams.INPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
-                    model=self.model,
-                    threshold=self.threshold,
-                )
+        if factual:
+            results.append(evaluate(test_cases=factual, metrics=self._build_metrics(include_completeness=True), async_config=async_cfg))
+        if non_factual:
+            results.append(evaluate(test_cases=non_factual, metrics=self._build_metrics(include_completeness=False), async_config=async_cfg))
 
-        return evaluate(test_cases=test_cases, metrics=[correctness, completeness, relevancy], async_config=AsyncConfig(max_concurrent=self.max_concurrent, throttle_value=self.throttle_value))
+        return results
 
     def run_evaluation(self, data: GatheredResultPayload) -> list:
         results = []
         for session in data.sessions:
-            results.append(self.run_session_eval(session))
+            results.extend(self.run_session_eval(session))
         return results
     
 

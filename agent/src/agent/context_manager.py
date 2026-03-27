@@ -1,35 +1,46 @@
 
 import json
+from agent.tools import _parse_date
 import tiktoken
 import logging
 from uuid import uuid4
 import uuid
 import asyncio
-from pydantic import BaseModel, create_model,Field
-from langchain_core.messages import AIMessage,ToolMessage
-from langchain_core.documents import Document
+from pydantic import BaseModel, create_model, Field, field_validator
+from langchain_core.messages import AIMessage,ToolMessage, HumanMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
+from datetime import date, datetime
 
 from langchain.chat_models import init_chat_model
 
 from models import *
+from utils import AppConfig
+from .utils import _parse_date, apply_retry
 
 logger = logging.getLogger(__name__)
 
 class ContextManager:
-    def __init__(self, llm: BaseChatModel = None,
+    def __init__(self, 
+                 config : AppConfig,
+                 llm: BaseChatModel = None,
                  ):
         self._llm = init_chat_model("gemini-2.5-flash", model_provider="google_genai") if llm is None else llm
-        #self.vector_search = VectorSearch()
+        self.config = config
 
     @property
     def llm(self):
         return self._llm
+
     @llm.setter
     def llm(self, value: BaseChatModel):
         self._llm = value
-    
+
+    def _structured(self, schema):
+        """Return a structured output chain with retry applied after chaining."""
+        chain = self._llm.with_structured_output(schema, method="function_calling")
+        return apply_retry(chain, self.config)
+
     # ===== HELPERS =====
     def truncate_tokens(self, messages, max_tokens=7000):
         """Truncate messages to fit within max_tokens while preserving tool-call structure."""
@@ -70,21 +81,29 @@ class ContextManager:
         """Truncate messages while preserving tool-call structure."""
         if len(messages) <= max_messages:
             return messages
-        
+
         truncated = messages[-max_messages:]
-        
+
         # Remove orphan tool messages at start
-        while truncated and isinstance(truncated[0], ToolMessage):
+        while truncated and not isinstance(truncated[0], HumanMessage):
             truncated.pop(0)
-        
+
+        # If no HumanMessage found in window, fall back to last HumanMessage + everything after
+        if not truncated:
+            last_human_idx = next((i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], HumanMessage)), None)
+            if last_human_idx is not None:
+                truncated = list(messages[last_human_idx:])
+            else:
+                truncated = list(messages[-1:])
+
         # Remove trailing AIMessage with tool_calls if no ToolMessage follows
-        if (truncated and 
-            isinstance(truncated[-1], AIMessage) and 
-            hasattr(truncated[-1], 'tool_calls') and 
+        if (truncated and
+            isinstance(truncated[-1], AIMessage) and
+            hasattr(truncated[-1], 'tool_calls') and
             truncated[-1].tool_calls):
             logger.warning("Dropping trailing AIMessage with tool_calls to avoid API error")
             truncated.pop()
-        
+
         return truncated
 
     def is_valid_uuid(self, val):
@@ -97,7 +116,7 @@ class ContextManager:
 
     # ===== FUNCTIONS FOR INITIAL FACTSHEET CREATION =====
     async def analyze_init_input(self, init_input : str, config: RunnableConfig = None) -> InitialInput:
-        structured_llm = self.llm.with_structured_output(InitialInput, method="function_calling")
+        structured_llm = self._structured(InitialInput)
         prompt = f'Analyze the following project description and extract key information into the InitialInput structure. If not sufficient information, leave blank:\n\n{init_input}.'
         init_input = await structured_llm.ainvoke(prompt, config=config)
         for party in init_input.parties or []:
@@ -139,7 +158,7 @@ class ContextManager:
             for idx, att in enumerate(attachments)
         ])
 
-        structured_llm = self.llm.with_structured_output(MultipleAttachmentsResult, method="function_calling")
+        structured_llm = self._structured(MultipleAttachmentsResult)
         if isinstance(input_, ProjectData):
             init_prompt = f'{input_.factsheet.shorten_factsheet()}\n\n'
         elif isinstance(input_, str):
@@ -155,24 +174,25 @@ class ContextManager:
                                 IMPORTANT: Return exactly {len(attachments)} AttachmentWithEvents objects in the attachments array.
                                 CRITICAL: Set file_id in AttachmentExtracted to match the file_id from the input document.
 
+                                Do not include any irrelevant information.
                                 Documents to analyze:
                                 {documents_formatted}'''
         retry_prompt = prompt
         response = None
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 response = await structured_llm.ainvoke(retry_prompt, config=config)
+                if not response or not response.attachments:
+                    logger.warning(f"Attempt {attempt + 1} returned empty response, retrying...")
+                    retry_prompt = prompt + f"\n\nPREVIOUS ATTEMPT RETURNED EMPTY: You must return exactly {len(attachments)} AttachmentWithEvents objects. Do not return an empty list."
+                    continue
                 break
             except Exception as e:
                 logger.warning(f"Attempt {attempt + 1} failed validation: {e}")
-                if attempt == 0:
-                    retry_prompt = prompt + f"\n\nPREVIOUS ATTEMPT FAILED WITH VALIDATION ERROR:\n{e}\nPlease fix the above errors and try again."
-                else:
-                    logger.error("Both attempts failed, returning empty result.")
-                    return {"attachments": [], "events": [], "damages": [], "deadlines": [], "claims": []}
+                retry_prompt = prompt + f"\n\nPREVIOUS ATTEMPT FAILED WITH VALIDATION ERROR:\n{e}\nPlease fix the above errors and try again."
 
         if not response or not response.attachments:
-            logger.error("LLM returned empty or invalid response")
+            logger.error("LLM returned empty or invalid response after all attempts")
             return {
                 "attachments": [],
                 "events": [],
@@ -270,6 +290,24 @@ class ContextManager:
             """Result for ONE email analysis"""
             email: EmailExtracted = Field(description="Extracted metadata and content from this specific email")
             events: list[Event] | None = Field(default=None, description="Timeline events mentioned in this email (can be empty list or null if no events found)")
+
+            @field_validator("events", mode="before")
+            @classmethod
+            def filter_events_without_date(cls, v):
+                if not isinstance(v, list):
+                    return v
+                def _has_valid_date(e):
+                    if not isinstance(e, dict):
+                        return True
+                    val = e.get("event_start_date")
+                    if val is None:
+                        return False
+                    if isinstance(val, (date, datetime)):
+                        return True
+                    if isinstance(val, str):
+                        return val.split("-")[0].isdigit()
+                    return False
+                return [e for e in v if _has_valid_date(e)]
         
         class EmailsAnalysisResult(BaseModel):
             """Result containing ALL email analyses"""
@@ -288,7 +326,7 @@ class ContextManager:
         claims = []
         events = []
 
-        structured_llm = self.llm.with_structured_output(EmailsAnalysisResult, method="function_calling")
+        structured_llm = self._structured(EmailsAnalysisResult)
         if isinstance(input_, ProjectData):
             init_prompt = f'{input_.factsheet.shorten_factsheet()}\n\n'
         elif isinstance(input_, str):
@@ -428,70 +466,187 @@ class ContextManager:
 
     # =========== FUNCTIONS TO CLEAN AND REVISE EXISTING ELEMENTS
 
+    _ITEM_MODEL_MAP = {
+        "events": (list[Event], Field(default_factory=list)),
+        "parties": (list[Party], Field(default_factory=list)),
+        "claims": (list[Claim], Field(default_factory=list)),
+        "damages": (list[Damage], Field(default_factory=list)),
+        "deadlines": (list[Deadline], Field(default_factory=list)),
+    }
+    _ID_MAP = {
+        "events": "event_id", "parties": "party_id", "claims": "claim_id",
+        "damages": "damage_id", "deadlines": "deadline_id",
+    }
+    _IDENTITY_FIELDS_MAP = {
+        "events": ["event_date", "category", "event_name"],
+        "damages": ["category", "file_id", "party_role"],
+        "claims": ["relief_sought", "file_id", "party_role"],
+        "deadlines": ["file_id", "deadline_date", "party_role"],
+        "parties": ["legal_name", "role"],
+    }
+    _NULLABLE_UUID_FIELDS = {"file_id", "email_id"}
+
+    async def _clean_chunk(self, et: str, items: list[dict]) -> list[dict]:
+        """Clean a single chunk of items for one element type. Falls back to originals if LLM returns empty."""
+        ChunkModel = create_model(f"{et.capitalize()}Chunk", **{et: self._ITEM_MODEL_MAP[et]})
+        id_field = self._ID_MAP[et]
+
+        keys = list(items[0].keys()) if items else []
+        prompt = f'Clean and de-duplicate the following {et}. Merge entries that refer to the same real-world entity.\n'
+        prompt += f'FORMAT: {" | ".join(keys)}\n'
+        for item in items:
+            prompt += f'\t* {" | ".join(str(item.get(k, "")) for k in keys)}\n'
+
+        structured_llm = self._structured(ChunkModel)
+        response = await structured_llm.ainvoke(prompt)
+
+        raw_items = getattr(response, et, []) or []
+        if not raw_items:
+            logger.warning(f'⚠️ LLM returned empty for {et} chunk ({len(items)} items) — keeping originals')
+            return items
+
+        cleaned = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in raw_items]
+        for item in cleaned:
+            if not item.get(id_field) or not self.is_valid_uuid(item[id_field]):
+                item[id_field] = str(uuid.uuid4())
+            for field in self._NULLABLE_UUID_FIELDS:
+                if isinstance(item.get(field), str) and item[field].lower() in ("null", "none", ""):
+                    item[field] = None
+        return cleaned
+
     async def clean_elements(self,
                              element_types: list[str],
                              project_data: ProjectData,
                              ) -> dict[str, list[dict]]:
-        """Clean multiple element types in a single LLM call. Returns {element_type: cleaned_items}."""
-        item_model_map = {
-            "events": (list[Event], Field(default_factory=list)),
-            "parties": (list[Party], Field(default_factory=list)),
-            "claims": (list[Claim], Field(default_factory=list)),
-            "damages": (list[Damage], Field(default_factory=list)),
-            "deadlines": (list[Deadline], Field(default_factory=list)),
-        }
-        id_map = {
-            "events": "event_id", "parties": "party_id", "claims": "claim_id",
-            "damages": "damage_id", "deadlines": "deadline_id",
-        }
-        identity_fields_map = {
-            "events": ["event_date", "category", "event_name"],
-            "damages": ["category", "file_id", "party_role"],
-            "claims": ["relief_sought", "file_id", "party_role"],
-            "deadlines": ["file_id", "deadline_date", "party_role"],
-            "parties": ["legal_name", "role"],
-        }
-
-        CombinedModel = create_model("CombinedElements", **{et: item_model_map[et] for et in element_types})
-
+        """Clean multiple element types using chunked concurrent LLM calls. Returns {element_type: cleaned_items}."""
         data_map = {et: project_data.factsheet.model_dump().get(et, []) for et in element_types}
 
-        prompt = (
-            f'{project_data.shorten_factsheet(excluded_fields=element_types)}\n'
-            f'{project_data.shorten_attachments()}\n'
-            f'{project_data.shorten_emails()}\n'
-            f'Use the context above to clean and fill in missing information for: {", ".join(element_types)}.\n'
-            f'Merge entries that refer to the same entity within each type.\n\n'
-        )
+        # Build all chunk tasks across all element types
+        sem = asyncio.Semaphore(self.config.async_tasks.llm.max_concurrent_requests)
+        chunk_size = self.config.project.clean.chunk_size
+
+        async def _guarded(et: str, items: list[dict]) -> list[dict]:
+            async with sem:
+                return await self._clean_chunk(et, items)
+
+        tasks = []
+        task_et = []
         for et in element_types:
-            prompt += f'Current {et}:\n{json.dumps(data_map[et], default=str)}\n\n'
+            items = data_map[et]
+            if not items:
+                continue
+            for i in range(0, len(items), chunk_size):
+                tasks.append(_guarded(et, items[i:i + chunk_size]))
+                task_et.append(et)
 
-        structured_llm = self.llm.with_structured_output(CombinedModel, method="function_calling")
-        response = await structured_llm.ainvoke(prompt)
+        chunk_results = await asyncio.gather(*tasks)
 
+        # Merge chunk results per element type
+        merged: dict[str, list[dict]] = {et: [] for et in element_types}
+        for et, result in zip(task_et, chunk_results):
+            merged[et].extend(result)
+
+        # Final code-based dedup pass (catches cross-chunk duplicates)
         results = {}
         for et in element_types:
-            id_field = id_map[et]
-            raw_items = getattr(response, et, []) or []
-            llm_cleaned = [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in raw_items]
-
-            for item in llm_cleaned:
-                if not item.get(id_field) or not self.is_valid_uuid(item[id_field]):
-                    item[id_field] = str(uuid.uuid4())
-
-            identity_fields = identity_fields_map.get(et, [])
-            seen = {}
+            identity_fields = self._IDENTITY_FIELDS_MAP.get(et, [])
+            seen: dict = {}
             deduped = []
-            for item in llm_cleaned:
+            for item in merged[et]:
                 sig = tuple(item.get(f) for f in identity_fields)
                 if sig not in seen:
                     seen[sig] = True
                     deduped.append(item)
 
-            logger.info(f'✅ Cleaned {et}: {len(data_map[et])} → {len(llm_cleaned)} (LLM) → {len(deduped)} (deduplicated)')
+            logger.info(f'✅ Cleaned {et}: {len(data_map[et])} → {len(merged[et])} (LLM) → {len(deduped)} (deduplicated)')
             results[et] = deduped
 
         return results
+
+    async def deduplicate_elements(self,
+                  elements: dict[str, list[dict]]) -> dict[str, list[dict]]:
+        """Deduplicate elements using LLM. Sends minimal key fields per type, returns filtered original items."""
+
+        class KeepIds(BaseModel):
+            ids: list[str] = Field(description="List of IDs to keep (one per unique real-world entity)")
+
+        date_col_map = {
+            "events": "event_start_date",
+            "deadlines": "deadline_date",
+            "claims": "source_date",
+            "damages": "source_date",
+        }
+        format_map = {
+            "events": ["event_id", "event_start_date", "event_name", "description"],
+            "parties": ["party_id", "legal_name", "entity_type", "role", "role_description"],
+            "claims": ["claim_id", "party_role", "relief_sought", "factual_basis", "legal_basis", "strength_assessment"],
+            "damages": ["damage_id", "party_role", "category", "amount", "currency", "basis"],
+            "deadlines": ["deadline_id", "deadline_date", "description"],
+        }
+
+        element_types = list(elements.keys())
+        logger.info("Original element counts: " + ", ".join(f"{et}={len(elements.get(et, []))}" for et in element_types))
+
+        structured_llm = self._structured(KeepIds)
+
+        task_meta: list[tuple[str, set]] = []  # parallel to tasks: (et, chunk_ids)
+        tasks = []
+        for et in element_types:
+            all_items = elements.get(et, [])
+            for i in range(0, len(all_items), self.config.project.clean.chunk_size):
+                chunk = all_items[i:i + self.config.project.clean.chunk_size]
+                chunk_num = i // self.config.project.clean.chunk_size + 1
+                logger.info(f'Creating deduplication task for {et} chunk {chunk_num} ({len(chunk)} items)')
+
+                date_col = date_col_map.get(et)
+                if date_col:
+                    chunk = sorted(chunk, key=lambda x: _parse_date(x.get(date_col), default=date.min) or "")
+
+                fields = format_map[et]
+                prompt = (
+                    f'These are the existing {et} extracted for this legal project. '
+                    f'De-duplicate this list by identifying entries that refer to the same real-world entity. '
+                    f'Also remove any redundant or low-quality entries. '
+                    f'Return the IDs of the entries to KEEP (one per unique entity). Keep the ones that are most complete or accurate.\n\n'
+                    f'FORMAT: {" | ".join(fields)}\n'
+                )
+                for item in chunk:
+                    prompt += "\t- " + " | ".join(str(item.get(f, "")) for f in fields) + "\n"
+
+                tasks.append(structured_llm.ainvoke(prompt))
+                task_meta.append((et, set(item.get(self._ID_MAP[et]) for item in chunk)))
+
+        llm_results = await asyncio.gather(*tasks)
+
+        # Collect keep_ids per element type across all chunks
+        keep_ids_per_et: dict[str, set] = {et: set() for et in element_types}
+        for i, res in enumerate(llm_results):
+            et, chunk_ids = task_meta[i]
+            keep_ids = set(res.ids) if res and res.ids else set()
+
+            invalid = keep_ids - chunk_ids
+            if invalid:
+                logger.warning(f'⚠️ {et}: LLM returned unknown IDs {invalid} — keeping all from this chunk')
+                keep_ids_per_et[et] |= chunk_ids
+                continue
+
+            if not keep_ids:
+                logger.warning(f'⚠️ {et}: LLM returned no IDs — keeping all from this chunk')
+                keep_ids_per_et[et] |= chunk_ids
+                continue
+
+            keep_ids_per_et[et] |= keep_ids
+
+        output: dict[str, list[dict]] = {}
+        for et in element_types:
+            id_field = self._ID_MAP[et]
+            kept = [item for item in elements[et] if item.get(id_field) in keep_ids_per_et[et]]
+            logger.info(f'✅ Deduplicated {et}: {len(elements[et])} → {len(kept)}')
+            output[et] = kept
+
+        logger.info("Final deduplicated counts: " + ", ".join(f"{et}={len(output.get(et, []))}" for et in element_types))
+
+        return output
 
     async def clean_metadata(self, 
                              project_data : ProjectData,
@@ -508,7 +663,7 @@ class ContextManager:
             f'Return ONLY the cleaned metadata content itself, no explanation or preamble.\n\n'
             f'Original metadata content:\nCurrent Title: {project_data.factsheet.title}\nCurrent Background: {project_data.factsheet.background}'
         )        
-        structured_llm = self.llm.with_structured_output(ProjectMetadata, method="function_calling")
+        structured_llm = self._structured(ProjectMetadata)
         response = await structured_llm.ainvoke(prompt)
         
         return {
@@ -542,7 +697,7 @@ class ContextManager:
             f'Extract initial input (All parties and updated title and background) based on the project events'
             f'**IMPORTANT**: Keep all party_ids for existing parties, and update the additional information if nececcary (i.e role, role_description, key_contact, etc)'
         )
-        structured_llm = self.llm.with_structured_output(InitialInput, method="function_calling")
+        structured_llm = self._structured(InitialInput)
         updated_input = await structured_llm.ainvoke(prompt)
         org_ids = set(p.party_id for p in existing_initial_input.parties or [] if p.party_id)
 

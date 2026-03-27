@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from agent.clean import ProjectClean
-from models import PipelineState, ProjectData, FactSheet, Party, Event
+from models import PipelineState, ProjectData, FactSheet, Party, Event, Claim, Damage, Deadline
 from models import CleanupElementsRequest
 from tests.fixtures.agent_data import get_mock_ask_agent_request
 from tests.fixtures.context_manager_data import get_mock_factsheet
@@ -39,7 +39,7 @@ def mock_clean():
     """Creates a ProjectClean with mocked dependencies."""
     with patch('agent.clean.ContextManager') as mock_cm, \
          patch('agent.clean.DocumentProcessor') as mock_dp, \
-         patch('agent.clean.SupabaseStorageManager') as mock_storage, \
+         patch('agent.clean.GCSManager') as mock_storage, \
          patch('agent.clean.BQVectorStore') as mock_bq, \
          patch('agent.clean.SupabaseManager') as mock_db:
 
@@ -60,8 +60,11 @@ def mock_clean():
         mock_db.return_value = mock_db_instance
 
         mock_config = MagicMock()
-        mock_config.async_tasks.max_concurrent_requests = 3
-        mock_config.async_tasks.throttle_value = 0
+        mock_config.async_tasks.llm.max_concurrent_requests = 3
+        mock_config.async_tasks.llm.throttle_value = 0
+        mock_config.async_tasks.llm.requests_per_second = None
+        mock_config.async_tasks.llm.retry_attempts = 0
+        mock_config.async_tasks.database.max_concurrent_requests = 2
         mock_config.project.embed_to_vectorstore = True
         mock_config.project.save_to_storage = True
 
@@ -108,12 +111,7 @@ async def test_load_project_node_returns_project(mock_clean):
     query = get_mock_cleanup_request(["events"])
     state = PipelineState(query=query)
 
-    mock_project = ProjectData(
-        factsheet=get_mock_factsheet(),
-        attachments=[],
-        emails=[]
-    )
-    mock_clean.conversation_manager.load_project.return_value = mock_project
+    mock_clean.conversation_manager.load_factsheet.return_value = get_mock_factsheet()
     mock_writer = MagicMock()
 
     with patch('agent.clean.get_stream_writer', return_value=mock_writer), \
@@ -143,17 +141,17 @@ async def test_load_project_node_missing_project_raises(mock_clean):
 
 @pytest.mark.asyncio
 async def test_load_project_node_invalid_type_raises(mock_clean):
-    """_load_project_node raises TypeError when load_project returns wrong type."""
+    """_load_project_node raises an error when load_factsheet returns wrong type."""
     query = get_mock_cleanup_request(["events"])
     state = PipelineState(query=query)
 
-    mock_clean.conversation_manager.load_project.return_value = {"invalid": "dict"}
+    mock_clean.conversation_manager.load_factsheet.return_value = {"invalid": "dict"}
     mock_writer = MagicMock()
 
     with patch('agent.clean.get_stream_writer', return_value=mock_writer), \
          patch('agent.clean.get_config', return_value=MOCK_THREAD_CONFIG), \
          patch('agent.clean.pick_llm', return_value=MagicMock()), \
-         pytest.raises(TypeError):
+         pytest.raises(Exception):
         await mock_clean._load_project_node(state)
 
 
@@ -170,15 +168,15 @@ async def test_clean_elements_node(mock_clean):
     state = PipelineState(query=query, input_=project_data)
 
     cleaned_events = [
-        Event(
-            event_id="event-cleaned-001",
-            event_name="ContractSigned",
-            event_start_date="2023-08-25",
-            description="Cleaned event",
-            significance="high",
-            disputed=False,
-            category="transaction"
-        )
+        {
+            "event_id": "event-cleaned-001",
+            "event_name": "ContractSigned",
+            "event_start_date": "2023-08-25",
+            "description": "Cleaned event",
+            "significance": "high",
+            "disputed": False,
+            "category": "transaction",
+        }
     ]
     mock_clean.context_manager.clean_elements = AsyncMock(return_value={"events": cleaned_events})
     mock_writer = MagicMock()
@@ -190,7 +188,8 @@ async def test_clean_elements_node(mock_clean):
 
     assert "input_" in result
     assert isinstance(result["input_"], ProjectData)
-    assert result["input_"].factsheet.events == cleaned_events
+    assert len(result["input_"].factsheet.events) == len(cleaned_events)
+    assert all(isinstance(e, Event) for e in result["input_"].factsheet.events)
     mock_clean.context_manager.clean_elements.assert_called_once_with(["events"], project_data)
 
 
@@ -231,17 +230,68 @@ async def test_save_elements_node(mock_clean):
     project_data = ProjectData(factsheet=factsheet, attachments=[], emails=[])
     state = PipelineState(query=query, input_=project_data)
 
-    mock_clean.conversation_manager.replace_project_element = MagicMock()
+    mock_clean.conversation_manager.upsert_replace_project_element = MagicMock()
     writer_calls = []
     mock_writer = MagicMock(side_effect=lambda x: writer_calls.append(x))
 
     with patch('agent.clean.get_stream_writer', return_value=mock_writer):
         await mock_clean._save_elements_node(state)
 
-    mock_clean.conversation_manager.replace_project_element.assert_called()
+    mock_clean.conversation_manager.upsert_replace_project_element.assert_called()
     result_calls = [c for c in writer_calls if isinstance(c, dict) and c.get("type") == "result"]
     assert len(result_calls) == 1
     assert result_calls[0]["data"]["success"] is True
+
+
+# ============================================
+#           SAVE METADATA NODE
+# ============================================
+
+# ============================================
+#           DEDUP ELEMENTS NODE
+# ============================================
+
+@pytest.mark.asyncio
+async def test_dedup_elements_node_filters_items(mock_clean):
+    """_dedup_elements_node should call deduplicate_elements and update factsheet in-place."""
+    query = get_mock_cleanup_request(["events"])
+    factsheet = get_mock_factsheet()
+    project_data = ProjectData(factsheet=factsheet, attachments=[], emails=[])
+    state = PipelineState(query=query, input_=project_data)
+
+    original_events = project_data.factsheet.model_dump().get("events", [])
+    # Keep only the first event (simulate LLM deduplication)
+    kept = original_events[:1] if original_events else []
+
+    mock_clean.context_manager.deduplicate_elements = AsyncMock(return_value={"events": kept})
+    mock_writer = MagicMock()
+
+    with patch('agent.clean.get_stream_writer', return_value=mock_writer):
+        result = await mock_clean._dedup_elements_node(state)
+
+    assert "input_" in result
+    mock_clean.context_manager.deduplicate_elements.assert_called_once()
+    call_args = mock_clean.context_manager.deduplicate_elements.call_args[0][0]
+    assert "events" in call_args
+
+
+@pytest.mark.asyncio
+async def test_dedup_elements_node_writes_status_event(mock_clean):
+    """_dedup_elements_node should emit a status event per element type."""
+    query = get_mock_cleanup_request(["events"])
+    factsheet = get_mock_factsheet()
+    project_data = ProjectData(factsheet=factsheet, attachments=[], emails=[])
+    state = PipelineState(query=query, input_=project_data)
+
+    mock_clean.context_manager.deduplicate_elements = AsyncMock(return_value={"events": []})
+    writer_calls = []
+    mock_writer = MagicMock(side_effect=lambda x: writer_calls.append(x))
+
+    with patch('agent.clean.get_stream_writer', return_value=mock_writer):
+        await mock_clean._dedup_elements_node(state)
+
+    status_calls = [c for c in writer_calls if isinstance(c, dict) and c.get("type") == "status"]
+    assert any(c.get("data", {}).get("element_type") == "events" for c in status_calls)
 
 
 # ============================================

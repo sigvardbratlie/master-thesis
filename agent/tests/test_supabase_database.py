@@ -63,19 +63,20 @@ def test_load_project(mock_supabase_manager):
 def test_save_project(mock_supabase_manager):
     data = get_mock_save_project_data()
 
-    #self.supabase.table("project_legal").upsert({**custom, "project_id": project_id}).execute()
-
-    mock_supabase_manager.save_project(factsheet=data["factsheet"], 
+    mock_supabase_manager.save_project(factsheet=data["factsheet"],
                                        attachments=data["attachments"],
                                        user_id="test_user_id", project_id="test_project_id",
-                                       session_id="test_session_id", query_id="test_query_id")
-    
+                                       session_id="test_session_id", query_id="test_query_id",
+                                       llm_model="test_model")
+
     client = mock_supabase_manager.supabase
-    #client.reset_mock()
     calls = client.table.return_value.upsert.call_args_list
-    first_call_args = calls[0][0][0]  # Første argument til første kall
+    first_call_args = calls[0][0][0]
     assert first_call_args['project_id'] == "test_project_id"
     assert first_call_args['user_id'] == "test_user_id"
+    assert first_call_args['created_by'] == "test_model"
+    assert first_call_args['updated_by'] == "test_model"
+    assert 'updated_at' in first_call_args
     assert client.table.call_count == 7
 
 
@@ -83,40 +84,145 @@ def test_insert_project_element(mock_supabase_manager):
     data = get_mock_save_project_data().get("factsheet").model_dump(mode = "json").get("parties")
     client = mock_supabase_manager.supabase
     client.reset_mock()
-    #self.supabase.table(table_name).insert(data).execute()
 
-    mock_supabase_manager.insert_project_element(data=data ,
+    mock_supabase_manager.insert_project_element(data=data,
                                                  project_id="test_project_id",
-                                                 table_name="project_parties")
-    
+                                                 table_name="project_parties",
+                                                 llm_model="test_model")
+
     assert client.table.called, "table() was never called"
     client.table.assert_any_call("project_parties")
     client.table.return_value.insert.assert_called()
     client.table.return_value.insert.return_value.execute.assert_called()
+
+    inserted_data = client.table.return_value.insert.call_args[0][0]
+    for item in inserted_data:
+        assert item['created_by'] == "test_model"
+        assert item['updated_by'] == "test_model"
+        assert 'updated_at' in item
 
 
 def test_replace_project_element(mock_supabase_manager):
     data = get_mock_save_project_data().get("factsheet").model_dump(mode = "json").get("parties")
     client = mock_supabase_manager.supabase
     client.reset_mock()
-    #self.supabase.table(table_name).insert(data).execute()
 
-    mock_supabase_manager.replace_project_element(data=data ,
-                                                 project_id="test_project_id",
-                                                 table_name="project_parties")
-    
+    # Mock SELECT: first 2 parties are "existing" with original created_by/created_at
+    existing_party_ids = [data[0]["party_id"], data[1]["party_id"]]
+    existing_response = Mock()
+    existing_response.data = [
+        {"party_id": existing_party_ids[0], "created_by": "original_model", "created_at": "2026-01-01T00:00:00"},
+        {"party_id": existing_party_ids[1], "created_by": "original_model", "created_at": "2026-01-01T00:00:00"},
+    ]
+    client.table.return_value.select.return_value.eq.return_value.execute.return_value = existing_response
+
+    mock_supabase_manager.replace_project_element(data=data,
+                                                  project_id="test_project_id",
+                                                  table_name="project_parties",
+                                                  llm_model="test_model")
+
     assert client.table.called, "table() was never called"
     client.table.assert_any_call("project_parties")
+    client.table.return_value.delete.assert_called()
     client.table.return_value.insert.assert_called()
-    client.table.return_value.insert.return_value.execute.assert_called()
 
+    inserted_data = client.table.return_value.insert.call_args[0][0]
+    for item in inserted_data:
+        assert item['updated_by'] == "test_model"
+        assert 'updated_at' in item
+        if item['party_id'] in existing_party_ids:
+            assert item['created_by'] == "original_model"
+            assert item['created_at'] == "2026-01-01T00:00:00"
+        else:
+            assert item['created_by'] == "test_model"
+
+def test_upsert_replace_project_element(mock_supabase_manager):
+    """upsert_replace_project_element should call upsert (not insert) and delete stale items."""
+    data = get_mock_save_project_data().get("factsheet").model_dump(mode="json").get("parties")
+    client = mock_supabase_manager.supabase
+    client.reset_mock()
+
+    existing_party_ids = [data[0]["party_id"], data[1]["party_id"]]
+    existing_response = Mock()
+    existing_response.data = [
+        {"party_id": existing_party_ids[0], "created_by": "original_model", "created_at": "2026-01-01T00:00:00"},
+        {"party_id": existing_party_ids[1], "created_by": "original_model", "created_at": "2026-01-01T00:00:00"},
+    ]
+    client.table.return_value.select.return_value.eq.return_value.execute.return_value = existing_response
+
+    mock_supabase_manager.upsert_replace_project_element(
+        data=data,
+        project_id="test_project_id",
+        table_name="project_parties",
+        llm_model="test_model",
+    )
+
+    client.table.assert_any_call("project_parties")
+    client.table.return_value.upsert.assert_called()
+    client.table.return_value.delete.assert_called()
+    client.table.return_value.delete.return_value.eq.return_value.not_.in_.assert_called()
+
+    upserted_data = client.table.return_value.upsert.call_args[0][0]
+    for item in upserted_data:
+        assert item["updated_by"] == "test_model"
+        assert "updated_at" in item
+        if item["party_id"] in existing_party_ids:
+            assert item["created_by"] == "original_model"
+            assert item["created_at"] == "2026-01-01T00:00:00"
+        else:
+            assert item["created_by"] == "test_model"
+
+
+def test_upsert_replace_project_element_removes_stale_items(mock_supabase_manager):
+    """Items in DB but not in new list should be excluded from upsert and covered by delete not_.in_."""
+    data = get_mock_save_project_data().get("factsheet").model_dump(mode="json").get("parties")
+    client = mock_supabase_manager.supabase
+    client.reset_mock()
+
+    stale_party_id = "stale-0000-0000-0000-000000000000"
+    existing_response = Mock()
+    existing_response.data = [
+        {"party_id": stale_party_id, "created_by": "old_model", "created_at": "2025-01-01T00:00:00"},
+    ]
+    client.table.return_value.select.return_value.eq.return_value.execute.return_value = existing_response
+
+    mock_supabase_manager.upsert_replace_project_element(
+        data=data,
+        project_id="test_project_id",
+        table_name="project_parties",
+        llm_model="test_model",
+    )
+
+    upserted_data = client.table.return_value.upsert.call_args[0][0]
+    upserted_ids = [item["party_id"] for item in upserted_data]
+    assert stale_party_id not in upserted_ids
+
+    not_in_ids = client.table.return_value.delete.return_value.eq.return_value.not_.in_.call_args[0][1]
+    assert stale_party_id not in not_in_ids
+
+
+def test_upsert_replace_project_element_no_data_skips(mock_supabase_manager):
+    """Empty data should skip all DB calls."""
+    client = mock_supabase_manager.supabase
+    client.reset_mock()
+
+    mock_supabase_manager.upsert_replace_project_element(
+        data=[],
+        project_id="test_project_id",
+        table_name="project_parties",
+        llm_model="test_model",
+    )
+
+    client.table.assert_not_called()
+
+
+@pytest.mark.skip(reason="load_projects was removed from SupabaseManager and moved to the UI layer (database_service.py)")
 def test_load_projects(mock_supabase_manager):
     client = mock_supabase_manager.supabase
     data = get_mock_user_projects()
     response = Mock()
     response.data = data.get("data")
 
-    #projects = self.supabase.table("projects").select("project_id, title, created_at").eq("user_id", user_id).execute()
     client.table.return_value.select.return_value.eq.return_value.execute.return_value = response
 
     user_id = "test_user_id"
@@ -126,12 +232,13 @@ def test_load_projects(mock_supabase_manager):
     assert len(result) == 4
     assert result[0].created_at > result[-1].created_at
 
+@pytest.mark.skip(reason="load_project_sessions was removed from SupabaseManager and moved to the UI layer (database_service.py)")
 def test_load_project_sessions(mock_supabase_manager):
     client = mock_supabase_manager.supabase
     data = get_mock_project_sessions()
     response = Mock()
     response.data = data.get("data")
-    #project_sessions = self.supabase.table("sessions").select("session_id, title, updated_at, llm_model").eq("project_id", project_id).execute()
+
     client.table.return_value.select.return_value.eq.return_value.execute.return_value = response
 
     project_id = "test_project_id"
@@ -142,12 +249,13 @@ def test_load_project_sessions(mock_supabase_manager):
     assert result[0].updated_at > result[-1].updated_at
 
 
+@pytest.mark.skip(reason="load_user_sessions was removed from SupabaseManager and moved to the UI layer (database_service.py)")
 def test_load_user_sessions(mock_supabase_manager):
     client = mock_supabase_manager.supabase
     data = get_mock_user_sessions()
     response = Mock()
     response.data = data.get("data")
-    #sessions = self.supabase.table("sessions").select("title, session_id, updated_at").eq("user_id", user_id).order("updated_at", desc=True).execute()
+
     client.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = response
 
     user_id = "test_user_id"

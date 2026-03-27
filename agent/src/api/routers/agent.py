@@ -26,7 +26,7 @@ async def chat_endpoint(
                 yield f"data: {data_string}\n\n"
                 await asyncio.sleep(0.01)
         except Exception as e:
-            logger.error(f"Error in /agent/chat: {e}", exc_info=True)
+            logger.exception(f"❌ Error in /agent/chat")
             raise HTTPException(status_code=500, detail=str(e))
 
     return StreamingResponse(gen(), media_type="text/event-stream")

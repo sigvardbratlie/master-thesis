@@ -12,6 +12,8 @@ def setup_logging(config : AppConfig):
     log_level = getattr(logging, level_name, logging.INFO) 
 
     logging.root.setLevel(logging.DEBUG)
+    for h in logging.root.handlers[:]:
+        logging.root.removeHandler(h)
 
     if log_config.console.enabled:
         console_level_name = log_config.console.level.upper()

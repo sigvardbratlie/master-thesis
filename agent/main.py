@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from agent.utils import PROMPT
 from agent.tools import TOOLS
 from agent.agent import Agent
 from database import SupabaseManager
@@ -61,7 +60,12 @@ async def lifespan(app: FastAPI):
     global agent, pool
     connection_string = os.getenv("SUPABASE_DB_URL")
     #logger.info(f"🔗 DB connection: {connection_string[:50]}...")
-    pool = AsyncConnectionPool(conninfo=connection_string, open=False)
+    pool = AsyncConnectionPool(
+        conninfo=connection_string,
+        open=False,
+        min_size=2,
+        max_size=5,
+    )
     await pool.open()
 
     checkpointer = AsyncPostgresSaver(pool)
@@ -76,7 +80,6 @@ async def lifespan(app: FastAPI):
 
     agent = Agent(
         tools=TOOLS,
-        prompt=PROMPT,
         checkpointer=checkpointer,
         config = config
     )
@@ -89,7 +92,7 @@ async def lifespan(app: FastAPI):
     app.state.clean = ProjectClean(name="ProjectClean", config=config,)
     app.state.auth = SupabaseAuth()
     app.state.conversation_manager = SupabaseManager()
-    app.state.vectorstore = BQVectorStore()
+    app.state.vectorstore = BQVectorStore(embedding_model=config.vectorstore.bigquery.embedding_model)
 
     silence_loggers()
 

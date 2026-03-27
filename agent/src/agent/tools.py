@@ -5,89 +5,48 @@ from dotenv import load_dotenv
 import json
 from typing import Optional, Literal
 import logging
-
+from datetime import date, datetime, timezone
 from google.cloud import bigquery
 
 from langchain_tavily import TavilySearch
 from langchain_core.runnables import RunnableConfig
 from langchain.tools import tool
 
-from database import SupabaseStorageManager, BQVectorStore, SupabaseManager
+from database import GCSManager, BQVectorStore, SupabaseManager
 from documents import DocumentProcessor
-
+from utils import get_app_config,setup_logging
+from .utils import _parse_date
 
 load_dotenv()
-project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+config = get_app_config()
 logger = logging.getLogger(__name__)
+setup_logging(config)
+document_processor = DocumentProcessor(config=config)
+
 
 tavily_search = TavilySearch(
     max_results=5,
     topic="general",
 )
 
-
-@tool
-def read_attachment(
-    path: str,
-    # config : RunnableConfig
-) -> str:
-    """
-    Reads and processes an attachment from Supabase storage based on the provided path.
-    Use only when the attachment content is not provided in the conversation history.
-
-    Args:
-        path (str): The path to the attachment in Supabase storage. Always in the form of "<user_id>/<session_id>/<file_id>.<ext>".
-
-    Returns:
-        str: Processed content of the attachment.
-    """
-    storage_manager = SupabaseStorageManager()
-    document_processor = DocumentProcessor()
-    content = storage_manager.read_attachment(path=path)
-    try:
-        file_id = (
-            path.split("/")[-1].split(".")[0] if "." in path else path.split("/")[-1]
-        )
-        ext = "." + path.split(".")[-1] if "." in path else ""
-    except Exception as e:
-        logger.error(f"Error extracting file_id and extension from path: {e}")
-        return None
-    if ext in [".pdf", ".docx", ".pptx", ".eml", ".txt", ".md"]:
-        file_type = document_processor.map_file_type(ext)
-        docs = document_processor.parse(
-            content=content,
-            metadata={
-                "file_id": file_id,
-                "filename": file_id + ext,
-                "session_id": None,
-                "embedding_model": None,
-            },
-            file_type=file_type,
-            force_metadata_model=False,
-        )
-        content_txt = document_processor.to_plain_text(docs)
-        return f"Content for file path {path}: \n{content_txt}\n\n"
-    else:
-        logger.error(f"Unsupported file extension: {ext}")
-        return []
-
 @tool
 def read_attachments(
-    paths: list[str],
+    ids: list[str],
     # config : RunnableConfig
 ) -> str:
     """
-    Reads and processes multiple attachments from Supabase storage based on the provided paths.
+    Reads and processes multiple attachments based on the provided file IDs.
+    Content is fetched from the database body cache when available, otherwise from GCS.
 
     Args:
-        paths (str): The path to the attachments in Supabase storage. Always in the form of ["<user_id>/<session_id>/<file_id>.<ext>", etc...].
+        ids (list[str]): The file IDs of the attachments to read.
 
     Returns:
-        str: Processed content of the attachment.
+        str: Processed content of the attachments.
     """
-    storage_manager = SupabaseStorageManager()
-    document_processor = DocumentProcessor()
-    contents = storage_manager.read_attachments(paths=paths)
+    db = SupabaseManager()
+    storage_manager = GCSManager(config=config)
+    response = db.get_body_by_id(ids=ids)
     def process_attachment(path, content):
         try:
             file_id = (
@@ -99,7 +58,7 @@ def read_attachments(
             return None
         if ext in [".pdf", ".docx", ".pptx", ".eml", ".txt", ".md"]:
             file_type = document_processor.map_file_type(ext)
-            docs = document_processor.parse(
+            md, _ = document_processor.parse(
                 content=content,
                 metadata={
                     "file_id": file_id,
@@ -110,50 +69,60 @@ def read_attachments(
                 file_type=file_type,
                 force_metadata_model=False,
             )
-            content_txt = document_processor.to_plain_text(docs)
-            return f"CONTENT FOR FILEPATH {path}: \n\n{content_txt}\n\n"
+            return md
         else:
             logger.error(f"Unsupported file extension: {ext}")
             return []
 
-    results = "Results for reading attachments:" + "\n" + "-" * 50 + "\n\n"
-    for path, content in contents.items():
-        if content is not None:
-            results += process_attachment(path, content)
-            results += "\n" + "-" * 50 + "\n\n"
-        else:
-            results += f"Can not find any contents for {path}\n"
-            results += "\n" + "-" * 50 + "\n\n"
+    results = "Results from reading attachments:" + "\n" + "-" * 50 + "\n\n"
+    for i in range(len(ids)):
+        res = response[i]
+        content = res.get("body")
+        if not content:
+            read_res = storage_manager.read_attachments(paths = [res["path"]])
+            raw_bytes = read_res.get(res["path"])
+            content = process_attachment(res["path"], raw_bytes) if raw_bytes else None
+        results +=  f"CONTENT FOR FILE-ID {ids[i]}: \n\n{content}\n\n" if content else f"No content found for file ID {ids[i]}, path {res['path']}.\n"
+        results += "\n" + "-" * 50 + "\n\n"
     return results
 
+
 @tool
-def query_project_attachments(query: str, project_id: str, k: int = 3) -> str:
+def query_project_attachments(query: str, project_id: str, k: int = 10, metadata : dict = None) -> str:
     """Function to use RAG to retrieve documents of a specific project.
 
     Args:
         query (str): The query to search in the vectorstore.
         project_id (str): The project id to identify which vectorstore to query.
-        k (int): The number of top results to retrieve from the vectorstore. Default is 5.
+        k (int): The number of top results to retrieve from the vectorstore. 
+        metadata (dict, optional): Additional metadata to filter the vectorstore query. Defaults to None. I.e., {'file_id' : '741ef083-9335-4a55-bbe1-ea866bf01758'}.
     Returns:
         str: The retrieved information from the vectorstore based on the query.
+
+    Available metadata fields are limited to: file_id : uuid, filename : str, file_type (MIME) : str. 
     """
+    filters = {"project_id": project_id}
+    if metadata:
+        if not isinstance(metadata, dict):
+            logger.warning(f"Metadata should be a dictionary. Received {type(metadata)}. Ignoring metadata.")
+        elif "file_id" not in metadata and "filename" not in metadata and "file_type" not in metadata:
+            logger.warning(f"Metadata should contain at least one of the following keys: 'file_id', 'filename', 'file_type'. Received keys: {list(metadata.keys())}. Ignoring metadata.")
+        else:
+            filters.update(metadata)
     vectorstore = BQVectorStore()
-    results = vectorstore.query(
-        query=query, collection_id="attachments", k=k, filter={"project_id": project_id}
-    )
+    results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=filters)
     if not results:
         return f"No relevant information found in the vectorstore for project {project_id}."
     res = "=== Retrieved relevant chunks from vectorstore: ===\n"
     for doc in results:
         res += (
-            f"filename: {doc.metadata.get('filename', 'Unknown')}"
+            f"filename: {doc.metadata.get('filename', 'Unknown')} |"
             f"title: {doc.metadata.get('title', 'Unknown')} | "
-            f"path: {doc.metadata.get('path', 'Unknown')} | "
+            f"file_id: {doc.metadata.get('file_id', 'Unknown')} | "
             f"| chunk: {doc.metadata.get('chunk', 'Unknown')} of {doc.metadata.get('total_chunks', 'Unknown')} total chunks\n"
         )
         res += f"{doc.page_content}\n\n"
     return res
-
 
 @tool
 def query_laws(query: str, 
@@ -274,6 +243,7 @@ def read_specific_law(title: list[str],
         
     except Exception as e:
         return f"Feil ved spørring: {str(e)}"
+
 @tool
 def update_project(
     project_id: str,
@@ -308,34 +278,176 @@ def create_project():
 
 
 @tool
-def list_project_files_emails(project_id: str, session_id : str = None, ):
-    """Use this function to retrieve a list of the projects files and emails.
-    
-    """
+def show_elements(project_id: str, 
+                  element_types: list[Literal["parties", "events", "claims", "damages", "deadlines"]], 
+                    start_date: datetime | str = None, 
+                    end_date: datetime | str = None, 
+                    significance: list[Literal["high", "medium", "low"]] = None) -> str:
+    '''
+    Show elements of a project filtered by date and significance. Be specific in the element types you want to show and the date range.
+    Args:
+        project_id (str): The ID of the project.
+        element_types (list[str]): The types of elements to show (e.g. "events", "parties", "claims", "damages", "deadlines").
+        start_date (datetime): The start date for filtering elements.
+        end_date (datetime): The end date for filtering elements.
+        significance (list[str]): The significance levels to include (e.g. ["high", "medium"]).
+    Returns:
+        str: A formatted string containing the filtered elements.
+
+    Short dictionary for norwegian-english translation: Krav -> damages, Påstander -> claims. 
+
+    '''
+    if not significance:
+        significance = ["high", "medium", "low"]
+
+    start_date = _parse_date(start_date, date.min)
+    end_date = _parse_date(end_date, date.max)
+
     sm = SupabaseManager()
-    project = sm.load_project(project_id=project_id)
-    if not project:
-        return f"No project {project_id}"
-    value = "=== List of project files and emails ===\n\n"
-    value += project.shorten_attachments()
-    value += project.shorten_emails()
+    data = sm.load_elements(project_id=project_id, 
+                                tables=element_types, 
+                                params = {"p_start_date" : start_date, "p_end_date" : end_date, "p_significance" : significance},
+                                )
+
+    date_col_map = {"events": "event_start_date",
+                        "deadlines": "deadline_date",
+                        "claims" : "source_date",
+                        "damages" : "source_date",
+                        }
+
+
+    format_map = {
+            "events": ["event_start_date", "event_name", "file_id", "description", "disputed"],
+            "parties": ["legal_name", "entity_type", "role", "role_description"],
+            "claims": ["party_role", "relief_sought", "factual_basis", "legal_basis", "strength_assessment", "source_date"],
+            "damages": ["party_role", "category", "amount", "currency", "basis", "source_date"],
+            "deadlines": ["deadline_date", "description"]}
+
+    value = f"=== List of {', '.join(element_types)} ===\n"
+
+    for element in element_types:
+        all_elements = data.get(element, [])
+        date_col = date_col_map.get(element)
+        all_elements.sort(key = lambda x: x.get(date_col)) if date_col else None
+        
+        value += f"\n\n=== {element.upper()} ===\n"
+        value += f'**FORMAT** : {" | ".join(format_map[element])}\n'
+        for item in all_elements:
+            #element_info = "\t" + " | ".join([f"{getattr(item, field)}" for field in format_map[element]])
+            element_info = "\t" + " | ".join([f"{item.get(field)}" for field in format_map[element]])
+            value += f"- {element_info}\n"
     return value
 
+@tool
+def list_attachments(
+                    project_id: str,
+                    element_types : list[Literal["attachments", "emails"]],
+                    start_date: datetime | str = None, 
+                    end_date: datetime | str = None, 
+                    significance: list[Literal["high", "medium", "low"]] = None,
+                  ):
+    '''
+    List attachments and emails of a project filtered by date and significance.
+    Args:
+        project_id (str): The ID of the project.
+        element_types (list[str]): The types of elements to show (e.g. "events", "parties", "claims", "damages", "deadlines").
+        start_date (datetime): The start date for filtering elements.
+        end_date (datetime): The end date for filtering elements.
+        significance (list[str]): The significance levels to include (e.g. ["high", "medium"]).
+    Returns:
+        str: A formatted string containing the filtered elements.
+
+    Use the id of in `read_attachments` to read the full content of the attachment.
+
+    '''
+    if not significance:
+        significance = ["high", "medium", "low"]
+
+    start_date = _parse_date(start_date, date.min)
+    end_date = _parse_date(end_date, date.max)
+
+    sm = SupabaseManager()
+    project = sm.load_attachments(project_id=project_id, 
+                                tables=element_types,
+                                params = {"p_start_date" : start_date, "p_end_date" : end_date, "p_significance" : significance},
+                                )
+
+    date_col_map = {"emails": "date", "attachments": "file_date"}
+    format_map = {
+            "emails": ["email_id", "from_addr", "date", "title"],
+            "attachments": ["file_id", "file_date", "title", "category"]}
+    key_map = {"emails": "email_id", "attachments": "file_id"}
+
+    value = f"=== List of {', '.join(element_types)} ===\n"
+    for item in element_types:
+        all_elements = project.get(item) or []
+        date_col = date_col_map.get(item)
+        all_elements.sort(key = lambda x : x.get(date_col)) if date_col else None
+        
+        value += f"\n\n=== {item.upper()} ===\n"
+        format_view = [key if key != key_map[item] else "id" for key in format_map[item]]
+        value += f'**FORMAT** : {" | ".join(format_view)}\n'
+        for row in all_elements:
+            #element_info = "\t" + " | ".join([f"{getattr(row, field)}" for field in format_map[item]])
+            element_info = "\t" + " | ".join([f"{row.get(field)}" for field in format_map[item]])
+            value += f"- {element_info}\n"
+    return value
+
+
+@tool
+def list_project_attachments(project_id: str) -> str:
+    '''Use this function to retrieve a list of the projects attachments with their file_ids. 
+    
+    Args:
+        project_id (str): The project id to identify which project's attachments to list.
+    Returns:
+        str: A string representation of the list of attachments with their file_ids.
+    '''
+    client = bigquery.Client()
+    query = f"""SELECT filename, file_id FROM vector_store.attachments WHERE project_id = '{project_id}'"""
+    query_job = client.query(query)
+    results = query_job.result()
+    output = "=== List of project attachments ===\n\n"
+    for row in results:
+        output += f"filename: {row.filename}, file_id: {row.file_id}\n"
+    return output
+
+@tool
+def read_full_attachments(file_ids: list[str]) -> str:
+    '''Use this function to retrieve the full content of attachments based on their file_ids. This is a helper function that can be used in the read_attachments tool if you want to retrieve the full content instead of a shortened version. 
+
+    Args:
+        file_ids (list[str]): A list of file ids to identify which attachments to read.
+    Returns:
+        str: A string representation of the full content of the attachments.
+    '''
+    client = bigquery.Client()
+    query = f"""SELECT file_id, content FROM vector_store.attachments WHERE file_id IN {tuple(file_ids)}"""
+    query_job = client.query(query)
+    results = query_job.result()
+    string_results = ""
+    current_file_id = None
+    for row in results:
+        if not current_file_id or row.file_id != current_file_id:
+            string_results += f"\n\n======== CONTENT FOR FILE_ID {row.file_id}: ========\n\n"
+        current_file_id = row.file_id
+        string_results += row.content
+    return string_results
 
 TOOLS = [
     tavily_search,
     read_attachments,
-    list_project_files_emails,
+    show_elements,
+    list_attachments,
     query_project_attachments,
     query_laws,
     read_specific_law,
-    update_project,
-    clean_element,
-    #create_project,
+    #update_project,
+    #clean_element,
 ]
+
 BASELINE_TOOLS = [
     tavily_search,
-    read_attachments,
 ]
 
 BASELINE_RAG_TOOLS = [
@@ -343,5 +455,6 @@ BASELINE_RAG_TOOLS = [
     query_laws,
     read_specific_law,
     query_project_attachments,
-    read_attachments,
+    list_project_attachments,
+    read_full_attachments,
 ]
