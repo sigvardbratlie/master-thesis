@@ -23,7 +23,7 @@ class LoggingConfig(BaseModel):
     console: ConsoleLoggingConfig = Field(default_factory=ConsoleLoggingConfig)
 
 class AsyncBaseConfig(BaseModel):
-    max_concurrent_requests: int = 20
+    max_concurrent_requests: int = 5
     throttle_value: float = 0.0
     requests_per_second: float | None = None  # rate limiter (LLM only)
     max_burst_size: int = 10                  # token bucket burst capacity (LLM only)
