@@ -266,6 +266,27 @@ The datasets are organized to simulate the chronological lifecycle of a legal pr
 
 By following a chronological order, the sessions require the agent to handle increasing amounts of information and maintain consistency over time, reflecting the professional requirements of a legal practitioner managing an ongoing case.
 
+\subsection{Dataset Limitations and Caveats}
+
+Several factors limit the generalisability of the evaluation and should be considered when interpreting the results.
+
+\paragraph{Absence of a plain LLM baseline.}
+A natural comparison point would be an ordinary LLM queried without any specialised architecture — no document processing, no vector store, no RAG, simply the raw case files passed as context. This approach was tested and found to be infeasible. The aggregated size of a realistic legal case file — spanning contracts, correspondence, technical reports, and legal submissions — frequently exceeds the usable context window of most commercially available models, and is well beyond the limits of the majority of open-source and cost-efficient alternatives. Feeding entire case files into a plain LLM context is therefore not a viable evaluation strategy, and the minimum meaningful comparison is a RAG-enabled architecture. This is also why the evaluation compares the custom agent against a Baseline + RAG configuration rather than an unaugmented LLM.
+
+\paragraph{Dataset size and the scalability trade-off.}
+The evaluation uses a constrained number of cases and queries, as running a large-scale benchmark across multiple model-agent pairs with repeated trials becomes prohibitively expensive and time-consuming. This is, however, in tension with a fundamental property of the system: the agent is designed to improve with larger and richer document sets, as more material increases the factsheet's coverage and the quality of RAG retrieval. Evaluating on small datasets therefore likely \emph{underestimates} the performance advantage of the custom agent in production-scale deployments.
+
+\paragraph{Heterogeneity between cases.}
+The evaluation datasets differ substantially in complexity. Two of the three cases consist of fully synthetic documents generated to match the factual matrix of published court records, while the third is derived from a real case with a significantly larger document volume. The real case contains no emails (which were excluded to maintain confidentiality), yet it is considerably more complex, covering more parties, a longer timeline, and more contested facts. This asymmetry means that performance differences across cases may reflect document complexity as much as agent capability, and cross-case comparisons should be made with caution.
+
+\paragraph{Limitations of expected-answer evaluation.}
+Model responses are graded against expected answers produced in collaboration with legal experts at BAHR AS. This approach carries two inherent risks: the expected answers themselves may contain inaccuracies, and — more fundamentally — many legal queries are open-ended, such that a correct and complete model response may differ substantially from the reference without being wrong. Three mitigations were applied to reduce this risk:
+\begin{enumerate}
+    \item \textbf{Fact-based scope}: The evaluation is restricted to factual, document-grounded questions (e.g.\ "Who are the parties?", "What damages are claimed?"), deliberately excluding normative or predictive legal questions where correct answers are inherently ambiguous.
+    \item \textbf{Validatable content}: Questions are formulated so that their answers can be directly verified against the case documents, reducing the space for legitimate variation.
+    \item \textbf{Minimal-requirement framing}: Expected answers are written as \emph{minimum} acceptable responses rather than exhaustive ideal answers, so a model response that covers the required facts is scored as correct even if it includes additional relevant information.
+\end{enumerate}
+
 \subsection{Evaluation Environment}
 \textbf{Evalutation Framework:} \\
 The evaluation will be conducted using \textbf{DeepEval} \cite{deepeval}, a framework for evaluating LLM outputs against reference answers. 
