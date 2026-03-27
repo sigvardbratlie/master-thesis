@@ -47,6 +47,10 @@ def read_attachments(
     db = SupabaseManager()
     storage_manager = GCSManager(config=config)
     response = db.get_body_by_id(ids=ids)
+    if not response:
+        logger.error(f"❌ No response from database for IDs: {ids}")
+        return "❌ No content found for the provided file IDs."
+    
     def process_attachment(path, content):
         try:
             file_id = (
