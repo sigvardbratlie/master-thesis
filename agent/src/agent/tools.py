@@ -422,7 +422,8 @@ def read_full_attachments(file_ids: list[str]) -> str:
         str: A string representation of the full content of the attachments.
     '''
     client = bigquery.Client()
-    query = f"""SELECT file_id, content FROM vector_store.attachments WHERE file_id IN {tuple(file_ids)}"""
+    file_ids_str = tuple(file_ids) if len(file_ids) > 1 else f"('{file_ids[0]}')"
+    query = f"""SELECT file_id, content FROM vector_store.attachments WHERE file_id IN {file_ids_str}"""
     query_job = client.query(query)
     results = query_job.result()
     string_results = ""
