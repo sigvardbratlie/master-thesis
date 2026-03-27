@@ -227,7 +227,7 @@ class CollectAgentResult:
                     if idx % 2 != 0 or idx == len(self.data.sessions) - 1: #Clean after every 2 sessions or after the last session
                         cleanup_query = CleanupElementsRequest(
                                 **input_obj.model_dump(),
-                                element_types=["events", "claims"],)
+                                element_types=["events", "claims", "damages"],)
                         clean_thread = to_thread_config(query=cleanup_query, user_id=self.data.user_id)
                         clean_graph = clean.compile_clean_elements()
                         async for chunk in clean_graph.astream({"query": cleanup_query}, config=clean_thread, stream_mode="custom"):
