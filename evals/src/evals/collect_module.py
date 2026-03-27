@@ -117,9 +117,9 @@ class CollectAgentResult:
         )
 
     async def run_agent(self, 
-                       eval_run_id : str = None) -> GatheredResultPayload:
+                       eval_run_id_reuse : str = None) -> GatheredResultPayload:
         base_project_id = self.data.project_id 
-        eval_run_id = eval_run_id or str(uuid.uuid4())
+        eval_run_id = eval_run_id_reuse or str(uuid.uuid4())
         tools = _TOOLS_MAP[self.agent_type]
 
         agent_class = await self.init_agent(
@@ -278,5 +278,6 @@ class CollectAgentResult:
                 duration_seconds=(endtime - starttime).total_seconds(),
             ),
             metadata = {"significance" : self.config.agent.significance, 
+                        "eval_run_id_reuse" : eval_run_id_reuse,
                         "minimal_context" : self.config.agent.minimal_context}
         )
