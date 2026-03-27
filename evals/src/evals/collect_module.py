@@ -117,7 +117,8 @@ class CollectAgentResult:
         )
 
     async def run_agent(self, 
-                       eval_run_id_reuse : str = None) -> GatheredResultPayload:
+                       eval_run_id_reuse : str = None,
+                       clean_rate : int = 2) -> GatheredResultPayload:
         base_project_id = self.data.project_id 
         eval_run_id = eval_run_id_reuse or str(uuid.uuid4())
         tools = _TOOLS_MAP[self.agent_type]
@@ -189,7 +190,7 @@ class CollectAgentResult:
                 attachments = [att_model for att_model, _ in parsed_results]
                 docs = [d for _, doc_list in parsed_results for d in doc_list]
 
-                if self.agent_type == "custom" and not only_queries:
+                if self.agent_type == "custom" and not eval_run_id_reuse:
                     input_obj = AskAgentRequest(
                     question=session.init_query,
                     session_id=runtime_session_id,
@@ -209,7 +210,7 @@ class CollectAgentResult:
                         async for chunk in update_graph.astream({"query": input_obj}, config=thread, stream_mode="custom"):
                             logger.debug(f"Update response: {chunk}")
                     
-                    if idx % 2 != 0 or idx == len(self.data.sessions) - 1: #Clean after every 2 sessions or after the last session
+                    if idx % clean_rate != 0 or idx == len(self.data.sessions) - 1: 
                         cleanup_query = CleanupElementsRequest(
                                 **input_obj.model_dump(),
                                 element_types=["events", "claims", "damages"],)

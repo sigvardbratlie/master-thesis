@@ -13,13 +13,15 @@ async def single_run(data,
                      agent_type : str , 
                      config : AppConfig, 
                      eval_run_id : str = None,
+                     clean_rate : int = 2
                      ):
         car_custom = CollectAgentResult(data, 
                                         llm_model=llm_model, 
                                         agent_type=agent_type,
                                         config = config
                                         )
-        collected_results = await car_custom.run_agent(eval_run_id_reuse=eval_run_id)
+        collected_results = await car_custom.run_agent(eval_run_id_reuse=eval_run_id,
+                                                       clean_rate = clean_rate)
                                                        
         ds = Dataset(data.dataset_name)
         ds.update_token_counts(collected_results)
