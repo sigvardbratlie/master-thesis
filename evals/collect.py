@@ -8,19 +8,29 @@ import asyncio
 
 
 
-async def single_run(data, llm_model : str, 
+async def single_run(data, 
+                     llm_model : str, 
                      agent_type : str , 
                      config : AppConfig, 
-                     clean_rate : int,
+                     eval_run_id : str = None,
                      ):
-        car_custom = CollectAgentResult(data, llm_model=llm_model, agent_type=agent_type,
-                                        config = config, 
-                                        clean_rate = clean_rate)
-        collected_results = await car_custom.run_agent()
+        car_custom = CollectAgentResult(data, 
+                                        llm_model=llm_model, 
+                                        agent_type=agent_type,
+                                        config = config
+                                        )
+        collected_results = await car_custom.run_agent(eval_run_id=eval_run_id)
                                                        
         ds = Dataset(data.dataset_name)
         ds.update_token_counts(collected_results)
-        
+
+model_choices = ["google_gemini-2.5-flash", "google_gemini-2.5-pro", 
+                                "openai_gpt-5.3-chat-latest", "openai_gpt-5.4",
+                                "anthropic_claude-haiku-4-5", "anthropic_claude-sonnet-4-6",
+                                "qwen_Qwen/Qwen3-Next-80B-A3B-Instruct", "qwen_Qwen/Qwen3.5-397B-A17B",
+                                "zai_zai-org/GLM-5", 
+                                ]
+
 async def main():
     parser = argparse.ArgumentParser(description="Evaluate attachment assignment")
     parser.add_argument("-d","--dataset", 
@@ -33,14 +43,10 @@ async def main():
                         help="Dataset name to evaluate")
     parser.add_argument("-m","--model", 
                         type=str, 
-                        choices=["google_gemini-2.5-flash", "google_gemini-2.5-pro", 
-                                "openai_gpt-5.3-chat-latest", "openai_gpt-5.4",
-                                "anthropic_claude-haiku-4-5", "anthropic_claude-sonnet-4-6",
-                                "qwen_Qwen/Qwen3-Next-80B-A3B-Instruct", "qwen_Qwen/Qwen3.5-397B-A17B",
-                                "zai_zai-org/GLM-5", 
-                                ],
+                        choices=model_choices,
                         default="google_gemini-2.5-flash",
                         help="LLM model to use for evaluation")
+
     parser.add_argument("-a", "--agent-type", 
                         nargs="+", 
                         type=str, 
@@ -52,9 +58,12 @@ async def main():
                         help="Agent type to run (custom, baseline, or baseline_rag)")
     parser.add_argument("-n","--n-runs", type=int, default=1, help="Number of runs to execute for each agent")
     parser.add_argument("--clean-rate", type = int, help="The rate (of sessions) in which to clean the factsheet. From -1 for last msg, 1 > for all other rates")
+    parser.add_argument("--eval-run-id", type=str, help="Evaluation run ID")
     args = parser.parse_args()
     dataset_name = args.dataset
     llm_model = args.model
+    eval_run_id = args.eval_run_id
+
     agent_types = args.agent_type
     n_runs = args.n_runs
     clean_rate = args.clean_rate

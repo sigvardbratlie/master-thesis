@@ -38,13 +38,12 @@ class CollectAgentResult:
                 llm_model: str = "google_gemini-2.5-pro", 
                  agent_type: Literal["custom", "baseline", "baseline_rag"] = "custom",
                  config : AppConfig = None,
-                 clean_rate: int = None):
+                 ):
         self.data = data
         self.llm_model = llm_model
         self.agent_type: Literal["custom", "baseline", "baseline_rag"] = agent_type
         self.dataclass = Dataset(name=data.dataset_name)
         self.config = config or AppConfig()
-        self.clean_rate = clean_rate
 
         self.vs = BQVectorStore()
         self.dp = DocumentProcessor(config=self.config)
@@ -118,9 +117,9 @@ class CollectAgentResult:
         )
 
     async def run_agent(self, 
-                       ) -> GatheredResultPayload:
+                       eval_run_id : str = None) -> GatheredResultPayload:
         base_project_id = self.data.project_id 
-        eval_run_id = str(uuid.uuid4())
+        eval_run_id = eval_run_id or str(uuid.uuid4())
         tools = _TOOLS_MAP[self.agent_type]
 
         agent_class = await self.init_agent(
@@ -137,20 +136,6 @@ class CollectAgentResult:
             f'Project (runtime): {eval_run_id} | '
             f'User: {self.data.user_id}\n\n'
         )
-
-        # Baseline agents never call initialize_project, so the project row is never created.
-        # Create a minimal project entry now to satisfy the FK constraint in save_stream.
-        #if self.agent_type == "baseline_rag":
-            # await asyncio.to_thread(
-            #     agent_class.conversation_manager.save_project,
-            #     factsheet=FactSheet(events=[]),
-            #     attachments=[],
-            #     user_id=self.data.user_id,
-            #     project_id=eval_run_id,
-            #     query_id = str(uuid.uuid4()),
-            #     session_id=str(uuid.uuid4()),
-            # ) #saving a empty project for BASELINE + RAG for the purpose of using vector store on project_id
-            # logger.info(f"Baseline Rag agent: created minimal project entry for {eval_run_id}")
 
         semaphore = asyncio.Semaphore(self.config.async_tasks.storage.max_concurrent_requests)
 
@@ -204,7 +189,7 @@ class CollectAgentResult:
                 attachments = [att_model for att_model, _ in parsed_results]
                 docs = [d for _, doc_list in parsed_results for d in doc_list]
 
-                if self.agent_type == "custom":
+                if self.agent_type == "custom" and not only_queries:
                     input_obj = AskAgentRequest(
                     question=session.init_query,
                     session_id=runtime_session_id,
@@ -251,27 +236,12 @@ class CollectAgentResult:
                 
                 else:
                     logger.info(f"Running session {idx} with agent type {self.agent_type} without initialization or cleanup as per configuration")
-                    # if self.agent_type in ["baseline_rag"] and not include_init_query:
-                    #     logger.info(f"Skipping initial query for session {idx} for agent type {self.agent_type} as per configuration")
-                    # else:
-                    #     conv_query_id = session.init_query_id or str(uuid.uuid4())
-                    #     init_query = session.init_query or f"{session.session_name}. Se vedlagte dokumenter"
-                    #     with tracing_context(metadata={"query_id": conv_query_id}):
-                    #         await self.run_conv(
-                    #             conv=ConversationTurn(input=init_query, answer=""),
-                    #             agent_class=agent_class,
-                    #             project_id=eval_run_id if self.agent_type in ["custom","baseline_rag"] else None,
-                    #             session_id=runtime_session_id,
-                    #             query_id=conv_query_id,
-                    #             user_id=self.data.user_id,
-                    #             attachments=attachments,
-                    #             session_date=session.date,
-                    #         )
-                    attachments_text = f"Attachments for session {session.session_name} | Date {session.date}\n"
-                    for att in attachments:
-                        attachments_text += f"- {att.filename} ({att.file_type}, {att.size} bytes)\n"
-                        attachments_text += f"{att.body}\n"
-                    session.conversation[0].input = attachments_text + (str(session.init_query) if session.init_query else "") + "\n" + session.conversation[0].input
+                    
+                    # attachments_text = f"Attachments for session {session.session_name} | Date {session.date}\n"
+                    # for att in attachments:
+                    #     attachments_text += f"- {att.filename} ({att.file_type}, {att.size} bytes)\n"
+                    #     attachments_text += f"{att.body}\n"
+                    # session.conversation[0].input = attachments_text + (str(session.init_query) if session.init_query else "") + "\n" + session.conversation[0].input
                 
 
                 for conv in session.conversation:
@@ -308,6 +278,5 @@ class CollectAgentResult:
                 duration_seconds=(endtime - starttime).total_seconds(),
             ),
             metadata = {"significance" : self.config.agent.significance, 
-                        "clean_rate" : self.clean_rate,
                         "minimal_context" : self.config.agent.minimal_context}
         )
