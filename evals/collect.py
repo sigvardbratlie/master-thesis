@@ -59,7 +59,7 @@ async def main():
                                  "baseline_rag"],
                         help="Agent type to run (custom, baseline, or baseline_rag)")
     parser.add_argument("-n","--n-runs", type=int, default=1, help="Number of runs to execute for each agent")
-    parser.add_argument("--clean-rate", type = int, help="The rate (of sessions) in which to clean the factsheet. From -1 for last msg, 1 > for all other rates")
+    parser.add_argument("--clean-rate", type = int, default=2, help="The rate (of sessions) in which to clean the factsheet. From -1 for last msg, 1 > for all other rates")
     parser.add_argument("--eval-run-id", type=str, help="Evaluation run ID")
     args = parser.parse_args()
     dataset_name = args.dataset
