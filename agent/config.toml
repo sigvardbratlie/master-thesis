@@ -41,8 +41,8 @@ minimal_context = true
 prompt_file_path = "system_prompt.txt"
 
 [project]
-size_threshold = 5120000     # 500 * 1024
-token_threshold = 128000
+size_threshold = 500000     # 500 * 1024
+token_threshold = 120000
 max_attachments = 10
 max_emails = 10
 embed_to_vectorstore = true

@@ -185,9 +185,15 @@ class ProjectPipeline:
                     if doc_attachments:  # Only dispatch if there are attachments to analyze
                         logger.info(f"📦 Dispatching doc batch: {len(doc_attachments)} file(s), {doc_size_counter / 1024:.1f}KB")
                         doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_, thread))
-                    doc_attachments = [att]
-                    doc_size_counter = att_size
-                    doc_token_counter = token_count
+                    if token_count > token_threshold:
+                        logger.warning(f"⚠️ Skipping attachment '{att.filename}': {token_count} tokens exceeds threshold {token_threshold}")
+                        doc_attachments = []
+                        doc_size_counter = 0
+                        doc_token_counter = 0
+                    else:
+                        doc_attachments = [att]
+                        doc_size_counter = att_size
+                        doc_token_counter = token_count
 
         if doc_attachments:
             logger.info(f"📦 Dispatching final doc batch: {len(doc_attachments)} file(s), {doc_size_counter / 1024:.1f}KB")
