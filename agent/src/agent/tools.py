@@ -29,6 +29,46 @@ tavily_search = TavilySearch(
     topic="general",
 )
 
+# ============ SHARED TOOLS ============
+@tool
+def query_project_attachments(query: str, project_id: str, k: int = 10, metadata : dict = None) -> str:
+    """Function to use RAG to retrieve documents of a specific project.
+
+    Args:
+        query (str): The query to search in the vectorstore.
+        project_id (str): The project id to identify which vectorstore to query.
+        k (int): The number of top results to retrieve from the vectorstore. 
+        metadata (dict, optional): Additional metadata to filter the vectorstore query. Defaults to None. I.e., {'file_id' : '741ef083-9335-4a55-bbe1-ea866bf01758'}.
+    Returns:
+        str: The retrieved information from the vectorstore based on the query.
+
+    Available metadata fields are limited to: file_id : uuid, filename : str, file_type (MIME) : str. 
+    """
+    filters = {"project_id": project_id}
+    if metadata:
+        if not isinstance(metadata, dict):
+            logger.warning(f"Metadata should be a dictionary. Received {type(metadata)}. Ignoring metadata.")
+        elif "file_id" not in metadata and "filename" not in metadata and "file_type" not in metadata:
+            logger.warning(f"Metadata should contain at least one of the following keys: 'file_id', 'filename', 'file_type'. Received keys: {list(metadata.keys())}. Ignoring metadata.")
+        else:
+            filters.update(metadata)
+    vectorstore = BQVectorStore()
+    results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=filters)
+    if not results:
+        return f"No relevant information found in the vectorstore for project {project_id}."
+    res = "=== Retrieved relevant chunks from vectorstore: ===\n"
+    for doc in results:
+        res += (
+            f"filename: {doc.metadata.get('filename', 'Unknown')} |"
+            f"title: {doc.metadata.get('title', 'Unknown')} | "
+            f"file_id: {doc.metadata.get('file_id', 'Unknown')} | "
+            f"| chunk: {doc.metadata.get('chunk', 'Unknown')} of {doc.metadata.get('total_chunks', 'Unknown')} total chunks\n"
+        )
+        res += f"{doc.page_content}\n\n"
+    return res
+
+#CUSTOM TOOLS
+
 @tool
 def read_attachments(
     ids: list[str],
@@ -90,43 +130,6 @@ def read_attachments(
         results += "\n" + "-" * 50 + "\n\n"
     return results
 
-
-@tool
-def query_project_attachments(query: str, project_id: str, k: int = 10, metadata : dict = None) -> str:
-    """Function to use RAG to retrieve documents of a specific project.
-
-    Args:
-        query (str): The query to search in the vectorstore.
-        project_id (str): The project id to identify which vectorstore to query.
-        k (int): The number of top results to retrieve from the vectorstore. 
-        metadata (dict, optional): Additional metadata to filter the vectorstore query. Defaults to None. I.e., {'file_id' : '741ef083-9335-4a55-bbe1-ea866bf01758'}.
-    Returns:
-        str: The retrieved information from the vectorstore based on the query.
-
-    Available metadata fields are limited to: file_id : uuid, filename : str, file_type (MIME) : str. 
-    """
-    filters = {"project_id": project_id}
-    if metadata:
-        if not isinstance(metadata, dict):
-            logger.warning(f"Metadata should be a dictionary. Received {type(metadata)}. Ignoring metadata.")
-        elif "file_id" not in metadata and "filename" not in metadata and "file_type" not in metadata:
-            logger.warning(f"Metadata should contain at least one of the following keys: 'file_id', 'filename', 'file_type'. Received keys: {list(metadata.keys())}. Ignoring metadata.")
-        else:
-            filters.update(metadata)
-    vectorstore = BQVectorStore()
-    results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=filters)
-    if not results:
-        return f"No relevant information found in the vectorstore for project {project_id}."
-    res = "=== Retrieved relevant chunks from vectorstore: ===\n"
-    for doc in results:
-        res += (
-            f"filename: {doc.metadata.get('filename', 'Unknown')} |"
-            f"title: {doc.metadata.get('title', 'Unknown')} | "
-            f"file_id: {doc.metadata.get('file_id', 'Unknown')} | "
-            f"| chunk: {doc.metadata.get('chunk', 'Unknown')} of {doc.metadata.get('total_chunks', 'Unknown')} total chunks\n"
-        )
-        res += f"{doc.page_content}\n\n"
-    return res
 
 @tool
 def query_laws(query: str, 
@@ -398,6 +401,8 @@ def list_attachments(
     return value
 
 
+# ============ RAG TOOLS ============
+
 @tool
 def list_project_attachments(project_id: str) -> str:
     '''Use this function to retrieve a list of the projects attachments with their file_ids. 
@@ -408,7 +413,9 @@ def list_project_attachments(project_id: str) -> str:
         str: A string representation of the list of attachments with their file_ids.
     '''
     client = bigquery.Client()
-    query = f"""SELECT filename, file_id FROM vector_store.attachments WHERE project_id = '{project_id}'"""
+    query = f"""SELECT DISTINCT filename, file_id 
+                FROM vector_store.attachments 
+                WHERE project_id = '{project_id}'"""
     query_job = client.query(query)
     results = query_job.result()
     output = "=== List of project attachments ===\n\n"
@@ -438,6 +445,10 @@ def read_full_attachments(file_ids: list[str]) -> str:
         current_file_id = row.file_id
         string_results += row.content
     return string_results
+
+
+
+# ============================== 
 
 TOOLS = [
     tavily_search,
