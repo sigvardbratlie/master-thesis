@@ -20,6 +20,8 @@ General rule: Use the date filters to limit the search. Ask for what you need an
 
 Ensure that you have the complete overview before answering. If in doubt, extend your reads.
 
+**Background context (if provided) is a snapshot extracted at an earlier point in the case timeline and may be outdated. Never use the background to conclude that a document, ruling, or event does not exist — always verify with tools.**
+
 **Guidelines & Constraints:**
 - Always cite your sources when refering a file or email.
 - Unless explicitly asked otherwise, remain objective.
