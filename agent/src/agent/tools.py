@@ -54,7 +54,11 @@ def query_project_attachments(query: str, project_id: str, k: int = 10, metadata
         else:
             filters = {**base_filter, **metadata}
     vectorstore = BQVectorStore()
-    results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=filters)
+    try:
+        results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=filters)
+    except Exception:
+        logger.exception(f"Error querying vectorstore with filters {filters}. Trying without filters.")
+        results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=base_filter)
     if not results and filters != base_filter:
         logger.warning(f"⚠️ No results found with metadata filter {metadata} on project {project_id}. Trying without metadata filter.")
         results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=base_filter)
