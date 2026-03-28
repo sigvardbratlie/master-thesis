@@ -230,20 +230,15 @@ class CollectAgentResult:
                     logger.debug(f"Session {idx} initialization completed in {session.init_query_time_count.duration_seconds:.2f} seconds")
                 
                 elif self.agent_type == "baseline_rag":
-                    logger.info(f'Embed documents for the purpose of the RAG run')
-                    await asyncio.to_thread(self.vs.add_documents, docs)
+                    if not eval_run_id_reuse:
+                        logger.info(f'Embed documents for the purpose of the RAG run')
+                        await asyncio.to_thread(self.vs.add_documents, docs)
                     session.conversation[0].input = f"Project-Id: {eval_run_id}\n" + (str(session.init_query) if session.init_query else "") + "\n" + session.conversation[0].input
 
                 
                 else:
                     logger.info(f"Running session {idx} with agent type {self.agent_type} without initialization or cleanup as per configuration")
                     
-                    # attachments_text = f"Attachments for session {session.session_name} | Date {session.date}\n"
-                    # for att in attachments:
-                    #     attachments_text += f"- {att.filename} ({att.file_type}, {att.size} bytes)\n"
-                    #     attachments_text += f"{att.body}\n"
-                    # session.conversation[0].input = attachments_text + (str(session.init_query) if session.init_query else "") + "\n" + session.conversation[0].input
-                
 
                 for conv in session.conversation:
                     conv_query_id = conv.query_id or str(uuid.uuid4())
