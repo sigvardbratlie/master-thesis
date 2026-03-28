@@ -48,13 +48,13 @@ class CollectAgentResult:
         self.vs = BQVectorStore()
         self.dp = DocumentProcessor(config=self.config)
 
-    async def init_agent(self, 
+    async def init_agent(self,
                          tools=None,):
         connection_string = os.getenv("SUPABASE_DB_URL")
-        pool = AsyncConnectionPool(conninfo=connection_string, open=False, min_size=1, max_size=2,
-                                   kwargs={"autocommit": True, "prepare_threshold": 0})
-        await pool.open(wait=True, timeout=15.0)
-        checkpointer = AsyncPostgresSaver(pool)
+        self.pool = AsyncConnectionPool(conninfo=connection_string, open=False, min_size=1, max_size=2,
+                                        kwargs={"autocommit": True, "prepare_threshold": 0})
+        await self.pool.open(wait=True, timeout=15.0)
+        checkpointer = AsyncPostgresSaver(self.pool)
         agent = Agent(
             tools=tools,
             checkpointer=checkpointer,
