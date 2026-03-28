@@ -44,18 +44,26 @@ def query_project_attachments(query: str, project_id: str, k: int = 10, metadata
 
     Available metadata fields are limited to: file_id : uuid, filename : str, file_type (MIME) : str. 
     """
-    filters = {"project_id": project_id}
+    base_filter = {"project_id": project_id}
+    filters = base_filter
     if metadata:
         if not isinstance(metadata, dict):
             logger.warning(f"Metadata should be a dictionary. Received {type(metadata)}. Ignoring metadata.")
         elif "file_id" not in metadata and "filename" not in metadata and "file_type" not in metadata:
             logger.warning(f"Metadata should contain at least one of the following keys: 'file_id', 'filename', 'file_type'. Received keys: {list(metadata.keys())}. Ignoring metadata.")
         else:
-            filters.update(metadata)
+            filters = {**base_filter, **metadata}
     vectorstore = BQVectorStore()
     results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=filters)
-    if not results:
+    if not results and filters != base_filter:
+        logger.warning(f"⚠️ No results found with metadata filter {metadata} on project {project_id}. Trying without metadata filter.")
+        results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=base_filter)
+        if not results:
+            return f"No relevant information found in the vectorstore for project {project_id}."
+        #res = "⚠️ No results matched the metadata filter — returning results without filter:\n"
+    elif not results:
         return f"No relevant information found in the vectorstore for project {project_id}."
+        
     res = "=== Retrieved relevant chunks from vectorstore: ===\n"
     for doc in results:
         res += (
