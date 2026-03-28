@@ -10,7 +10,7 @@ path = "log/app.log"
 level = "info"
 
 [async.llm]
-max_concurrent_requests = 20
+max_concurrent_requests = 10
 throttle_value = 0.0
 requests_per_second = 0.5   # 30 RPM — tune per provider/tier
 max_burst_size = 10
@@ -35,6 +35,7 @@ max_tokens = 4096
 
 [agent]
 sum_rate = 20
+context_window = 1000000 #1mill
 embed_to_vectorstore = false
 save_to_storage = true
 minimal_context = true

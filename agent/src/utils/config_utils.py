@@ -45,6 +45,7 @@ class ModelsConfig(BaseModel):
 class AgentConfig(BaseModel):
     max_token_tool: int | None = None
     sum_rate : int = 20
+    context_window : int = 250000
 
     #related to the factsheet in agent
     use_factsheet: bool = True

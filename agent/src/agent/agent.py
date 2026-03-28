@@ -226,6 +226,7 @@ class Agent:
         thread = get_config()
         #writer = get_stream_writer()
         llm_with_tools = self.llm
+        enc = tiktoken.encoding_for_model("gpt-4")
 
         msg = state.messages[-1] if isinstance(state.messages[-1], HumanMessage) else None
         #query_id = msg.additional_kwargs.get("query_id", "") if msg else ""
@@ -267,9 +268,10 @@ class Agent:
 
         # ---- LONG CONVERSATION HANDLING ----
         sum_rate = self.config.agent.sum_rate
+        max_tokens = self.config.agent.context_window
         messages = [m for m in state.messages if not isinstance(m, SystemMessage)]
 
-        if len(state.messages) > sum_rate:
+        if len(state.messages) > sum_rate or len(enc.encode(str(messages_to_dict(messages)))) > max_tokens:
             if len(messages) % sum_rate == 0:
                 msgs_to_sum = ["Previous summary: " + self.summary] if self.summary else []
                 msgs_to_sum.extend(messages[-sum_rate - 1:])
