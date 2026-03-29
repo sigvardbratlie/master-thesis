@@ -22,7 +22,7 @@ config = get_app_config()
 logger = logging.getLogger(__name__)
 setup_logging(config)
 document_processor = DocumentProcessor(config=config)
-
+vectorstore = BQVectorStore()
 
 tavily_search = TavilySearch(
     max_results=5,
@@ -53,7 +53,7 @@ def query_project_attachments(query: str, project_id: str, k: int = 10, metadata
             logger.warning(f"Metadata should contain at least one of the following keys: 'file_id', 'filename', 'file_type'. Received keys: {list(metadata.keys())}. Ignoring metadata.")
         else:
             filters = {**base_filter, **metadata}
-    vectorstore = BQVectorStore()
+    
     try:
         results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=filters)
     except Exception:
@@ -103,6 +103,9 @@ def read_attachments(
         logger.error(f"❌ No response from database for IDs: {ids}")
         return "❌ No content found for the provided file IDs."
     
+    if len(response) != len(ids):
+        logger.warning(f"⚠️ Mismatch in number of responses and IDs. Expected {len(ids)}, got {len(response)}. IDs: {ids}")
+
     def process_attachment(path, content):
         try:
             file_id = (
@@ -131,7 +134,7 @@ def read_attachments(
             return []
 
     results = "Results from reading attachments:" + "\n" + "-" * 50 + "\n\n"
-    for i in range(len(ids)):
+    for i in range(len(response)):
         res = response[i]
         content = res.get("body")
         if not content:
@@ -369,7 +372,7 @@ def list_attachments(
     List attachments and emails of a project filtered by date and significance.
     Args:
         project_id (str): The ID of the project.
-        element_types (list[str]): The types of elements to show (e.g. "events", "parties", "claims", "damages", "deadlines").
+        element_types (list[str]): The types of elements to show (e.g. "attachments", "emails").
         start_date (datetime): The start date for filtering elements.
         end_date (datetime): The end date for filtering elements.
         significance (list[str]): The significance levels to include (e.g. ["high", "medium"]).
@@ -381,6 +384,14 @@ def list_attachments(
     '''
     if not significance:
         significance = ["high", "medium", "low"]
+
+    if not element_types:
+        element_types = ["attachments", "emails"]
+    
+    for element in element_types:
+        if element not in ["attachments", "emails"]:
+            logger.warning(f'⚠️ Unsupported element type: {element}. Supported types are "attachments" and "emails". Setting element_types to ["attachments"].')
+            element_types = ["attachments"]
 
     start_date = _parse_date(start_date, date.min)
     end_date = _parse_date(end_date, date.max)
