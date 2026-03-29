@@ -237,7 +237,7 @@ def test_query_project_attachments_returns_results():
     mock_vs = MagicMock()
     mock_vs.query.return_value = [mock_doc]
 
-    with patch('agent.tools.BQVectorStore', return_value=mock_vs):
+    with patch('agent.tools.vectorstore', mock_vs):
         result = query_project_attachments.invoke({
             "query": "mangler betongdekke",
             "project_id": "project-001",
@@ -252,7 +252,7 @@ def test_query_project_attachments_no_results():
     mock_vs = MagicMock()
     mock_vs.query.return_value = []
 
-    with patch('agent.tools.BQVectorStore', return_value=mock_vs):
+    with patch('agent.tools.vectorstore', mock_vs):
         result = query_project_attachments.invoke({
             "query": "ukjent tema",
             "project_id": "project-001",
@@ -266,15 +266,15 @@ def test_query_project_attachments_with_metadata_filter():
     mock_vs = MagicMock()
     mock_vs.query.return_value = [mock_doc]
 
-    with patch('agent.tools.BQVectorStore', return_value=mock_vs):
+    with patch('agent.tools.vectorstore', mock_vs):
         result = query_project_attachments.invoke({
             "query": "lekkasje",
             "project_id": "project-001",
             "metadata": {"file_id": "file-abc"},
         })
 
-    call_kwargs = mock_vs.query.call_args
-    filters_passed = call_kwargs[1].get("filters") or call_kwargs[0][2] if call_kwargs[0] else {}
+    assert mock_vs.query.called
+    filters_used = mock_vs.query.call_args_list[0][1].get("filters", {})
     assert "file-abc" in result
 
 
