@@ -61,6 +61,15 @@ class SupabaseManager:
         self.key = os.getenv("SUPABASE_KEY")
         self.supabase = create_client(self.url, self.key)
 
+    def _execute(self, fn):
+        """Execute fn(), reconnecting once on stale HTTP/2 ReadError."""
+        try:
+            return fn()
+        except httpx.ReadError:
+            logger.warning("Stale Supabase connection, reconnecting and retrying.")
+            self.supabase = create_client(self.url, self.key)
+            return fn()
+
     def load_factsheet(self, project_id: str,
                        tables: list[Literal["events", "parties", "deadlines", "damages", "claims", ]] = None
                        ) -> FactSheet:
@@ -348,7 +357,7 @@ class SupabaseManager:
             item["updated_by"] = llm_model
             item["updated_at"] = now
         try:
-            self.supabase.table(table_name).upsert([_strip_null_bytes(d) for d in data], ignore_duplicates=True).execute()
+            self._execute(lambda: self.supabase.table(table_name).upsert([_strip_null_bytes(d) for d in data], ignore_duplicates=True).execute())
             logger.debug(f'Inserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error inserting items for project {project_id} in Supabase table {table_name}')
@@ -386,8 +395,8 @@ class SupabaseManager:
             data_dicts.append(item_dict)
 
         try:
-            self.supabase.table(table_name).delete().eq("project_id", project_id).execute()
-            self.supabase.table(table_name).insert([_strip_null_bytes(d) for d in data_dicts]).execute()
+            self._execute(lambda: self.supabase.table(table_name).delete().eq("project_id", project_id).execute())
+            self._execute(lambda: self.supabase.table(table_name).insert([_strip_null_bytes(d) for d in data_dicts]).execute())
             logger.debug(f'Replaced {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error replacing items for project {project_id} in Supabase table {table_name}: {e}')
@@ -429,11 +438,11 @@ class SupabaseManager:
         new_ids = [d[id_field] for d in data_dicts if id_field and d.get(id_field)]
 
         try:
-            self.supabase.table(table_name).upsert([_strip_null_bytes(d) for d in data_dicts]).execute()
+            self._execute(lambda: self.supabase.table(table_name).upsert([_strip_null_bytes(d) for d in data_dicts]).execute())
             if new_ids:
-                self.supabase.table(table_name).delete().eq("project_id", project_id).not_.in_(id_field, new_ids).execute()
+                self._execute(lambda: self.supabase.table(table_name).delete().eq("project_id", project_id).not_.in_(id_field, new_ids).execute())
             else:
-                self.supabase.table(table_name).delete().eq("project_id", project_id).execute()
+                self._execute(lambda: self.supabase.table(table_name).delete().eq("project_id", project_id).execute())
             logger.debug(f'Upsert-replaced {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error upsert-replacing items for project {project_id} in Supabase table {table_name}: {e}')
@@ -458,7 +467,7 @@ class SupabaseManager:
         data["updated_at"] = datetime.now().isoformat()
 
         try:
-            self.supabase.table(table_name).upsert(data).execute()
+            self._execute(lambda: self.supabase.table(table_name).upsert(data).execute())
             logger.debug(f'Replaced custom fields for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error replacing custom fields for project {project_id} in Supabase: {e}')
@@ -481,7 +490,7 @@ class SupabaseManager:
         data["updated_by"] = llm_model
         data["updated_at"] = datetime.now().isoformat()
         try:
-            self.supabase.table("projects").upsert(data).execute()
+            self._execute(lambda: self.supabase.table("projects").upsert(data).execute())
             logger.debug(f'Project {project_id} upserted in Supabase.')
         except Exception as e:
             logger.exception(f'Error upserting project {project_id} in Supabase: {e}')
