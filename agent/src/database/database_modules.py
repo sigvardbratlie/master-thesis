@@ -42,13 +42,16 @@ _TABLE_ID_FIELDS = {
 
 
 
+_STALE_CONNECTION_ERRORS = (httpx.ReadError, httpx.RemoteProtocolError)
+
+
 def _with_reconnect(method):
     """Decorator that retries once after recreating the Supabase client on stale HTTP/2 connection errors."""
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs):
         try:
             return method(self, *args, **kwargs)
-        except httpx.ReadError:
+        except _STALE_CONNECTION_ERRORS:
             logger.warning(f"Stale Supabase connection in {method.__name__}, reconnecting and retrying.")
             self.supabase = create_client(self.url, self.key)
             return method(self, *args, **kwargs)
@@ -62,10 +65,10 @@ class SupabaseManager:
         self.supabase = create_client(self.url, self.key)
 
     def _execute(self, fn):
-        """Execute fn(), reconnecting once on stale HTTP/2 ReadError."""
+        """Execute fn(), reconnecting once on stale HTTP/2 connection errors."""
         try:
             return fn()
-        except httpx.ReadError:
+        except _STALE_CONNECTION_ERRORS:
             logger.warning("Stale Supabase connection, reconnecting and retrying.")
             self.supabase = create_client(self.url, self.key)
             return fn()
