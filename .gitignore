@@ -52,3 +52,5 @@ evals/.deepeval/.deepeval-cache.json
 _build/
 # OS
 Thumbs.db
+
+**/log/**
