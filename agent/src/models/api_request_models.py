@@ -92,7 +92,7 @@ class AskAgentRequest(BaseModel):
 
 class CleanupElementsRequest(AskAgentRequest):
     """POST /cleanup-project-elements request"""
-    element_types: Literal["events", "damages", "claims", "deadlines"]
+    element_types: list[Literal["events", "damages", "claims", "deadlines"]]
 
 
 class StreamlitUserInfo(BaseModel):
