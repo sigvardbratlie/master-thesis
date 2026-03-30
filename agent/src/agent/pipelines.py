@@ -794,7 +794,7 @@ class ProjectPipeline:
                     party_reps.append(
                         rep if rep.party_id else rep.model_copy(update={"party_id": party.party_id})
                     )
-            parties.append(party.model_copy(update={"party_reps": None}))
+            parties.append(party.model_dump(mode='json', exclude={"party_reps"}))
 
 
         to_insert = {
@@ -809,7 +809,7 @@ class ProjectPipeline:
         }
 
         async def insert_data_table(table_name, items, replace=False):
-            if not items or not hasattr(items[0], "model_dump"):
+            if not items or (not replace and not hasattr(items[0], "model_dump")):
                 logger.warning(f"No valid items to save for {table_name}. Skipping storage for this table.")
                 return
             async with self._semaphore_db:
@@ -933,6 +933,7 @@ class ProjectPipeline:
         })
 
         initial_input = await self.context_manager.update_initial_input(events=events, existing_initial_input=existing_init_input)
+        logger.debug(f'\n\nUpdated metadata {initial_input.model_dump(mode="json")}\n\n')
         writer({
             "type": "status",
             "phase": ["update_metadata"],
