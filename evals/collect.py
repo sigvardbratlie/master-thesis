@@ -74,7 +74,21 @@ async def main():
     setup_logging(config)
     noisy_packages = ["httpx", "httpcore", "hpack", "urllib3", 
                       "anthropic", "openai", "asyncio", "langsmith", "ocrmypdf", "PIL", 
-                      "img2pdf", "botocore","textractor", "google_genai"]
+                      "img2pdf", "botocore","textractor", "google_genai", 'google.cloud.bigquery',
+                        'google.cloud.firestore',
+                        'google.cloud.storage',
+                        'grpc',
+                        'langchain',
+                        'langchain_chroma',
+                        'langchain_core',
+                        'langchain_google_community',
+                        'langchain_google_genai',
+                        'langchain_text_splitters',
+                        'langgraph',
+                        'langsmithhttpx',
+                        'psycopg',
+                        'psycopg_pool',
+                        'uvicorn.access']
     [logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
 
     logger = logging.getLogger(__name__)
