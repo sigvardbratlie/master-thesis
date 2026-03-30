@@ -8,6 +8,7 @@ from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_google_community import BigQueryVectorStore
 from google.cloud import bigquery
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -159,11 +160,28 @@ class BQVectorStore(VectorStoreInterface):
         })
         document.metadata = metadata
     
-    def query(self, query: str, collection_id: str = "attachments", k: int = 3, filters= {}) -> list[Document]:
+    def query(self, query: str, 
+              collection_id: str = "attachments",
+              search_type: Literal["similarity", "mmr"] = "mmr", 
+              k: int = 3, 
+              filters= {}) -> list[Document]:
         store = self._get_store(collection_id)
-        retriever = store.as_retriever(search_kwargs={"k": k,
-                                                      "filter": filters},
-                                       )
+
+        if search_type == "similarity":
+            retriever = store.as_retriever(search_kwargs={"k": k, "filter": filters, "options": {"use_brute_force": True}})
+
+        else:
+            fetch_k = max(k*3, 15)  # Hent flere kandidater for MMR å velge blant
+            retriever = store.as_retriever(
+                        search_type="mmr",
+                        search_kwargs={
+                            "k": k,
+                            "fetch_k": fetch_k,
+                            "lambda_mult": 0.7,
+                            "filter": filters,
+                            "options": {"use_brute_force": True},
+                        },
+                    )
         return retriever.invoke(query)
     
     def delete_project(self, project_id: str,collection_id: str= "attachments") -> None:
