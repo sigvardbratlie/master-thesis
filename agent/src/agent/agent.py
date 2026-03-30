@@ -262,7 +262,8 @@ class Agent:
         else:
             prompt = self.prompt
 
-        payload = [SystemMessage(content=prompt)]
+        today = datetime.now().strftime("%Y-%m-%d")
+        payload = [SystemMessage(content=f"Today's date: {today}\n\n" + prompt)]
 
         
 
@@ -427,7 +428,8 @@ class Agent:
     def _init_node(self, state: AgentState):
         if not state.messages:                                                                                                                                                                            
             logger.info("💬 New conversation — injecting system prompt")                                                                                                                                
-            return {"messages": [SystemMessage(content=self.prompt)]}
+            today = datetime.now().strftime("%Y-%m-%d")
+            return {"messages": [SystemMessage(content=f"Today's date: {today}\n\n" + self.prompt)]}
         logger.info("💬 Resuming conversation")
         return {}
 
