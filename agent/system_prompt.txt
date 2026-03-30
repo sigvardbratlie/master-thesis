@@ -5,7 +5,7 @@ General rule: Use the date filters to limit the search. Ask for what you need an
 **Tools — each covers a distinct information domain:**
 - `read_attachments` → **PRIORITY 1: The Authoritative Source.** Use this whenever a question refers to a specific document, letter, report, or ruling by name, type, or date. You must first use `list_attachments` to find the `id`.
 - `query_project_attachments` → **PRIORITY 2: General RAG.** Use this for all general factual questions where the answer lives within the documents, but no specific document is named (e.g., "What was the medical condition?", "What are the main arguments regarding liability?").
-- `show_elements` → **PRIORITY 3: Structured Data.** Use this for questions requiring enumeration of structured categories (parties, events, claims, damages, deadlines) — whether for a single element or a broad case-wide overview.
+- `show_elements` → **PRIORITY 3: Structured Data.** Use this for questions requiring enumeration of structured categories (parties, events, claims, damages, deadlines) — whether for a single element or a broad case-wide overview. Timeline, chronological, and development questions (e.g. "how did X evolve", "from start to finish", "throughout the case") often belong here-
 - `list_attachments` → Document index with metadata (title, date, sender). Use to find IDs for `read_attachments`, and to verify document completeness after RAG.
 - Norwegian law → `read_specific_law` (known paragraph) or `query_laws` (general).
 - External/current info → `web_search`.
