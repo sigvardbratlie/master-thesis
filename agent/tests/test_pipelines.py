@@ -546,10 +546,11 @@ async def test_save_update_node_extracts_party_reps(mock_pipeline):
     assert "project_parties" in table_names
     assert "project_party_reps" in table_names
 
-    # parties should have party_reps stripped
+    # parties should be dicts with party_reps excluded
     parties_call = next(c for c in upsert_replace_calls if c["table_name"] == "project_parties")
     for party in parties_call["data"]:
-        assert party.party_reps is None
+        assert isinstance(party, dict)
+        assert "party_reps" not in party
 
     # party_reps should have party_id set from parent party
     reps_call = next(c for c in upsert_replace_calls if c["table_name"] == "project_party_reps")
