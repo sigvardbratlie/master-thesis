@@ -35,6 +35,9 @@ _TABLE_ID_FIELDS = {
     "project_claims": "claim_id",
     "project_damages": "damage_id",
     "project_deadlines": "deadline_id",
+    "project_attachments": "file_id",
+    "project_emails": "email_id",
+    "project_party_reps": "party_rep_id",
 }
 
 
@@ -161,7 +164,7 @@ class SupabaseManager:
                 "claims" : "get_claims_with_dates",
                 "damages" : "get_damages_with_dates",
                 "deadlines": "get_deadlines",
-                "parties" : "get_parties", 
+                "parties" : "get_parties_with_reps", 
                 }
         result = {}
         
@@ -215,7 +218,8 @@ class SupabaseManager:
         deadlines = factsheet_dict.pop("deadlines", [])
         events = factsheet_dict.pop("events", [])
         parties = factsheet_dict.pop("parties", [])
-        
+        party_reps = []
+
         now = datetime.now().isoformat()
         factsheet_dict["project_id"] = project_id
         factsheet_dict["user_id"] = user_id
@@ -259,13 +263,31 @@ class SupabaseManager:
         if parties:
             # ========== PROJECT PARTIES ==========
             try:
-                parties_with_project = [
-                        {**party, "project_id": project_id, "created_by": llm_model, "updated_by": llm_model, "updated_at": now}
-                        for party in parties]
-                self.supabase.table("project_parties").upsert(parties_with_project).execute()
+                for party in parties:
+                    party["project_id"] = project_id
+                    party["created_by"] = llm_model
+                    party["updated_by"] = llm_model
+                    party["updated_at"] = now
+                    reps = party.pop("party_reps", None)
+                    for rep in (reps or []):
+                        rep_dict = rep.model_dump(mode='json') if hasattr(rep, 'model_dump') else rep
+                        rep_dict["project_id"] = project_id
+                        rep_dict["created_by"] = llm_model
+                        rep_dict["updated_by"] = llm_model
+                        rep_dict["updated_at"] = now
+                        party_reps.append(rep_dict)
+                if party_reps:
+                    try:
+                        self.supabase.table("project_party_reps").upsert(party_reps).execute()
+                        logger.debug(f'Upserted {len(party_reps)} party representatives for project {project_id} in Supabase.')
+                    except Exception as e:
+                        logger.exception(f'Error upserting party representatives for project {project_id} in Supabase: {e}')
+                
+                self.supabase.table("project_parties").upsert(parties).execute()
                 logger.debug(f'Upserted {len(parties)} parties for project {project_id} in Supabase.')
             except Exception as e:
                 logger.exception(f'Error upserting parties for project {project_id} in Supabase: {e}')
+
 
         if events:
             # ========== PROJECT EVENTS ==========
@@ -313,9 +335,9 @@ class SupabaseManager:
         
         logger.debug(f'Completed save_project for project {project_id}. Parties: {len(parties) if parties else 0}, Events: {len(events) if events else 0}, Deadlines: {len(deadlines) if deadlines else 0}, Damages: {len(damages) if damages else 0}, Claims: {len(claims) if claims else 0}')
 
-    def insert_project_element(self,data : list[dict],
+    def insert_project_element(self, data : list[dict],
                     project_id : str,
-                    table_name: str,
+                    table_name: Literal[*_TABLE_ID_FIELDS],
                     llm_model: str = ""):
         if not data:
             logger.warning(f"No data provided to insert for project {project_id} in table {table_name}. Skipping insert.")
@@ -340,7 +362,7 @@ class SupabaseManager:
     def replace_project_element(self,
                     data : list[BaseModel],
                     project_id : str,
-                    table_name: str,
+                    table_name: Literal["project_parties", "project_events", "project_claims", "project_damages", "project_deadlines"],
                     llm_model: str = ""):
         if not data:
             logger.warning(f"No data provided to replace for project {project_id} in table {table_name}. Skipping replace.")

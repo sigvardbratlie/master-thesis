@@ -121,6 +121,9 @@ class ContextManager:
         init_input = await structured_llm.ainvoke(prompt, config=config)
         for party in init_input.parties or []:
             party.party_id = str(uuid4())
+            for party_rep in party.party_reps or []:
+                party_rep.party_rep_id = str(uuid4())
+                party_rep.party_id = party.party_id
         logger.debug('\n\n' + "="*5 + f' Analyzed Initial Input: {str(init_input.model_dump(mode = "json"))[:500]} ' + '='*5 + '\n\n')
         return init_input
     

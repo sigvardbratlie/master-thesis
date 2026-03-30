@@ -786,6 +786,17 @@ class ProjectPipeline:
         # ============= PHASE 3 =================
         # Insert data tables + metadata in parallel (FK parents already committed)
         # ========================================
+        party_reps = []
+        parties = []
+        for party in (init_input.parties or []):
+            if party.party_reps:
+                for rep in party.party_reps:
+                    party_reps.append(
+                        rep if rep.party_id else rep.model_copy(update={"party_id": party.party_id})
+                    )
+            parties.append(party.model_copy(update={"party_reps": None}))
+
+
         to_insert = {
             "project_events": events,
             "project_damages": damages,
@@ -793,7 +804,8 @@ class ProjectPipeline:
             "project_deadlines": deadlines,
         }
         to_replace = {
-            "project_parties": init_input.parties or [],
+            "project_parties": parties or [],
+            "project_party_reps" : party_reps,
         }
 
         async def insert_data_table(table_name, items, replace=False):
