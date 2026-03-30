@@ -6,7 +6,7 @@ from datetime import datetime,date
 import uuid
 from langgraph.graph.message import add_messages
 
-FileType = Literal[#Basic MIME types
+file_types = [#Basic MIME types
                    "application/pdf", 
                    "text/plain", 
                    "text/csv",
@@ -31,6 +31,7 @@ FileType = Literal[#Basic MIME types
                     #"application/msword",
                     #"application/vnd.ms-excel", 
                     ]
+FileType = Literal[*file_types]
 #=================================
 # ===== API REQUEST MODELS =======
 
@@ -91,7 +92,7 @@ class AskAgentRequest(BaseModel):
 
 class CleanupElementsRequest(AskAgentRequest):
     """POST /cleanup-project-elements request"""
-    element_types: list[str]
+    element_types: Literal["events", "damages", "claims", "deadlines"]
 
 
 class StreamlitUserInfo(BaseModel):
