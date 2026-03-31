@@ -779,10 +779,15 @@ class ProjectPipeline:
                     "query_id": query.query_id,
                 })
 
-        await asyncio.gather(
+        fk_results = await asyncio.gather(
             insert_fk_table("project_attachments", attachments),
             insert_fk_table("project_emails", emails),
+            return_exceptions=True,
         )
+        fk_errors = [r for r in fk_results if isinstance(r, Exception)]
+        if fk_errors:
+            logger.error(f"FK parent inserts failed for project {query.project_id}: {fk_errors}. Skipping dependent tables to avoid FK violations.")
+            return
 
         # ============= PHASE 3 =================
         # Insert data tables + metadata in parallel (FK parents already committed)

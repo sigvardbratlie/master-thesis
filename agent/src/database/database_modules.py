@@ -42,7 +42,7 @@ _TABLE_ID_FIELDS = {
 
 
 
-_STALE_CONNECTION_ERRORS = (httpx.ReadError, httpx.RemoteProtocolError)
+_STALE_CONNECTION_ERRORS = (httpx.ReadError, httpx.RemoteProtocolError, httpx.WriteError)
 
 
 def _with_reconnect(method):
@@ -364,6 +364,7 @@ class SupabaseManager:
             logger.debug(f'Inserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error inserting items for project {project_id} in Supabase table {table_name}')
+            raise
     
     @_with_reconnect
     def replace_project_element(self,
