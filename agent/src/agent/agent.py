@@ -13,6 +13,8 @@ from langchain_core.messages import (
     HumanMessage, AIMessage, SystemMessage, BaseMessage,
     ToolMessage, AIMessageChunk, message_to_dict, messages_to_dict
 )
+from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type, before_sleep_log
 from langchain_core.tools import tool
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import StateGraph, END, START
@@ -226,6 +228,7 @@ class Agent:
         thread = get_config()
         #writer = get_stream_writer()
         llm_with_tools = self.llm
+        enc = tiktoken.encoding_for_model("gpt-4")
 
         msg = state.messages[-1] if isinstance(state.messages[-1], HumanMessage) else None
         #query_id = msg.additional_kwargs.get("query_id", "") if msg else ""
@@ -261,15 +264,17 @@ class Agent:
         else:
             prompt = self.prompt
 
-        payload = [SystemMessage(content=prompt)]
+        today = datetime.now().strftime("%Y-%m-%d")
+        payload = [SystemMessage(content=f"Today's date: {today}\n\n" + prompt)]
 
         
 
         # ---- LONG CONVERSATION HANDLING ----
         sum_rate = self.config.agent.sum_rate
+        max_tokens = self.config.agent.context_window
         messages = [m for m in state.messages if not isinstance(m, SystemMessage)]
 
-        if len(state.messages) > sum_rate:
+        if len(state.messages) > sum_rate or len(enc.encode(str(messages_to_dict(messages)))) > max_tokens:
             if len(messages) % sum_rate == 0:
                 msgs_to_sum = ["Previous summary: " + self.summary] if self.summary else []
                 msgs_to_sum.extend(messages[-sum_rate - 1:])
@@ -302,11 +307,21 @@ class Agent:
 
         try:
             accumulated: AIMessageChunk | None = None
+            llm_cfg = self.config.async_tasks.llm
             async with self._semaphore_llm:
-                async for chunk in llm_with_tools.astream(payload, config=thread):
-                    accumulated = chunk if accumulated is None else accumulated + chunk
-                if self.config.async_tasks.llm.throttle_value > 0:
-                    await asyncio.sleep(self.config.async_tasks.llm.throttle_value)
+                async for attempt in AsyncRetrying(
+                    retry=retry_if_exception_type(ChatGoogleGenerativeAIError),
+                    wait=wait_exponential(multiplier=2, min=llm_cfg.retry_wait_min, max=llm_cfg.retry_wait_max),
+                    stop=stop_after_attempt(llm_cfg.retry_attempts) if llm_cfg.retry_attempts > 0 else stop_after_attempt(1),
+                    before_sleep=before_sleep_log(logger, logging.WARNING),
+                    reraise=True,
+                ):
+                    with attempt:
+                        accumulated = None
+                        async for chunk in llm_with_tools.astream(payload, config=thread):
+                            accumulated = chunk if accumulated is None else accumulated + chunk
+                if llm_cfg.throttle_value > 0:
+                    await asyncio.sleep(llm_cfg.throttle_value)
             if accumulated is None:
                 raise ValueError("LLM returned no response chunks")
 
@@ -425,7 +440,8 @@ class Agent:
     def _init_node(self, state: AgentState):
         if not state.messages:                                                                                                                                                                            
             logger.info("💬 New conversation — injecting system prompt")                                                                                                                                
-            return {"messages": [SystemMessage(content=self.prompt)]}
+            today = datetime.now().strftime("%Y-%m-%d")
+            return {"messages": [SystemMessage(content=f"Today's date: {today}\n\n" + self.prompt)]}
         logger.info("💬 Resuming conversation")
         return {}
 
@@ -625,7 +641,19 @@ class Agent:
             parsed = await asyncio.gather(*[parse_att(att) for att in query.attachments])
             docs = [doc for extracted in parsed for doc in extracted]
             if not self.config.agent.use_factsheet and self.config.agent.embed_to_vectorstore:
-                await asyncio.to_thread(self.vs.add_documents, docs, collection_id="attachments")
+                vs_cfg = self.config.async_tasks.vectorstore
+                for attempt in range(vs_cfg.retry_attempts + 1):
+                    try:
+                        await asyncio.to_thread(self.vs.add_documents, docs, collection_id="attachments")
+                        break
+                    except Exception as e:
+                        if attempt < vs_cfg.retry_attempts:
+                            wait_time = min(vs_cfg.retry_wait_min * (2 ** attempt), vs_cfg.retry_wait_max)
+                            logger.warning(f"⚠️ Retry {attempt + 1}/{vs_cfg.retry_attempts} for add_documents after {wait_time}s: {e}")
+                            await asyncio.sleep(wait_time)
+                        else:
+                            logger.error(f"❌ add_documents failed after {attempt + 1} attempts: {e}")
+                            raise
             # Store (same API regardless of implementation)
             #self.in_memory_store.add_documents(docs, collection_id="attachments") #for testing with in-memory store
             if self.config.agent.save_to_storage:

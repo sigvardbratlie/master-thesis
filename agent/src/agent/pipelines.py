@@ -11,6 +11,7 @@ from utils import AppConfig
 from .context_manager import ContextManager
 from datetime import datetime
 import base64
+import tiktoken
 import email as python_email
 from database import SupabaseStorageManager, SupabaseManager, BQVectorStore, GCSManager
 
@@ -152,15 +153,20 @@ class ProjectPipeline:
         input_ = state.input_
         thread = get_config()
 
-        threshold = self.config.project.threshold
+        enc = tiktoken.encoding_for_model("gpt-4")
+
+        size_threshold = self.config.project.size_threshold
+        token_threshold = self.config.project.token_threshold
         max_attachments = self.config.project.max_attachments
         max_emails = self.config.project.max_emails
 
         email_attachments = []
         email_size_counter = 0
+        email_token_counter = 0
 
         doc_attachments = []
         doc_size_counter = 0
+        doc_token_counter = 0
 
         doc_tasks = []
 
@@ -170,14 +176,24 @@ class ProjectPipeline:
         for att in attachments or []:
             if att.file_type != "message/rfc822":
                 att_size = len(att.body.encode("utf-8")) if att.body else att.size or 0
-                if doc_size_counter + att_size <= threshold and len(doc_attachments) < max_attachments:
+                token_count = len(enc.encode(att.body)) if att.body else 0
+                if doc_size_counter + att_size <= size_threshold and doc_token_counter + token_count <= token_threshold and len(doc_attachments) < max_attachments:
                     doc_attachments.append(att)
                     doc_size_counter += att_size
+                    doc_token_counter += token_count
                 else:
-                    logger.info(f"📦 Dispatching doc batch: {len(doc_attachments)} file(s), {doc_size_counter / 1024:.1f}KB")
-                    doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_, thread))
-                    doc_attachments = [att]
-                    doc_size_counter = att_size
+                    if doc_attachments:  # Only dispatch if there are attachments to analyze
+                        logger.info(f"📦 Dispatching doc batch: {len(doc_attachments)} file(s), {doc_size_counter / 1024:.1f}KB")
+                        doc_tasks.append(analyze_docs_with_limit(doc_attachments, input_, thread))
+                    if token_count > token_threshold:
+                        logger.warning(f"⚠️ Skipping attachment '{att.filename}': {token_count} tokens exceeds threshold {token_threshold}")
+                        doc_attachments = []
+                        doc_size_counter = 0
+                        doc_token_counter = 0
+                    else:
+                        doc_attachments = [att]
+                        doc_size_counter = att_size
+                        doc_token_counter = token_count
 
         if doc_attachments:
             logger.info(f"📦 Dispatching final doc batch: {len(doc_attachments)} file(s), {doc_size_counter / 1024:.1f}KB")
@@ -187,15 +203,19 @@ class ProjectPipeline:
         emails_to_process = state.email_models or []
         for email in emails_to_process:
             email_size = len(email.body_text.encode("utf-8")) if email.body_text else email.size or 0
-            if email_size_counter + email_size <= threshold and len(email_attachments) < max_emails:
+            token_count = len(enc.encode(email.body_text)) if email.body_text else 0
+            if email_size_counter + email_size <= size_threshold and email_token_counter + token_count <= token_threshold and len(email_attachments) < max_emails:
                 email_attachments.append(email)
                 email_size_counter += email_size
+                email_token_counter += token_count
             else:
-                logger.info(f"📦 Dispatching email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
-                doc_tasks.append(analyze_emails_with_limit(email_attachments, input_, thread))
+                if email_attachments:  # Only dispatch if there are emails to analyze
+                    logger.info(f"📦 Dispatching email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
+                    doc_tasks.append(analyze_emails_with_limit(email_attachments, input_, thread))
                 email_attachments = [email]
                 email_size_counter = email_size
-        
+                email_token_counter = token_count
+
         if email_attachments:
             logger.info(f"📦 Dispatching final email batch: {len(email_attachments)} email(s), {email_size_counter / 1024:.1f}KB")
             doc_tasks.append(analyze_emails_with_limit(email_attachments, input_, thread))
@@ -510,7 +530,19 @@ class ProjectPipeline:
                 "timestamp": datetime.now().isoformat(),
                 "query_id": query.query_id,
             })
-            await asyncio.to_thread(self.vs.add_documents, all_docs, collection_id="attachments")
+            vs_cfg = self.config.async_tasks.vectorstore
+            for attempt in range(vs_cfg.retry_attempts + 1):
+                try:
+                    await asyncio.to_thread(self.vs.add_documents, all_docs, collection_id="attachments")
+                    break
+                except Exception as e:
+                    if attempt < vs_cfg.retry_attempts:
+                        wait_time = min(vs_cfg.retry_wait_min * (2 ** attempt), vs_cfg.retry_wait_max)
+                        logger.warning(f"⚠️ Retry {attempt + 1}/{vs_cfg.retry_attempts} for add_documents after {wait_time}s: {e}")
+                        await asyncio.sleep(wait_time)
+                    else:
+                        logger.error(f"❌ add_documents failed after {attempt + 1} attempts: {e}")
+                        raise
             writer({
                 "type": "status",
                 "phase": ["storage"],

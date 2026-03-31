@@ -10,11 +10,13 @@ path = "log/app.log"
 level = "info"
 
 [async.llm]
-max_concurrent_requests = 20
+max_concurrent_requests = 10
 throttle_value = 0.0
 requests_per_second = 0.5   # 30 RPM — tune per provider/tier
 max_burst_size = 10
-retry_attempts = 6
+retry_attempts = 3
+retry_wait_min = 30.0   # seconds — Gemini 429s typically clear in ~25s
+retry_wait_max = 120.0  # seconds — cap exponential backoff
 
 [async.database]
 max_concurrent_requests = 2
@@ -27,6 +29,9 @@ throttle_value = 0.0
 [async.vectorstore]
 max_concurrent_requests = 2
 throttle_value = 0.0
+retry_attempts = 2
+retry_wait_min = 30.0   # seconds — embedding 429s share the 1M tokens/min quota
+retry_wait_max = 120.0
 
 [models.together]
 base_url = "https://api.together.xyz/v1"
@@ -34,13 +39,15 @@ max_tokens = 4096
 
 [agent]
 sum_rate = 20
+context_window = 1000000 #1mill
 embed_to_vectorstore = false
 save_to_storage = true
 minimal_context = true
 prompt_file_path = "system_prompt.txt"
 
 [project]
-threshold = 5120000     # 500 * 1024
+size_threshold = 500000     # 500 * 1024
+token_threshold = 120000
 max_attachments = 10
 max_emails = 10
 embed_to_vectorstore = true

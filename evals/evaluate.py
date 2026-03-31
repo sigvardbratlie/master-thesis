@@ -30,8 +30,8 @@ if __name__ == "__main__":
                         help="Dataset name to evaluate")
     parser.add_argument("-m","--model", 
                         type=str, 
-                        choices = ["gemini-2.5-flash", "gpt-4.1",], 
-                        default = "gemini-2.5-flash", 
+                        choices = ["gemini-2.5-flash", "gpt-4.1",],
+                        default = "gemini-2.5-flash",
                         help="LLM model to evaluate (optional, defaults to all models in dataset)")
     parser.add_argument("-i","--id" , type = str, help = "eval_runtime_id")
     parser.add_argument("--threshold", type=float, default=0.5, help="Threshold for evaluation metrics (default: 0.5)")

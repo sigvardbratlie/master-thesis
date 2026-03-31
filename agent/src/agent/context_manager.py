@@ -188,6 +188,9 @@ class ContextManager:
                     continue
                 break
             except Exception as e:
+                if getattr(e, 'status_code', None) == 400:
+                    logger.error(f"Input exceeds model context length — skipping retries: {e}")
+                    break
                 logger.warning(f"Attempt {attempt + 1} failed validation: {e}")
                 retry_prompt = prompt + f"\n\nPREVIOUS ATTEMPT FAILED WITH VALIDATION ERROR:\n{e}\nPlease fix the above errors and try again."
 

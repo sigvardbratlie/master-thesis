@@ -38,24 +38,23 @@ class CollectAgentResult:
                 llm_model: str = "google_gemini-2.5-pro", 
                  agent_type: Literal["custom", "baseline", "baseline_rag"] = "custom",
                  config : AppConfig = None,
-                 clean_rate: int = None):
+                 ):
         self.data = data
         self.llm_model = llm_model
         self.agent_type: Literal["custom", "baseline", "baseline_rag"] = agent_type
         self.dataclass = Dataset(name=data.dataset_name)
         self.config = config or AppConfig()
-        self.clean_rate = clean_rate
 
         self.vs = BQVectorStore()
         self.dp = DocumentProcessor(config=self.config)
 
-    async def init_agent(self, 
+    async def init_agent(self,
                          tools=None,):
         connection_string = os.getenv("SUPABASE_DB_URL")
-        pool = AsyncConnectionPool(conninfo=connection_string, open=False, min_size=1, max_size=2,
-                                   kwargs={"autocommit": True, "prepare_threshold": 0})
-        await pool.open(wait=True, timeout=15.0)
-        checkpointer = AsyncPostgresSaver(pool)
+        self.pool = AsyncConnectionPool(conninfo=connection_string, open=False, min_size=1, max_size=2,
+                                        kwargs={"autocommit": True, "prepare_threshold": 0})
+        await self.pool.open(wait=True, timeout=15.0)
+        checkpointer = AsyncPostgresSaver(self.pool)
         agent = Agent(
             tools=tools,
             checkpointer=checkpointer,
@@ -95,10 +94,18 @@ class CollectAgentResult:
             query_id=query_id,
         )
 
-    async def run_conv(self, conv: ConversationTurn, agent_class, project_id, session_id, query_id, user_id, attachments=[], session_date=None):
+    async def run_conv(self, 
+                       conv: ConversationTurn, 
+                       agent_class, 
+                       project_id, 
+                       session_id, 
+                       query_id, 
+                       user_id, 
+                       attachments=[], 
+                       session_date=None):
         turn_starttime = datetime.now() 
         input_obj = AskAgentRequest(
-            question= f"Dato : {session_date} \n" + conv.input,
+            question= conv.input,
             session_id=session_id,
             llm_model=self.llm_model,
             query_id=query_id,
@@ -118,9 +125,11 @@ class CollectAgentResult:
         )
 
     async def run_agent(self, 
-                       ) -> GatheredResultPayload:
+                       eval_run_id_reuse : str = None,
+                       clean_rate : int = 2) -> GatheredResultPayload:
         base_project_id = self.data.project_id 
-        eval_run_id = str(uuid.uuid4())
+        eval_run_id = eval_run_id_reuse or str(uuid.uuid4())
+        logger.info(f"Starting agent run with eval_run_id: {eval_run_id}")
         tools = _TOOLS_MAP[self.agent_type]
 
         agent_class = await self.init_agent(
@@ -137,20 +146,6 @@ class CollectAgentResult:
             f'Project (runtime): {eval_run_id} | '
             f'User: {self.data.user_id}\n\n'
         )
-
-        # Baseline agents never call initialize_project, so the project row is never created.
-        # Create a minimal project entry now to satisfy the FK constraint in save_stream.
-        #if self.agent_type == "baseline_rag":
-            # await asyncio.to_thread(
-            #     agent_class.conversation_manager.save_project,
-            #     factsheet=FactSheet(events=[]),
-            #     attachments=[],
-            #     user_id=self.data.user_id,
-            #     project_id=eval_run_id,
-            #     query_id = str(uuid.uuid4()),
-            #     session_id=str(uuid.uuid4()),
-            # ) #saving a empty project for BASELINE + RAG for the purpose of using vector store on project_id
-            # logger.info(f"Baseline Rag agent: created minimal project entry for {eval_run_id}")
 
         semaphore = asyncio.Semaphore(self.config.async_tasks.storage.max_concurrent_requests)
 
@@ -184,7 +179,12 @@ class CollectAgentResult:
         starttime = datetime.now()
         with tracing_context(
             tags=[eval_run_id],
-            metadata={"eval_run_id": eval_run_id, "llm_model": self.llm_model, "agent_type": self.agent_type, "project_id": base_project_id},
+            metadata={"eval_run_id": eval_run_id, 
+                      "llm_model": self.llm_model, 
+                      "agent_type": self.agent_type, 
+                      "project_id": base_project_id,
+                      "reuse_run_id": eval_run_id_reuse,
+                      },
         ):
             for idx, session in enumerate(self.data.sessions):
                 runtime_session_id = str(uuid.uuid4())
@@ -204,7 +204,7 @@ class CollectAgentResult:
                 attachments = [att_model for att_model, _ in parsed_results]
                 docs = [d for _, doc_list in parsed_results for d in doc_list]
 
-                if self.agent_type == "custom":
+                if self.agent_type == "custom" and not eval_run_id_reuse:
                     input_obj = AskAgentRequest(
                     question=session.init_query,
                     session_id=runtime_session_id,
@@ -224,10 +224,10 @@ class CollectAgentResult:
                         async for chunk in update_graph.astream({"query": input_obj}, config=thread, stream_mode="custom"):
                             logger.debug(f"Update response: {chunk}")
                     
-                    if idx % 2 != 0 or idx == len(self.data.sessions) - 1: #Clean after every 2 sessions or after the last session
+                    if idx % clean_rate != 0 or idx == len(self.data.sessions) - 1: 
                         cleanup_query = CleanupElementsRequest(
                                 **input_obj.model_dump(),
-                                element_types=["events", "claims"],)
+                                element_types=["events", "claims", "damages"],)
                         clean_thread = to_thread_config(query=cleanup_query, user_id=self.data.user_id)
                         clean_graph = clean.compile_clean_elements()
                         async for chunk in clean_graph.astream({"query": cleanup_query}, config=clean_thread, stream_mode="custom"):
@@ -244,35 +244,15 @@ class CollectAgentResult:
                     logger.debug(f"Session {idx} initialization completed in {session.init_query_time_count.duration_seconds:.2f} seconds")
                 
                 elif self.agent_type == "baseline_rag":
-                    logger.info(f'Embed documents for the purpose of the RAG run')
-                    await asyncio.to_thread(self.vs.add_documents, docs)
+                    if not eval_run_id_reuse:
+                        logger.info(f'Embed documents for the purpose of the RAG run')
+                        await asyncio.to_thread(self.vs.add_documents, docs)
                     session.conversation[0].input = f"Project-Id: {eval_run_id}\n" + (str(session.init_query) if session.init_query else "") + "\n" + session.conversation[0].input
 
                 
                 else:
                     logger.info(f"Running session {idx} with agent type {self.agent_type} without initialization or cleanup as per configuration")
-                    # if self.agent_type in ["baseline_rag"] and not include_init_query:
-                    #     logger.info(f"Skipping initial query for session {idx} for agent type {self.agent_type} as per configuration")
-                    # else:
-                    #     conv_query_id = session.init_query_id or str(uuid.uuid4())
-                    #     init_query = session.init_query or f"{session.session_name}. Se vedlagte dokumenter"
-                    #     with tracing_context(metadata={"query_id": conv_query_id}):
-                    #         await self.run_conv(
-                    #             conv=ConversationTurn(input=init_query, answer=""),
-                    #             agent_class=agent_class,
-                    #             project_id=eval_run_id if self.agent_type in ["custom","baseline_rag"] else None,
-                    #             session_id=runtime_session_id,
-                    #             query_id=conv_query_id,
-                    #             user_id=self.data.user_id,
-                    #             attachments=attachments,
-                    #             session_date=session.date,
-                    #         )
-                    attachments_text = f"Attachments for session {session.session_name} | Date {session.date}\n"
-                    for att in attachments:
-                        attachments_text += f"- {att.filename} ({att.file_type}, {att.size} bytes)\n"
-                        attachments_text += f"{att.body}\n"
-                    session.conversation[0].input = attachments_text + (str(session.init_query) if session.init_query else "") + "\n" + session.conversation[0].input
-                
+                    
 
                 for conv in session.conversation:
                     conv_query_id = conv.query_id or str(uuid.uuid4())
@@ -308,6 +288,6 @@ class CollectAgentResult:
                 duration_seconds=(endtime - starttime).total_seconds(),
             ),
             metadata = {"significance" : self.config.agent.significance, 
-                        "clean_rate" : self.clean_rate,
+                        "eval_run_id_reuse" : eval_run_id_reuse,
                         "minimal_context" : self.config.agent.minimal_context}
         )

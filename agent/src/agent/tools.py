@@ -22,12 +22,64 @@ config = get_app_config()
 logger = logging.getLogger(__name__)
 setup_logging(config)
 document_processor = DocumentProcessor(config=config)
-
+vectorstore = BQVectorStore()
 
 tavily_search = TavilySearch(
     max_results=5,
     topic="general",
 )
+
+# ============ SHARED TOOLS ============
+@tool
+def query_project_attachments(query: str, project_id: str, k: int = 10, metadata : dict = None) -> str:
+    """Function to use RAG to retrieve documents of a specific project.
+
+    Args:
+        query (str): The query to search in the vectorstore.
+        project_id (str): The project id to identify which vectorstore to query.
+        k (int): The number of top results to retrieve from the vectorstore. 
+        metadata (dict, optional): Additional metadata to filter the vectorstore query. Defaults to None. I.e., {'file_id' : '741ef083-9335-4a55-bbe1-ea866bf01758'}.
+    Returns:
+        str: The retrieved information from the vectorstore based on the query.
+
+    Available metadata fields are limited to: file_id : uuid, filename : str, file_type (MIME) : str. 
+    """
+    base_filter = {"project_id": project_id}
+    filters = base_filter
+    if metadata:
+        if not isinstance(metadata, dict):
+            logger.warning(f"Metadata should be a dictionary. Received {type(metadata)}. Ignoring metadata.")
+        elif "file_id" not in metadata and "filename" not in metadata and "file_type" not in metadata:
+            logger.warning(f"Metadata should contain at least one of the following keys: 'file_id', 'filename', 'file_type'. Received keys: {list(metadata.keys())}. Ignoring metadata.")
+        else:
+            filters = {**base_filter, **metadata}
+    
+    try:
+        results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=filters)
+    except Exception:
+        logger.exception(f"Error querying vectorstore with filters {filters}. Trying without filters.")
+        results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=base_filter)
+    if not results and filters != base_filter:
+        logger.warning(f"⚠️ No results found with metadata filter {metadata} on project {project_id}. Trying without metadata filter.")
+        results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=base_filter)
+        if not results:
+            return f"No relevant information found in the vectorstore for project {project_id}."
+        #res = "⚠️ No results matched the metadata filter — returning results without filter:\n"
+    elif not results:
+        return f"No relevant information found in the vectorstore for project {project_id}."
+        
+    res = "=== Retrieved relevant chunks from vectorstore: ===\n"
+    for doc in results:
+        res += (
+            f"filename: {doc.metadata.get('filename', 'Unknown')} |"
+            f"title: {doc.metadata.get('title', 'Unknown')} | "
+            f"file_id: {doc.metadata.get('file_id', 'Unknown')} | "
+            f"| chunk: {doc.metadata.get('chunk', 'Unknown')} of {doc.metadata.get('total_chunks', 'Unknown')} total chunks\n"
+        )
+        res += f"{doc.page_content}\n\n"
+    return res
+
+#CUSTOM TOOLS
 
 @tool
 def read_attachments(
@@ -47,6 +99,13 @@ def read_attachments(
     db = SupabaseManager()
     storage_manager = GCSManager(config=config)
     response = db.get_body_by_id(ids=ids)
+    if not response:
+        logger.error(f"❌ No response from database for IDs: {ids}")
+        return "❌ No content found for the provided file IDs."
+    
+    if len(response) != len(ids):
+        logger.warning(f"⚠️ Mismatch in number of responses and IDs. Expected {len(ids)}, got {len(response)}. IDs: {ids}")
+
     def process_attachment(path, content):
         try:
             file_id = (
@@ -75,7 +134,7 @@ def read_attachments(
             return []
 
     results = "Results from reading attachments:" + "\n" + "-" * 50 + "\n\n"
-    for i in range(len(ids)):
+    for i in range(len(response)):
         res = response[i]
         content = res.get("body")
         if not content:
@@ -86,43 +145,6 @@ def read_attachments(
         results += "\n" + "-" * 50 + "\n\n"
     return results
 
-
-@tool
-def query_project_attachments(query: str, project_id: str, k: int = 10, metadata : dict = None) -> str:
-    """Function to use RAG to retrieve documents of a specific project.
-
-    Args:
-        query (str): The query to search in the vectorstore.
-        project_id (str): The project id to identify which vectorstore to query.
-        k (int): The number of top results to retrieve from the vectorstore. 
-        metadata (dict, optional): Additional metadata to filter the vectorstore query. Defaults to None. I.e., {'file_id' : '741ef083-9335-4a55-bbe1-ea866bf01758'}.
-    Returns:
-        str: The retrieved information from the vectorstore based on the query.
-
-    Available metadata fields are limited to: file_id : uuid, filename : str, file_type (MIME) : str. 
-    """
-    filters = {"project_id": project_id}
-    if metadata:
-        if not isinstance(metadata, dict):
-            logger.warning(f"Metadata should be a dictionary. Received {type(metadata)}. Ignoring metadata.")
-        elif "file_id" not in metadata and "filename" not in metadata and "file_type" not in metadata:
-            logger.warning(f"Metadata should contain at least one of the following keys: 'file_id', 'filename', 'file_type'. Received keys: {list(metadata.keys())}. Ignoring metadata.")
-        else:
-            filters.update(metadata)
-    vectorstore = BQVectorStore()
-    results = vectorstore.query(query=query, collection_id="attachments", k=k, filters=filters)
-    if not results:
-        return f"No relevant information found in the vectorstore for project {project_id}."
-    res = "=== Retrieved relevant chunks from vectorstore: ===\n"
-    for doc in results:
-        res += (
-            f"filename: {doc.metadata.get('filename', 'Unknown')} |"
-            f"title: {doc.metadata.get('title', 'Unknown')} | "
-            f"file_id: {doc.metadata.get('file_id', 'Unknown')} | "
-            f"| chunk: {doc.metadata.get('chunk', 'Unknown')} of {doc.metadata.get('total_chunks', 'Unknown')} total chunks\n"
-        )
-        res += f"{doc.page_content}\n\n"
-    return res
 
 @tool
 def query_laws(query: str, 
@@ -327,6 +349,10 @@ def show_elements(project_id: str,
 
     for element in element_types:
         all_elements = data.get(element, [])
+        if not all_elements:
+            value += f"\n\n=== {element.upper()} ===\n"
+            value += "No elements found for this category with the given filters.\n"
+            continue
         date_col = date_col_map.get(element)
         all_elements.sort(key = lambda x: x.get(date_col)) if date_col else None
         
@@ -350,7 +376,7 @@ def list_attachments(
     List attachments and emails of a project filtered by date and significance.
     Args:
         project_id (str): The ID of the project.
-        element_types (list[str]): The types of elements to show (e.g. "events", "parties", "claims", "damages", "deadlines").
+        element_types (list[str]): The types of elements to show (e.g. "attachments", "emails").
         start_date (datetime): The start date for filtering elements.
         end_date (datetime): The end date for filtering elements.
         significance (list[str]): The significance levels to include (e.g. ["high", "medium"]).
@@ -362,6 +388,14 @@ def list_attachments(
     '''
     if not significance:
         significance = ["high", "medium", "low"]
+
+    if not element_types:
+        element_types = ["attachments", "emails"]
+    
+    for element in element_types:
+        if element not in ["attachments", "emails"]:
+            logger.warning(f'⚠️ Unsupported element type: {element}. Supported types are "attachments" and "emails". Setting element_types to ["attachments"].')
+            element_types = ["attachments"]
 
     start_date = _parse_date(start_date, date.min)
     end_date = _parse_date(end_date, date.max)
@@ -394,6 +428,8 @@ def list_attachments(
     return value
 
 
+# ============ RAG TOOLS ============
+
 @tool
 def list_project_attachments(project_id: str) -> str:
     '''Use this function to retrieve a list of the projects attachments with their file_ids. 
@@ -404,7 +440,9 @@ def list_project_attachments(project_id: str) -> str:
         str: A string representation of the list of attachments with their file_ids.
     '''
     client = bigquery.Client()
-    query = f"""SELECT filename, file_id FROM vector_store.attachments WHERE project_id = '{project_id}'"""
+    query = f"""SELECT DISTINCT filename, file_id 
+                FROM vector_store.attachments 
+                WHERE project_id = '{project_id}'"""
     query_job = client.query(query)
     results = query_job.result()
     output = "=== List of project attachments ===\n\n"
@@ -422,7 +460,8 @@ def read_full_attachments(file_ids: list[str]) -> str:
         str: A string representation of the full content of the attachments.
     '''
     client = bigquery.Client()
-    query = f"""SELECT file_id, content FROM vector_store.attachments WHERE file_id IN {tuple(file_ids)}"""
+    file_ids_str = tuple(file_ids) if len(file_ids) > 1 else f"('{file_ids[0]}')"
+    query = f"""SELECT file_id, content FROM vector_store.attachments WHERE file_id IN {file_ids_str}"""
     query_job = client.query(query)
     results = query_job.result()
     string_results = ""
@@ -433,6 +472,10 @@ def read_full_attachments(file_ids: list[str]) -> str:
         current_file_id = row.file_id
         string_results += row.content
     return string_results
+
+
+
+# ============================== 
 
 TOOLS = [
     tavily_search,

@@ -64,7 +64,8 @@ def mock_pipeline():
         mock_config.async_tasks.vectorstore.max_concurrent_requests = 2
         mock_config.project.embed_to_vectorstore = True
         mock_config.project.save_to_storage = True
-        mock_config.project.threshold = 5120000
+        mock_config.project.size_threshold = 5120000
+        mock_config.project.token_threshold = 128000
         mock_config.project.max_attachments = 10
         mock_config.project.max_emails = 15
 

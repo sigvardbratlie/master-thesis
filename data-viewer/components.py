@@ -33,6 +33,27 @@ def _render_token_metrics(token_counts: dict) -> None:
         col.metric(k.replace("_", " ").title(), f"{v:,}" if isinstance(v, int) else v)
 
 
+def _render_split_token_metrics(inference_tc: dict | None, init_tc: dict | None) -> None:
+    """Render inference and init/update token metrics in two labeled side-by-side sections."""
+    if not inference_tc and not init_tc:
+        return
+    st.write("")
+    if inference_tc and init_tc:
+        inf_col, init_col = st.columns(2)
+        with inf_col:
+            st.caption("🔄 Inference tokens")
+            _render_token_metrics(inference_tc)
+        with init_col:
+            st.caption("🚀 Init / Update tokens")
+            _render_token_metrics(init_tc)
+    elif inference_tc:
+        st.caption("🔄 Inference tokens")
+        _render_token_metrics(inference_tc)
+    elif init_tc:
+        st.caption("🚀 Init / Update tokens")
+        _render_token_metrics(init_tc)
+
+
 def _render_time_inputs(time_usage: dict, key_prefix: str = "") -> None:
     """Render time usage (starttime/endtime/duration_seconds) as disabled text inputs."""
     duration = time_usage.get("duration_seconds")

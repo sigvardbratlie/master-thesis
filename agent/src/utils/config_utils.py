@@ -23,11 +23,13 @@ class LoggingConfig(BaseModel):
     console: ConsoleLoggingConfig = Field(default_factory=ConsoleLoggingConfig)
 
 class AsyncBaseConfig(BaseModel):
-    max_concurrent_requests: int = 20
+    max_concurrent_requests: int = 5
     throttle_value: float = 0.0
     requests_per_second: float | None = None  # rate limiter (LLM only)
     max_burst_size: int = 10                  # token bucket burst capacity (LLM only)
     retry_attempts: int = 0                   # with_retry stop_after_attempt (LLM only, 0 = disabled)
+    retry_wait_min: float = 30.0              # min seconds to wait on 429 (astream retry, LLM only)
+    retry_wait_max: float = 120.0             # max seconds to wait on 429 (astream retry, LLM only)
 
 class AsyncConfig(BaseModel):
     llm: AsyncBaseConfig = Field(default_factory=AsyncBaseConfig)
@@ -45,6 +47,7 @@ class ModelsConfig(BaseModel):
 class AgentConfig(BaseModel):
     max_token_tool: int | None = None
     sum_rate : int = 20
+    context_window : int = 250000
 
     #related to the factsheet in agent
     use_factsheet: bool = True
@@ -84,7 +87,8 @@ class ProjectCleanConfig(BaseModel):
     chunk_size : int = 200
 
 class ProjectConfig(BaseModel):
-    threshold: int = 5120000     # 500 * 1024
+    size_threshold: int = 5120000     # 500 * 1024
+    token_threshold: int = 128000
     max_attachments: int = 10
     max_emails: int = 15
     embed_to_vectorstore: bool = True

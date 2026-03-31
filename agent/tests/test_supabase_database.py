@@ -1,8 +1,9 @@
 import pytest
+import httpx
 from unittest.mock import Mock, patch, MagicMock
 import sys
 import os
-from tests.fixtures.supabase_data import * 
+from tests.fixtures.supabase_data import *
 
 # Legg til src-mappen i path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -92,10 +93,10 @@ def test_insert_project_element(mock_supabase_manager):
 
     assert client.table.called, "table() was never called"
     client.table.assert_any_call("project_parties")
-    client.table.return_value.insert.assert_called()
-    client.table.return_value.insert.return_value.execute.assert_called()
+    client.table.return_value.upsert.assert_called()
+    client.table.return_value.upsert.return_value.execute.assert_called()
 
-    inserted_data = client.table.return_value.insert.call_args[0][0]
+    inserted_data = client.table.return_value.upsert.call_args[0][0]
     for item in inserted_data:
         assert item['created_by'] == "test_model"
         assert item['updated_by'] == "test_model"
@@ -312,3 +313,123 @@ def test_save_stream(mock_supabase_manager):
     assert client.table.call_count == 4
     assert client.table.call_args_list[0][0][0] == "sessions"
     assert client.table.return_value.select.called
+
+
+# ============================================================
+# Reconnect tests — _with_reconnect and _execute
+# ============================================================
+
+class TestReconnect:
+    """
+    Verify that both _with_reconnect and _execute handle stale HTTP/2 connections.
+
+    The crash scenario: after 2+ minutes of LLM processing the Supabase HTTP/2
+    connection goes idle and the server sends a GOAWAY frame, which httpx surfaces
+    as httpx.RemoteProtocolError.  Previously only httpx.ReadError was caught, so
+    the reconnect logic never fired and every save after a long operation failed.
+    """
+
+    @pytest.fixture
+    def manager(self):
+        with patch("database.database_modules.create_client") as mock_create:
+            fresh_client = MagicMock()
+            mock_create.return_value = fresh_client
+            mgr = SupabaseManager()
+            mgr.supabase = MagicMock()   # stale client
+            mgr._fresh_client = fresh_client
+            mgr._mock_create = mock_create
+            yield mgr
+
+    # ---- _execute ----
+
+    @pytest.mark.parametrize("exc_type", [httpx.ReadError, httpx.RemoteProtocolError])
+    def test_execute_retries_on_stale_connection(self, manager, exc_type):
+        """_execute should reconnect and succeed on the second attempt."""
+        call_count = {"n": 0}
+
+        def flaky():
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise exc_type("stale")
+            return "ok"
+
+        result = manager._execute(flaky)
+
+        assert result == "ok"
+        assert call_count["n"] == 2
+        assert manager._mock_create.call_count == 2  # initial __init__ + reconnect
+
+    @pytest.mark.parametrize("exc_type", [httpx.ReadError, httpx.RemoteProtocolError])
+    def test_execute_raises_if_retry_also_fails(self, manager, exc_type):
+        """_execute should not swallow the error when the retry also fails."""
+        def always_fails():
+            raise exc_type("still dead")
+
+        with pytest.raises(exc_type):
+            manager._execute(always_fails)
+
+    def test_execute_does_not_catch_unrelated_errors(self, manager):
+        """_execute must not suppress unexpected exceptions."""
+        def boom():
+            raise ValueError("unexpected")
+
+        with pytest.raises(ValueError):
+            manager._execute(boom)
+
+    # ---- _with_reconnect (via upsert_replace_project_element) ----
+
+    @pytest.mark.parametrize("exc_type", [httpx.ReadError, httpx.RemoteProtocolError])
+    def test_with_reconnect_retries_on_stale_connection(self, manager, exc_type, supabase_save_data):
+        """
+        upsert_replace_project_element decorated with @_with_reconnect should
+        reconnect and complete successfully when the first attempt raises a stale
+        connection error (the real crash scenario).
+        """
+        data = supabase_save_data.get("factsheet").model_dump(mode="json").get("parties")
+
+        stale_client = manager.supabase
+        fresh_client = manager._fresh_client
+
+        # Stale client raises on SELECT (first call inside the method)
+        stale_client.table.return_value.select.return_value.eq.return_value.execute.side_effect = exc_type("goaway")
+
+        # Fresh client succeeds for all calls
+        ok_response = MagicMock()
+        ok_response.data = []
+        fresh_client.table.return_value.select.return_value.eq.return_value.execute.return_value = ok_response
+        fresh_client.table.return_value.upsert.return_value.execute.return_value = ok_response
+        fresh_client.table.return_value.delete.return_value.eq.return_value.not_.in_.return_value.execute.return_value = ok_response
+
+        manager.upsert_replace_project_element(
+            data=data,
+            project_id="test_project_id",
+            table_name="project_parties",
+            llm_model="test_model",
+        )
+
+        # Reconnect fired: create_client called once more after __init__
+        assert manager._mock_create.call_count == 2
+        # Fresh client was used for the retry
+        fresh_client.table.assert_called()
+
+    @pytest.mark.parametrize("exc_type", [httpx.ReadError, httpx.RemoteProtocolError])
+    def test_with_reconnect_raises_if_retry_also_fails(self, manager, exc_type, supabase_save_data):
+        """If the retry also fails, the error must propagate."""
+        data = supabase_save_data.get("factsheet").model_dump(mode="json").get("parties")
+
+        # Both stale and fresh clients fail
+        for client in (manager.supabase, manager._fresh_client):
+            client.table.return_value.select.return_value.eq.return_value.execute.side_effect = exc_type("dead")
+
+        with pytest.raises(exc_type):
+            manager.upsert_replace_project_element(
+                data=data,
+                project_id="test_project_id",
+                table_name="project_parties",
+                llm_model="test_model",
+            )
+
+
+@pytest.fixture
+def supabase_save_data():
+    return get_mock_save_project_data()

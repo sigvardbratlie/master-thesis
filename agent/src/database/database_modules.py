@@ -4,6 +4,8 @@ import logging
 import base64
 from google.cloud import firestore
 
+import httpx
+import functools
 from supabase import create_client, Client
 
 from models import *
@@ -40,12 +42,36 @@ _TABLE_ID_FIELDS = {
 
 
 
+_STALE_CONNECTION_ERRORS = (httpx.ReadError, httpx.RemoteProtocolError)
+
+
+def _with_reconnect(method):
+    """Decorator that retries once after recreating the Supabase client on stale HTTP/2 connection errors."""
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except _STALE_CONNECTION_ERRORS:
+            logger.warning(f"Stale Supabase connection in {method.__name__}, reconnecting and retrying.")
+            self.supabase = create_client(self.url, self.key)
+            return method(self, *args, **kwargs)
+    return wrapper
+
+
 class SupabaseManager:
     def __init__(self):
         self.url = os.getenv("SUPABASE_URL")
         self.key = os.getenv("SUPABASE_KEY")
         self.supabase = create_client(self.url, self.key)
-        # Initialize Supabase client here if needed
+
+    def _execute(self, fn):
+        """Execute fn(), reconnecting once on stale HTTP/2 connection errors."""
+        try:
+            return fn()
+        except _STALE_CONNECTION_ERRORS:
+            logger.warning("Stale Supabase connection, reconnecting and retrying.")
+            self.supabase = create_client(self.url, self.key)
+            return fn()
 
     def load_factsheet(self, project_id: str,
                        tables: list[Literal["events", "parties", "deadlines", "damages", "claims", ]] = None
@@ -178,6 +204,7 @@ class SupabaseManager:
                 result[element] = None
         return result
 
+    @_with_reconnect
     def save_project(self,
                        factsheet : FactSheet,
                        attachments  : list[Attachment],
@@ -313,6 +340,7 @@ class SupabaseManager:
         
         logger.debug(f'Completed save_project for project {project_id}. Parties: {len(parties) if parties else 0}, Events: {len(events) if events else 0}, Deadlines: {len(deadlines) if deadlines else 0}, Damages: {len(damages) if damages else 0}, Claims: {len(claims) if claims else 0}')
 
+    @_with_reconnect
     def insert_project_element(self,data : list[dict],
                     project_id : str,
                     table_name: str,
@@ -332,11 +360,12 @@ class SupabaseManager:
             item["updated_by"] = llm_model
             item["updated_at"] = now
         try:
-            self.supabase.table(table_name).upsert([_strip_null_bytes(d) for d in data], ignore_duplicates=True).execute()
+            self._execute(lambda: self.supabase.table(table_name).upsert([_strip_null_bytes(d) for d in data], ignore_duplicates=True).execute())
             logger.debug(f'Inserted {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error inserting items for project {project_id} in Supabase table {table_name}')
     
+    @_with_reconnect
     def replace_project_element(self,
                     data : list[BaseModel],
                     project_id : str,
@@ -369,12 +398,13 @@ class SupabaseManager:
             data_dicts.append(item_dict)
 
         try:
-            self.supabase.table(table_name).delete().eq("project_id", project_id).execute()
-            self.supabase.table(table_name).insert([_strip_null_bytes(d) for d in data_dicts]).execute()
+            self._execute(lambda: self.supabase.table(table_name).delete().eq("project_id", project_id).execute())
+            self._execute(lambda: self.supabase.table(table_name).insert([_strip_null_bytes(d) for d in data_dicts]).execute())
             logger.debug(f'Replaced {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error replacing items for project {project_id} in Supabase table {table_name}: {e}')
 
+    @_with_reconnect
     def upsert_replace_project_element(self,
                     data: list[BaseModel],
                     project_id: str,
@@ -411,15 +441,16 @@ class SupabaseManager:
         new_ids = [d[id_field] for d in data_dicts if id_field and d.get(id_field)]
 
         try:
-            self.supabase.table(table_name).upsert([_strip_null_bytes(d) for d in data_dicts]).execute()
+            self._execute(lambda: self.supabase.table(table_name).upsert([_strip_null_bytes(d) for d in data_dicts]).execute())
             if new_ids:
-                self.supabase.table(table_name).delete().eq("project_id", project_id).not_.in_(id_field, new_ids).execute()
+                self._execute(lambda: self.supabase.table(table_name).delete().eq("project_id", project_id).not_.in_(id_field, new_ids).execute())
             else:
-                self.supabase.table(table_name).delete().eq("project_id", project_id).execute()
+                self._execute(lambda: self.supabase.table(table_name).delete().eq("project_id", project_id).execute())
             logger.debug(f'Upsert-replaced {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error upsert-replacing items for project {project_id} in Supabase table {table_name}: {e}')
 
+    @_with_reconnect
     def upsert_project_custom(self,
                     data : dict | str,
                     element_type : str,
@@ -439,11 +470,12 @@ class SupabaseManager:
         data["updated_at"] = datetime.now().isoformat()
 
         try:
-            self.supabase.table(table_name).upsert(data).execute()
+            self._execute(lambda: self.supabase.table(table_name).upsert(data).execute())
             logger.debug(f'Replaced custom fields for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error replacing custom fields for project {project_id} in Supabase: {e}')
 
+    @_with_reconnect
     def upsert_project(self,
                        data: dict | str,
                        element_type: str,
@@ -461,7 +493,7 @@ class SupabaseManager:
         data["updated_by"] = llm_model
         data["updated_at"] = datetime.now().isoformat()
         try:
-            self.supabase.table("projects").upsert(data).execute()
+            self._execute(lambda: self.supabase.table("projects").upsert(data).execute())
             logger.debug(f'Project {project_id} upserted in Supabase.')
         except Exception as e:
             logger.exception(f'Error upserting project {project_id} in Supabase: {e}')
@@ -491,7 +523,8 @@ class SupabaseManager:
             logger.warning(f"No session found for session_id: {session_id} in Supabase.")
             return SessionHistory(events=[], attachments=[], project_id="", title="Ny samtale")
 
-    def save_stream(self, 
+    @_with_reconnect
+    def save_stream(self,
                     data : StreamData,
                     user_id : str,
                     session_id : str): 
