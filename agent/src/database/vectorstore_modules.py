@@ -160,25 +160,44 @@ class BQVectorStore(VectorStoreInterface):
         })
         document.metadata = metadata
     
-    def query(self, query: str, 
+    @staticmethod
+    def _build_filter(filters: dict) -> str | dict:
+        """Convert filters dict to a SQL WHERE expression string when list values are present.
+
+        The BQ vector store library does f"{col} = '{val}'" for all non-numeric values,
+        which breaks when val is a Python list (single quotes in repr corrupt the SQL).
+        Passing a raw SQL string bypasses the library's broken list handling.
+        """
+        if not filters or not any(isinstance(v, list) for v in filters.values()):
+            return filters
+        parts = []
+        for col, val in filters.items():
+            if isinstance(val, list):
+                escaped = ", ".join(f"'{v}'" for v in val)
+                parts.append(f"{col} IN ({escaped})")
+            else:
+                parts.append(f"{col} = '{val}'")
+        return " AND ".join(parts)
+
+    def query(self, query: str,
               collection_id: str = "attachments",
-              search_type: Literal["similarity", "mmr"] = "mmr", 
-              k: int = 3, 
+              search_type: Literal["similarity", "mmr"] = "mmr",
+              k: int = 3,
               filters= {}) -> list[Document]:
         store = self._get_store(collection_id)
+        filter_expr = self._build_filter(filters)
 
         if search_type == "similarity":
-            retriever = store.as_retriever(search_kwargs={"k": k, "filter": filters, "options": {"use_brute_force": True}})
-
+            retriever = store.as_retriever(search_kwargs={"k": k, "filter": filter_expr, "options": {"use_brute_force": True}})
         else:
-            fetch_k = max(k*3, 15)  # Hent flere kandidater for MMR å velge blant
+            fetch_k = max(k*3, 15)
             retriever = store.as_retriever(
                         search_type="mmr",
                         search_kwargs={
                             "k": k,
                             "fetch_k": fetch_k,
                             "lambda_mult": 0.7,
-                            "filter": filters,
+                            "filter": filter_expr,
                             "options": {"use_brute_force": True},
                         },
                     )
