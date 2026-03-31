@@ -129,6 +129,10 @@ class ReferenceObservation(BaseMetric):
     bert_recall: float
     bert_f1: float
     s_bert_similarity: float
+    actual_output: str | None = None
+    expected_output: str | None = None
+    embedded_actual_output: list[float] | None = None
+    embedded_expected_output: list[float] | None = None
 
 
 class RougeObservation(BaseMetric):

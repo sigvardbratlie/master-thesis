@@ -12,16 +12,24 @@ The backend is implemented as a \textbf{FastAPI} application (\texttt{agent/main
 
 \subsection{Agent Layer}
 
-The core agent is implemented using \textbf{LangGraph's} \texttt{StateGraph}, a directed graph framework for building stateful LLM applications. The agent graph consists of two nodes:
+The core agent is implemented as a LangGraph \texttt{StateGraph} (see Figure~\ref{fig:agent-graph}). The graph has three nodes:
 
 \begin{itemize}
-    \item \texttt{call\_llm} — Constructs the full input payload, including the system prompt, factsheet context, conversation history, and RAG-retrieved document chunks, then invokes the LLM.
-    \item \texttt{call\_tool} — Executes any tool calls returned by the LLM.
+    \item \texttt{init} — Injects the system prompt as the first \texttt{SystemMessage} on a new conversation; is a no-op on resumption.
+    \item \texttt{call\_llm} — Assembles the full input payload (system prompt, factsheet context, conversation history, and any per-request attachment content), sanitizes it for provider compatibility, then streams the LLM response.
+    \item \texttt{call\_tool} — Executes all tool calls emitted by the LLM in the previous turn, with per-call caching to avoid redundant invocations within the same session.
 \end{itemize}
 
-A conditional edge routes control back to \texttt{call\_tool} if the LLM emits tool calls, or terminates the graph otherwise. To manage long conversations within the model's context window, a rolling summarization strategy is applied every eight messages using a dedicated \texttt{Summarizer} module.
+Control flows as: \texttt{START} $\to$ \texttt{init} $\to$ \texttt{call\_llm}. A conditional edge then routes to \texttt{call\_tool} if the LLM response contains tool calls (looping back to \texttt{call\_llm} afterwards), or to \texttt{END} if not. To manage long conversations within the model's context window, a rolling summarization strategy is applied every \texttt{sum\_rate} messages (configurable, default 20) using a dedicated \texttt{Summarizer} module.
 
 Conversation state is persisted using LangGraph's \texttt{AsyncPostgresSaver} checkpointer, backed by \textbf{Supabase PostgreSQL}, enabling session resumption and multi-turn dialogue across requests.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.45\textwidth]{figures/agent_graph.png}
+    \caption{Agent graph: \texttt{init} $\to$ \texttt{call\_llm} with a conditional loop through \texttt{call\_tool}.}
+    \label{fig:agent-graph}
+\end{figure}
 
 \subsection{Tool Layer}
 
@@ -29,29 +37,61 @@ The agent has access to a set of callable tools defined in \texttt{tools.py}. Th
 
 \begin{itemize}
     \item \texttt{tavily\_search} — Web search via the Tavily API.
-    \item \texttt{read\_attachment} — Fetches and parses a document from Supabase Storage.
-    \item \texttt{query\_project\_attachments} — Performs semantic retrieval (RAG) against project-specific documents indexed in BigQuery Vector Store.
-    \item \texttt{read\_laws} — Semantic retrieval against a corpus of Norwegian legislation.
-    \item \texttt{update\_project}, \texttt{clean\_element}, \texttt{create\_project} — Tools for managing the factsheet state.
+    \item \texttt{read\_attachments} — Fetches and returns the full parsed content of one or more documents by file ID, reading from a database body cache when available and falling back to GCS otherwise.
+    \item \texttt{list\_attachments} — Lists a project's attachments and emails (with metadata such as title, date, and category), optionally filtered by date range and significance. Returns file IDs that the model can pass to \texttt{read\_attachments}.
+    \item \texttt{show\_elements} — Returns structured factsheet elements (events, parties, claims, damages, deadlines) for a project, optionally filtered by date range and significance level.
+    \item \texttt{query\_project\_attachments} — Performs semantic retrieval (RAG) against project-specific document chunks indexed in BigQuery Vector Store.
+    \item \texttt{query\_laws} — Semantic retrieval against a corpus of Norwegian legislation, with optional filtering by law title.
+    \item \texttt{read\_specific\_law} — Retrieves exact paragraph text from legislation by title and paragraph number via a parameterised BigQuery query.
 \end{itemize}
 
-Two ablated tool configurations are also defined for evaluation purposes: \texttt{BASELINE\_TOOLS} (web search and law retrieval only) and \texttt{BASELINE\_RAG\_TOOLS} (web search, law retrieval, and project document RAG, but without file storage access).
+An ablated tool configuration, \texttt{BASELINE\_RAG\_TOOLS}, is defined for evaluation purposes. It includes web search, law retrieval (\texttt{query\_laws}, \texttt{read\_specific\_law}), and project document RAG (\texttt{query\_project\_attachments}), but excludes the structured factsheet tools and direct file-reading access.
 
 \subsection{Data and Storage Layer}
 
 Document persistence is handled through two complementary mechanisms. Raw files (PDF, DOCX, PPTX, EML) are stored in \textbf{Supabase Storage}, where they can be retrieved on demand by the \texttt{read\_attachment} tool. Parsed and chunked document content is embedded using \textbf{Google's \texttt{gemini-embedding-001} model} and stored in \textbf{BigQuery Vector Store} for semantic retrieval. Structured project data — including the \texttt{FactSheet} and session metadata — is stored in Supabase PostgreSQL via the \texttt{SupabaseManager} CRUD interface.
 
-\subsection{Document Processing Pipeline}
+\subsection{Init and Update Pipeline}
 
-Upon project initialization (\texttt{POST /init-project}), a multi-phase asynchronous pipeline is triggered:
+Project initialization (\texttt{POST /init-project}) and updates (\texttt{POST /update-project}) are handled by the \texttt{ProjectPipeline} class, which compiles a LangGraph \texttt{StateGraph} for each operation (see Figure~\ref{fig:init-pipeline}). The graph exploits LangGraph's fan-out semantics to run independent work in parallel:
 
-\begin{enumerate}
-    \item \textbf{Phase 1:} Documents are parsed using \texttt{DocumentProcessor} (supporting PDF with OCR, DOCX, PPTX, and EML formats), stored in file storage, and indexed in the vector store.
-    \item \textbf{Phase 2:} Documents and emails are analyzed in parallel to extract structured entities — events, claims, damages, deadlines, and attachment metadata.
-    \item \textbf{Phase 3:} Factual facts and governing law are synthesized across all documents.
-\end{enumerate}
+\begin{itemize}
+    \item \texttt{collapse\_emails} and \texttt{initialize\_input} start in parallel from \texttt{START}. \texttt{collapse\_emails} merges EML thread duplicates; \texttt{initialize\_input} runs an LLM call to extract an initial structured summary from the user's case description.
+    \item \texttt{extract\_emails} follows \texttt{collapse\_emails} and decodes email attachments from the collapsed threads.
+    \item \texttt{parsing} and \texttt{storage} both fan out from \texttt{extract\_emails}. \texttt{parsing} processes all documents (PDF/OCR, DOCX, PPTX, EML) into plain text; \texttt{storage} uploads raw files to GCS in parallel.
+    \item \texttt{embedding} follows \texttt{parsing} and indexes chunked document content into BigQuery Vector Store.
+    \item \texttt{analyze} is a fan-in node that waits for both \texttt{parsing} and \texttt{initialize\_input} to complete. It then dispatches all documents and emails to the LLM in size-bounded batches (see Section~\ref{sec:design-choices}) to extract structured entities: attachments, emails, events, claims, damages, and deadlines.
+    \item \texttt{update\_metadata} follows \texttt{analyze} and runs an LLM call to update the case title and background based on all extracted data.
+    \item \texttt{qc\_analysis} also fans out from \texttt{analyze} and runs a quality-control pass over the extracted entities.
+    \item \texttt{save} follows \texttt{update\_metadata} and persists all extracted entities to Supabase PostgreSQL.
+\end{itemize}
 
-Status events are streamed back to the frontend via SSE throughout all phases.
+The update pipeline is identical in structure but adds a \texttt{load\_project\_data} node at the start that loads the existing factsheet before analysis, enabling incremental updates. Status events are streamed back to the frontend via SSE at each node transition.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\textwidth]{figures/project_graph.png}
+    \caption{Init and update pipeline graph: parallel fan-out for parsing, storage, and initialisation, converging at the \texttt{analyze} fan-in node.}
+    \label{fig:init-pipeline}
+\end{figure}
+
+\subsection{Clean Pipeline}
+
+The \texttt{ProjectClean} class provides two separate cleanup graphs that can be triggered on demand (see Figure~\ref{fig:clean-pipeline}):
+
+\begin{itemize}
+    \item \textbf{Clean Elements} (\texttt{compile\_clean\_elements}): \texttt{load\_project} $\to$ \texttt{clean} $\to$ \texttt{save\_results}. The \texttt{clean} node calls \texttt{deduplicate\_elements} on the \texttt{ContextManager}, which sends all element types (events, parties, claims, damages, deadlines) to the LLM in configurable chunks via \texttt{asyncio.gather}. The LLM returns the IDs to keep; all others are discarded. Results are saved back to the database concurrently.
+    \item \textbf{Clean Metadata} (\texttt{compile\_clean\_metadata}): \texttt{load\_project} $\to$ \texttt{clean} $\to$ \texttt{save\_results}. The \texttt{clean} node rewrites the case title and background using the current factsheet content as context. Title and background are saved back concurrently via \texttt{asyncio.gather}.
+\end{itemize}
+
+Both graphs share the same linear \texttt{StateGraph} structure and reuse the \texttt{\_load\_project\_node} and save nodes, differing only in the \texttt{clean} step.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.6\textwidth]{figures/clean_graph.png}
+    \caption{Clean pipeline graph: \texttt{load\_project} $\to$ \texttt{clean} $\to$ \texttt{save\_results}, used for both element deduplication and metadata rewriting.}
+    \label{fig:clean-pipeline}
+\end{figure}
 
 \subsection{LLM Configuration}
 
@@ -87,6 +127,7 @@ Web search & Tavily \\
 \end{table}
 
 \section{Design Choices}
+\label{sec:design-choices}
 
 The system architecture was guided by several pragmatic design choices, prioritizing development speed, flexibility, and cost-efficiency given the constraints of a master's thesis. By separating the descriptive architecture from the rationale, the core motivations for the selected technologies are outlined below.
 
@@ -179,6 +220,31 @@ For the vector database, a two-tier approach is used. \textbf{ChromaDB} is utili
 
 The backend is exposed as a standalone REST API using \textbf{FastAPI} \cite{fastapi} to decouple it from the frontend. \textbf{Server-Sent Events (SSE)} are used for streaming responses because the agent pipeline is long-running and asynchronous. SSE provides a responsive user experience by pushing incremental status updates and partial results without the complexity of WebSockets, which are unnecessary for this unidirectional communication flow.
 
+\subsection*{Concurrency, Reliability, and Tool Efficiency}
+
+Several engineering decisions were made to ensure the system operates efficiently under the latency and throughput constraints imposed by external APIs and large document volumes.
+
+\paragraph{Async-first architecture.}
+The entire backend stack is built on Python's \texttt{asyncio} event loop. FastAPI natively supports async request handlers, and all LangGraph pipeline nodes are declared as \texttt{async} coroutines. This allows the server to handle multiple concurrent sessions without blocking on I/O-bound operations such as LLM calls, database queries, or storage reads.
+
+\paragraph{Semaphore-based concurrency control.}
+To prevent overloading external services, four independent \texttt{asyncio.Semaphore} instances are used — one per resource class: LLM, database, storage, and vector store. Each semaphore has a configurable maximum concurrency value drawn from \texttt{config.toml} (e.g.\ \texttt{[async.llm] max\_concurrent\_requests = 20}). Pipeline nodes acquire the relevant semaphore before dispatching work, ensuring that bursts of parallel tasks are automatically throttled without busy-waiting or sleep loops.
+
+\paragraph{Batch-wise and chunk-wise parallel processing.}
+During project initialization, documents are grouped into batches before being dispatched for LLM analysis. Batching is driven by two configurable thresholds: a maximum byte-size per batch (\texttt{project.threshold}) and a maximum file count per batch (\texttt{project.max\_attachments} / \texttt{project.max\_emails}). Each batch is wrapped in an async task that acquires the LLM semaphore, and all tasks are dispatched concurrently via \texttt{asyncio.gather()}. The same chunk-wise strategy is applied during factsheet cleaning and deduplication: element lists (events, claims, damages, etc.) are split into fixed-size chunks (\texttt{project.clean.chunk\_size}), each chunk is cleaned by a separate concurrent LLM call, and results are merged after all tasks complete. This approach keeps individual prompts within token limits while maximising throughput.
+
+\paragraph{Rate limiting and 429 handling.}
+To comply with provider-imposed rate limits and avoid HTTP 429 (Too Many Requests) errors, each LLM instance is wrapped with LangChain's \texttt{InMemoryRateLimiter}. The limiter implements a token-bucket algorithm: tokens are refilled at a configurable rate (\texttt{async.llm.requests\_per\_second}) and a burst capacity (\texttt{async.llm.max\_burst\_size}) allows short spikes. A single stateful limiter instance is shared across all coroutines that use the same model, so the rate limit is enforced globally rather than per-request.
+
+\paragraph{Retry mechanism with exponential backoff.}
+Transient API errors (e.g.\ network timeouts or momentary 5xx responses) are handled by a dedicated \texttt{apply\_retry()} helper. It wraps any LangChain chain with \texttt{with\_retry()}, configuring a stop condition (\texttt{retry\_attempts} from config) and exponential backoff with random jitter (\texttt{wait\_exponential\_jitter=True}). The retry decorator is applied \emph{after} structured-output binding so that validation failures are also covered. If all retry attempts are exhausted, the error is propagated and logged.
+
+\paragraph{TOML-based configuration management.}
+All tunable parameters — concurrency limits, rate limiter settings, retry counts, chunk sizes, model endpoints, and storage bucket names — are centralised in a single \texttt{config.toml} file. On startup, the file is parsed into a fully typed \texttt{AppConfig} object built with \textbf{Pydantic} and \texttt{pydantic-settings}. Nested configuration sections map directly to typed dataclasses (e.g.\ \texttt{AsyncConfig}, \texttt{ProjectConfig}, \texttt{VectorstoreConfig}), providing IDE auto-complete, validation at load time, and a single source of truth for the entire application. A \texttt{get\_app\_config()} singleton cached with \texttt{@lru\_cache} ensures the config is parsed only once per process.
+
+\paragraph{Tool interface design — string IDs over full objects.}
+Agent tools are designed to accept minimal, flat inputs: all tools receive only string identifiers (e.g.\ \texttt{project\_id: str}, \texttt{ids: list[str]}) rather than full domain objects. This keeps the JSON schema presented to the LLM small, reduces the token footprint of tool calls, and makes it straightforward for the model to construct valid invocations. Internal data fetching (loading full attachment records, querying the database) is performed inside the tool implementation, hidden from the model entirely.
+
 
 % -------------------------------------------------------
 % EVALUATION DESIGN
@@ -200,18 +266,39 @@ The datasets are organized to simulate the chronological lifecycle of a legal pr
 
 By following a chronological order, the sessions require the agent to handle increasing amounts of information and maintain consistency over time, reflecting the professional requirements of a legal practitioner managing an ongoing case.
 
+\subsection{Dataset Limitations and Caveats}
+
+Several factors limit the generalisability of the evaluation and should be considered when interpreting the results.
+
+\paragraph{Absence of a plain LLM baseline.}
+A natural comparison point would be an ordinary LLM queried without any specialised architecture — no document processing, no vector store, no RAG, simply the raw case files passed as context. This approach was tested and found to be infeasible. The aggregated size of a realistic legal case file — spanning contracts, correspondence, technical reports, and legal submissions — frequently exceeds the usable context window of most commercially available models, and is well beyond the limits of the majority of open-source and cost-efficient alternatives. Feeding entire case files into a plain LLM context is therefore not a viable evaluation strategy, and the minimum meaningful comparison is a RAG-enabled architecture. This is also why the evaluation compares the custom agent against a Baseline + RAG configuration rather than an unaugmented LLM.
+
+\paragraph{Dataset size and the scalability trade-off.}
+The evaluation uses a constrained number of cases and queries, as running a large-scale benchmark across multiple model-agent pairs with repeated trials becomes prohibitively expensive and time-consuming. This is, however, in tension with a fundamental property of the system: the agent is designed to improve with larger and richer document sets, as more material increases the factsheet's coverage and the quality of RAG retrieval. Evaluating on small datasets therefore likely \emph{underestimates} the performance advantage of the custom agent in production-scale deployments.
+
+\paragraph{Heterogeneity between cases.}
+The evaluation datasets differ substantially in complexity. Two of the three cases consist of fully synthetic documents generated to match the factual matrix of published court records, while the third is derived from a real case with a significantly larger document volume. The real case contains no emails (which were excluded to maintain confidentiality), yet it is considerably more complex, covering more parties, a longer timeline, and more contested facts. This asymmetry means that performance differences across cases may reflect document complexity as much as agent capability, and cross-case comparisons should be made with caution.
+
+\paragraph{Limitations of expected-answer evaluation.}
+Model responses are graded against expected answers produced in collaboration with legal experts at BAHR AS. This approach carries two inherent risks: the expected answers themselves may contain inaccuracies, and — more fundamentally — many legal queries are open-ended, such that a correct and complete model response may differ substantially from the reference without being wrong. Three mitigations were applied to reduce this risk:
+\begin{enumerate}
+    \item \textbf{Fact-based scope}: The evaluation is restricted to factual, document-grounded questions (e.g.\ "Who are the parties?", "What damages are claimed?"), deliberately excluding normative or predictive legal questions where correct answers are inherently ambiguous.
+    \item \textbf{Validatable content}: Questions are formulated so that their answers can be directly verified against the case documents, reducing the space for legitimate variation.
+    \item \textbf{Minimal-requirement framing}: Expected answers are written as \emph{minimum} acceptable responses rather than exhaustive ideal answers, so a model response that covers the required facts is scored as correct even if it includes additional relevant information.
+\end{enumerate}
+
 \subsection{Evaluation Environment}
 \textbf{Evalutation Framework:} \\
 The evaluation will be conducted using \textbf{DeepEval} \cite{deepeval}, a framework for evaluating LLM outputs against reference answers. 
 DeepEval allows for automatic scoring based. \\ \\
 
 \textbf{Agent Configurations:} \\
-There are three agent configurations to be evaluated:
+Two agent configurations are evaluated:
 \begin{itemize}
-    \item \textbf{Custom Agent}: The full agent configuration with access to all tools, including file storage and RAG capabilities.
-    \item \textbf{Baseline Agent}: An ablated version of the agent with access to only web search and law retrieval tools, without file storage or RAG capabilities.
-    \item \textbf{Baseline + RAG Agent}: An ablated version of the agent with access to web search, law retrieval, and project document RAG tools, but without file storage access.
-\end{itemize} 
+    \item \textbf{Custom Agent}: The full agent configuration with access to all tools, including structured factsheet access (\texttt{show\_elements}, \texttt{list\_attachments}), direct file reading (\texttt{read\_attachments}), and RAG capabilities.
+    \item \textbf{Baseline + RAG Agent}: An ablated version with access to web search, law retrieval, and project document RAG, but without direct file access or structured factsheet tools.
+\end{itemize}
+A web-search-only baseline was considered but excluded from the evaluation: without access to the case documents it consistently exhausted the model's context window before producing meaningful responses, making a fair comparison impossible. 
 
 \textbf{Model Configuration:} \\
 Since the scope of the thesis is not to evaluate the models themselves, but rather the design and architecture of the agent, a selection of four models is used for comparison. These include both closed-source and open-source variants to ensure the agent's performance is consistent across different provider architectures.
@@ -260,23 +347,30 @@ Token usage and inference time are recorded during the agent's operation.
 
 \subsection{One-sided Hypothesis Tests}
 
+Inspection of the metric distributions reveals pronounced right-skew with heavy concentration near 1.0 (see Figure~\ref{fig:correctness-dist}), violating the normality assumption required by parametric tests such as the $t$-test.
+All hypothesis tests are therefore conducted using the one-sided \textbf{Mann-Whitney U test}, a non-parametric rank-based test that assesses whether one distribution tends to produce stochastically larger values than another, without assuming normality.
+
 \textbf{For quality/performance metrics} (correctness, relevancy, completeness, passrate, self-consistency, BERTScore):
 \[
-H_0: \mu_{\text{custom}} \leq \mu_{\text{baseline}} \qquad H_1: \mu_{\text{custom}} > \mu_{\text{baseline}}
+H_0: \eta_{\text{custom}} \leq \eta_{\text{baseline+RAG}} \qquad H_1: \eta_{\text{custom}} > \eta_{\text{baseline+RAG}}
 \]
-(and analogously vs. baseline+RAG)
 
 \textbf{For cost/efficiency metrics} (token usage, inference time):
 \[
-H_0: \mu_{\text{custom}} \geq \mu_{\text{baseline}} \qquad H_1: \mu_{\text{custom}} < \mu_{\text{baseline}}
+H_0: \eta_{\text{custom}} \geq \eta_{\text{baseline+RAG}} \qquad H_1: \eta_{\text{custom}} < \eta_{\text{baseline+RAG}}
 \]
-(and analogously vs. baseline+RAG)
 
 \textbf{Notation:}
 \begin{itemize}
-    \item $\mu_{\text{custom}}$ = population mean for the custom agent
-    \item $\mu_{\text{baseline}}$ = population mean for the baseline agent
-    \item $\mu_{\text{baseline+RAG}}$ = population mean for baseline with RAG
+    \item $\eta_{\text{custom}}$ = population median for the custom agent
+    \item $\eta_{\text{baseline+RAG}}$ = population median for the baseline with RAG agent
 \end{itemize}
-All tests are one-tailed / one-sided. \\ \\
+All tests are one-tailed / one-sided.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.65\textwidth]{figures/correctness_distribution.png}
+    \caption{Distribution of correctness scores across all queries and sessions. The pronounced right-skew and heavy concentration near 1.0 violate the normality assumption, motivating the use of non-parametric Mann-Whitney U tests.}
+    \label{fig:correctness-dist}
+\end{figure}
 

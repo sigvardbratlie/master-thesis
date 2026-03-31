@@ -81,7 +81,9 @@ class CollectMetrics:
                         "session": query.additional_metadata.get("session"),
                         "session_name": query.additional_metadata.get("session_name"),
                         "llm_model": run.llm_model,
-                        "agent_type": run.agent_type
+                        "agent_type": run.agent_type,
+                        "actual_output": query.actual_output,
+                        "expected_output": query.expected_output,
                     })
 
         # Batch process BERTScore (more efficient)
@@ -111,7 +113,11 @@ class CollectMetrics:
                 bert_precision=bert_prec[i].item(),
                 bert_recall=bert_rec[i].item(),
                 bert_f1=bert_f1[i].item(),
-                s_bert_similarity=s_bert
+                s_bert_similarity=s_bert,
+                actual_output= meta["actual_output"],
+                expected_output= meta["expected_output"],
+                embedded_actual_output=aa_embeddings[i],
+                embedded_expected_output=ea_embeddings[i],
             ))
         return output
         
