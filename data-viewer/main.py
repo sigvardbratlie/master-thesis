@@ -14,6 +14,7 @@ from gcs import (
     blob_exists,
     read_blob_bytes,
     cached_read_blob_bytes,
+    write_blob,
     upload_raw_blob,
     list_dataset_names,
     list_data_blobs,
@@ -38,6 +39,7 @@ from components import (
     FILE_ICONS,
     text_height,
     _render_token_metrics,
+    _render_split_token_metrics,
     _render_time_inputs,
     render_file,
     compute_session_attachments,
@@ -794,7 +796,28 @@ with tab_results:
 
                 token_counts = result_data.get("token_counts")
                 if token_counts and isinstance(token_counts, dict):
-                    _render_token_metrics(token_counts)
+                    _run_inf = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0}
+                    _run_init = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0}
+                    _has_run_inf = _has_run_init = False
+                    for _rs in result_data.get("sessions", []):
+                        _itc = _rs.get("init_query_token_count")
+                        if _itc and isinstance(_itc, dict):
+                            for _k in _run_init:
+                                _run_init[_k] += _itc.get(_k, 0) or 0
+                            _has_run_init = True
+                        for _rc in _rs.get("conversation", []):
+                            _qtc = _rc.get("token_counts")
+                            if _qtc and isinstance(_qtc, dict):
+                                for _k in _run_inf:
+                                    _run_inf[_k] += _qtc.get(_k, 0) or 0
+                                _has_run_inf = True
+                    if _has_run_inf or _has_run_init:
+                        _render_split_token_metrics(
+                            _run_inf if _has_run_inf else None,
+                            _run_init if _has_run_init else None,
+                        )
+                    else:
+                        _render_token_metrics(token_counts)
 
             st.divider()
 
@@ -810,9 +833,19 @@ with tab_results:
                 for q in s.get("conversation", [])
                 if q.get("model_response", "").strip()
             )
-            st.caption(
+            _res_sum_col, _res_collapse_col = st.columns([0.65, 0.35])
+            _res_sum_col.caption(
                 f"**{n_result_sessions}** sessions · **{total_queries}** queries · **{answered}** with model response"
             )
+            _res_all_collapsed = st.session_state.get("_res_all_collapsed", False)
+            if _res_collapse_col.button(
+                "⬆️ Collapse all" if not _res_all_collapsed else "⬇️ Expand all",
+                key="toggle_res_collapse",
+                type="tertiary",
+                use_container_width=True,
+            ):
+                st.session_state["_res_all_collapsed"] = not _res_all_collapsed
+                st.rerun()
             st.write("")
 
             for s_idx, session in enumerate(result_sessions):
@@ -820,7 +853,7 @@ with tab_results:
                 sdate = session.get("date", "")
                 label = f"📁 {sname}" + (f" — {sdate}" if sdate else "")
 
-                with st.expander(label, expanded=True):
+                with st.expander(label, expanded=not st.session_state.get("_res_all_collapsed", False)):
                     conversation = session.get("conversation", [])
                     res_cap_col, res_btn_col = st.columns([0.65, 0.35])
                     _runtime_sid = session.get("runtime_session_id", "")
@@ -842,7 +875,20 @@ with tab_results:
 
                     session_tokens = session.get("token_counts")
                     if session_tokens and isinstance(session_tokens, dict):
-                        _render_token_metrics(session_tokens)
+                        _s_inf = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0, "llm_calls": 0}
+                        _has_s_inf = False
+                        for _sc in session.get("conversation", []):
+                            _sqtc = _sc.get("token_counts")
+                            if _sqtc and isinstance(_sqtc, dict):
+                                for _k in _s_inf:
+                                    _s_inf[_k] += _sqtc.get(_k, 0) or 0
+                                _has_s_inf = True
+                        _s_init_tc = session.get("init_query_token_count")
+                        _s_init = _s_init_tc if isinstance(_s_init_tc, dict) else None
+                        if _has_s_inf or _s_init:
+                            _render_split_token_metrics(_s_inf if _has_s_inf else None, _s_init)
+                        else:
+                            _render_token_metrics(session_tokens)
 
                     if session.get("init_query"):
                         with st.expander("📝 Initial instruction", expanded=False):
@@ -866,6 +912,37 @@ with tab_results:
                                 f"_res_q_collapsed_{s_idx}", False
                             ),
                         ):
+                            _del_q_btn_col, _del_q_spacer = st.columns([0.15, 0.85])
+                            if _del_q_btn_col.button(
+                                "🗑️ Delete query",
+                                key=f"del_res_q_{selected_result_idx}_{s_idx}_{q_idx}",
+                                type="tertiary",
+                            ):
+                                st.session_state["_confirm_del_res_q"] = (
+                                    selected_result_blob.name, s_idx, q_idx
+                                )
+
+                            _del_res_q_state = st.session_state.get("_confirm_del_res_q")
+                            if _del_res_q_state == (selected_result_blob.name, s_idx, q_idx):
+                                st.warning(f"⚠️ Delete Query {q_idx + 1} from this result file?")
+                                _dq_yes, _dq_no, _ = st.columns([0.12, 0.1, 0.78])
+                                if _dq_yes.button("Yes", key=f"confirm_del_res_q_yes_{s_idx}_{q_idx}"):
+                                    _fresh = json.loads(read_blob_bytes(selected_result_blob.name).decode("utf-8"))
+                                    del _fresh["sessions"][s_idx]["conversation"][q_idx]
+                                    for _ri, _rs in enumerate(_fresh["sessions"]):
+                                        for _rq_i, _rq in enumerate(_rs["conversation"]):
+                                            _rq["order"] = _rq_i
+                                    write_blob(
+                                        selected_result_blob.name,
+                                        json.dumps(_fresh, ensure_ascii=False, indent=4).encode("utf-8"),
+                                    )
+                                    st.cache_data.clear()
+                                    st.session_state.pop("_confirm_del_res_q", None)
+                                    st.rerun()
+                                if _dq_no.button("Cancel", key=f"confirm_del_res_q_no_{s_idx}_{q_idx}"):
+                                    st.session_state.pop("_confirm_del_res_q", None)
+                                    st.rerun()
+
                             st.markdown(f"**🧑‍💼 Query**")
                             st.markdown(inp or "_No input_")
                             st.write("")
@@ -896,7 +973,7 @@ with tab_results:
                                             ds_inp = ds_query.get("input", "").strip()
                                             match = (
                                                 (query_id and ds_qid == query_id)
-                                                or (not query_id and ds_inp == inp)
+                                                or ds_inp == inp
                                             )
                                             if match:
                                                 logger.debug("[GT] Match found at ds s=%d q=%d — updating _raw", ds_s_idx, ds_q_idx)
@@ -912,7 +989,7 @@ with tab_results:
                                         st.success("Saved to dataset.")
                                         logger.info("[GT] Save complete")
                                     else:
-                                        logger.warning("[GT] No match found in _raw for query_id=%s", query_id)
+                                        logger.warning("[GT] No match found in _raw for query_id=%s / inp=%r", query_id, inp[:60])
                                         st.warning("Could not find matching query in dataset.")
                             with col_mr:
                                 st.markdown("**🤖 Model response**")
@@ -1117,7 +1194,17 @@ with tab_evals:
 
     n_eval_sessions = len(sorted_sessions)
     total_turns = sum(len(s["turns"]) for _, s in sorted_sessions)
-    st.caption(f"**{n_eval_sessions}** sessions · **{total_turns}** turns")
+    _ev_sum_col, _ev_collapse_col = st.columns([0.65, 0.35])
+    _ev_sum_col.caption(f"**{n_eval_sessions}** sessions · **{total_turns}** turns")
+    _ev_all_collapsed = st.session_state.get("_ev_all_collapsed", False)
+    if _ev_collapse_col.button(
+        "⬆️ Collapse all" if not _ev_all_collapsed else "⬇️ Expand all",
+        key="toggle_ev_collapse",
+        type="tertiary",
+        use_container_width=True,
+    ):
+        st.session_state["_ev_all_collapsed"] = not _ev_all_collapsed
+        st.rerun()
     st.write("")
 
     # ── Sessions ───────────────────────────────────────────────────────────────
@@ -1126,7 +1213,7 @@ with tab_evals:
         label = f"📁 {sname}"
         result_session = _result_sessions.get(sname, {})
 
-        with st.expander(label, expanded=True):
+        with st.expander(label, expanded=not st.session_state.get("_ev_all_collapsed", False)):
             ev_cap_col, ev_btn_col = st.columns([0.65, 0.35])
             _ev_runtime_sid = result_session.get("runtime_session_id", "")
             ev_cap_col.caption(
