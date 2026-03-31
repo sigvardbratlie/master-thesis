@@ -197,14 +197,18 @@ class CollectAgentResult:
                 )
                 query_id = session.init_query_id if session.init_query_id else str(uuid.uuid4())
 
-                parsed_results = await asyncio.gather(*[
-                    download_and_parse(att, query_id, runtime_session_id, eval_run_id, self.data.user_id)
-                    for att in session.attachments
-                ])
-                attachments = [att_model for att_model, _ in parsed_results]
-                docs = [d for _, doc_list in parsed_results for d in doc_list]
+                if not eval_run_id_reuse:
+                    parsed_results = await asyncio.gather(*[
+                        download_and_parse(att, query_id, runtime_session_id, eval_run_id, self.data.user_id)
+                        for att in session.attachments
+                    ])
+                    attachments = [att_model for att_model, _ in parsed_results]
+                    docs = [d for _, doc_list in parsed_results for d in doc_list]
+                
+                
 
                 if self.agent_type == "custom" and not eval_run_id_reuse:
+                    
                     input_obj = AskAgentRequest(
                     question=session.init_query,
                     session_id=runtime_session_id,
@@ -244,6 +248,7 @@ class CollectAgentResult:
                     logger.debug(f"Session {idx} initialization completed in {session.init_query_time_count.duration_seconds:.2f} seconds")
                 
                 elif self.agent_type == "baseline_rag":
+                    
                     if not eval_run_id_reuse:
                         logger.info(f'Embed documents for the purpose of the RAG run')
                         await asyncio.to_thread(self.vs.add_documents, docs)
