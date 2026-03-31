@@ -347,20 +347,30 @@ Token usage and inference time are recorded during the agent's operation.
 
 \subsection{One-sided Hypothesis Tests}
 
+Inspection of the metric distributions reveals pronounced right-skew with heavy concentration near 1.0 (see Figure~\ref{fig:correctness-dist}), violating the normality assumption required by parametric tests such as the $t$-test.
+All hypothesis tests are therefore conducted using the one-sided \textbf{Mann-Whitney U test}, a non-parametric rank-based test that assesses whether one distribution tends to produce stochastically larger values than another, without assuming normality.
+
 \textbf{For quality/performance metrics} (correctness, relevancy, completeness, passrate, self-consistency, BERTScore):
 \[
-H_0: \mu_{\text{custom}} \leq \mu_{\text{baseline+RAG}} \qquad H_1: \mu_{\text{custom}} > \mu_{\text{baseline+RAG}}
+H_0: \eta_{\text{custom}} \leq \eta_{\text{baseline+RAG}} \qquad H_1: \eta_{\text{custom}} > \eta_{\text{baseline+RAG}}
 \]
 
 \textbf{For cost/efficiency metrics} (token usage, inference time):
 \[
-H_0: \mu_{\text{custom}} \geq \mu_{\text{baseline+RAG}} \qquad H_1: \mu_{\text{custom}} < \mu_{\text{baseline+RAG}}
+H_0: \eta_{\text{custom}} \geq \eta_{\text{baseline+RAG}} \qquad H_1: \eta_{\text{custom}} < \eta_{\text{baseline+RAG}}
 \]
 
 \textbf{Notation:}
 \begin{itemize}
-    \item $\mu_{\text{custom}}$ = population mean for the custom agent
-    \item $\mu_{\text{baseline+RAG}}$ = population mean for the baseline with RAG agent
+    \item $\eta_{\text{custom}}$ = population median for the custom agent
+    \item $\eta_{\text{baseline+RAG}}$ = population median for the baseline with RAG agent
 \end{itemize}
-All tests are one-tailed / one-sided. \\ \\
+All tests are one-tailed / one-sided.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.65\textwidth]{figures/correctness_distribution.png}
+    \caption{Distribution of correctness scores across all queries and sessions. The pronounced right-skew and heavy concentration near 1.0 violate the normality assumption, motivating the use of non-parametric Mann-Whitney U tests.}
+    \label{fig:correctness-dist}
+\end{figure}
 
