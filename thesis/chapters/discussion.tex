@@ -1,4 +1,59 @@
 \chapter{Discussion}
 
+% -------------------------------------------------------
+\section{Value Beyond Performance Metrics}
+% -------------------------------------------------------
 
-In progress
+The evaluation results demonstrate a performance advantage for the custom architecture
+as case volume grows, but the headline metrics alone understate the practical value of
+the design. Even in a hypothetical scenario where correctness and completeness scores
+were identical across configurations, the custom architecture would remain preferable in
+a production legal setting for reasons that no automatic metric captures.
+
+\paragraph{The factsheet as a product artifact.}
+The baseline agent's output is ephemeral: it produces a text response and leaves no
+persistent structured representation of the case behind. The custom agent, by contrast,
+produces and continuously maintains a structured factsheet as a natural side-effect of
+normal operation. This factsheet—comprising parties, events, claims, damages, deadlines,
+and document metadata—is a machine-readable, queryable representation of the case that
+can be consumed directly by frontend systems without any additional LLM inference.
+Concrete applications include timeline visualisations, party graphs, claims dashboards,
+and deadline trackers, all of which can be rendered from the factsheet with no extra
+cost.
+
+\paragraph{Human oversight and auditability.}
+The structured state enables a qualitatively different relationship between the lawyer
+and the system. Rather than trusting a black-box text response, a practitioner can
+inspect the factsheet directly, verify individual entries against source documents, and
+correct errors at the element level. If the agent produces an incorrect answer, the
+source of the error can often be traced to a specific factsheet entry—a mis-extracted
+event date or an omitted party—and corrected there, improving all subsequent responses.
+This kind of targeted, human-in-the-loop correction is not possible with a stateless RAG
+agent, where errors are buried in the implicit context and must be addressed by
+re-uploading or re-prompting.
+
+\paragraph{Versioned case understanding.}
+Because the factsheet is updated incrementally at each session boundary, it constitutes
+a natural audit trail of how the agent's understanding of the case evolved over time.
+Earlier versions can be retained and compared, providing a record of when specific
+facts, parties, or claims entered the agent's knowledge base. In legal practice, where
+the timing of knowledge can itself be legally significant, this version history has
+potential evidentiary and procedural value.
+
+\paragraph{Downstream system integration.}
+The structured state lowers the integration barrier for adjacent legal tools and
+workflows. A downstream system can query the factsheet via a standard database interface
+to, for example, check for conflicts of interest against other open cases, trigger
+calendar entries for extracted deadlines, or populate court filing templates with
+party and claim data. These integrations require structured, typed data; they cannot be
+built on top of free-form agent responses without a costly and fragile natural language
+parsing layer.
+
+\paragraph{Summary.}
+The performance metrics reported in Chapter~\ref{chap:results} capture one dimension of
+the architecture's value: how accurately the agent answers factual questions across a
+progression of sessions. They do not capture the value of the structured case
+representation itself—a persistent, inspectable, and reusable artifact that the custom
+architecture produces as a consequence of its design. In production deployments with
+real case volumes and real practitioner workflows, this latent value is likely to be
+at least as significant as the raw performance advantage.
