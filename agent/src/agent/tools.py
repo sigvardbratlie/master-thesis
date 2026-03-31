@@ -367,7 +367,7 @@ def show_elements(project_id: str,
 @tool
 def list_attachments(
                     project_id: str,
-                    element_types : list[Literal["attachments", "emails"]],
+                    element_types : list[Literal["attachments", "emails"]] = ["attachments"],
                     start_date: datetime | str = None, 
                     end_date: datetime | str = None, 
                     significance: list[Literal["high", "medium", "low"]] = None,
