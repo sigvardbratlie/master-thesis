@@ -1,4 +1,5 @@
 import logging
+import uuid
 from utils import setup_logging, AppConfig
 from dotenv import load_dotenv
 import argparse
@@ -8,30 +9,34 @@ import asyncio
 
 
 
-async def single_run(data, 
-                     llm_model : str, 
-                     agent_type : str , 
-                     config : AppConfig, 
+async def single_run(data,
+                     llm_model : str,
+                     agent_type : str ,
+                     config : AppConfig,
                      eval_run_id : str = None,
-                     clean_rate : int = 2
+                     clean_rate : int = 2,
+                     session_num : int = None,
                      ):
-        car_custom = CollectAgentResult(data, 
-                                        llm_model=llm_model, 
+        if session_num is not None:
+            data.sessions = [data.sessions[session_num]]
+        car_custom = CollectAgentResult(data,
+                                        llm_model=llm_model,
                                         agent_type=agent_type,
                                         config = config
                                         )
         collected_results = await car_custom.run_agent(eval_run_id_reuse=eval_run_id,
                                                        clean_rate = clean_rate)
-                                                       
+        if eval_run_id:
+            collected_results.eval_run_id = str(uuid.uuid4())
         ds = Dataset(data.dataset_name)
         ds.update_token_counts(collected_results)
 
 model_choices = ["google_gemini-2.5-flash", "google_gemini-2.5-pro", 
-                                "openai_gpt-5.3-chat-latest", "openai_gpt-5.4",
-                                "anthropic_claude-haiku-4-5", "anthropic_claude-sonnet-4-6",
-                                "qwen_Qwen/Qwen3-Next-80B-A3B-Instruct", "qwen_Qwen/Qwen3.5-397B-A17B",
-                                "zai_zai-org/GLM-5", 
-                                ]
+                "openai_gpt-5.3-chat-latest", "openai_gpt-5.4",
+                "anthropic_claude-haiku-4-5", "anthropic_claude-sonnet-4-6",
+                "qwen_Qwen/Qwen3-Next-80B-A3B-Instruct", "qwen_Qwen/Qwen3.5-397B-A17B",
+                "zai_zai-org/GLM-5", 
+                ]
 
 async def main():
     parser = argparse.ArgumentParser(description="Evaluate attachment assignment")
@@ -61,7 +66,10 @@ async def main():
     parser.add_argument("-n","--n-runs", type=int, default=1, help="Number of runs to execute for each agent")
     parser.add_argument("--clean-rate", type = int, default=2, help="The rate (of sessions) in which to clean the factsheet. From -1 for last msg, 1 > for all other rates")
     parser.add_argument("--eval-run-id", type=str, help="Evaluation run ID")
+    parser.add_argument("-s", "--session-num", type=int, default=None, help="Run only the session at this index (0-based)")
     args = parser.parse_args()
+    if args.session_num is not None and not args.eval_run_id:
+        parser.error("--session-num requires --eval-run-id to be specified")
     dataset_name = args.dataset
     llm_model = args.model
     eval_run_id = args.eval_run_id
@@ -69,6 +77,7 @@ async def main():
     agent_types = args.agent_type
     n_runs = args.n_runs
     clean_rate = args.clean_rate
+    session_num = args.session_num
     
     config = AppConfig.from_toml(f"config.toml") 
     setup_logging(config)
@@ -105,11 +114,10 @@ async def main():
             await single_run(data=data_custom.model_copy(deep=True),
                             llm_model=llm_model,
                             agent_type="custom",
-                            #embed_to_vectorstore=embed_to_vectorstore,
-                           # save_to_storage=save_to_storage,
-                           #significance = significance,
                             config = config,
-                            clean_rate = clean_rate)
+                            eval_run_id = eval_run_id,
+                            clean_rate = clean_rate,
+                            session_num = session_num)
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Custom")
         logger.info("━" * 64)
@@ -134,7 +142,8 @@ async def main():
                              llm_model=llm_model,
                              agent_type="baseline",
                              config=config_baseline,
-                             clean_rate=clean_rate,)
+                             clean_rate=clean_rate,
+                             session_num=session_num)
 
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline")
@@ -161,7 +170,8 @@ async def main():
                              llm_model=llm_model,
                              agent_type="baseline_rag",
                              config=config_baseline_rag,
-                             clean_rate=clean_rate,)
+                             clean_rate=clean_rate,
+                             session_num=session_num)
 
         logger.info("━" * 64)
         logger.info(f"🎉  All done — results saved for dataset: {dataset_name} - Baseline + RAG")

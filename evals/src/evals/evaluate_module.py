@@ -30,7 +30,8 @@ class Evaluater:
     
     def _pick_llm(self, model : str):
         if "gemini" in model:
-            return GeminiModel(model=model, api_key=os.getenv("GOOGLE_API_KEY"),)
+            return GeminiModel(model=model, api_key=os.getenv("GOOGLE_API_KEY"),
+                               generation_kwargs={"thinking_config": {"thinking_budget": 0}})
         elif "gpt" in model:
             return model
         else:

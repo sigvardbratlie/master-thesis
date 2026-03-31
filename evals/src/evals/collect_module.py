@@ -94,10 +94,18 @@ class CollectAgentResult:
             query_id=query_id,
         )
 
-    async def run_conv(self, conv: ConversationTurn, agent_class, project_id, session_id, query_id, user_id, attachments=[], session_date=None):
+    async def run_conv(self, 
+                       conv: ConversationTurn, 
+                       agent_class, 
+                       project_id, 
+                       session_id, 
+                       query_id, 
+                       user_id, 
+                       attachments=[], 
+                       session_date=None):
         turn_starttime = datetime.now() 
         input_obj = AskAgentRequest(
-            question= f"Dato : {session_date} \n" + conv.input,
+            question= conv.input,
             session_id=session_id,
             llm_model=self.llm_model,
             query_id=query_id,
@@ -121,6 +129,7 @@ class CollectAgentResult:
                        clean_rate : int = 2) -> GatheredResultPayload:
         base_project_id = self.data.project_id 
         eval_run_id = eval_run_id_reuse or str(uuid.uuid4())
+        logger.info(f"Starting agent run with eval_run_id: {eval_run_id}")
         tools = _TOOLS_MAP[self.agent_type]
 
         agent_class = await self.init_agent(
@@ -170,7 +179,12 @@ class CollectAgentResult:
         starttime = datetime.now()
         with tracing_context(
             tags=[eval_run_id],
-            metadata={"eval_run_id": eval_run_id, "llm_model": self.llm_model, "agent_type": self.agent_type, "project_id": base_project_id},
+            metadata={"eval_run_id": eval_run_id, 
+                      "llm_model": self.llm_model, 
+                      "agent_type": self.agent_type, 
+                      "project_id": base_project_id,
+                      "reuse_run_id": eval_run_id_reuse,
+                      },
         ):
             for idx, session in enumerate(self.data.sessions):
                 runtime_session_id = str(uuid.uuid4())
