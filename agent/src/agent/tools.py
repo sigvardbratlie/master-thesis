@@ -349,6 +349,10 @@ def show_elements(project_id: str,
 
     for element in element_types:
         all_elements = data.get(element, [])
+        if not all_elements:
+            value += f"\n\n=== {element.upper()} ===\n"
+            value += "No elements found for this category with the given filters.\n"
+            continue
         date_col = date_col_map.get(element)
         all_elements.sort(key = lambda x: x.get(date_col)) if date_col else None
         
