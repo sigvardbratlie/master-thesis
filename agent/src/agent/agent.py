@@ -13,6 +13,8 @@ from langchain_core.messages import (
     HumanMessage, AIMessage, SystemMessage, BaseMessage,
     ToolMessage, AIMessageChunk, message_to_dict, messages_to_dict
 )
+from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
+from tenacity import AsyncRetrying, stop_after_attempt, wait_exponential, retry_if_exception_type, before_sleep_log
 from langchain_core.tools import tool
 from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph import StateGraph, END, START
@@ -305,11 +307,21 @@ class Agent:
 
         try:
             accumulated: AIMessageChunk | None = None
+            llm_cfg = self.config.async_tasks.llm
             async with self._semaphore_llm:
-                async for chunk in llm_with_tools.astream(payload, config=thread):
-                    accumulated = chunk if accumulated is None else accumulated + chunk
-                if self.config.async_tasks.llm.throttle_value > 0:
-                    await asyncio.sleep(self.config.async_tasks.llm.throttle_value)
+                async for attempt in AsyncRetrying(
+                    retry=retry_if_exception_type(ChatGoogleGenerativeAIError),
+                    wait=wait_exponential(multiplier=2, min=llm_cfg.retry_wait_min, max=llm_cfg.retry_wait_max),
+                    stop=stop_after_attempt(llm_cfg.retry_attempts) if llm_cfg.retry_attempts > 0 else stop_after_attempt(1),
+                    before_sleep=before_sleep_log(logger, logging.WARNING),
+                    reraise=True,
+                ):
+                    with attempt:
+                        accumulated = None
+                        async for chunk in llm_with_tools.astream(payload, config=thread):
+                            accumulated = chunk if accumulated is None else accumulated + chunk
+                if llm_cfg.throttle_value > 0:
+                    await asyncio.sleep(llm_cfg.throttle_value)
             if accumulated is None:
                 raise ValueError("LLM returned no response chunks")
 
@@ -629,14 +641,15 @@ class Agent:
             parsed = await asyncio.gather(*[parse_att(att) for att in query.attachments])
             docs = [doc for extracted in parsed for doc in extracted]
             if not self.config.agent.use_factsheet and self.config.agent.embed_to_vectorstore:
-                for attempt in range(self.config.async_tasks.vectorstore.retry_attempts + 1):
+                vs_cfg = self.config.async_tasks.vectorstore
+                for attempt in range(vs_cfg.retry_attempts + 1):
                     try:
                         await asyncio.to_thread(self.vs.add_documents, docs, collection_id="attachments")
                         break
                     except Exception as e:
-                        if attempt < self.config.async_tasks.vectorstore.retry_attempts:
-                            wait_time = 2 ** attempt
-                            logger.warning(f"⚠️ Retry {attempt + 1}/{self.config.async_tasks.vectorstore.retry_attempts} for add_documents after {wait_time}s: {e}")
+                        if attempt < vs_cfg.retry_attempts:
+                            wait_time = min(vs_cfg.retry_wait_min * (2 ** attempt), vs_cfg.retry_wait_max)
+                            logger.warning(f"⚠️ Retry {attempt + 1}/{vs_cfg.retry_attempts} for add_documents after {wait_time}s: {e}")
                             await asyncio.sleep(wait_time)
                         else:
                             logger.error(f"❌ add_documents failed after {attempt + 1} attempts: {e}")

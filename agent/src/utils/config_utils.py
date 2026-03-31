@@ -28,6 +28,8 @@ class AsyncBaseConfig(BaseModel):
     requests_per_second: float | None = None  # rate limiter (LLM only)
     max_burst_size: int = 10                  # token bucket burst capacity (LLM only)
     retry_attempts: int = 0                   # with_retry stop_after_attempt (LLM only, 0 = disabled)
+    retry_wait_min: float = 30.0              # min seconds to wait on 429 (astream retry, LLM only)
+    retry_wait_max: float = 120.0             # max seconds to wait on 429 (astream retry, LLM only)
 
 class AsyncConfig(BaseModel):
     llm: AsyncBaseConfig = Field(default_factory=AsyncBaseConfig)
