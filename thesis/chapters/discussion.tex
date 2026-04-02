@@ -1,4 +1,5 @@
 \chapter{Discussion}
+\label{chap:discussion}
 
 % -------------------------------------------------------
 \section{Value Beyond Performance Metrics}
@@ -57,3 +58,21 @@ representation itself—a persistent, inspectable, and reusable artifact that th
 architecture produces as a consequence of its design. In production deployments with
 real case volumes and real practitioner workflows, this latent value is likely to be
 at least as significant as the raw performance advantage.
+
+% -------------------------------------------------------
+\section{Uncertainties and Confounding Factors}
+% -------------------------------------------------------
+
+The evaluation results support the conclusion that the custom agent outperforms the baseline on correctness and relevancy, but several sources of uncertainty affect the magnitude and generalisability of this finding. These are discussed below.
+
+\paragraph{Question difficulty and scope.}
+The evaluation queries were designed to be factual and document-grounded, but the level of specificity varies considerably across sessions. Some questions have unambiguous single-document answers, while others require synthesising information across multiple documents and timelines. Harder queries amplify the architectural advantage of the custom agent — the factsheet and structured retrieval tools are most useful precisely when the answer requires cross-document reasoning — while easier queries may show little to no difference between architectures. The observed aggregate performance gap therefore depends on the composition of the query set: a test set dominated by simple lookups would understate the custom agent's advantage, while one focused on complex synthesis would overstate it. The current evaluation mix likely sits somewhere in between.
+
+\paragraph{Dataset size and complexity.}
+Only two datasets are used in the evaluation, and their characteristics differ substantially. The results from TOSL-2024, the larger and more complex real case, show a more pronounced advantage for the custom agent than those from THRD-2021. This is consistent with the design hypothesis: the factsheet-based architecture is most beneficial when the document set is large and the case is complex, because those are the conditions under which naive retrieval is most likely to fail. With only two datasets, however, it is difficult to disentangle the effect of document volume from other case-specific characteristics. A larger benchmark spanning more cases and varying document volumes would provide stronger evidence for the scaling behaviour observed here.
+
+\paragraph{Underlying language model capability.}
+Figure~\ref{fig:deepeval-barplot-llms} shows that the performance gap between the custom and baseline agents narrows as the underlying LLM becomes more capable: for the most advanced model tested (Gemini 2.5 Pro), the two configurations are nearly indistinguishable. This suggests two non-exclusive interpretations. First, a sufficiently capable model may compensate for the structural disadvantage of the baseline by inferring missing context or tolerating retrieval noise more robustly. Second, the evaluation queries and datasets may not be sufficiently demanding to expose the limits of a powerful model: the questions can largely be answered from the retrieved chunks even without the accumulated factsheet context. Conversely, the performance gap is most pronounced for the smaller models, for which structured, pre-digested context provides the greatest marginal benefit. This implies that the value of the custom architecture is not fixed but model-dependent: it acts as a capability amplifier that matters most when the underlying model has limited reasoning capacity or context-handling ability.
+
+\paragraph{Stochastic variability.}
+LLM outputs are inherently stochastic. Each evaluation set was run five times to reduce the impact of this variability, and the non-parametric Mann-Whitney U test is robust to the non-normal, left-skewed score distributions observed. Nevertheless, the total number of unique query-session combinations is constrained by the cost and time of running large-scale multi-model evaluations, and the reported p-values should be interpreted with awareness of the limited sample size. The significance of correctness ($p = 8.5 \times 10^{-3}$) and relevancy ($p = 3.4 \times 10^{-4}$) results are robust, but the borderline result for completeness ($p = 8.3 \times 10^{-2}$) should be treated cautiously.

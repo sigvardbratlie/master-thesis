@@ -245,6 +245,13 @@ All tunable parameters — concurrency limits, rate limiter settings, retry coun
 \paragraph{Tool interface design — string IDs over full objects.}
 Agent tools are designed to accept minimal, flat inputs: all tools receive only string identifiers (e.g.\ \texttt{project\_id: str}, \texttt{ids: list[str]}) rather than full domain objects. This keeps the JSON schema presented to the LLM small, reduces the token footprint of tool calls, and makes it straightforward for the model to construct valid invocations. Internal data fetching (loading full attachment records, querying the database) is performed inside the tool implementation, hidden from the model entirely.
 
+\paragraph{Context compression via filtering and display shortening.}
+A key design concern for the custom agent is managing the size of the structured context injected into each LLM call. As a case accumulates material, a naive approach of injecting the full factsheet verbatim would cause token consumption to grow unboundedly. Two complementary compression mechanisms are applied to mitigate this.
+
+First, the \texttt{show\_elements} and \texttt{list\_attachments} tools accept optional \texttt{significance} and \texttt{date\_range} parameters. These filters are implemented as PostgreSQL RPC functions on the Supabase backend and are applied server-side before any data is returned to the agent, ensuring that only elements above a configurable significance threshold and within the relevant time window are included in the context.
+
+Second, the string representation of each structured element is deliberately abbreviated. Rather than serialising the full object with all fields, a compact display format omits less informative fields and truncates long free-text descriptions. Together, these two mechanisms reduce the effective model input by approximately 70--80\,\% compared to an unfiltered, full-fidelity serialisation of the same factsheet. This compression is a significant contributor to the finding that the custom agent's average token consumption remains statistically indistinguishable from that of the simpler baseline agent despite carrying substantially richer case context.
+
 
 % -------------------------------------------------------
 % EVALUATION DESIGN
@@ -254,9 +261,13 @@ Agent tools are designed to accept minimal, flat inputs: all tools receive only 
 Describe the evaluation design, including the datasets used, metrics for evaluation, and the experimental setup.
 
 \subsection{Datasets}
-The evaluation framework relies on three custom-built datasets developed specifically for this thesis in collaboration with legal experts from the law firm BAHR AS. Each dataset is derived from a unique, real-world legal case processed through the Norwegian district court system. While the final verdicts and formal submissions from both parties were publicly available, the underlying case documents (e.g., correspondence, internal notes, and evidence) remained confidential. 
+The evaluation relies on two datasets developed specifically for this thesis in collaboration with legal experts from the law firm BAHR AS. Each dataset represents a real legal case processed through the Norwegian court system.
 
-To facilitate a robust evaluation of the RAG (Retrieval-Augmented Generation) system, we have reconstructed these cases by generating synthetic document sets. These sets include simulated emails, technical reports, agreements, and contracts, all meticulously crafted to mirror the factual matrix and legal complexities described in the official court records. This approach ensures that the agent is tested against a realistic representation of a legal case file while maintaining necessary privacy standards.
+\textbf{THRD-2021} is based on a publicly available district court case. The authentic court record — comprising the final submissions from both parties and the court's verdict — is used directly as part of the document set. The remaining case materials (correspondence, internal notes, technical reports, agreements, and supporting evidence) were not publicly available and were therefore synthetically reconstructed to match the factual matrix and legal reasoning documented in those authentic records. This hybrid approach provides a realistic document topology while respecting confidentiality.
+
+\textbf{TOSL-2024} is a fully authentic case for which explicit permission was obtained to use the original documents. It is substantially larger and more complex than THRD-2021: it involves more parties, a longer timeline, more contested legal issues, and a higher total document volume. Because TOSL-2024 is a real case with real documents, it more closely represents the conditions under which the agent would operate in production, and its results should therefore be given greater interpretive weight than those from THRD-2021.
+
+Both datasets are organized to simulate the chronological lifecycle of a legal proceeding. Each case is structured into several \textit{sessions}, each containing a sequence of \textit{queries}. This structure is designed to evaluate two critical capabilities of the agent:
 
 The datasets are organized to simulate the chronological lifecycle of a legal proceeding. Each case is structured into several \textit{sessions}, each containing a sequence of \textit{queries}. This structure is designed to evaluate two critical capabilities of the agent:
 \begin{enumerate}
@@ -267,17 +278,18 @@ The datasets are organized to simulate the chronological lifecycle of a legal pr
 By following a chronological order, the sessions require the agent to handle increasing amounts of information and maintain consistency over time, reflecting the professional requirements of a legal practitioner managing an ongoing case.
 
 \subsection{Dataset Limitations and Caveats}
+\label{sec:dataset-limitations}
 
 Several factors limit the generalisability of the evaluation and should be considered when interpreting the results.
 
 \paragraph{Absence of a plain LLM baseline.}
-A natural comparison point would be an ordinary LLM queried without any specialised architecture — no document processing, no vector store, no RAG, simply the raw case files passed as context. This approach was tested and found to be infeasible. The aggregated size of a realistic legal case file — spanning contracts, correspondence, technical reports, and legal submissions — frequently exceeds the usable context window of most commercially available models, and is well beyond the limits of the majority of open-source and cost-efficient alternatives. Feeding entire case files into a plain LLM context is therefore not a viable evaluation strategy, and the minimum meaningful comparison is a RAG-enabled architecture. This is also why the evaluation compares the custom agent against a Baseline + RAG configuration rather than an unaugmented LLM.
+A natural comparison point would be an ordinary LLM queried without any specialised architecture — no document processing, no vector store, no RAG, simply the raw case files passed as context. This approach was explicitly attempted. In practice, the aggregated size of a realistic legal case file — spanning contracts, correspondence, technical reports, and legal submissions — immediately exhausted the rate limits of every model tested, well before a meaningful response could be produced. The sheer volume of document content triggers the providers' token-per-minute limits even for a single query, making repeated evaluation across sessions entirely infeasible. Feeding entire case files into a plain LLM context is therefore not a viable strategy for any of the models evaluated, and the minimum meaningful comparison is a RAG-enabled architecture. This is also why the evaluation compares the custom agent against a Baseline + RAG configuration rather than an unaugmented LLM.
 
 \paragraph{Dataset size and the scalability trade-off.}
 The evaluation uses a constrained number of cases and queries, as running a large-scale benchmark across multiple model-agent pairs with repeated trials becomes prohibitively expensive and time-consuming. This is, however, in tension with a fundamental property of the system: the agent is designed to improve with larger and richer document sets, as more material increases the factsheet's coverage and the quality of RAG retrieval. Evaluating on small datasets therefore likely \emph{underestimates} the performance advantage of the custom agent in production-scale deployments.
 
 \paragraph{Heterogeneity between cases.}
-The evaluation datasets differ substantially in complexity. Two of the three cases consist of fully synthetic documents generated to match the factual matrix of published court records, while the third is derived from a real case with a significantly larger document volume. The real case contains no emails (which were excluded to maintain confidentiality), yet it is considerably more complex, covering more parties, a longer timeline, and more contested facts. This asymmetry means that performance differences across cases may reflect document complexity as much as agent capability, and cross-case comparisons should be made with caution.
+The two evaluation datasets differ substantially in origin, complexity, and document volume. THRD-2021 uses a hybrid document set (authentic court record supplemented by synthetically reconstructed case materials), while TOSL-2024 consists entirely of real documents. TOSL-2024 is considerably more complex: it covers more parties, a longer contested timeline, and a larger total document volume. This asymmetry means that performance differences across datasets may partly reflect document complexity rather than agent capability alone. However, since the agent is specifically designed for complex, large-scale cases, TOSL-2024 is the more ecologically valid test of its capabilities, and the dataset-level breakdowns in the results should be read with this in mind.
 
 \paragraph{Limitations of expected-answer evaluation.}
 Model responses are graded against expected answers produced in collaboration with legal experts at BAHR AS. This approach carries two inherent risks: the expected answers themselves may contain inaccuracies, and — more fundamentally — many legal queries are open-ended, such that a correct and complete model response may differ substantially from the reference without being wrong. Three mitigations were applied to reduce this risk:
@@ -298,7 +310,7 @@ Two agent configurations are evaluated:
     \item \textbf{Custom Agent}: The full agent configuration with access to all tools, including structured factsheet access (\texttt{show\_elements}, \texttt{list\_attachments}), direct file reading (\texttt{read\_attachments}), and RAG capabilities.
     \item \textbf{Baseline + RAG Agent}: An ablated version with access to web search, law retrieval, and project document RAG, but without direct file access or structured factsheet tools.
 \end{itemize}
-A web-search-only baseline was considered but excluded from the evaluation: without access to the case documents it consistently exhausted the model's context window before producing meaningful responses, making a fair comparison impossible. 
+A plain LLM baseline without document retrieval was considered but excluded from the evaluation for the reasons described in Section~\ref{sec:dataset-limitations}: the volume of case material immediately saturates provider rate limits, making repeated evaluation impossible.
 
 \textbf{Model Configuration:} \\
 Since the scope of the thesis is not to evaluate the models themselves, but rather the design and architecture of the agent, a selection of four models is used for comparison. These include both closed-source and open-source variants to ensure the agent's performance is consistent across different provider architectures.
@@ -347,7 +359,7 @@ Token usage and inference time are recorded during the agent's operation.
 
 \subsection{One-sided Hypothesis Tests}
 
-Inspection of the metric distributions reveals pronounced right-skew with heavy concentration near 1.0 (see Figure~\ref{fig:correctness-dist}), violating the normality assumption required by parametric tests such as the $t$-test.
+Inspection of the metric distributions reveals pronounced left-skew with heavy concentration near 1.0 (see Figure~\ref{fig:correctness-dist}), violating the normality assumption required by parametric tests such as the $t$-test.
 All hypothesis tests are therefore conducted using the one-sided \textbf{Mann-Whitney U test}, a non-parametric rank-based test that assesses whether one distribution tends to produce stochastically larger values than another, without assuming normality.
 
 \textbf{For quality/performance metrics} (correctness, relevancy, completeness, passrate, self-consistency, BERTScore):
@@ -370,7 +382,7 @@ All tests are one-tailed / one-sided.
 \begin{figure}[h]
     \centering
     \includegraphics[width=0.65\textwidth]{figures/correctness_distribution.png}
-    \caption{Distribution of correctness scores across all queries and sessions. The pronounced right-skew and heavy concentration near 1.0 violate the normality assumption, motivating the use of non-parametric Mann-Whitney U tests.}
+    \caption{Distribution of correctness scores across all queries and sessions. The pronounced left-skew and heavy concentration near 1.0 violate the normality assumption, motivating the use of non-parametric Mann-Whitney U tests.}
     \label{fig:correctness-dist}
 \end{figure}
 

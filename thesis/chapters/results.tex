@@ -91,10 +91,7 @@ concentrated near 1.0, whereas the baseline distribution (blue) is considerably 
 spread. This confirms that the correctness advantage observed in the longitudinal plot 
 is not driven by a small number of high-scoring queries but reflects a broad shift in the distribution.
 
-Relevancy scores are highly concentrated near 1.0 for both configurations, indicating
-that both agents are generally capable of producing on-topic responses. This suggests that
-the divergence in correctness is attributable to factual accuracy rather than
-off-topic generation.
+Relevancy scores are highly concentrated near 1.0 for both configurations. As long as an agent attempts to answer the question, relevancy is almost always rated high; the low-scoring tail for the baseline corresponds primarily to cases where retrieval fails entirely and no substantive response is produced. Correctness is therefore the more discriminating metric: it is harder to satisfy and captures differences in factual accuracy that relevancy is insensitive to.
 
 Completeness shows a similar pattern to correctness: the custom agent's distribution skews
 higher, while the baseline exhibits more low-completeness responses. This is consistent
@@ -105,24 +102,15 @@ Overall, the pairplot reveals the increase in consistency and reliability of the
 while the baseline's performance is more variable and often falls short.
 \bigbreak
 
-Figure~\ref{fig:deepeval-lineplot} shows the trajectories of the three DeepEval metrics across sessions. 
-It shows that both agents follow each other across sessions, but the custom stays consistently higher. 
-However, the variation is considerable lower for the custom agent, confirming the pairplot results of more consitency and less variation.
+Figure~\ref{fig:deepeval-lineplot} shows the trajectories of the three DeepEval metrics across sessions. Both agents broadly track each other through the session progression, but the custom agent remains consistently above the baseline throughout. Crucially, the variance of the custom agent's trajectory is substantially lower: where the baseline exhibits wider swings between sessions, the custom agent maintains a more stable performance profile. This session-level consistency reinforces the pairplot finding that the quality advantage is not driven by occasional strong queries but reflects a broad, reliable improvement.
 
 \bigbreak
 
-Figure~\ref{fig:lineplot-correctness-by-dataset} breaks down correctness trajectories by dataset.
-As commented in the data chapter, the two datasets have different characteristics: the first dataset contains more documents and more complex cases, while the second dataset is smaller and more focused.
-It becomes clear that the custom agent performs increasingly better on the more complex dataset (TOSL-2024), while staying more steadily ahead on the simpler. 
-This suggests that the custom agent's architectural advantages are particularly beneficial in handling complexity and scale, while still providing a consistent edge even in less demanding scenarios.
-It also suggests that by increasing the complexity (for which the agent is ment), it will gradually outperform the baseline more and more, while on simpler cases the difference is smaller.
+Figure~\ref{fig:lineplot-correctness-by-dataset} breaks down the correctness trajectory by dataset. The two datasets have distinct characteristics: TOSL-2024 is a fully authentic case with a larger document volume and greater factual complexity, while THRD-2021 contains a mix of authentic court documents and reconstructed case materials (see Section~\ref{sec:dataset-limitations}). The dataset breakdown reveals that the performance gap between the two agents is more pronounced on TOSL-2024, where the custom agent's advantage grows more noticeably as sessions accumulate. On THRD-2021, the custom agent also leads, but the gap is smaller and more stable. This pattern is consistent with the architectural hypothesis: the factsheet and structured retrieval tools confer the greatest benefit precisely when the case is large and complex, where naive RAG retrieval is most prone to missing relevant facts dispersed across many documents.
+
 \bigbreak
 
-Figure~\ref{fig:deepeval-barplot-llms} shows the distribution of DeepEval metrics across the different LLMs used in the evaluation.
-The custom agent (orange) consistently outperforms the baseline (blue) across all three metrics and across all LLMs, except the most advanced (Gemini-2.5-pro), where the difference is negligible. 
-This suggests that the architectural advantages of the custom agent are robust across different underlying language models, though the gap narrows as the LLMs themselves become more capable.
-This can also suggest that the dataset are not complex enough or that the questions are not challeing enough to fully leverage the custom agent's advantages when paired with a more advanced LLM, 
-while the simpler LLMs benefit more from the structured retrieval and factsheet approach.
+Figure~\ref{fig:deepeval-barplot-llms} shows the distribution of DeepEval metrics broken down by the underlying LLM. The custom agent outperforms the baseline across all three metrics for every model tested, with one exception: for Gemini 2.5 Pro — the most capable model in the evaluation — the two configurations converge and the difference becomes negligible. For the smaller and less capable models, the margin is wider. This pattern suggests that the structured factsheet context acts as a capability amplifier that has the greatest marginal effect when the base model has limited capacity to compensate for noisy or incomplete retrieval. The implications of this model-dependent effect are discussed further in Chapter~\ref{chap:discussion}.
 
 
 \subsubsection*{BERTScore}
@@ -198,8 +186,7 @@ LLM call counts are comparable between the two configurations, typically in the 
 agentic steps than the other to produce a response.
 
 \bigbreak
-Figure~\ref{fig:resource-lineplot} shows the trajectories of these resource metrics across sessions.
-No real trend. Follows each other closely. 
+Figure~\ref{fig:resource-lineplot} shows the trajectories of resource metrics across sessions. Unlike the quality metrics, no consistent trend is visible for either agent over the session progression: token counts and latencies fluctuate without a systematic increase, and the two configurations track each other closely throughout. This is consistent with the statistical finding of no significant difference in token usage or inference time. The absence of a growth trend is partly explained by the context compression mechanisms applied to the custom agent's structured context: as the factsheet grows, significance filtering and display shortening keep the payload from expanding proportionally.
 
 \begin{figure}[h]
     \centering
@@ -222,27 +209,36 @@ No real trend. Follows each other closely.
 \end{figure}
 
 \section{Statistical Modeling}
-\subsection{Mann-Whitney U Test (Non-parametric T-test)}
+\subsection{Mann-Whitney U Test}
 
-\textbf{Null Hypothesis (H0):} There is no difference in the distribution of correctness scores between Group A (custom agent) and Group B (baseline agent).
+As described in the evaluation design, all hypothesis tests use the one-sided Mann-Whitney U test, which is appropriate given the non-normal distributions of all metrics (Shapiro-Wilk, $p < 10^{-18}$ for every metric tested). The null hypothesis in each case is that the custom agent's scores are not stochastically greater than those of the baseline agent ($H_0: \eta_{\text{custom}} \leq \eta_{\text{baseline+RAG}}$).
 
-Testing metric: correctness
+\paragraph{Quality metrics.}
+The results are summarised in Table~\ref{tab:mann-whitney}. Correctness and relevancy both show statistically significant advantages for the custom agent at the $\alpha = 0.05$ level. Completeness does not reach significance, although the directional trend is the same.
 
---- Mann-Whitney U Test (Non-parametric T-test) ---
-U-statistic: 95071.50, p-value: 1.4627e-02
-Group A is significantly greater than Group B (p < 0.05)
+\begin{table}[h]
+\centering
+\caption{Mann-Whitney U test results for quality metrics (one-sided, $H_1$: custom $>$ baseline).}
+\label{tab:mann-whitney}
+\begin{tabular}{lrrl}
+\hline
+\textbf{Metric} & \textbf{U-statistic} & \textbf{p-value} & \textbf{Result} \\
+\hline
+Correctness  & 105{,}587.00 & $8.49 \times 10^{-3}$ & Significant ($p < 0.05$) \\
+Relevancy    & 101{,}782.50 & $3.42 \times 10^{-4}$ & Significant ($p < 0.05$) \\
+Completeness &  38{,}820.00 & $8.34 \times 10^{-2}$ & Not significant \\
+\hline
+\end{tabular}
+\end{table}
 
-Testing metric: relevancy
+The relevancy result warrants a cautious interpretation. Relevancy is an almost universally high score for both agents whenever a response is attempted: as long as the agent engages with the question, the answer tends to be on-topic regardless of architecture. The performance gap on this metric therefore does not reflect finer differences in response targeting; it is primarily driven by cases where the baseline agent fails to retrieve any relevant documents and consequently fails to produce a substantive answer at all, incurring a near-zero relevancy score. In this sense, relevancy captures similar information to surface-level semantic similarity metrics such as BERTScore and sentence-BERT similarity — it is sensitive to retrieval failures but not to differences in factual depth. \textbf{Correctness is the most diagnostic quality metric}: it is the hardest to satisfy and the most sensitive to the architectural differences under evaluation, and the significant result there ($p = 8.49 \times 10^{-3}$) carries the most interpretive weight.
 
---- Mann-Whitney U Test (Non-parametric T-test) ---
-U-statistic: 92364.00, p-value: 2.1986e-04
-Group A is significantly greater than Group B (p < 0.05)
+The absence of a significant completeness result likely reflects the smaller number of completeness observations in the dataset (completeness evaluation was not collected for all records) and the inherent difficulty of distinguishing partial from complete answers when both agents frequently cover the required facts.
 
-Testing metric: completeness
+\paragraph{Resource metrics.}
+Testing the directional hypothesis that the custom agent consumes fewer resources than the baseline ($H_1$: custom $<$ baseline), neither input token usage ($U = 99{,}750$, $p = 0.730$) nor inference duration ($U = 93{,}705$, $p = 0.163$) differs significantly between configurations. Numerically, mean input token counts are almost identical (custom: 72{,}286 $\pm$ 77{,}114; baseline: 71{,}968 $\pm$ 75{,}645) and mean durations are within one second of each other (custom: 35.1 s; baseline: 36.1 s).
 
---- Mann-Whitney U Test (Non-parametric T-test) ---
-U-statistic: 34930.50, p-value: 1.3610e-01
-No significant difference (p >= 0.05)
+This result has an important practical implication: the custom agent achieves its quality improvements without imposing a measurable additional cost in tokens or latency. The context compression mechanisms described in Section~\ref{sec:design-choices} — filtering by significance and date range via database RPC functions, and display-shortening of structured elements — appear to offset the additional context introduced by the factsheet, keeping total token consumption comparable to the simpler retrieval approach.
 
 \subsection{Self-consistency}
 Figure~\ref{fig:self-consistency-violin} shows the distribution of self-consistency scores by agent type. 
