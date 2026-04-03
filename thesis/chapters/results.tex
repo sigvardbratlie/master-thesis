@@ -2,46 +2,6 @@
 \label{chap:results}
 
 % -------------------------------------------------------
-\section{Expected Performance Patterns}
-% -------------------------------------------------------
-
-Before presenting the empirical results, this section outlines the a priori expectations
-that motivate the experimental design. These expectations are grounded in the architectural
-differences between the two agent configurations and in the nature of legal case progression.
-
-\paragraph{Quality metrics over session progression.}
-The central hypothesis is that the performance trajectories of the two architectures diverge
-as a case progresses. In the earliest sessions, the document set is small and the total
-context volume is modest. Under these conditions the less complex agent --- which does a
-simple retrieval based on a query --- performs well due to the manageable context size,
-as the complexity of the task is low. The difference between the two architectures is
-expected to be minimal.
-
-As subsequent sessions introduce new documents, new parties, additional claims, and a
-growing timeline, the situation reverses. The simpler RAG approach becomes increasingly
-more difficult as the returned content does not necessarily contain sufficient context to
-answer questions where the answer lies spread across multiple documents. The custom agent,
-by contrast, maintains a continuously updated factsheet and performs targeted retrieval
-against a variety of tools and structured information, as well as the same vector store
-as the baseline, allowing it to leverage accumulated case knowledge rather than being
-overwhelmed by it. The expected result is a positive trajectory for the custom agent
-across sessions and a flat or degrading trajectory for the baseline.
-
-\paragraph{Token usage over session progression.}
-Token usage is expected to grow for both architectures as the case accumulates material,
-but for structurally different reasons. For the baseline agent, input tokens often
-increase with case size, as retrieval draws from different sources and accumulates over
-time as many less relevant chunks are returned. For the custom agent, input token growth
-reflects increasing \emph{richness} rather than raw volume: the factsheet grows denser,
-but the returned context is compressed and the model is given a variety of options to
-filter only the necessary. Output tokens are likewise expected to grow over time for the
-custom agent, as richer context enables more thorough answers --- a positive signal rather
-than an efficiency cost.
-
-\paragraph{Inference time.}
-Response latency is expected to increase with case progression for both architectures.
-
-% -------------------------------------------------------
 \section{Quality Metrics}
 % -------------------------------------------------------
 
@@ -60,18 +20,19 @@ and sessions is shown in Figure~\ref{fig:deepeval-pairplot}.
     \label{fig:deepeval-pairplot}
 \end{figure}
 
-The custom agent's correctness distribution is clearly left-skewed, with density
-concentrated near 1.0, whereas the baseline distribution is considerably more spread.
-This confirms that the correctness advantage is not driven by a small number of
-high-scoring queries but reflects a broad shift in the distribution. Relevancy scores
-are highly concentrated near 1.0 for both configurations --- as long as an agent attempts
-to answer the question, the response tends to be on-topic regardless of architecture.
-The low-scoring tail for the baseline corresponds primarily to cases where retrieval
-fails entirely and no substantive response is produced. Completeness follows a similar
-pattern to correctness: the custom agent's distribution skews higher, while the baseline
-exhibits more low-completeness responses. Overall, the pairplot reveals greater
-consistency and reliability in the custom agent's responses across all three quality
-dimensions, while the baseline's performance is more variable and more often falls short.
+Both distributions are left-skewed across all three metrics, with density concentrated
+near 1.0 --- but the degree of concentration differs substantially. The custom agent's
+distributions are more tightly clustered near the upper end, while the baseline's are
+more spread, with a heavier low-scoring tail. This confirms that the custom agent's
+advantage is not driven by a small number of high-scoring queries but reflects a broad
+shift in the distribution. Relevancy scores are highly concentrated near 1.0 for both
+configurations --- as long as an agent attempts to answer the question, the response
+tends to be on-topic regardless of architecture --- though the baseline's low-scoring
+tail corresponds primarily to cases where retrieval fails entirely. Completeness follows
+the same pattern: both are left-skewed, but the custom agent's distribution is more
+concentrated near 1.0, while the baseline exhibits more low-completeness responses.
+Overall, the pairplot reveals greater consistency and reliability in the custom agent's
+responses across all three quality dimensions.
 
 \bigbreak
 
@@ -275,6 +236,48 @@ token counts are almost identical (custom: 72{,}286 $\pm$ 77{,}114; baseline:
 without imposing a measurable additional cost in tokens or latency.
 
 % -------------------------------------------------------
+\subsection{Levene's Test for Equality of Variance}
+% -------------------------------------------------------
+
+While the Mann-Whitney U test establishes that the custom agent's scores tend to be
+stochastically \emph{higher}, it says nothing about the \emph{spread} of those scores.
+Levene's test for equality of variance addresses this directly: it tests whether the
+two configurations exhibit significantly different score variability, without assuming
+normality.
+
+\begin{table}[H]
+\centering
+\caption{Levene's test results for equality of variance across quality metrics
+         (custom vs.\ baseline+RAG). A significant result indicates the custom agent
+         has lower variance.}
+\label{tab:levene}
+\begin{tabular}{lrrl}
+\hline
+\textbf{Metric} & \textbf{Levene statistic} & \textbf{p-value} & \textbf{Result} \\
+\hline
+Correctness         & 18.29 & $< 0.001$ & Significant \\
+Relevancy           & 11.00 & $0.0009$  & Significant \\
+Completeness        &  9.14 & $0.0026$  & Significant \\
+BERTScore F1        &  8.00 & $0.0048$  & Significant \\
+Sentence-BERT sim.  & 14.69 & $< 0.001$ & Significant \\
+\hline
+\end{tabular}
+\end{table}
+
+The test returns a significant result for every metric, including the complementary
+metrics (BERTScore and sentence-BERT similarity) where the mean difference between
+configurations is small. This means the custom agent is not only more accurate on
+average --- it is \emph{more consistent}. The baseline agent's score distribution is
+significantly wider across all five metrics, with a heavier low-scoring tail that
+represents cases of partial or failed retrieval. The custom agent's reduced variance
+implies more predictable, reliable responses: fewer failures at the low end, and less
+dependence on whether retrieval happens to return the right chunks for a given query.
+
+In a legal setting, this reliability dimension may be as practically significant as the
+mean improvement. A system that occasionally fails unpredictably is harder to trust and
+supervise than one that performs steadily, even if its average score is similar.
+
+% -------------------------------------------------------
 \subsection{Self-consistency}
 % -------------------------------------------------------
 
@@ -310,9 +313,9 @@ Table~\ref{tab:rq-summary} summarises the empirical evidence for each research q
 Main & Custom agent improves factual accuracy without significant cost increase &
   Correctness significant ($p{=}8.5{\times}10^{-3}$); token usage and latency
   statistically equivalent \\[6pt]
-RQ1 & Structured extraction mitigates cross-document limitations; effect is largest on
-  the more complex, fully authentic dataset &
-  Wider correctness gap on TOSL-2024; performance gap grows with case complexity \\[6pt]
+RQ1 & Evidence is directionally consistent but inconclusive; a larger gap on the more
+  complex dataset is suggestive but rests on few sessions and does not hold uniformly &
+  Wider gap on TOSL-2024 sessions 3--4 only; THRD-2021 shows no clear difference \\[6pt]
 RQ2 & Custom agent maintains stable or improving quality across sessions; baseline
   performance is more variable and lower throughout &
   Session trajectory plots; narrower confidence intervals and higher median for custom
@@ -331,12 +334,14 @@ consuming a statistically equivalent number of tokens and producing responses wi
 same latency envelope. The quality gain is not purchased at a proportional resource cost.
 
 \paragraph{RQ1.}
-The evidence supports the claim that structured extraction mitigates cross-document
-retrieval limitations. The performance advantage is more pronounced on TOSL-2024 ---
-the larger, more complex, fully authentic case --- where queries more frequently require
-synthesising evidence across many documents. On the simpler THRD-2021 dataset, the gap
-is smaller, consistent with the theoretical expectation that the factsheet provides the
-most benefit precisely when naive retrieval is most likely to fail.
+The evidence for RQ1 is directionally consistent with the hypothesis but not strong
+enough to support a firm conclusion. THRD-2021 shows no clear performance gap between
+configurations. TOSL-2024 shows a somewhat wider gap in sessions 3--4, but this rests
+on a small number of sessions and does not hold uniformly across all metrics. The data
+is too thin to isolate whether the effect is driven by cross-document synthesis demands
+specifically or by other case-level differences in complexity and document type. RQ1
+remains open and would require a targeted benchmark of explicitly synthesis-demanding
+queries to resolve conclusively.
 
 \paragraph{RQ2.}
 Session-level trajectories show that the custom agent maintains quality across all

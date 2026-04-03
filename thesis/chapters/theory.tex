@@ -146,7 +146,7 @@ artifact. It is initialized during document ingestion and updated incrementally 
 attachments are processed and new facts confirmed, providing the agent with a structured,
 token-efficient overview of the case at every point in the conversation. The theoretical
 argument, then, is that this persistent structure addresses what RAG cannot: a coherent,
-relational picture of the case that is immediately available without retrieval.
+relational picture of the case that is available without vector-based retrieval: the factsheet is loaded directly from the structured database, not assembled from semantically matched chunks at query time.
 
 The following chapter describes how these theoretical motivations are translated into
 system design and how their combined effect is evaluated empirically.

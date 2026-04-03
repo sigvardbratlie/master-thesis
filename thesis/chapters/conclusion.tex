@@ -22,14 +22,16 @@ between the two architectures, confirming that the quality gain is not purchased
 proportional resource cost. The main research question is answered affirmatively.
 
 \paragraph{RQ1.}
-The performance advantage is largest on the more complex, fully authentic dataset
-(TOSL-2024), where queries require synthesising evidence across a larger and more
-heterogeneous document set. This dataset-level interaction supports the conclusion that
-structured extraction specifically mitigates the cross-document retrieval limitation
-rather than providing a diffuse general quality improvement. On the simpler dataset, where
-a larger share of queries can be answered from a single source, the gap is smaller ---
-consistent with the theoretical expectation that the factsheet adds the most value
-precisely where naive retrieval is most likely to fail.
+The evidence for RQ1 is directionally consistent with the hypothesis but insufficient
+for a firm conclusion. THRD-2021 shows no clear performance gap between configurations.
+TOSL-2024 shows a somewhat wider advantage for the custom agent in the later sessions,
+but this rests on few sessions and does not hold uniformly across all metrics. A further
+theoretical nuance applies: naive RAG is not straightforwardly volume-sensitive, since
+retrieval always returns a fixed top-$K$ regardless of corpus size. The genuine
+limitation is query-type specific --- synthesis queries whose answers are distributed
+across multiple chunks --- and the evaluation did not explicitly control for this
+dimension. RQ1 therefore remains open; confirming it would require a dedicated benchmark
+of synthesis-demanding queries across a larger number of sessions and cases.
 
 \paragraph{RQ2.}
 Session-level trajectories show that the custom agent maintains stable quality with
@@ -50,6 +52,30 @@ can match a more expensive model operating on unstructured retrieval alone. RQ3 
 answered affirmatively, with the caveat that the effect is model-dependent and diminishes
 as base model capability increases.
 
+\section{Additional Finding: Variance Reduction}
+
+Beyond the hypothesised mean improvement, the evaluation reveals a consistent and
+statistically robust reduction in score variance for the custom agent. Levene's test
+for equality of variance is significant across all five metrics tested --- correctness,
+relevancy, completeness, BERTScore F1, and sentence-BERT similarity --- including the
+complementary metrics where mean differences are modest. This finding was not
+pre-specified as a research question; it emerged from the distributional analysis of
+the results.
+
+The interpretation is straightforward: pure retrieval is brittle. When relevant chunks
+happen not to rank highly for a given query, the baseline agent's performance drops
+sharply, producing the heavy low-scoring tail visible across all its metric
+distributions. The custom agent's structured state provides a stable knowledge base
+that does not depend on retrieval succeeding for any individual query, dampening these
+failures and yielding more predictable responses.
+
+In a legal deployment context, this reliability dimension may carry more practical
+weight than the mean improvement. A practitioner integrating an AI assistant into their
+workflow needs to be able to predict when the system will and will not perform well.
+A system with lower variance is easier to trust, easier to supervise, and easier to
+integrate into structured legal processes than one with comparable average accuracy but
+unpredictable failure modes.
+
 \section{Contributions}
 
 This thesis makes three contributions:
@@ -62,7 +88,7 @@ This thesis makes three contributions:
 
     \item \textbf{Evaluation framework.} A multi-model evaluation setup comparing a
     structured-state agent against a RAG-only baseline across two legal datasets,
-    multiple session stages, and five repeated runs per configuration, using a combination
+    multiple session stages, and three repeated runs per configuration, using a combination
     of semantic quality metrics (DeepEval correctness, relevancy, completeness), surface
     similarity metrics (BERTScore), consistency metrics, and resource consumption measures.
 
@@ -97,6 +123,15 @@ quality level and a budget constraint, what is the optimal combination of model 
 extraction investment? The evidence suggests this trade-off exists and is exploitable,
 but characterising it precisely requires a more systematic sweep over model and
 architecture configurations than was feasible within the scope of this thesis.
+
+\paragraph{Reliability as a first-class research question.}
+The variance reduction observed across all five metrics is a post-hoc finding and was
+not designed into the evaluation. A natural follow-up study would treat reliability as
+a first-class research question: formally hypothesising that structured extraction
+reduces output variance, designing the evaluation around variance-sensitive query sets
+(particularly retrieval-failure-prone queries), and testing across a broader range of
+cases and document volumes. Given the practical significance of predictability in legal
+settings, this direction warrants dedicated investigation.
 
 \paragraph{Advanced retrieval over structured elements.}
 The current implementation queries the factsheet through simple SQL lookups filtered by

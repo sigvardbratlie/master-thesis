@@ -21,17 +21,46 @@ receives a filtered, abbreviated representation tailored to the query context. T
 combined picture is that schema-driven extraction improves factual accuracy at no
 measurable additional cost per query.
 
+Beyond the mean improvement, the variance reduction is arguably the most consistent
+finding in the evaluation. Levene's test for equality of variance is significant across
+all five metrics tested --- correctness, relevancy, completeness, BERTScore F1, and
+sentence-BERT similarity --- including the complementary metrics where the mean
+difference is modest. The baseline agent's score distributions are significantly wider,
+with a heavier low-scoring tail that reflects the brittleness of pure retrieval: when
+the relevant chunks do not rank highly for a given query, performance drops sharply.
+The custom agent's structured state provides a reliable fallback that absorbs these
+retrieval failures, yielding more predictable responses across the board. In a
+professional legal setting, this consistency advantage may carry more practical weight
+than the mean improvement alone: a system that occasionally fails unpredictably is
+harder to trust and integrate into a practitioner's workflow than one that performs
+steadily.
+
 \paragraph{RQ1: mitigation of cross-document retrieval limitations.}
-The performance advantage is most pronounced on TOSL-2024, the larger and more
-complex fully authentic case, where queries more frequently require synthesising
-facts distributed across many documents. This is exactly where naive chunk-based
-retrieval is theoretically most vulnerable: when no single chunk contains the answer
-and retrieval must stitch together evidence from multiple sources, a persistent
-structured representation that already encodes those cross-document connections provides
-the greatest marginal value. On the simpler THRD-2021 dataset, where single-document
-lookups constitute a larger share of queries, the gap is smaller. This dataset-level
-interaction strongly suggests that the improvement is not a general quality effect but
-specifically a mitigation of the cross-document limitation described in Chapter~2.
+The evidence for RQ1 is suggestive but not conclusive, and the conclusion should be
+stated carefully. THRD-2021 shows no clear performance gap between the two
+architectures. TOSL-2024, the larger and more complex authentic case, shows a
+somewhat more pronounced advantage for the custom agent in the later sessions
+(sessions 3--4), but this pattern rests on a small number of sessions and does not
+hold uniformly across all metrics. With only two datasets and relatively few sessions
+each, the data is too thin to isolate whether the difference reflects document
+complexity, query-type composition, or genuine cross-document synthesis demands.
+
+A further theoretical nuance is worth noting: naive RAG is not straightforwardly
+\emph{volume-sensitive} in the way the original framing implies. Because retrieval
+always returns a fixed top-$K$ regardless of corpus size, a larger document pool does
+not mechanically degrade retrieval quality. What RAG genuinely struggles with is
+\emph{synthesis queries} --- questions whose answers are distributed across multiple
+chunks that cannot all fit within a single top-$K$ result. This is a query-type
+limitation, not a volume limitation. The evaluation did not explicitly control for
+the proportion of synthesis queries across sessions and datasets, making it difficult
+to attribute the observed TOSL-2024 pattern specifically to cross-document retrieval
+failure rather than to other case-specific factors.
+
+In summary, the results are directionally consistent with the hypothesis that
+structured extraction mitigates cross-document retrieval limitations, but the
+empirical basis is insufficient to support a strong conclusion. Confirming RQ1
+would require a larger benchmark with sessions explicitly designed around
+synthesis-demanding queries.
 
 \paragraph{RQ2: stability across growing document volume.}
 Session-level trajectories show that the custom agent maintains consistent quality
@@ -131,4 +160,4 @@ Only two datasets are used in the evaluation, and their characteristics differ s
 Figure~\ref{fig:deepeval-barplot-llms} shows that the performance gap between the custom and baseline agents narrows as the underlying LLM becomes more capable: for the most advanced model tested (Gemini 2.5 Pro), the two configurations are nearly indistinguishable. This suggests two non-exclusive interpretations. First, a sufficiently capable model may compensate for the structural disadvantage of the baseline by inferring missing context or tolerating retrieval noise more robustly. Second, the evaluation queries and datasets may not be sufficiently demanding to expose the limits of a powerful model: the questions can largely be answered from the retrieved chunks even without the accumulated factsheet context. Conversely, the performance gap is most pronounced for the smaller models, for which structured, pre-digested context provides the greatest marginal benefit. This implies that the value of the custom architecture is not fixed but model-dependent: it acts as a capability amplifier that matters most when the underlying model has limited reasoning capacity or context-handling ability.
 
 \paragraph{Stochastic variability.}
-LLM outputs are inherently stochastic. Each evaluation set was run five times to reduce the impact of this variability, and the non-parametric Mann-Whitney U test is robust to the non-normal, left-skewed score distributions observed. Nevertheless, the total number of unique query-session combinations is constrained by the cost and time of running large-scale multi-model evaluations, and the reported p-values should be interpreted with awareness of the limited sample size. The significance of correctness ($p = 8.5 \times 10^{-3}$) and relevancy ($p = 3.4 \times 10^{-4}$) results are robust, but the borderline result for completeness ($p = 8.3 \times 10^{-2}$) should be treated cautiously.
+LLM outputs are inherently stochastic. Each evaluation set was run three times to reduce the impact of this variability, and the non-parametric Mann-Whitney U test is robust to the non-normal, left-skewed score distributions observed. Nevertheless, the total number of unique query-session combinations is constrained by the cost and time of running large-scale multi-model evaluations, and the reported p-values should be interpreted with awareness of the limited sample size. The significance of correctness ($p = 8.5 \times 10^{-3}$) and relevancy ($p = 3.4 \times 10^{-4}$) results are robust, but the borderline result for completeness ($p = 8.3 \times 10^{-2}$) should be treated cautiously.

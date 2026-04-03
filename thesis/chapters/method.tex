@@ -26,7 +26,7 @@ Conversation state is persisted using LangGraph's \texttt{AsyncPostgresSaver} ch
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.45\textwidth]{figures/agent_graph.png}
+    \includegraphics[width=0.72\textwidth]{figures/agent_graph.png}
     \caption{Agent graph: \texttt{init} $\to$ \texttt{call\_llm} with a conditional loop through \texttt{call\_tool}.}
     \label{fig:agent-graph}
 \end{figure}
@@ -37,10 +37,10 @@ The agent has access to a set of callable tools defined in \texttt{tools.py}. Th
 
 \begin{itemize}
     \item \texttt{tavily\_search} — Web search via the Tavily API.
-    \item \texttt{read\_attachments} — Fetches and returns the full parsed content of one or more documents by file ID, reading from a database body cache when available and falling back to GCS otherwise.
+    \item \texttt{read\_attachments} — Fetches and returns the full parsed content of one or more documents by file ID. The parsed body is cached in the PostgreSQL database (populated during the document analysis pipeline); if not yet cached, the raw file is read from GCS and parsed on demand.
     \item \texttt{list\_attachments} — Lists a project's attachments and emails (with metadata such as title, date, and category), optionally filtered by date range and significance. Returns file IDs that the model can pass to \texttt{read\_attachments}.
     \item \texttt{show\_elements} — Returns structured factsheet elements (events, parties, claims, damages, deadlines) for a project, optionally filtered by date range and significance level.
-    \item \texttt{query\_project\_attachments} — Performs semantic retrieval (RAG) against project-specific document chunks indexed in BigQuery Vector Store.
+    \item \texttt{query\_project\_attachments} — Performs semantic retrieval (RAG) against project-specific document chunks indexed in the vector store.
     \item \texttt{query\_laws} — Semantic retrieval against a corpus of Norwegian legislation, with optional filtering by law title.
     \item \texttt{read\_specific\_law} — Retrieves exact paragraph text from legislation by title and paragraph number via a parameterised BigQuery query.
 \end{itemize}
@@ -49,7 +49,7 @@ An ablated tool configuration, \texttt{BASELINE\_RAG\_TOOLS}, is defined for eva
 
 \subsection{Data and Storage Layer}
 
-Document persistence is handled through two complementary mechanisms. Raw files (PDF, DOCX, PPTX, EML) are stored in \textbf{Supabase Storage}, where they can be retrieved on demand by the \texttt{read\_attachment} tool. Parsed and chunked document content is embedded using \textbf{Google's \texttt{gemini-embedding-001} model} and stored in \textbf{BigQuery Vector Store} for semantic retrieval. Structured project data — including the \texttt{FactSheet} and session metadata — is stored in Supabase PostgreSQL via the \texttt{SupabaseManager} CRUD interface.
+Document persistence is handled through two complementary mechanisms. Raw files (PDF, DOCX, PPTX, EML) are stored in \textbf{Google Cloud Storage (GCS)}, where they can be retrieved on demand by the \texttt{read\_attachments} tool when no parsed body cache is available. Parsed and chunked document content is embedded and stored in a persistent \textbf{vector store} for semantic retrieval. Structured project data — including the \texttt{FactSheet} and session metadata — is stored in a \textbf{PostgreSQL} database via the \texttt{SupabaseManager} CRUD interface.
 
 \subsection{Init and Update Pipeline}
 
@@ -59,10 +59,10 @@ Project initialization (\texttt{POST /init-project}) and updates (\texttt{POST /
     \item \texttt{collapse\_emails} and \texttt{initialize\_input} start in parallel from \texttt{START}. \texttt{collapse\_emails} merges EML thread duplicates; \texttt{initialize\_input} runs an LLM call to extract an initial structured summary from the user's case description.
     \item \texttt{extract\_emails} follows \texttt{collapse\_emails} and decodes email attachments from the collapsed threads.
     \item \texttt{parsing} and \texttt{storage} both fan out from \texttt{extract\_emails}. \texttt{parsing} processes all documents (PDF/OCR, DOCX, PPTX, EML) into plain text; \texttt{storage} uploads raw files to GCS in parallel.
-    \item \texttt{embedding} follows \texttt{parsing} and indexes chunked document content into BigQuery Vector Store.
+    \item \texttt{embedding} follows \texttt{parsing} and indexes chunked document content into the persistent vector store.
     \item \texttt{analyze} is a fan-in node that waits for both \texttt{parsing} and \texttt{initialize\_input} to complete. It then dispatches all documents and emails to the LLM in size-bounded batches (see Section~\ref{sec:design-choices}) to extract structured entities: attachments, emails, events, claims, damages, and deadlines.
-    \item \texttt{update\_metadata} follows \texttt{analyze} and runs an LLM call to update the case title and background based on all extracted data.
-    \item \texttt{qc\_analysis} also fans out from \texttt{analyze} and runs a quality-control pass over the extracted entities.
+    \item \texttt{update\_metadata} follows \texttt{analyze} and runs an LLM call to update the case title, background, start date, and primary parties based on all extracted data.
+    \item \texttt{qc\_analysis} also fans out from \texttt{analyze} and runs a quality-control pass over the extracted entities, logging any inconsistencies or discrepancies found.
     \item \texttt{save} follows \texttt{update\_metadata} and persists all extracted entities to Supabase PostgreSQL.
 \end{itemize}
 
@@ -77,14 +77,11 @@ The update pipeline is identical in structure but adds a \texttt{load\_project\_
 
 \subsection{Clean Pipeline}
 
-The \texttt{ProjectClean} class provides two separate cleanup graphs that can be triggered on demand (see Figure~\ref{fig:clean-pipeline}):
+The \texttt{ProjectClean} class provides a cleanup graph that can be triggered on demand (see Figure~\ref{fig:clean-pipeline}):
 
 \begin{itemize}
-    \item \textbf{Clean Elements} (\texttt{compile\_clean\_elements}): \texttt{load\_project} $\to$ \texttt{clean} $\to$ \texttt{save\_results}. The \texttt{clean} node calls \texttt{deduplicate\_elements} on the \texttt{ContextManager}, which sends all element types (events, parties, claims, damages, deadlines) to the LLM in configurable chunks via \texttt{asyncio.gather}. The LLM returns the IDs to keep; all others are discarded. Results are saved back to the database concurrently.
-    \item \textbf{Clean Metadata} (\texttt{compile\_clean\_metadata}): \texttt{load\_project} $\to$ \texttt{clean} $\to$ \texttt{save\_results}. The \texttt{clean} node rewrites the case title and background using the current factsheet content as context. Title and background are saved back concurrently via \texttt{asyncio.gather}.
+    \item \textbf{Clean Elements} (\texttt{compile\_clean\_elements}): \texttt{load\_project} $\to$ \texttt{clean} $\to$ \texttt{save\_results}. The \texttt{clean} node runs \texttt{\_dedup\_elements\_node}, which dispatches all element types (events, parties, claims, damages, deadlines) to the LLM in configurable chunks concurrently via \texttt{asyncio.gather}. Crucially, the LLM is only asked to return the IDs of elements to keep --- rather than rewriting full element objects --- which minimises output token usage, reduces hallucination risk, and enables parallel deduplication of several hundred elements efficiently. Elements whose IDs are not returned are discarded, and results are saved back to the database.
 \end{itemize}
-
-Both graphs share the same linear \texttt{StateGraph} structure and reuse the \texttt{\_load\_project\_node} and save nodes, differing only in the \texttt{clean} step.
 
 \begin{figure}[H]
     \centering
@@ -95,7 +92,7 @@ Both graphs share the same linear \texttt{StateGraph} structure and reuse the \t
 
 \subsection{LLM Configuration}
 
-The system supports multiple LLM providers through LangChain's \texttt{init\_chat\_model} interface. \textbf{Google Gemini} serves as the primary provider, with \textbf{OpenAI GPT} available as a secondary option. The active model is configurable per session request, allowing for flexible experimentation and evaluation across providers.
+The system supports multiple LLM providers through LangChain's \texttt{init\_chat\_model} interface. \textbf{Google Gemini} serves as the primary provider, with \textbf{OpenAI GPT} available as a secondary option. The system also supports a range of open-source models from providers such as Qwen (Alibaba) and Zhipu AI, accessed through compatible APIs. The active model is configurable per session request, allowing for flexible experimentation and evaluation across providers and model families.
 
 \subsection{Tech Stack Summary}
 
@@ -114,8 +111,8 @@ Streaming & Server-Sent Events (SSE) \\
 Frontend & Streamlit \\
 Authentication & Supabase Auth (JWT) \\
 Database & Supabase (PostgreSQL) \\
-Vector store & BigQuery Vector Store (persistent) \\
-File storage & Supabase Storage \\
+Vector store & BigQuery Vector Store (persistent, cross-session) \\
+File storage & Google Cloud Storage (GCS) \\
 Conversation checkpointer & LangGraph \texttt{AsyncPostgresSaver} \\
 Document parsing & PyPDF2, ocrmypdf, python-docx, python-pptx \\
 Embeddings & Google \texttt{gemini-embedding-001} \\
@@ -181,9 +178,9 @@ There are three main groupings of tables:
   \begin{tabular}{|l|}
     \hline
     \textbf{Session related tables} \\ \hline
-    Sessions         \\ \hline
-    Session Events   \\ \hline
-    Attachments      \\ \hline
+    Sessions             \\ \hline
+    Session Events       \\ \hline
+    Session Attachments  \\ \hline
   \end{tabular}
   
   \vspace{1em}
@@ -207,9 +204,8 @@ There are three main groupings of tables:
   \small Tables for the agent's memory and conversation history.
 \end{minipage}
 
-\paragraph{File Storage (Supabase Storage):}
-Raw documents (PDF, DOCX, EML, etc.) are stored in Supabase Storage. There were no specific architectural requirements for this other than cost-efficiency. 
-Since Supabase was already selected for the PostgreSQL database, using its built-in, affordable object storage was a natural and convenient choice \cite{supabase}.
+\paragraph{File Storage (Google Cloud Storage):}
+Raw documents (PDF, DOCX, EML, etc.) are stored in Google Cloud Storage (GCS). There were no specific architectural requirements for this other than cost-efficiency and reliability. GCS is affordable, integrates cleanly with other Google Cloud services already used in the stack, and provides durable object storage without requiring any dedicated infrastructure.
 
 \paragraph{Relation to Graph-Based Retrieval:}
 The combination of a relational schema and a vector store gives the system a hybrid
@@ -220,7 +216,7 @@ each linked back to the source document through foreign-key relationships and a
 \texttt{source\_id} field. These links act as structured edges connecting extracted
 knowledge to its documentary origin, enabling the agent to reason not just about
 individual facts but about which documents substantiate them. Semantic search over the
-raw document chunks (BigQuery Vector Store) serves the same role as embedding-based
+raw document chunks (via the vector store) serves the same role as embedding-based
 traversal in graph retrieval: it handles queries where the relevant content is not
 captured by the structured entities. The factsheet can therefore be understood as a
 domain-specific, relational graph over the case --- not a general-purpose property
@@ -274,14 +270,13 @@ Second, the string representation of each structured element is deliberately abb
 % -------------------------------------------------------
 
 \section{Evaluation Design}
-Describe the evaluation design, including the datasets used, metrics for evaluation, and the experimental setup.
 
 \subsection{Datasets}
 The evaluation relies on two datasets developed specifically for this thesis in collaboration with legal experts from the law firm BAHR AS. Each dataset represents a real legal case processed through the Norwegian court system.
 
 \textbf{THRD-2021} is based on a publicly available district court case. The authentic court record — comprising the final submissions from both parties and the court's verdict — is used directly as part of the document set. The remaining case materials (correspondence, internal notes, technical reports, agreements, and supporting evidence) were not publicly available and were therefore synthetically reconstructed to match the factual matrix and legal reasoning documented in those authentic records. This hybrid approach provides a realistic document topology while respecting confidentiality.
 
-\textbf{TOSL-2024} is a fully authentic case for which explicit permission was obtained to use the original documents. It is substantially larger and more complex than THRD-2021: it involves more parties, a longer timeline, more contested legal issues, and a higher total document volume. Because TOSL-2024 is a real case with real documents, it more closely represents the conditions under which the agent would operate in production, and its results should therefore be given greater interpretive weight than those from THRD-2021.
+\textbf{TOSL-2024} is a fully authentic case for which explicit permission was obtained to use the original documents. It is substantially larger and more complex than THRD-2021: it involves more parties, a longer timeline, more contested legal issues, and a higher total document volume. The original case file includes close to a thousand emails; these were excluded from the evaluation dataset due to the prohibitive per-run cost and execution time they would introduce across repeated evaluation trials. Even after this exclusion, TOSL-2024 remains considerably larger and more complex than THRD-2021. Because TOSL-2024 is a real case with real documents, it more closely represents the conditions under which the agent would operate in production, and its results should therefore be given greater interpretive weight than those from THRD-2021.
 
 Both datasets are organized to simulate the chronological lifecycle of a legal proceeding. Each case is structured into several \textit{sessions}, each containing a sequence of \textit{queries}. This structure is designed to evaluate two critical capabilities of the agent:
 
@@ -293,7 +288,7 @@ The datasets are organized to simulate the chronological lifecycle of a legal pr
 
 By following a chronological order, the sessions require the agent to handle increasing amounts of information and maintain consistency over time, reflecting the professional requirements of a legal practitioner managing an ongoing case.
 
-\subsection{Dataset Limitations and Caveats}
+\subsection{Evaluation Limitations and Caveats}
 \label{sec:dataset-limitations}
 
 Several factors limit the generalisability of the evaluation and should be considered when interpreting the results.
@@ -363,12 +358,12 @@ Since the scope of the thesis is not to evaluate the models themselves, but rath
         Gemini 2.5 Pro & Closed & Unknown & Unknown & Google \\
         Gemini 2.5 Flash & Closed & Unknown & Unknown & Google \\
         Qwen 3.5 \cite{yang2025qwen3technicalreport} & Open (MoE) & 397B & 17B & Alibaba  \\
-        GLM-5 \cite{glm5team2026glm5vibecodingagentic}  & Open (MoE) & 435.2B & 40B & Alibaba  \\
+        GLM-5 \cite{glm5team2026glm5vibecodingagentic}  & Open (MoE) & 435.2B & 40B & Zhipu AI \\
         \hline
     \end{tabular}
 \end{table}
 
-The evaluation will be conducted across all datasets using consistent model-agent pairings. To account for the inherent stochastic nature of LLM outputs, each evaluation set (model + agent configuration) will be executed 5 times to ensure statistical significance in the results.
+The evaluation will be conducted across all datasets using consistent model-agent pairings. To account for the inherent stochastic nature of LLM outputs, each evaluation set (model + agent configuration) will be executed 3 times to ensure statistical significance in the results.
 
 \subsection{Metrics}
 The evaluation will focus on several key metrics, measering both the quality of the agent's responses and its efficiency in terms of resource usage.
@@ -431,6 +426,38 @@ to larger closed-source models (Gemini 2.5 Flash, Claude Sonnet). If the custom 
 enables a smaller model to reach performance levels comparable to a larger baseline model,
 this constitutes evidence that structured context can partially substitute for raw model
 capacity.
+
+\subsection{A Priori Performance Expectations}
+
+The following expectations, grounded in the architectural differences between the two
+configurations, motivate the experimental design and provide a reference frame for
+interpreting the results.
+
+\paragraph{Quality metrics over session progression.}
+The central hypothesis is that the performance trajectories of the two architectures
+diverge as a case progresses. In the earliest sessions, the document set is small and
+context volume is modest; under these conditions the simpler RAG agent is expected to
+perform adequately, and the difference between architectures should be minimal. As
+subsequent sessions introduce new documents, parties, claims, and a growing timeline,
+the RAG approach becomes increasingly strained: retrieved chunks do not necessarily
+contain sufficient context for questions whose answers are distributed across multiple
+documents. The custom agent, by contrast, maintains a continuously updated factsheet
+and can draw on both structured case state and the same vector store as the baseline.
+The expected result is a positive or stable trajectory for the custom agent and a flat
+or degrading trajectory for the baseline.
+
+\paragraph{Token usage over session progression.}
+Token usage is expected to grow for both architectures as the case accumulates material,
+but for structurally different reasons. For the baseline, growth reflects increasing
+retrieval volume as more chunks are returned from a larger corpus. For the custom agent,
+growth reflects increasing \emph{richness} rather than raw volume: the factsheet grows
+denser, but context compression keeps the effective input size in check. Output tokens
+are likewise expected to grow over time for the custom agent as richer context enables
+more thorough answers --- a positive signal rather than an efficiency cost.
+
+\paragraph{Inference time.}
+Response latency is expected to increase with case progression for both architectures,
+proportionally to token growth.
 
 \subsection{One-sided Hypothesis Tests}
 
