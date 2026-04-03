@@ -21,8 +21,9 @@
 \maketitle
 
 \begin{abstract}
-Legal application are bound to the handling of large scale docuemnt analysis when starting a case. \\
-The frontier models that powers the majority of LLM applications are reporting on increasing maximum sequnece length / context windows. But the
+Large language models (LLMs) are increasingly applied to legal case analysis, where a single matter may span hundreds of pages across contracts, correspondence, expert reports, and court filings. The standard approach --- retrieval-augmented generation (RAG) --- addresses context size constraints by retrieving semantically similar document chunks, but fails on queries that require synthesizing facts distributed across multiple documents. This thesis proposes and evaluates \textit{structured extraction} as a complementary approach: as case documents are ingested, key entities --- parties, events, claims, damages, and deadlines --- are extracted into a persistent, structured \textit{FactSheet} that supplements chunk-based retrieval for case-level queries.
+
+A LangGraph-based conversational agent implementing this architecture is evaluated against a RAG-only baseline across two legal datasets, multiple session stages, and three model configurations. Results show statistically significant improvements in correctness ($p = 8.5 \times 10^{-3}$) and relevancy ($p = 3.4 \times 10^{-4}$) without a proportional increase in token consumption or inference latency. A consistent and statistically robust reduction in score variance is also observed across all five evaluation metrics, suggesting that structured state reduces the brittleness introduced by retrieval failures. The performance gap is most pronounced for smaller, less capable models, indicating a practical cost-quality substitution: a cheaper model paired with the structured architecture can approximate the performance of a larger model on RAG alone. These findings demonstrate that schema-driven extraction is an effective and cost-efficient strategy for improving factual accuracy and reliability in multi-document legal settings.
 \end{abstract}
 
 \include{chapters/introduction}
