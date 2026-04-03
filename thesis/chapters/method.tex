@@ -488,3 +488,46 @@ All tests are one-tailed / one-sided.
     \label{fig:correctness-dist}
 \end{figure}
 
+\subsection{Levene's Test for Equality of Variance}
+
+The Mann-Whitney U test evaluates whether one distribution tends to produce
+stochastically \emph{larger} values than another, but says nothing about whether the
+two distributions differ in \emph{spread}. To test whether the custom and baseline
+agents exhibit significantly different score variability, Levene's test for equality of
+variance \cite{levene1960} is applied to each quality metric.
+
+The test statistic is:
+
+\begin{equation}
+    W = \frac{N - k}{k - 1} \cdot
+        \frac{\displaystyle\sum_{i=1}^{k} N_i \bigl(\bar{Z}_{i\cdot} - \bar{Z}_{\cdot\cdot}\bigr)^2}
+             {\displaystyle\sum_{i=1}^{k} \sum_{j=1}^{N_i} \bigl(Z_{ij} - \bar{Z}_{i\cdot}\bigr)^2}
+    \label{eq:levene}
+\end{equation}
+
+\noindent where:
+\begin{itemize}
+    \item $k$ = number of groups (here $k = 2$: custom and baseline)
+    \item $N$ = total number of observations across both groups
+    \item $N_i$ = number of observations in group $i$
+    \item $Z_{ij} = \lvert Y_{ij} - \bar{Y}_{i\cdot} \rvert$, the absolute deviation of
+          observation $j$ in group $i$ from its group mean
+    \item $\bar{Z}_{i\cdot}$ = mean of $Z_{ij}$ within group $i$
+    \item $\bar{Z}_{\cdot\cdot}$ = overall mean of all $Z_{ij}$
+\end{itemize}
+
+Under the null hypothesis of equal variances, $W$ follows an $F$-distribution with
+$k - 1$ and $N - k$ degrees of freedom. A significant result ($p < 0.05$) rejects
+the null and indicates that the two groups differ significantly in spread.
+The hypotheses are:
+\[
+H_0: \sigma^2_{\text{custom}} = \sigma^2_{\text{baseline+RAG}}
+\qquad
+H_1: \sigma^2_{\text{custom}} \neq \sigma^2_{\text{baseline+RAG}}
+\]
+
+Levene's test is applied rather than Bartlett's test because it is robust to departures
+from normality \cite{levene1960} --- a necessary property given the non-normal,
+left-skewed score distributions confirmed by Shapiro-Wilk ($p < 10^{-18}$ for every
+metric).
+
