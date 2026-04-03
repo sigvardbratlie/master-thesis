@@ -38,7 +38,6 @@ class ProjectClean:
         """
         workflow = StateGraph(PipelineState)
         workflow.add_node("load_project", self._load_project_node)
-        #workflow.add_node("clean", self._clean_elements_node)
         workflow.add_node("clean", self._dedup_elements_node)
         workflow.add_node("save_results", self._save_elements_node)
 
