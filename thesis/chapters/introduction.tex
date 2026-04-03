@@ -1,30 +1,78 @@
 \chapter{Introduction}
 
-The legal industry is increasingly adopting large language models (LLMs) to assist lawyers in navigating the complexity of modern litigation.
-Legal cases are inherently dynamic: they evolve over time as new documents, correspondence, evidence, and procedural developments continuously
-emerge. What was once a central claim may become peripheral; a newly submitted document may reframe the entire dispute. This progression
-means that not only does the volume of material grow, but the \textit{relevance and weight} of existing information shifts as the case develops. \\ \\
+The legal industry is increasingly adopting large language models (LLMs) to assist
+lawyers in navigating the complexity of modern litigation. Legal cases are inherently
+multi-document affairs: a single matter may involve contracts, correspondence, expert
+reports, court filings, and evidence spanning hundreds of pages. As a case develops,
+new attachments arrive, earlier positions are revised, and the relevance of existing
+documents shifts. The central challenge for an LLM-based legal assistant is not merely
+reading these documents --- it is maintaining a coherent, accurate understanding of the
+case as a whole, across all its documents and all its turns of development.
 
-A fundamental limitation of current LLM-based systems is that they are stateless. Without explicit mechanisms for maintaining case state,
-models must re-read the full document history for every query. More critically, even models that handle large contexts tend to perform well
-in early stages but \textit{drift} over extended, multi-turn interactions --- gradually losing track of what is current, what has been superseded,
-and what actually matters. In legal case management, this drift is not merely an inconvenience; it can lead to factually incorrect summaries,
-missed deadlines, or misrepresentation of parties and claims. \\ \\
+The standard approach to this problem is retrieval-augmented generation (RAG): rather
+than loading all documents into context, the system retrieves the chunks most
+semantically similar to the user's query. This is a practical solution to the context
+size problem, but it introduces a different and more fundamental limitation. Legal
+questions frequently require synthesizing facts that are distributed across multiple
+documents --- a party's identity established in one contract, a disputed event described
+in correspondence, a damages figure appearing in an expert report. Chunk-based retrieval
+cannot produce this synthesis: it operates on isolated local fragments, and high
+semantic similarity to a query does not guarantee that the retrieved chunks contain the
+relational context needed to answer it correctly. The consequence is that naive RAG
+agents perform well on direct factual lookups but poorly on case-level reasoning.
 
-This thesis addresses this problem through two complementary mechanisms: \textit{compression} of case-relevant information into a structured
-representation, and \textit{state maintenance} --- the continuous, structured tracking of case essentials as the project evolves. The vehicle
-for this is a structured \textit{FactSheet}: a living, machine-readable summary of the case that is initialized from initial input and updated
-incrementally as new documents and information arrive. \\ \\
+An alternative --- injecting all documents directly into a large context window --- does
+not solve the problem either. Even as model context windows have grown to one million
+tokens and beyond, empirical evidence shows that effective utilization degrades well
+before the nominal limit, and model performance deteriorates for information buried deep
+in a long context. Beyond capacity, loading an entire case file for every query is
+impractical and costly. The goal should instead be to provide the minimum amount of
+information that maximizes relevance to the query at hand.
 
-The research investigates whether maintaining an explicit, structured state representation improves an LLM agent's ability to preserve
-contextual accuracy over the full lifecycle of a legal case --- particularly as conversation length grows and the document landscape changes.
-The system is implemented as a LangGraph-based conversational agent, incorporating multi-phase document processing pipelines for both
-project initialization and incremental updates. \\ \\
+This thesis proposes and evaluates a third approach: \textit{structured extraction}. As
+case documents are ingested, key facts --- parties, claims, events, damages, governing
+law --- are extracted and organized into a structured \textit{FactSheet}: a persistent,
+machine-readable summary of the case. The FactSheet supplements chunk-based RAG for
+queries that require a case-level overview, providing relational context that retrieval
+alone cannot assemble. It is initialized at project creation and updated incrementally
+as new documents arrive, so the agent always has access to a coherent picture of the
+case without re-reading the full document history.
 
-The contributions of this thesis are: (1) the design and implementation of initialization and update pipelines for structured legal case
-state management, (2) an evaluation framework comparing structured state agents against RAG-only and baseline approaches, and (3) an
-analysis of accuracy degradation, compression efficiency, and state consistency across extended multi-turn conversations. \\ \\
+This thesis addresses the following research questions:
 
-The remaining chapters are organized as follows: Chapter 2 presents background and related work on long-context LLMs, context compression,
-and retrieval-augmented generation. Chapter 3 describes the methodology, system architecture, and evaluation design. Chapter 4 presents
-experimental results. Chapter 5 discusses findings and implications, and Chapter 6 concludes with a summary and directions for future work.
+\bigskip
+\noindent\textbf{Main RQ:} \textit{Does schema-driven cross-document extraction into a
+structured case representation improve the factual accuracy of an agentic RAG system in
+multi-document legal settings, without incurring proportional increases in query-time cost?}
+
+\bigskip
+\noindent\textbf{RQ1:} \textit{To what extent does structured extraction mitigate the
+cross-document retrieval limitations of naive RAG in legal case analysis?}
+
+\noindent\textbf{RQ2:} \textit{Does the structured case representation maintain or improve
+agent performance as document volume grows across case sessions?}
+
+\noindent\textbf{RQ3:} \textit{Can a structured extraction architecture compensate for
+reduced model capacity --- enabling a smaller, less expensive model to achieve performance
+comparable to a larger baseline?}
+\bigskip
+
+The system is implemented as a LangGraph-based conversational agent. The main RQ is
+evaluated through a controlled comparison of a structured-state agent against a RAG-only
+baseline across factual quality and resource consumption metrics. RQ1 is addressed by
+examining performance on queries that require cross-document synthesis. RQ2 is examined
+through session-level trajectories as document volume grows. RQ3 is addressed by
+comparing performance gaps across models of varying capability.
+
+The contributions of this thesis are: (1) the design and implementation of initialization
+and incremental update pipelines for structured legal case state management, (2) an
+evaluation framework comparing structured state agents against RAG-only and baseline
+approaches across multiple models and datasets, and (3) an empirical analysis of the
+conditions under which structured extraction provides the greatest benefit.
+
+The remaining chapters are organized as follows: Chapter 2 presents the theoretical
+background on LLM context limitations, RAG and its limitations, and structured
+extraction approaches. Chapter 3 describes the methodology, system architecture, and
+evaluation design. Chapter 4 presents experimental results. Chapter 5 discusses
+findings and implications, and Chapter 6 concludes with a summary and directions for
+future work.

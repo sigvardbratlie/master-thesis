@@ -1,3 +1,136 @@
-\chapter{Conlusion}
+\chapter{Conclusion}
 
-In progress
+This thesis investigated whether schema-driven cross-document extraction into a
+structured case representation --- a \textit{FactSheet} --- improves the factual accuracy
+of an agentic RAG system in multi-document legal settings, and whether it does so without
+incurring proportional increases in query-time cost. The motivation was grounded in a
+fundamental limitation of chunk-based retrieval: when the answer to a legal query is
+distributed across multiple documents, no amount of semantic similarity tuning can make
+an isolated-chunk retriever assemble a coherent synthesis. The proposed approach addresses
+this by extracting typed entities --- parties, events, claims, damages, deadlines --- from
+all case documents at ingestion time and maintaining them as a persistent, relational
+representation that supplements retrieval for case-level queries.
+
+\section{Answers to Research Questions}
+
+\paragraph{Main RQ.}
+Schema-driven extraction into a structured case representation does improve factual
+accuracy: the custom agent achieves statistically significant improvements in correctness
+($p = 8.5 \times 10^{-3}$) and relevancy ($p = 3.4 \times 10^{-4}$) relative to the
+RAG-only baseline. Token consumption and inference latency are statistically equivalent
+between the two architectures, confirming that the quality gain is not purchased at a
+proportional resource cost. The main research question is answered affirmatively.
+
+\paragraph{RQ1.}
+The performance advantage is largest on the more complex, fully authentic dataset
+(TOSL-2024), where queries require synthesising evidence across a larger and more
+heterogeneous document set. This dataset-level interaction supports the conclusion that
+structured extraction specifically mitigates the cross-document retrieval limitation
+rather than providing a diffuse general quality improvement. On the simpler dataset, where
+a larger share of queries can be answered from a single source, the gap is smaller ---
+consistent with the theoretical expectation that the factsheet adds the most value
+precisely where naive retrieval is most likely to fail.
+
+\paragraph{RQ2.}
+Session-level trajectories show that the custom agent maintains stable quality with
+narrow variance across all sessions as document volume grows. The baseline, by contrast,
+exhibits wider fluctuations throughout case progression. The structured representation
+scales gracefully with document volume because new information is absorbed incrementally
+into the factsheet at each session boundary rather than added to an ever-larger
+unstructured retrieval pool. RQ2 is answered affirmatively.
+
+\paragraph{RQ3.}
+The model-level breakdown reveals that the performance gap between the custom and
+baseline agents is largest for smaller, less capable models and narrows to near-zero
+for the most advanced model tested. Structured, pre-digested context reduces the
+reasoning burden placed on the underlying model, enabling smaller models to approximate
+the performance of larger ones on the RAG-only baseline. This constitutes a practically
+significant cost-quality substitution: a cheaper model paired with the custom architecture
+can match a more expensive model operating on unstructured retrieval alone. RQ3 is
+answered affirmatively, with the caveat that the effect is model-dependent and diminishes
+as base model capability increases.
+
+\section{Contributions}
+
+This thesis makes three contributions:
+
+\begin{enumerate}
+    \item \textbf{System design.} A schema-driven initialization and incremental update
+    pipeline for structured legal case state management, implemented as a LangGraph
+    \texttt{StateGraph} with fan-out parallel processing, PostgreSQL relational storage,
+    and configurable context compression.
+
+    \item \textbf{Evaluation framework.} A multi-model evaluation setup comparing a
+    structured-state agent against a RAG-only baseline across two legal datasets,
+    multiple session stages, and five repeated runs per configuration, using a combination
+    of semantic quality metrics (DeepEval correctness, relevancy, completeness), surface
+    similarity metrics (BERTScore), consistency metrics, and resource consumption measures.
+
+    \item \textbf{Empirical evidence.} Quantitative evidence that structured extraction
+    improves factual accuracy in multi-document legal settings without proportional cost
+    increase, with the effect being strongest on complex cases, stable across session
+    progression, and most pronounced for smaller models.
+\end{enumerate}
+
+\section{Limitations and Future Work}
+
+The evaluation rests on two datasets, which limits the generalisability of the findings.
+A larger benchmark spanning more cases and document volumes would provide stronger
+evidence for the scaling behaviour observed here, and would better distinguish the
+effect of document volume from other case-specific characteristics.
+
+The evaluation queries were deliberately restricted to factual, document-grounded
+questions to enable objective grading. This scope is appropriate for establishing a
+controlled baseline but does not cover the full range of legal reasoning tasks --- in
+particular, normative and predictive questions where the benefit of structured extraction
+may differ. Extending the evaluation to cover multi-step legal reasoning, conflicting
+evidence reconciliation, and temporal argument construction is a natural next step.
+
+The structured representation in this thesis uses a fixed entity schema (parties, events,
+claims, damages, deadlines). For cases with different legal structures, such as regulatory
+compliance matters or transactional disputes, the schema may require adaptation. An
+interesting direction is schema induction: learning the relevant entity types from the
+case documents themselves rather than relying on a predefined legal ontology.
+
+The RQ3 result points toward a practically relevant optimization problem: given a target
+quality level and a budget constraint, what is the optimal combination of model size and
+extraction investment? The evidence suggests this trade-off exists and is exploitable,
+but characterising it precisely requires a more systematic sweep over model and
+architecture configurations than was feasible within the scope of this thesis.
+
+\paragraph{Advanced retrieval over structured elements.}
+The current implementation queries the factsheet through simple SQL lookups filtered by
+date range and significance level. The richness of the extracted representation --- typed
+entities with source references, timestamps, significance scores, and relational links ---
+supports substantially more sophisticated retrieval strategies. Graph traversal across
+entity relationships, cross-referencing events with the documents that substantiate them,
+and ranking elements by their relevance to a specific query rather than by static
+significance are all unexplored. The factsheet as implemented is a data foundation whose
+retrieval layer has not been fully exploited.
+
+\paragraph{Agentic reasoning and task queuing.}
+The current agent executes a single reasoning pass per query. Adding a task queue that
+allows the agent to decompose complex queries into ordered sub-tasks --- each potentially
+using a specialised node, toolset, and system prompt --- would support multi-step legal
+reasoning that the current flat architecture cannot perform. This is analogous to
+chain-of-thought planning at the agent level: rather than producing an answer in one
+shot, the agent could plan, retrieve, verify, and synthesise across multiple coordinated
+steps.
+
+\paragraph{Background and asynchronous tooling.}
+The pipeline already runs offline, but the agent itself is purely reactive: it only acts
+when a query arrives. A natural extension is a set of background tools that run during
+idle periods --- monitoring connected document repositories and inboxes for new material,
+triggering incremental factsheet updates on arrival, or proactively flagging newly
+detected deadlines and conflicts to the practitioner. This would move the system from
+reactive assistant to proactive case monitor.
+
+\paragraph{Graph database and GraphRAG.}
+The relational PostgreSQL schema captures entity types and source links but does not
+natively represent or traverse relationships between entities. Migrating the structured
+representation to a graph database would enable direct traversal of entity relationships
+--- for example, following a chain from a claim to the events that substantiate it to
+the documents that evidence those events. Combined with graph-native retrieval, this
+would address the cross-document reasoning limitation more completely than the current
+hybrid approach and bring the system closer to a full domain-specific GraphRAG
+architecture.

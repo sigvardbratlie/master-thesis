@@ -4,7 +4,7 @@
 
 \section{System Architecture}
 
-The system is designed as a modular, client-server application consisting of four main packages organized as a \texttt{uv} workspace: \texttt{agent}, \texttt{ui}, \texttt{evals}, and \texttt{data-viewer}. The architecture follows a separation of concerns, where the backend handles all agent logic, data persistence, and document processing, while the frontend is responsible for user interaction and result presentation.
+The system is organized as a \texttt{uv} workspace containing one core module and three auxiliary modules. The \texttt{agent} package is the primary contribution of this thesis: it implements the full backend, including the LangGraph agent, document processing pipelines, vector store integration, and database management. The remaining packages are supporting tools: \texttt{ui} provides a Streamlit interface for non-technical users to interact with the agent; \texttt{evals} contains the evaluation harness used to benchmark agent configurations; and \texttt{data-viewer} is a lightweight helper for inspecting and editing evaluation datasets. The architecture description that follows concerns the \texttt{agent} module exclusively.
 
 \subsection{Overview}
 
@@ -24,7 +24,7 @@ Control flows as: \texttt{START} $\to$ \texttt{init} $\to$ \texttt{call\_llm}. A
 
 Conversation state is persisted using LangGraph's \texttt{AsyncPostgresSaver} checkpointer, backed by \textbf{Supabase PostgreSQL}, enabling session resumption and multi-turn dialogue across requests.
 
-\begin{figure}[h]
+\begin{figure}[H]
     \centering
     \includegraphics[width=0.45\textwidth]{figures/agent_graph.png}
     \caption{Agent graph: \texttt{init} $\to$ \texttt{call\_llm} with a conditional loop through \texttt{call\_tool}.}
@@ -68,7 +68,7 @@ Project initialization (\texttt{POST /init-project}) and updates (\texttt{POST /
 
 The update pipeline is identical in structure but adds a \texttt{load\_project\_data} node at the start that loads the existing factsheet before analysis, enabling incremental updates. Status events are streamed back to the frontend via SSE at each node transition.
 
-\begin{figure}[h]
+\begin{figure}[H]
     \centering
     \includegraphics[width=\textwidth]{figures/project_graph.png}
     \caption{Init and update pipeline graph: parallel fan-out for parsing, storage, and initialisation, converging at the \texttt{analyze} fan-in node.}
@@ -86,7 +86,7 @@ The \texttt{ProjectClean} class provides two separate cleanup graphs that can be
 
 Both graphs share the same linear \texttt{StateGraph} structure and reuse the \texttt{\_load\_project\_node} and save nodes, differing only in the \texttt{clean} step.
 
-\begin{figure}[h]
+\begin{figure}[H]
     \centering
     \includegraphics[width=0.6\textwidth]{figures/clean_graph.png}
     \caption{Clean pipeline graph: \texttt{load\_project} $\to$ \texttt{clean} $\to$ \texttt{save\_results}, used for both element deduplication and metadata rewriting.}
@@ -211,6 +211,22 @@ There are three main groupings of tables:
 Raw documents (PDF, DOCX, EML, etc.) are stored in Supabase Storage. There were no specific architectural requirements for this other than cost-efficiency. 
 Since Supabase was already selected for the PostgreSQL database, using its built-in, affordable object storage was a natural and convenient choice \cite{supabase}.
 
+\paragraph{Relation to Graph-Based Retrieval:}
+The combination of a relational schema and a vector store gives the system a hybrid
+retrieval architecture that shares structural similarities with graph-based RAG
+approaches such as GraphRAG \cite{edge2025localglobalgraphrag}. The relational tables
+--- parties, events, claims, damages, and deadlines --- function as typed entity nodes,
+each linked back to the source document through foreign-key relationships and a
+\texttt{source\_id} field. These links act as structured edges connecting extracted
+knowledge to its documentary origin, enabling the agent to reason not just about
+individual facts but about which documents substantiate them. Semantic search over the
+raw document chunks (BigQuery Vector Store) serves the same role as embedding-based
+traversal in graph retrieval: it handles queries where the relevant content is not
+captured by the structured entities. The factsheet can therefore be understood as a
+domain-specific, relational graph over the case --- not a general-purpose property
+graph, but a structured knowledge base with typed entities and cross-document
+connections, backed by semantic search for unstructured content.
+
 \paragraph{Vector Store and Embeddings:}
 Semantic retrieval relies on \textbf{Google's embedding model} (\texttt{gemini-embedding-001}). This model was specifically chosen for its strong multilingual capabilities; smaller and cheaper open-source models often struggle with RAG matching when queries or documents are not strictly in English, which is a critical requirement for handling Norwegian legal texts.
 
@@ -291,6 +307,27 @@ The evaluation uses a constrained number of cases and queries, as running a larg
 \paragraph{Heterogeneity between cases.}
 The two evaluation datasets differ substantially in origin, complexity, and document volume. THRD-2021 uses a hybrid document set (authentic court record supplemented by synthetically reconstructed case materials), while TOSL-2024 consists entirely of real documents. TOSL-2024 is considerably more complex: it covers more parties, a longer contested timeline, and a larger total document volume. This asymmetry means that performance differences across datasets may partly reflect document complexity rather than agent capability alone. However, since the agent is specifically designed for complex, large-scale cases, TOSL-2024 is the more ecologically valid test of its capabilities, and the dataset-level breakdowns in the results should be read with this in mind.
 
+\paragraph{Exclusion of pipeline costs from resource metrics.}
+The resource metrics reported in this evaluation --- token usage and inference latency ---
+cover only query-time activity: the LLM calls made by the agent when responding to a
+user query. The one-time cost of running the initialization and update pipeline (document
+parsing, entity extraction, embedding, and storage) is deliberately excluded.
+
+This exclusion is methodologically correct for two reasons. First, including pipeline
+costs in a per-query resource comparison would produce a misleading figure on the
+evaluation datasets. Each dataset contains a small number of evaluation queries; amortising
+the full extraction cost across, say, four queries makes the cost per query appear orders
+of magnitude higher than it would be in practice. A production deployment handles hundreds
+or thousands of queries per case, over which the fixed extraction cost becomes negligible.
+There is no principled way to choose an amortisation denominator within the scope of this
+evaluation, and any choice would be arbitrary.
+
+Second, the pipeline does not run at query time. It is an offline preprocessing step
+that can be triggered asynchronously --- overnight, during off-hours, or on document
+arrival via integrations with document management systems and email. The practitioner
+does not wait for it. The relevant cost comparison is therefore query-time cost, which
+is what the reported metrics reflect.
+
 \paragraph{Limitations of expected-answer evaluation.}
 Model responses are graded against expected answers produced in collaboration with legal experts at BAHR AS. This approach carries two inherent risks: the expected answers themselves may contain inaccuracies, and — more fundamentally — many legal queries are open-ended, such that a correct and complete model response may differ substantially from the reference without being wrong. Three mitigations were applied to reduce this risk:
 \begin{enumerate}
@@ -323,10 +360,10 @@ Since the scope of the thesis is not to evaluate the models themselves, but rath
         \hline
         \textbf{Model Name} & \textbf{Type} & \textbf{Total Params} & \textbf{Active Params} & \textbf{Provider} \\
         \hline
-        Claude-sonnet-4-6 & Closed & Unknown & Unknown & Anthropic \\
+        Gemini 2.5 Pro & Closed & Unknown & Unknown & Google \\
         Gemini 2.5 Flash & Closed & Unknown & Unknown & Google \\
         Qwen 3.5 \cite{yang2025qwen3technicalreport} & Open (MoE) & 397B & 17B & Alibaba  \\
-        Qwen 3 Next Instruct \cite{yang2025qwen3technicalreport}  & Open (MoE) & 80B & 3B & Alibaba  \\
+        GLM-5 \cite{glm5team2026glm5vibecodingagentic}  & Open (MoE) & 435.2B & 40B & Alibaba  \\
         \hline
     \end{tabular}
 \end{table}
@@ -357,6 +394,44 @@ Self-consistency is evaluated by comparing the agent's responses across multiple
 Token usage and inference time are recorded during the agent's operation.
 
 
+\subsection{Research Question Operationalization}
+\label{sec:rq-operationalization}
+
+Each research question is operationalized through a specific subset of the evaluation
+evidence collected.
+
+\paragraph{Main RQ — accuracy improvement without proportional cost increase.}
+The main RQ is evaluated by jointly examining quality metrics (correctness, relevancy,
+completeness, passrate) and resource metrics (input tokens, inference duration) across
+all queries and sessions. A positive finding requires both a statistically significant
+quality advantage for the custom agent \emph{and} the absence of a significant resource
+cost increase. The one-sided Mann-Whitney U tests described below provide the formal
+statistical basis.
+
+\paragraph{RQ1 — mitigation of cross-document retrieval limitations.}
+RQ1 is addressed by examining the quality metrics specifically on queries that require
+synthesis across multiple documents and sessions. The dataset-level breakdown
+(Section~\ref{chap:results}) isolates TOSL-2024, which contains a larger document volume
+and more contested cross-document relationships, as the primary test case for cross-document
+reasoning. A larger performance gap on TOSL-2024 compared to THRD-2021 is interpreted
+as evidence that structured extraction specifically addresses the multi-document
+limitation.
+
+\paragraph{RQ2 — performance stability across growing document volume.}
+RQ2 is addressed by inspecting session-level performance trajectories. The datasets are
+organized chronologically into multiple sessions, each adding new documents. A custom
+agent that maintains or improves quality across sessions while the baseline degrades
+or stagnates provides evidence that the structured representation scales gracefully with
+document volume.
+
+\paragraph{RQ3 — model capacity compensation.}
+RQ3 is addressed by examining performance per model. The evaluation includes models of
+varying capability, from smaller open-source models (Qwen3 MoE 3B active parameters)
+to larger closed-source models (Gemini 2.5 Flash, Claude Sonnet). If the custom agent
+enables a smaller model to reach performance levels comparable to a larger baseline model,
+this constitutes evidence that structured context can partially substitute for raw model
+capacity.
+
 \subsection{One-sided Hypothesis Tests}
 
 Inspection of the metric distributions reveals pronounced left-skew with heavy concentration near 1.0 (see Figure~\ref{fig:correctness-dist}), violating the normality assumption required by parametric tests such as the $t$-test.
@@ -379,7 +454,7 @@ H_0: \eta_{\text{custom}} \geq \eta_{\text{baseline+RAG}} \qquad H_1: \eta_{\tex
 \end{itemize}
 All tests are one-tailed / one-sided.
 
-\begin{figure}[h]
+\begin{figure}[H]
     \centering
     \includegraphics[width=0.65\textwidth]{figures/correctness_distribution.png}
     \caption{Distribution of correctness scores across all queries and sessions. The pronounced left-skew and heavy concentration near 1.0 violate the normality assumption, motivating the use of non-parametric Mann-Whitney U tests.}

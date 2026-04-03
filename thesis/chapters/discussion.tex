@@ -2,6 +2,62 @@
 \label{chap:discussion}
 
 % -------------------------------------------------------
+\section{Research Question Findings}
+% -------------------------------------------------------
+
+This section interprets the empirical results in relation to each research question,
+drawing on the statistical evidence from Chapter~\ref{chap:results} and situating the
+findings within the theoretical context established in Chapter~2.
+
+\paragraph{Main RQ: accuracy improvement without proportional cost.}
+The results support an affirmative answer. The custom agent achieves statistically
+significant improvements in correctness ($p = 8.5 \times 10^{-3}$) and relevancy
+($p = 3.4 \times 10^{-4}$) while consuming a statistically equivalent number of
+tokens and inference time compared to the RAG-only baseline. The context compression
+mechanisms --- significance filtering and display shortening applied server-side before
+context injection --- are largely responsible for keeping token usage in check as the
+factsheet grows: rather than injecting the full structured state verbatim, the agent
+receives a filtered, abbreviated representation tailored to the query context. The
+combined picture is that schema-driven extraction improves factual accuracy at no
+measurable additional cost per query.
+
+\paragraph{RQ1: mitigation of cross-document retrieval limitations.}
+The performance advantage is most pronounced on TOSL-2024, the larger and more
+complex fully authentic case, where queries more frequently require synthesising
+facts distributed across many documents. This is exactly where naive chunk-based
+retrieval is theoretically most vulnerable: when no single chunk contains the answer
+and retrieval must stitch together evidence from multiple sources, a persistent
+structured representation that already encodes those cross-document connections provides
+the greatest marginal value. On the simpler THRD-2021 dataset, where single-document
+lookups constitute a larger share of queries, the gap is smaller. This dataset-level
+interaction strongly suggests that the improvement is not a general quality effect but
+specifically a mitigation of the cross-document limitation described in Chapter~2.
+
+\paragraph{RQ2: stability across growing document volume.}
+Session-level trajectories show that the custom agent maintains consistent quality
+with narrow variance throughout case progression, while the baseline exhibits wider
+fluctuations and a less stable profile as sessions accumulate new documents. This is
+consistent with the design hypothesis: the factsheet absorbs new information
+incrementally at each session boundary, so the agent's knowledge of the case becomes
+richer rather than more fragmented as volume grows. The baseline, by contrast, must
+retrieve from an ever-larger document pool with no persistent structure to guide
+retrieval, making its performance increasingly dependent on whether the relevant
+chunks happen to rank highly in a given semantic search.
+
+\paragraph{RQ3: compensation for reduced model capacity.}
+The model-level breakdown provides the most striking result for RQ3: the performance
+gap between the custom and baseline agents is largest for the smaller models and
+shrinks to near-zero for the most capable model tested. For smaller models, the
+structured factsheet provides the key facts in an organised, pre-digested form,
+reducing the reasoning burden on the model itself. A more capable model can compensate
+for noisy or incomplete retrieval through superior inference, making the factsheet
+less decisive. This model-dependent pattern has a direct practical implication for
+cost management: a smaller, less expensive model paired with the custom architecture
+can approximate the performance of a larger, more expensive model on the RAG-only
+baseline, suggesting a cost-quality substitution that may be valuable in
+production deployments.
+
+% -------------------------------------------------------
 \section{Value Beyond Performance Metrics}
 % -------------------------------------------------------
 
