@@ -42,7 +42,6 @@ sum_rate = 20
 context_window = 1000000 #1mill
 embed_to_vectorstore = false
 save_to_storage = true
-minimal_context = true
 prompt_file_path = "system_prompt.txt"
 
 [project]

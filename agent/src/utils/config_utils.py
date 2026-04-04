@@ -54,15 +54,15 @@ class AgentConfig(BaseModel):
     significance : list[str] = ["high", "medium", "low"]  
     embed_to_vectorstore: bool = True
     save_to_storage: bool = True
-    minimal_context: bool = False
+    #minimal_context: bool = False
     prompt_file_path : str = "system_prompt.txt"
 
-    @model_validator(mode="after")
-    def enforce_minimal_context(self):
-        if self.minimal_context:
-            logger.warning("⚠️  Minimal context is enabled. This will override significance to only include 'high'.")
-            self.significance = ["high"]
-        return self
+    # @model_validator(mode="after")
+    # def enforce_minimal_context(self):
+    #     if self.minimal_context:
+    #         logger.warning("⚠️  Minimal context is enabled. This will override significance to only include 'high'.")
+    #         self.significance = ["high"]
+    #     return self
 
 class StorageAWSConfig(BaseModel):
     bucket_name: str = ""

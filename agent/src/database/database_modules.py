@@ -611,3 +611,12 @@ class SupabaseManager:
         except Exception:
             logger.exception(f"Error reading bodies for ids {ids} from Supabase")
             return []
+        
+    def get_project_base(self, project_id: str) -> dict:
+        """Get base project info (without nested tables) for given project ID from Supabase"""
+        try:
+            response = self.supabase.table("projects").select("title, background").eq("project_id", project_id).single().execute()
+            return response.data if response.data else {}
+        except Exception:
+            logger.exception(f"Error reading base project info for project_id {project_id} from Supabase")
+            return {}
