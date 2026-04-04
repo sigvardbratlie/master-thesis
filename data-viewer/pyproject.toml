@@ -16,6 +16,11 @@ dependencies = [
     "streamlit[pdf]>=1.52.2",
     "streamlit",
     "langsmith>=0.2.0",
+    "google-cloud-bigquery>=3.0.0",
+    "db-dtypes>=1.0.0",
+    "plotly>=5.0.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
 ]
 
 [project.scripts]
