@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Curator — Legal Authority</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Public+Sans:wght@600;700;800;900&display=swap" rel="stylesheet" />
+
+  <!-- Material Symbols -->
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
+
+  <!-- Supabase JS v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Design system: exactly matches new-ui/project_dashboard.html token set -->
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            'surface-container-high':     '#eae8e6',
+            'on-secondary-container':     '#335583',
+            'secondary-fixed-dim':        '#a7c8fc',
+            'on-primary-fixed-variant':   '#374570',
+            'on-tertiary':                '#ffffff',
+            'on-primary-container':       '#7482b2',
+            'surface-bright':             '#fcf9f7',
+            'primary-fixed':              '#dbe1ff',
+            'inverse-on-surface':         '#f3f0ee',
+            'inverse-primary':            '#b7c5f8',
+            'inverse-surface':            '#31302f',
+            'outline-variant':            '#c6c6d0',
+            'secondary-container':        '#aacbff',
+            'primary':                    '#000000',
+            'on-error':                   '#ffffff',
+            'on-primary':                 '#ffffff',
+            'on-surface':                 '#1b1c1b',
+            'primary-container':          '#081942',
+            'secondary':                  '#3e608e',
+            'surface-variant':            '#e5e2e0',
+            'error-container':            '#ffdad6',
+            'secondary-fixed':            '#d4e3ff',
+            'error':                      '#ba1a1a',
+            'on-surface-variant':         '#45464f',
+            'tertiary':                   '#000000',
+            'on-tertiary-container':      '#ae7a01',
+            'primary-fixed-dim':          '#b7c5f8',
+            'on-background':              '#1b1c1b',
+            'surface-dim':                '#dcd9d8',
+            'surface-container-lowest':   '#ffffff',
+            'surface-tint':               '#4f5d8a',
+            'on-tertiary-fixed-variant':  '#5f4100',
+            'outline':                    '#757680',
+            'surface-container':          '#f0edeb',
+            'on-error-container':         '#93000a',
+            'on-secondary-fixed':         '#001c3a',
+            'surface-container-low':      '#f6f3f1',
+            'surface-container-highest':  '#e5e2e0',
+            'on-tertiary-fixed':          '#281900',
+            'on-secondary-fixed-variant': '#244874',
+            'on-secondary':               '#ffffff',
+            'background':                 '#fcf9f7',
+            'tertiary-fixed':             '#ffdeac',
+            'surface':                    '#fcf9f7',
+            'tertiary-container':         '#281900',
+            'on-primary-fixed':           '#081942',
+            'tertiary-fixed-dim':         '#fabc4b',
+          },
+          borderRadius: {
+            DEFAULT: '0.125rem',
+            lg:      '0.25rem',
+            xl:      '0.5rem',
+            '2xl':   '0.75rem',
+            full:    '9999px',
+          },
+          fontFamily: {
+            headline: ['Public Sans', 'sans-serif'],
+            body:     ['Inter', 'sans-serif'],
+            label:    ['Inter', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    /* Material Symbols rendering */
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      vertical-align: middle;
+      line-height: 1;
+    }
+
+    /* Thin, tasteful scrollbars */
+    ::-webkit-scrollbar        { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track  { background: transparent; }
+    ::-webkit-scrollbar-thumb  { background: #dcd9d8; border-radius: 10px; }
+    * { scrollbar-width: thin; scrollbar-color: #dcd9d8 transparent; }
+
+    /* Horizontal timeline scroll without scrollbar */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* Timeline fade mask */
+    .timeline-mask {
+      mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent);
+    }
+
+    /* Details/summary arrow tweak */
+    details > summary { list-style: none; }
+    details > summary::-webkit-details-marker { display: none; }
+    details[open] > summary .material-symbols-outlined { transform: rotate(90deg); }
+
+    /* Smooth page transitions */
+    #app > * { animation: fadeIn 0.15s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  </style>
+</head>
+<body class="bg-surface font-body text-on-surface antialiased">
+
+  <!-- SPA mount point -->
+  <div id="app"></div>
+
+  <!-- App entry (ES module) -->
+  <script type="module" src="./js/app.js"></script>
+
+</body>
+</html>
