@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Settings | The Editorial Authority</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700;800;900&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-container-high": "#eae8e6",
+                    "on-secondary-container": "#335583",
+                    "secondary-fixed-dim": "#a7c8fc",
+                    "on-primary-fixed-variant": "#374570",
+                    "on-tertiary": "#ffffff",
+                    "on-primary-container": "#7482b2",
+                    "surface-bright": "#fcf9f7",
+                    "primary-fixed": "#dbe1ff",
+                    "inverse-on-surface": "#f3f0ee",
+                    "inverse-primary": "#b7c5f8",
+                    "inverse-surface": "#31302f",
+                    "outline-variant": "#c6c6d0",
+                    "secondary-container": "#aacbff",
+                    "primary": "#000000",
+                    "on-error": "#ffffff",
+                    "on-primary": "#ffffff",
+                    "on-surface": "#1b1c1b",
+                    "primary-container": "#081942",
+                    "secondary": "#3e608e",
+                    "surface-variant": "#e5e2e0",
+                    "error-container": "#ffdad6",
+                    "secondary-fixed": "#d4e3ff",
+                    "error": "#ba1a1a",
+                    "on-surface-variant": "#45464f",
+                    "tertiary": "#000000",
+                    "on-tertiary-container": "#ae7a01",
+                    "primary-fixed-dim": "#b7c5f8",
+                    "on-background": "#1b1c1b",
+                    "surface-dim": "#dcd9d8",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-tint": "#4f5d8a",
+                    "on-tertiary-fixed-variant": "#5f4100",
+                    "outline": "#757680",
+                    "surface-container": "#f0edeb",
+                    "on-error-container": "#93000a",
+                    "on-secondary-fixed": "#001c3a",
+                    "surface-container-low": "#f6f3f1",
+                    "surface-container-highest": "#e5e2e0",
+                    "on-tertiary-fixed": "#281900",
+                    "on-secondary-fixed-variant": "#244874",
+                    "on-secondary": "#ffffff",
+                    "background": "#fcf9f7",
+                    "tertiary-fixed": "#ffdeac",
+                    "surface": "#fcf9f7",
+                    "tertiary-container": "#281900",
+                    "on-primary-fixed": "#081942",
+                    "tertiary-fixed-dim": "#fabc4b"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Public Sans"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3, .brand-font { font-family: 'Public Sans', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(252, 249, 247, 0.8);
+            backdrop-filter: blur(20px);
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface">
+<!-- SideNavBar (Execution from JSON) -->
+<nav class="h-screen w-64 fixed left-0 top-0 z-50 bg-slate-100 flex flex-col p-6 font-['Inter'] text-sm tracking-wide">
+<div class="mb-10 px-2">
+<h1 class="font-['Public_Sans'] font-black text-[#081942] text-xl tracking-tight">The Curator</h1>
+<p class="text-xs text-slate-500 uppercase tracking-widest mt-1">Legal Authority</p>
+</div>
+<div class="flex-grow space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:text-[#3e608e] transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="folder_open">folder_open</span>
+<span>Projects</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:text-[#3e608e] transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="calendar_today">calendar_today</span>
+<span>Calendar</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:text-[#3e608e] transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="groups">groups</span>
+<span>Team</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:text-[#3e608e] transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="domain">domain</span>
+<span>Company</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-[#081942] font-semibold bg-white rounded-md translate-x-1 transition-all" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+</div>
+<button class="mb-8 w-full py-3 bg-primary-container text-white rounded-lg font-semibold text-xs uppercase tracking-widest hover:opacity-90 transition-opacity">
+            New Project
+        </button>
+<div class="space-y-1 pt-6 border-t border-slate-200">
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="contact_support">contact_support</span>
+<span>Support</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="inventory_2">inventory_2</span>
+<span>Archive</span>
+</a>
+</div>
+</nav>
+<!-- Main Canvas -->
+<main class="ml-64 min-h-screen">
+<!-- TopAppBar (Execution from JSON) -->
+<header class="flex justify-between items-center w-full px-8 py-4 sticky top-0 z-40 bg-[#fcf9f7] shadow-none">
+<div class="flex items-center gap-4">
+<nav class="flex text-[10px] uppercase tracking-[0.2em] text-slate-400 font-bold">
+<span>The Curator</span>
+<span class="mx-2">/</span>
+<span class="text-primary-container">User Settings</span>
+</nav>
+</div>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-4 text-slate-500">
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors" data-icon="notifications">notifications</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors" data-icon="help_outline">help_outline</span>
+</div>
+<div class="h-8 w-8 rounded-full bg-surface-container-highest overflow-hidden">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="professional portrait of a senior legal partner in a clean white studio with soft lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCFkzncpbPWXf40ZQsWVgIXDZ9NiwAkJxDbJlk6AwnMvblu-E8wJnNCR0mS7jEf7iXbfoqBCGmdO-kvR-MHcEb6rSVPUr-s70f5RYIgFUmi4FmG82KyXwxDZOIgZpinhFUkhsgK7A_buF6VyjoPSsx4c6VWdQZFp87KIPX39JYMAqL1gH7J_8D8BVhE-WBJ-nhTU10M85HaGG4frzo-znRQ4SD8hW30t4jJsKQGNcg3GO5HkV17RUwjhr6lGf8xJBUZwRVZISgcMdtH"/>
+</div>
+</div>
+</header>
+<!-- Content Area -->
+<div class="px-12 py-12 max-w-5xl">
+<header class="mb-16">
+<h2 class="text-[2.5rem] font-extrabold tracking-tight text-primary-container mb-2">User Settings</h2>
+<p class="text-secondary font-medium tracking-wide">Manage your personal authority profile and security protocols.</p>
+</header>
+<div class="space-y-24">
+<!-- Profile Section -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-12">
+<div>
+<h3 class="text-xl font-bold text-primary-container mb-2">Profile Information</h3>
+<p class="text-sm text-on-surface-variant leading-relaxed">Update your account's profile information and legal role within the firm.</p>
+</div>
+<div class="md:col-span-2 space-y-8 bg-surface-container-low p-8 rounded-xl">
+<div class="flex items-center gap-6 mb-4">
+<div class="h-20 w-20 rounded-xl overflow-hidden shadow-sm">
+<img class="w-full h-full object-cover" data-alt="close up headshot of male executive in navy suit looking directly at camera professional lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA4x6Ru0Ez5CMK9Amab0XsvBPeiSawUfZJK7fnXleCK6BXyxblsiR-Y6TpDlydHqU9vav2uE7VnOnkqBpJKbnRzBQUL1cZ6ESJYI4CTfdRgxNod0SDZePYapGPRFFGh3d5m3zhdkxNLOt6E0lvKi3WqkbDFaNaxjZ2FUWukDMH-Csl_mgStR3WoulwA9awilLRL77t5Mo5hhPdo8EEAHiu2OzKaFbMTAlC2KlKAHLDF1Jc9ER6M9myQKvh34za8cFwzmF6mBnfUDIoz"/>
+</div>
+<button class="px-4 py-2 text-xs font-bold uppercase tracking-widest border-2 border-outline-variant hover:bg-surface-container-high transition-colors rounded-md">Change Photo</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<div class="space-y-2">
+<label class="text-[10px] uppercase font-black tracking-widest text-slate-500">Full Name</label>
+<input class="w-full bg-surface-container-lowest border-0 ring-1 ring-outline-variant/15 focus:ring-secondary focus:ring-2 p-3 text-sm rounded-md transition-all" type="text" value="Alexander Sterling"/>
+</div>
+<div class="space-y-2">
+<label class="text-[10px] uppercase font-black tracking-widest text-slate-500">Role</label>
+<input class="w-full bg-surface-container-high border-0 ring-1 ring-outline-variant/15 p-3 text-sm rounded-md text-slate-500 italic" disabled="" type="text" value="Senior Managing Partner"/>
+</div>
+<div class="space-y-2 md:col-span-2">
+<label class="text-[10px] uppercase font-black tracking-widest text-slate-500">Email Address</label>
+<input class="w-full bg-surface-container-lowest border-0 ring-1 ring-outline-variant/15 focus:ring-secondary focus:ring-2 p-3 text-sm rounded-md transition-all" type="email" value="a.sterling@editorialauthority.legal"/>
+</div>
+</div>
+<div class="flex justify-end">
+<button class="bg-primary-container text-white px-8 py-3 text-xs font-bold uppercase tracking-widest rounded-md hover:bg-black transition-all shadow-sm">Save Changes</button>
+</div>
+</div>
+</section>
+<!-- Notifications Section -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-12">
+<div>
+<h3 class="text-xl font-bold text-primary-container mb-2">Notifications</h3>
+<p class="text-sm text-on-surface-variant leading-relaxed">Configure how you receive case updates and team alerts.</p>
+</div>
+<div class="md:col-span-2 bg-surface-container p-1 rounded-xl">
+<div class="bg-surface-container-lowest rounded-lg divide-y divide-surface-container-high">
+<div class="flex items-center justify-between p-6">
+<div>
+<h4 class="text-sm font-bold text-primary-container">Case Milestone Alerts</h4>
+<p class="text-xs text-on-surface-variant">Instant push notifications when a project stage is completed.</p>
+</div>
+<div class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-secondary"></div>
+</div>
+</div>
+<div class="flex items-center justify-between p-6">
+<div>
+<h4 class="text-sm font-bold text-primary-container">Weekly Digest</h4>
+<p class="text-xs text-on-surface-variant">Summary of all project activity sent to your email every Monday.</p>
+</div>
+<div class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-secondary"></div>
+</div>
+</div>
+<div class="flex items-center justify-between p-6">
+<div>
+<h4 class="text-sm font-bold text-primary-container">Secure Message Notifications</h4>
+<p class="text-xs text-on-surface-variant">Alerts for new encrypted messages from clients.</p>
+</div>
+<div class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-secondary"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Security Section -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-12 pb-24">
+<div>
+<h3 class="text-xl font-bold text-primary-container mb-2">Security &amp; Access</h3>
+<p class="text-sm text-on-surface-variant leading-relaxed">Manage your credentials and enhance account protection with 2FA.</p>
+</div>
+<div class="md:col-span-2 space-y-6">
+<div class="bg-surface-container-low p-8 rounded-xl">
+<h4 class="text-sm font-bold uppercase tracking-widest text-primary mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="lock">lock</span> Password Management
+                            </h4>
+<div class="space-y-4">
+<div class="space-y-2">
+<label class="text-[10px] uppercase font-black tracking-widest text-slate-500">Current Password</label>
+<input class="w-full bg-surface-container-lowest border-0 ring-1 ring-outline-variant/15 focus:ring-secondary focus:ring-2 p-3 text-sm rounded-md transition-all" placeholder="••••••••••••" type="password"/>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="space-y-2">
+<label class="text-[10px] uppercase font-black tracking-widest text-slate-500">New Password</label>
+<input class="w-full bg-surface-container-lowest border-0 ring-1 ring-outline-variant/15 focus:ring-secondary focus:ring-2 p-3 text-sm rounded-md transition-all" type="password"/>
+</div>
+<div class="space-y-2">
+<label class="text-[10px] uppercase font-black tracking-widest text-slate-500">Confirm Password</label>
+<input class="w-full bg-surface-container-lowest border-0 ring-1 ring-outline-variant/15 focus:ring-secondary focus:ring-2 p-3 text-sm rounded-md transition-all" type="password"/>
+</div>
+</div>
+<div class="pt-4">
+<button class="bg-primary text-white px-6 py-2 text-[10px] font-bold uppercase tracking-widest rounded-md hover:opacity-80 transition-all">Update Password</button>
+</div>
+</div>
+</div>
+<div class="bg-white p-8 rounded-xl ring-1 ring-outline-variant/15 shadow-sm">
+<div class="flex items-start justify-between">
+<div class="space-y-1">
+<h4 class="text-sm font-bold text-primary-container">Two-Factor Authentication</h4>
+<p class="text-xs text-on-surface-variant max-w-md">Add an additional layer of security to your account by requiring more than just a password to log in.</p>
+</div>
+<span class="px-2 py-1 bg-tertiary-fixed text-on-tertiary-fixed text-[10px] font-bold rounded uppercase tracking-tighter">Recommended</span>
+</div>
+<div class="mt-6 flex items-center gap-4">
+<button class="bg-secondary text-white px-6 py-2.5 text-xs font-bold uppercase tracking-widest rounded-md hover:bg-primary-container transition-all">Enable 2FA</button>
+<button class="text-secondary text-xs font-bold uppercase tracking-widest hover:underline">Learn More</button>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+</main>
+</body></html>

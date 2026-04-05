@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>The Editorial Authority | Company Management</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700;800;900&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-container-high": "#eae8e6",
+            "on-secondary-container": "#335583",
+            "secondary-fixed-dim": "#a7c8fc",
+            "on-primary-fixed-variant": "#374570",
+            "on-tertiary": "#ffffff",
+            "on-primary-container": "#7482b2",
+            "surface-bright": "#fcf9f7",
+            "primary-fixed": "#dbe1ff",
+            "inverse-on-surface": "#f3f0ee",
+            "inverse-primary": "#b7c5f8",
+            "inverse-surface": "#31302f",
+            "outline-variant": "#c6c6d0",
+            "secondary-container": "#aacbff",
+            "primary": "#000000",
+            "on-error": "#ffffff",
+            "on-primary": "#ffffff",
+            "on-surface": "#1b1c1b",
+            "primary-container": "#081942",
+            "secondary": "#3e608e",
+            "surface-variant": "#e5e2e0",
+            "error-container": "#ffdad6",
+            "secondary-fixed": "#d4e3ff",
+            "error": "#ba1a1a",
+            "on-surface-variant": "#45464f",
+            "tertiary": "#000000",
+            "on-tertiary-container": "#ae7a01",
+            "primary-fixed-dim": "#b7c5f8",
+            "on-background": "#1b1c1b",
+            "surface-dim": "#dcd9d8",
+            "surface-container-lowest": "#ffffff",
+            "surface-tint": "#4f5d8a",
+            "on-tertiary-fixed-variant": "#5f4100",
+            "outline": "#757680",
+            "surface-container": "#f0edeb",
+            "on-error-container": "#93000a",
+            "on-secondary-fixed": "#001c3a",
+            "surface-container-low": "#f6f3f1",
+            "surface-container-highest": "#e5e2e0",
+            "on-tertiary-fixed": "#281900",
+            "on-secondary-fixed-variant": "#244874",
+            "on-secondary": "#ffffff",
+            "background": "#fcf9f7",
+            "tertiary-fixed": "#ffdeac",
+            "surface": "#fcf9f7",
+            "tertiary-container": "#281900",
+            "on-primary-fixed": "#081942",
+            "tertiary-fixed-dim": "#fabc4b"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "fontFamily": {
+            "headline": ["Public Sans"],
+            "body": ["Inter"],
+            "label": ["Inter"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    body { font-family: 'Inter', sans-serif; }
+    .headline-font { font-family: 'Public Sans', sans-serif; }
+    .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+  </style>
+</head>
+<body class="bg-surface text-on-surface">
+<!-- SideNavBar -->
+<aside class="h-screen w-64 fixed left-0 top-0 z-50 bg-slate-100 dark:bg-slate-900 flex flex-col p-6">
+<div class="mb-10">
+<h1 class="font-['Public_Sans'] font-black text-[#081942] dark:text-white text-2xl tracking-tighter">The Curator</h1>
+<p class="text-xs font-['Inter'] tracking-widest text-slate-500 uppercase mt-1">Legal Authority</p>
+</div>
+<nav class="flex-1 space-y-2">
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 dark:text-slate-400 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="folder_open">folder_open</span>
+<span class="font-['Inter'] text-sm tracking-wide">Projects</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 dark:text-slate-400 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="calendar_today">calendar_today</span>
+<span class="font-['Inter'] text-sm tracking-wide">Calendar</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 dark:text-slate-400 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+<span class="font-['Inter'] text-sm tracking-wide">Team</span>
+</a>
+<!-- ACTIVE TAB: Company -->
+<a class="flex items-center gap-3 px-3 py-2 text-[#081942] dark:text-white font-semibold bg-white dark:bg-slate-800 rounded-md translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="domain">domain</span>
+<span class="font-['Inter'] text-sm tracking-wide">Company</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 dark:text-slate-400 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-['Inter'] text-sm tracking-wide">Settings</span>
+</a>
+</nav>
+<div class="mt-auto space-y-4 pt-6 border-t border-slate-200 dark:border-slate-800">
+<button class="w-full bg-primary-container text-on-primary font-semibold py-2 rounded-lg text-sm transition-all hover:opacity-90">
+        New Project
+      </button>
+<div class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 dark:text-slate-400 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="contact_support">contact_support</span>
+<span class="font-['Inter'] text-sm tracking-wide">Support</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-600 dark:text-slate-400 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+<span class="font-['Inter'] text-sm tracking-wide">Archive</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="ml-64 min-h-screen">
+<!-- TopNavBar -->
+<header class="flex justify-between items-center w-full px-8 py-4 bg-[#fcf9f7] dark:bg-slate-950 z-40 sticky top-0">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold text-[#081942] dark:text-white tracking-tight headline-font">The Editorial Authority</span>
+<div class="relative hidden lg:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm" data-icon="search">search</span>
+<input class="bg-surface-container-low border-none rounded-full py-2 pl-10 pr-4 text-sm w-64 focus:ring-1 focus:ring-secondary" placeholder="Search organization..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+</button>
+<div class="h-8 w-8 rounded-full overflow-hidden bg-slate-200">
+<img alt="User profile" data-alt="Close up portrait of a professional man in a tailored suit with a confident expression and clean background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDg8UedVjqkr64qe0xjVwmk88D3kZ4--2lnlxcZ0Yoznh0jAUwzZiDuS8Xi4R5c3uIdgrUiWAIEd0-Ro-3dubq2lbQkOx20_Qb3gc9_A16EvG5FTQQ1jaYmRMHelnUOgjr1uG7D6AeqSwANNPtFXWBEdgKjda0gUaotK7wpJvRYbSSLFTSG5lv0VhtDYzAU3SLdlVN5P5Z5iv6f6zT53WPRWPouwH1QiWpnJzPj80d4o07Zgn9VcDQEbPIFjp-lJz71PEYi34Yt9ptu"/>
+</div>
+</div>
+</header>
+<div class="p-12 max-w-6xl mx-auto">
+<!-- Page Header -->
+<header class="mb-12">
+<h2 class="text-4xl font-black headline-font text-primary mb-2">Company Management</h2>
+<p class="text-on-surface-variant max-w-2xl">Oversee your legal firm's operational backbone. Manage elite team permissions, curate API connections, and monitor institutional billing.</p>
+</header>
+<!-- Tabs Navigation -->
+<nav class="flex gap-8 border-b border-outline-variant/15 mb-10 overflow-x-auto pb-px">
+<button class="pb-4 text-sm font-semibold border-b-2 border-primary text-primary transition-all px-1">Team Management</button>
+<button class="pb-4 text-sm font-medium border-b-2 border-transparent text-on-surface-variant hover:text-primary transition-all px-1">Subscription &amp; Billing</button>
+<button class="pb-4 text-sm font-medium border-b-2 border-transparent text-on-surface-variant hover:text-primary transition-all px-1">API &amp; Integrations</button>
+<button class="pb-4 text-sm font-medium border-b-2 border-transparent text-on-surface-variant hover:text-primary transition-all px-1">Audit Logs</button>
+</nav>
+<!-- Content Grid -->
+<div class="grid grid-cols-12 gap-8">
+<!-- Main Content Area: Team List -->
+<section class="col-span-12 lg:col-span-8 space-y-8">
+<div class="bg-surface-container-lowest p-1 rounded-xl">
+<div class="flex items-center justify-between p-6">
+<h3 class="text-xl font-bold headline-font">Member Directory</h3>
+<button class="bg-primary text-on-primary px-4 py-2 rounded font-semibold text-sm flex items-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-sm" data-icon="person_add">person_add</span>
+                Invite Member
+              </button>
+</div>
+<table class="w-full text-left">
+<thead class="bg-surface-container-low">
+<tr>
+<th class="px-6 py-4 text-[0.7rem] uppercase tracking-[0.1em] font-bold text-on-surface-variant font-label">Full Name</th>
+<th class="px-6 py-4 text-[0.7rem] uppercase tracking-[0.1em] font-bold text-on-surface-variant font-label">Role</th>
+<th class="px-6 py-4 text-[0.7rem] uppercase tracking-[0.1em] font-bold text-on-surface-variant font-label">Project Access</th>
+<th class="px-6 py-4 text-[0.7rem] uppercase tracking-[0.1em] font-bold text-on-surface-variant font-label text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/10">
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="px-6 py-4 flex items-center gap-3">
+<img alt="Profile" class="w-10 h-10 rounded-full object-cover" data-alt="Corporate headshot of a professional executive in a dark office setting with soft professional lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDjH5qA4KnJ0b94PkjM1SoEcDSTLHKJOH0N4Xzul4WwsYqPoyM0yFkywRAuf-ECbb0Prfk8xmUrq1yaNPJvLX1_09wFKZnayJ3ML77OTlRWjqoKMUtXTJu0L9VycCIKXlzGG8rCCdGQgvkkpngp5ctf0yQf4RvhsCNuh35-llAg55SNIiHE4EchyaPSxJ09R1TiqBTZ-MmCDte4BE_ByZYqHSQaxy6tPPm_ZuXeeDkYktoBjjZ2tkGsht4bR-PW5pCKXSPJ7RWVFx3E"/>
+<div>
+<div class="font-semibold text-sm">Marcus Thorne</div>
+<div class="text-xs text-on-surface-variant">m.thorne@editorialauthority.com</div>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="px-3 py-1 bg-primary-container text-white text-[0.65rem] font-bold uppercase rounded-full">Senior Partner</span>
+</td>
+<td class="px-6 py-4 text-sm font-medium">All Projects</td>
+<td class="px-6 py-4 text-right">
+<button class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined" data-icon="more_horiz">more_horiz</span></button>
+</td>
+</tr>
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="px-6 py-4 flex items-center gap-3">
+<img alt="Profile" class="w-10 h-10 rounded-full object-cover" data-alt="Portrait of a female legal professional in a light-colored blazer looking directly at camera with a neutral background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAilPt7UbtxaU6lEv3HQE9i1NTtQ0e4770Vv6DtV0VUn30k8Z8ULkRdF2Ipcpk96iHE5veojht2WL-z1H9cHfa9cPkITmx6WVNYQo38hWQfBJ-A4W0ns6wEChZlHMouF6nzjQbbw4zFUO377gK1Xv_hY8wGwWHOheCDsrcywwNjym-b070CUIaSH9KOjRQ4kpUl80ok24t0S4GRxcCy2tUTkHt-U7Ei9WOii4pfN4hz-oBnQpWkHsgrXCEV3Pe-MarK1_7VFrHCnj4G"/>
+<div>
+<div class="font-semibold text-sm">Elena Rodriguez</div>
+<div class="text-xs text-on-surface-variant">e.rodriguez@editorialauthority.com</div>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="px-3 py-1 bg-secondary-container text-on-secondary-container text-[0.65rem] font-bold uppercase rounded-full">Associate</span>
+</td>
+<td class="px-6 py-4 text-sm">12 Active</td>
+<td class="px-6 py-4 text-right">
+<button class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined" data-icon="more_horiz">more_horiz</span></button>
+</td>
+</tr>
+<tr class="hover:bg-surface-container-high transition-colors">
+<td class="px-6 py-4 flex items-center gap-3">
+<img alt="Profile" class="w-10 h-10 rounded-full object-cover" data-alt="Professional headshot of a smiling young man in a clean office with bright natural lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCRtEckzpZfB4-B3y9OX1xArrNX3LMSLF8dGIX9oboDSPLbgVIFUI8PyxX78LUE4uzVfzuo2vfa3Pq34tVSCuUNw4_GqUvynM08V-sRT0sXeCd7Lz0KpEP5BpAbEFMoAAUWkpHeQEFOY5LWbZzJJ16BR1mtrxvkpKGEXG222QuvDOfOFiX1MEeJTwn3FpVMs_TrlvhsTWcg5LMCL03yC9o7VRQ0mT3mWk_Bb5A6-2S-tN_ZghnxuhPI_SFwafwPw76z9hu5gmKoxkAy"/>
+<div>
+<div class="font-semibold text-sm">Julian Vance</div>
+<div class="text-xs text-on-surface-variant">j.vance@editorialauthority.com</div>
+</div>
+</td>
+<td class="px-6 py-4">
+<span class="px-3 py-1 bg-surface-container-highest text-on-surface-variant text-[0.65rem] font-bold uppercase rounded-full">Support Clerk</span>
+</td>
+<td class="px-6 py-4 text-sm">3 Active</td>
+<td class="px-6 py-4 text-right">
+<button class="text-on-surface-variant hover:text-primary"><span class="material-symbols-outlined" data-icon="more_horiz">more_horiz</span></button>
+</td>
+</tr>
+</tbody>
+</table>
+<div class="p-6 border-t border-outline-variant/10 text-center">
+<button class="text-sm font-semibold text-secondary hover:underline transition-all">View All 24 Members</button>
+</div>
+</div>
+</section>
+<!-- Sidebar Info Panels -->
+<aside class="col-span-12 lg:col-span-4 space-y-8">
+<!-- Subscription Status -->
+<div class="bg-surface-container-low p-8 rounded-xl relative overflow-hidden group">
+<div class="relative z-10">
+<h4 class="text-[0.7rem] uppercase tracking-[0.15em] font-black text-on-surface-variant mb-4">Current Plan</h4>
+<div class="flex items-baseline gap-2 mb-2">
+<span class="text-3xl font-black headline-font">Enterprise</span>
+<span class="text-sm font-medium text-secondary">Annual</span>
+</div>
+<p class="text-sm text-on-surface-variant mb-6">Renews on Oct 12, 2024</p>
+<div class="space-y-3 mb-8">
+<div class="flex justify-between text-xs">
+<span class="font-medium">User Seats</span>
+<span class="font-bold">24 / 50</span>
+</div>
+<div class="w-full h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="bg-secondary h-full" style="width: 48%;"></div>
+</div>
+</div>
+<button class="w-full py-3 bg-primary-container text-white rounded font-bold text-xs uppercase tracking-widest hover:translate-y-[-2px] transition-transform shadow-lg shadow-black/10">
+                Manage Billing
+              </button>
+</div>
+<div class="absolute -right-8 -bottom-8 opacity-5 group-hover:scale-110 transition-transform duration-700">
+<span class="material-symbols-outlined text-[120px]" data-icon="verified">verified</span>
+</div>
+</div>
+<!-- Integrations Preview -->
+<div class="bg-surface-container-lowest p-8 rounded-xl">
+<h4 class="text-[0.7rem] uppercase tracking-[0.15em] font-black text-on-surface-variant mb-6">Active Integrations</h4>
+<div class="space-y-6">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded bg-blue-50 flex items-center justify-center">
+<span class="material-symbols-outlined text-blue-600" data-icon="cloud_done">cloud_done</span>
+</div>
+<div class="flex-1">
+<div class="text-sm font-bold">LexisNexis</div>
+<div class="text-xs text-on-surface-variant">Synchronized daily</div>
+</div>
+<div class="h-2 w-2 rounded-full bg-emerald-500"></div>
+</div>
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded bg-slate-100 flex items-center justify-center">
+<span class="material-symbols-outlined text-slate-800" data-icon="account_balance">account_balance</span>
+</div>
+<div class="flex-1">
+<div class="text-sm font-bold">Westlaw Edge</div>
+<div class="text-xs text-on-surface-variant">Connected</div>
+</div>
+<div class="h-2 w-2 rounded-full bg-emerald-500"></div>
+</div>
+<div class="flex items-center gap-4 opacity-50">
+<div class="w-10 h-10 rounded bg-amber-50 flex items-center justify-center">
+<span class="material-symbols-outlined text-amber-600" data-icon="sync_problem">sync_problem</span>
+</div>
+<div class="flex-1">
+<div class="text-sm font-bold">DocuSign</div>
+<div class="text-xs text-on-surface-variant">Re-auth required</div>
+</div>
+<div class="h-2 w-2 rounded-full bg-amber-500"></div>
+</div>
+</div>
+<button class="w-full mt-8 py-3 text-secondary text-xs font-bold uppercase tracking-widest border border-outline-variant/30 rounded hover:bg-surface-container-low transition-colors">
+              Configure API
+            </button>
+</div>
+</aside>
+</div>
+<!-- Footer Branding -->
+<footer class="mt-20 pt-10 border-t border-outline-variant/10 flex flex-col md:flex-row justify-between items-center text-on-surface-variant text-xs gap-4">
+<div>© 2024 The Editorial Authority. All rights reserved for institutional users.</div>
+<div class="flex gap-6">
+<a class="hover:text-primary transition-colors" href="#">Security Policy</a>
+<a class="hover:text-primary transition-colors" href="#">Service Terms</a>
+<a class="hover:text-primary transition-colors" href="#">Privacy</a>
+</div>
+</footer>
+</div>
+</main>
+</body></html>

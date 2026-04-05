@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Project Dashboard - The Editorial Authority</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=Public+Sans:wght@600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface-container-high": "#eae8e6",
+                    "on-secondary-container": "#335583",
+                    "secondary-fixed-dim": "#a7c8fc",
+                    "on-primary-fixed-variant": "#374570",
+                    "on-tertiary": "#ffffff",
+                    "on-primary-container": "#7482b2",
+                    "surface-bright": "#fcf9f7",
+                    "primary-fixed": "#dbe1ff",
+                    "inverse-on-surface": "#f3f0ee",
+                    "inverse-primary": "#b7c5f8",
+                    "inverse-surface": "#31302f",
+                    "outline-variant": "#c6c6d0",
+                    "secondary-container": "#aacbff",
+                    "primary": "#000000",
+                    "on-error": "#ffffff",
+                    "on-primary": "#ffffff",
+                    "on-surface": "#1b1c1b",
+                    "primary-container": "#081942",
+                    "secondary": "#3e608e",
+                    "surface-variant": "#e5e2e0",
+                    "error-container": "#ffdad6",
+                    "secondary-fixed": "#d4e3ff",
+                    "error": "#ba1a1a",
+                    "on-surface-variant": "#45464f",
+                    "tertiary": "#000000",
+                    "on-tertiary-container": "#ae7a01",
+                    "primary-fixed-dim": "#b7c5f8",
+                    "on-background": "#1b1c1b",
+                    "surface-dim": "#dcd9d8",
+                    "surface-container-lowest": "#ffffff",
+                    "surface-tint": "#4f5d8a",
+                    "on-tertiary-fixed-variant": "#5f4100",
+                    "outline": "#757680",
+                    "surface-container": "#f0edeb",
+                    "on-error-container": "#93000a",
+                    "on-secondary-fixed": "#001c3a",
+                    "surface-container-low": "#f6f3f1",
+                    "surface-container-highest": "#e5e2e0",
+                    "on-tertiary-fixed": "#281900",
+                    "on-secondary-fixed-variant": "#244874",
+                    "on-secondary": "#ffffff",
+                    "background": "#fcf9f7",
+                    "tertiary-fixed": "#ffdeac",
+                    "surface": "#fcf9f7",
+                    "tertiary-container": "#281900",
+                    "on-primary-fixed": "#081942",
+                    "tertiary-fixed-dim": "#fabc4b"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "fontFamily": {
+                    "headline": ["Public Sans"],
+                    "body": ["Inter"],
+                    "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #dcd9d8;
+            border-radius: 10px;
+        }
+        .timeline-mask {
+            mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent);
+        }
+    </style>
+</head>
+<body class="bg-surface font-body text-on-surface">
+<!-- SideNavBar (Authority: Shared Components JSON) -->
+<aside class="h-screen w-64 fixed left-0 top-0 z-50 bg-slate-100 dark:bg-slate-900 flex flex-col p-6 font-['Inter'] text-sm tracking-wide">
+<div class="mb-10">
+<div class="flex items-center gap-3 mb-2">
+<div class="w-8 h-8 bg-primary-container rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-white text-lg">gavel</span>
+</div>
+<h1 class="font-['Public_Sans'] font-black text-[#081942] dark:text-white text-lg">The Curator</h1>
+</div>
+<p class="text-slate-500 text-xs uppercase tracking-widest font-bold">Legal Authority</p>
+</div>
+<nav class="flex-1 space-y-2">
+<a class="flex items-center gap-3 px-4 py-3 text-[#081942] dark:text-white font-semibold bg-white dark:bg-slate-800 rounded-md Active: translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="folder_open">folder_open</span>
+                Projects
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="calendar_today">calendar_today</span>
+                Calendar
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+                Team
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="domain">domain</span>
+                Company
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+                Settings
+            </a>
+</nav>
+<div class="mt-auto space-y-1">
+<a class="flex items-center gap-3 px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="contact_support">contact_support</span>
+                Support
+            </a>
+<a class="flex items-center gap-3 px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-[#3e608e] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+                Archive
+            </a>
+<button class="w-full mt-6 bg-primary-container text-white py-3 rounded-md font-bold text-sm transition-opacity hover:opacity-90">
+                New Project
+            </button>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 min-h-screen">
+<!-- TopNavBar (Authority: Shared Components JSON) -->
+<header class="bg-[#fcf9f7] dark:bg-slate-950 flex justify-between items-center w-full px-8 py-4 docked full-width top-0 z-40 sticky">
+<div class="flex items-center gap-6">
+<h2 class="text-xl font-bold text-[#081942] dark:text-white tracking-tight font-headline">The Editorial Authority</h2>
+<div class="h-6 w-px bg-outline-variant opacity-20"></div>
+<div class="flex items-center gap-2 text-secondary font-medium">
+<span class="material-symbols-outlined text-sm">folder</span>
+<span class="text-sm">Case #2024-0892: Sterling vs. Global Logistics</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2">
+<button class="p-2 text-slate-500 hover:bg-slate-100 transition-colors rounded-full">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 text-slate-500 hover:bg-slate-100 transition-colors rounded-full">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+</button>
+</div>
+<div class="w-8 h-8 rounded-full bg-surface-container-highest overflow-hidden">
+<img alt="User profile" data-alt="portrait of a professional male in a suit with a neutral expression, clean studio lighting, soft gray background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuButMCNHRQ5BP6Dr9HcvwIFD_FGEyjk99b8HwJN95WGCpkeeK1hAc3ZUzcTEdu3Al_7_Oixz5uDfOkSiAT6CaN6lpAObAJ70zk6uzTbKu7ckzPBiU5qmfb1vRdC3HLVOjWr-uaSrupiAklcAeY1t9h2sbD6ytlW90-3_QyjY627I6cuSVLmjdRjjZ-nWDbL3Brj-J8xSBBrdtJtoCnLLksBtpQ4hl4jLz-gxHkdB9_4Ovt7KZYkRnUndsnO1Lyrr8kAC71wRbGeaFaH"/>
+</div>
+</div>
+</header>
+<div class="p-12 max-w-7xl mx-auto space-y-12">
+<!-- Timeline Section -->
+<section class="space-y-6">
+<div class="flex justify-between items-end">
+<div>
+<h3 class="text-2xl font-black font-headline tracking-tight text-primary">Case Chronology</h3>
+<p class="text-on-surface-variant text-sm mt-1">Key extracted events and critical documentation milestones</p>
+</div>
+<div class="flex gap-2">
+<button class="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-surface-container-low text-secondary rounded-full hover:bg-surface-container-high transition-colors">Export Timeline</button>
+<button class="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-primary text-white rounded-full">Add Event</button>
+</div>
+</div>
+<!-- High Fidelity Timeline -->
+<div class="relative overflow-x-auto pb-8 pt-4 no-scrollbar">
+<div class="min-w-[1200px] relative px-4">
+<!-- Main Axis -->
+<div class="absolute top-1/2 left-0 w-full h-[2px] bg-secondary opacity-20 -translate-y-1/2"></div>
+<div class="flex justify-between relative">
+<!-- Milestone 1 -->
+<div class="relative flex flex-col items-center group">
+<div class="mb-10 p-4 bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/10 w-48 transition-transform group-hover:-translate-y-1">
+<span class="text-[10px] font-bold text-secondary uppercase block mb-1">Jan 12, 2024</span>
+<p class="text-xs font-semibold leading-tight text-on-surface">Initial Filing</p>
+<div class="mt-2 flex items-center gap-1 text-[10px] text-on-surface-variant">
+<span class="material-symbols-outlined text-sm">attachment</span>
+                                        Complaint_Final.pdf
+                                    </div>
+</div>
+<div class="w-4 h-4 bg-secondary rounded-full border-4 border-surface ring-1 ring-secondary/30"></div>
+</div>
+<!-- Milestone 2 -->
+<div class="relative flex flex-col items-center group">
+<div class="w-4 h-4 bg-secondary-container rounded-full border-4 border-surface ring-1 ring-secondary/30"></div>
+<div class="mt-10 p-4 bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/10 w-48 transition-transform group-hover:translate-y-1">
+<span class="text-[10px] font-bold text-secondary uppercase block mb-1">Feb 05, 2024</span>
+<p class="text-xs font-semibold leading-tight text-on-surface">Answer Received</p>
+<span class="mt-2 inline-block px-2 py-0.5 bg-secondary/10 text-secondary rounded-full text-[9px] font-bold uppercase">Critical</span>
+</div>
+</div>
+<!-- Milestone 3 -->
+<div class="relative flex flex-col items-center group">
+<div class="mb-10 p-4 bg-white/80 backdrop-blur-md rounded-xl shadow-lg border border-secondary/20 w-56 -translate-y-2 ring-2 ring-secondary/10">
+<span class="text-[10px] font-bold text-tertiary-fixed-dim uppercase block mb-1">Mar 18, 2024</span>
+<p class="text-xs font-bold leading-tight text-on-surface">Mediation Session 01</p>
+<p class="mt-2 text-[10px] text-on-surface-variant line-clamp-2">Initial terms discussed regarding settlement of logistics claims...</p>
+</div>
+<div class="w-6 h-6 bg-primary rounded-full border-4 border-surface ring-2 ring-primary/30 z-10"></div>
+</div>
+<!-- Milestone 4 -->
+<div class="relative flex flex-col items-center group">
+<div class="w-4 h-4 bg-secondary-container rounded-full border-4 border-surface ring-1 ring-secondary/30"></div>
+<div class="mt-10 p-4 bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/10 w-48 transition-transform group-hover:translate-y-1">
+<span class="text-[10px] font-bold text-secondary uppercase block mb-1">Apr 22, 2024</span>
+<p class="text-xs font-semibold leading-tight text-on-surface">Discovery Close</p>
+<div class="mt-2 flex -space-x-2">
+<div class="w-5 h-5 rounded-full border border-surface bg-surface-container-highest flex items-center justify-center text-[8px] font-bold">12</div>
+<div class="w-5 h-5 rounded-full border border-surface bg-surface-container-highest flex items-center justify-center text-[8px] font-bold">04</div>
+</div>
+</div>
+</div>
+<!-- Milestone 5 -->
+<div class="relative flex flex-col items-center group">
+<div class="mb-10 p-4 bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/10 w-48 transition-transform group-hover:-translate-y-1 opacity-60">
+<span class="text-[10px] font-bold text-slate-400 uppercase block mb-1">Jun 10, 2024</span>
+<p class="text-xs font-semibold leading-tight text-slate-500">Trial Commencement</p>
+</div>
+<div class="w-3 h-3 bg-surface-dim rounded-full border-2 border-surface ring-1 ring-outline"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Bottom Sections Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-12">
+<!-- Parties Involved (Authority: Tonal Layering) -->
+<section class="lg:col-span-4 space-y-6">
+<div>
+<h3 class="text-lg font-bold font-headline tracking-tight text-primary">Active Parties</h3>
+<p class="text-on-surface-variant text-xs mt-1">Identified legal entities and witnesses</p>
+</div>
+<div class="bg-surface-container rounded-2xl p-6 space-y-4">
+<!-- Party Card -->
+<div class="flex items-center gap-4 p-3 bg-surface-container-lowest rounded-xl border border-transparent hover:border-secondary/20 transition-all group">
+<img alt="Arthur Sterling" class="w-10 h-10 rounded-lg object-cover grayscale group-hover:grayscale-0 transition-all" data-alt="portrait of a mature professional male with graying hair, serious expression, high-end corporate style" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDOql-Wa-hOjMTeFr34lRTomq4Zs4gPmq9qSwL-eK3HHEMjwS3Tv8rVS2CidSow3LFrZ4VaQxESHsKbdfEatBd8NsAw9waow03a8zAzrMvTgHtZXpMMpu4PNXqs6mURtOSomMGPaxDrAn_ViCf_UPAU-q_AVO8lkr48O27lgrxsmlT-Nz8jLnQZhaIxoNZyhR9A50Fqh57TrwZd3dDKcEXtNWqjuDYtsUl_W2Rhi_BmG3tLxWUlxlleY22jzU9UzKMMwECfxs4mJfoK"/>
+<div>
+<h4 class="text-sm font-bold text-on-surface">Arthur Sterling</h4>
+<p class="text-[10px] font-bold text-secondary uppercase tracking-tighter">Plaintiff</p>
+</div>
+<button class="ml-auto p-1.5 rounded hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-sm" data-icon="mail">mail</span>
+</button>
+</div>
+<div class="flex items-center gap-4 p-3 bg-surface-container-lowest rounded-xl border border-transparent hover:border-secondary/20 transition-all group">
+<div class="w-10 h-10 rounded-lg bg-primary-container flex items-center justify-center text-white font-bold text-xs">GL</div>
+<div>
+<h4 class="text-sm font-bold text-on-surface">Global Logistics Corp.</h4>
+<p class="text-[10px] font-bold text-secondary uppercase tracking-tighter">Defendant</p>
+</div>
+<button class="ml-auto p-1.5 rounded hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-sm" data-icon="corporate_fare">corporate_fare</span>
+</button>
+</div>
+<div class="flex items-center gap-4 p-3 bg-surface-container-lowest rounded-xl border border-transparent hover:border-secondary/20 transition-all group">
+<img alt="Elena Vance" class="w-10 h-10 rounded-lg object-cover grayscale group-hover:grayscale-0 transition-all" data-alt="portrait of a professional female with dark hair tied back, wearing glasses, intellectual and determined look" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAMO9MvSM5EBURIcZPHMv1eAWt2pIp1sjgMvrJzUrNZvVYcnWja55qQh3vrIBAcWxFt7OmHCmUcXm5JaEBX2ciiAnx0QjscTZwtArtJ4cMMu_bWo427W-Sl2UM3dE0hCjweuK4gcMoKwaHfljl7Axy2EWDLCj4HtVU5Gjhp2Qhi1pDEU5JoMFqLEWPvaxWYzg_1wMyWJNHxB51wFCagGP3txXtfLbdo4YKBVFkyPBLJRb7ESZHhDtYcC62Ee72aE0MLJjYdCnV0RvaS"/>
+<div>
+<h4 class="text-sm font-bold text-on-surface">Elena Vance</h4>
+<p class="text-[10px] font-bold text-secondary uppercase tracking-tighter">Legal Rep (Plaintiff)</p>
+</div>
+<button class="ml-auto p-1.5 rounded hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-sm" data-icon="call">call</span>
+</button>
+</div>
+<div class="flex items-center gap-4 p-3 bg-surface-container-lowest rounded-xl border border-transparent hover:border-secondary/20 transition-all group">
+<div class="w-10 h-10 rounded-lg bg-surface-dim flex items-center justify-center text-on-surface-variant font-bold text-xs">
+<span class="material-symbols-outlined">person</span>
+</div>
+<div>
+<h4 class="text-sm font-bold text-on-surface">Dr. Marcus Thorne</h4>
+<p class="text-[10px] font-bold text-secondary uppercase tracking-tighter">Expert Witness</p>
+</div>
+<button class="ml-auto p-1.5 rounded hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-sm" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+<button class="w-full py-3 border-2 border-dashed border-outline-variant/30 rounded-xl text-xs font-bold text-on-surface-variant hover:border-secondary hover:text-secondary transition-all">
+                            + Add Party or Representative
+                        </button>
+</div>
+</section>
+<!-- Documents & Insights (Authority: Glassmorphism / Tonal Layers) -->
+<section class="lg:col-span-8 space-y-6">
+<div class="flex justify-between items-end">
+<div>
+<h3 class="text-lg font-bold font-headline tracking-tight text-primary">Evidence &amp; Documents</h3>
+<p class="text-on-surface-variant text-xs mt-1">AI-extracted highlights from discovery folder</p>
+</div>
+<div class="flex bg-surface-container-low rounded-lg p-1">
+<button class="px-3 py-1 text-[10px] font-bold uppercase bg-white shadow-sm rounded-md text-primary">Grid</button>
+<button class="px-3 py-1 text-[10px] font-bold uppercase text-on-surface-variant">List</button>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4 h-[500px] overflow-y-auto pr-4 no-scrollbar">
+<!-- Document Card 1 -->
+<div class="bg-surface-container-lowest p-5 rounded-2xl border border-transparent hover:border-secondary/10 hover:shadow-xl transition-all flex flex-col group">
+<div class="flex justify-between items-start mb-4">
+<div class="p-2 bg-secondary/5 text-secondary rounded-lg">
+<span class="material-symbols-outlined">description</span>
+</div>
+<span class="text-[9px] font-bold bg-error-container text-on-error-container px-2 py-0.5 rounded-full uppercase">High Risk</span>
+</div>
+<h5 class="text-sm font-bold mb-1 group-hover:text-secondary transition-colors">Logistics Agreement v4.2</h5>
+<p class="text-xs text-on-surface-variant leading-relaxed line-clamp-3">Clause 14.2 contains a discrepancy regarding liability limits that conflicts with the primary service level agreement...</p>
+<div class="mt-auto pt-4 flex items-center justify-between border-t border-outline-variant/10">
+<span class="text-[10px] text-outline font-medium">Updated 2h ago</span>
+<div class="flex gap-2">
+<span class="material-symbols-outlined text-sm text-outline hover:text-secondary cursor-pointer">visibility</span>
+<span class="material-symbols-outlined text-sm text-outline hover:text-secondary cursor-pointer">download</span>
+</div>
+</div>
+</div>
+<!-- Document Card 2 -->
+<div class="bg-surface-container-lowest p-5 rounded-2xl border border-transparent hover:border-secondary/10 hover:shadow-xl transition-all flex flex-col group">
+<div class="flex justify-between items-start mb-4">
+<div class="p-2 bg-secondary/5 text-secondary rounded-lg">
+<span class="material-symbols-outlined">mark_email_unread</span>
+</div>
+<span class="text-[9px] font-bold bg-secondary-container text-on-secondary-container px-2 py-0.5 rounded-full uppercase">Communication</span>
+</div>
+<h5 class="text-sm font-bold mb-1 group-hover:text-secondary transition-colors">Internal Correspondence #331</h5>
+<p class="text-xs text-on-surface-variant leading-relaxed line-clamp-3">Discussion between warehouse managers acknowledging the delayed shipment timestamps...</p>
+<div class="mt-auto pt-4 flex items-center justify-between border-t border-outline-variant/10">
+<span class="text-[10px] text-outline font-medium">Mar 02, 2024</span>
+<div class="flex gap-2">
+<span class="material-symbols-outlined text-sm text-outline hover:text-secondary cursor-pointer">visibility</span>
+<span class="material-symbols-outlined text-sm text-outline hover:text-secondary cursor-pointer">chat_bubble_outline</span>
+</div>
+</div>
+</div>
+<!-- Document Card 3 -->
+<div class="bg-surface-container-lowest p-5 rounded-2xl border border-transparent hover:border-secondary/10 hover:shadow-xl transition-all flex flex-col group">
+<div class="flex justify-between items-start mb-4">
+<div class="p-2 bg-secondary/5 text-secondary rounded-lg">
+<span class="material-symbols-outlined">photo_library</span>
+</div>
+<span class="text-[9px] font-bold bg-surface-container-high text-on-surface-variant px-2 py-0.5 rounded-full uppercase">Media</span>
+</div>
+<h5 class="text-sm font-bold mb-1 group-hover:text-secondary transition-colors">Dock Site Photography</h5>
+<p class="text-xs text-on-surface-variant leading-relaxed line-clamp-3">12 high-resolution captures of the loading bay conditions on the date of the alleged incident...</p>
+<div class="mt-auto pt-4 flex items-center justify-between border-t border-outline-variant/10">
+<span class="text-[10px] text-outline font-medium">Jan 28, 2024</span>
+<div class="flex gap-2">
+<span class="material-symbols-outlined text-sm text-outline hover:text-secondary cursor-pointer">visibility</span>
+<span class="material-symbols-outlined text-sm text-outline hover:text-secondary cursor-pointer">share</span>
+</div>
+</div>
+</div>
+<!-- Document Card 4 -->
+<div class="bg-surface-container-lowest p-5 rounded-2xl border border-transparent hover:border-secondary/10 hover:shadow-xl transition-all flex flex-col group">
+<div class="flex justify-between items-start mb-4">
+<div class="p-2 bg-secondary/5 text-secondary rounded-lg">
+<span class="material-symbols-outlined">fact_check</span>
+</div>
+<span class="text-[9px] font-bold bg-tertiary-fixed text-on-tertiary-fixed px-2 py-0.5 rounded-full uppercase">Review Needed</span>
+</div>
+<h5 class="text-sm font-bold mb-1 group-hover:text-secondary transition-colors">Q1 Performance Audit</h5>
+<p class="text-xs text-on-surface-variant leading-relaxed line-clamp-3">Audit report detailing systemic failures in the logistics tracking software during peak hours...</p>
+<div class="mt-auto pt-4 flex items-center justify-between border-t border-outline-variant/10">
+<span class="text-[10px] text-outline font-medium">Apr 12, 2024</span>
+<div class="flex gap-2">
+<span class="material-symbols-outlined text-sm text-outline hover:text-secondary cursor-pointer">visibility</span>
+<span class="material-symbols-outlined text-sm text-outline hover:text-secondary cursor-pointer">more_horiz</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+</main>
+<!-- Contextual FAB (Restricted to Home/Dashboard contexts) -->
+<button class="fixed bottom-8 right-8 w-14 h-14 bg-primary text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-110 transition-transform z-50">
+<span class="material-symbols-outlined">add</span>
+</button>
+</body></html>
