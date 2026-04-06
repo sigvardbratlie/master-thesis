@@ -10,7 +10,7 @@ import {
   loadProject, loadProjectSessions, loadSessionHistory,
   createSession, deleteSession, streamChat,
 } from '../api.js';
-import { getSignedUrl } from '../storage.js';
+import { fetchFileAsObjectUrl, fetchTextFile } from '../storage.js';
 import { renderSidebar, bindSidebarEvents } from '../components/sidebar.js';
 import { renderTopbar }                     from '../components/topbar.js';
 import { appState }                         from '../state.js';
@@ -24,6 +24,9 @@ const md = (text) => marked.parse(text ?? '');
 
 // ── Active streaming controller (cancel on navigation) ──────
 let _streamController = null;
+
+// ── Email store — avoids data-attribute encoding issues ───────
+const _emailStore = new Map(); // key: email_id → email object
 
 export async function renderProject(params) {
   const projectId = params.id;
@@ -54,6 +57,25 @@ export async function renderProject(params) {
   }
 }
 
+// ── Section helper (collapsible) ─────────────────────────────
+
+function sec(id, title, subtitle, content) {
+  return `
+    <div class="border border-outline-variant/10 rounded-2xl overflow-hidden bg-surface-container-lowest">
+      <button class="sec-toggle w-full flex items-center justify-between px-6 py-4 hover:bg-surface-container transition-colors group"
+              data-sec="${id}">
+        <div class="text-left">
+          <h3 class="font-headline font-bold text-base text-primary">${title}</h3>
+          ${subtitle ? `<p class="text-on-surface-variant text-xs mt-0.5">${subtitle}</p>` : ''}
+        </div>
+        <span class="material-symbols-outlined text-[20px] text-on-surface-variant/40 group-hover:text-secondary transition-all sec-icon">
+          expand_less
+        </span>
+      </button>
+      <div id="sec-${id}" class="px-6 pb-6 pt-1">${content}</div>
+    </div>`;
+}
+
 // ── Shell layout ─────────────────────────────────────────────
 
 function buildProjectShell(projectId, data, sessions) {
@@ -64,64 +86,58 @@ function buildProjectShell(projectId, data, sessions) {
   document.querySelector('#app header h2').textContent = title;
 
   document.getElementById('project-body').innerHTML = `
-    <!-- Left: factsheet + timeline (scrollable) -->
-    <div class="flex-1 overflow-y-auto p-10 space-y-12 min-w-0" id="factsheet-panel">
-      ${buildTimeline(factsheet.events ?? [])}
-      ${buildPartiesSection(factsheet.parties ?? [])}
-      ${buildFactsheetGrid(factsheet, attachments, emails)}
-    </div>
+    <!-- Full-width scrollable factsheet -->
+    <div class="flex-1 overflow-y-auto min-w-0" id="factsheet-panel">
+      <div class="max-w-5xl mx-auto px-10 py-10 space-y-6">
 
-    <!-- Drag handle -->
-    <div id="chat-resize-handle"
-      class="w-1 flex-shrink-0 cursor-col-resize bg-outline-variant/10 hover:bg-secondary/30 active:bg-secondary/50 transition-colors relative group"
-      title="Drag to resize">
-      <div class="absolute inset-y-0 -left-1 -right-1"></div>
-    </div>
+        ${sec('background', 'Background', null,
+          factsheet.background
+            ? `<p class="text-sm text-on-surface font-body leading-relaxed whitespace-pre-line">${escHtml(factsheet.background)}</p>`
+            : `<p class="text-sm text-on-surface-variant font-body italic">No background recorded.</p>`
+        )}
 
-    <!-- Right: chat panel -->
-    <div class="flex-shrink-0 border-l border-outline-variant/10 bg-surface-container-low flex flex-col" id="chat-panel" style="width:400px; min-width:280px; max-width:700px">
-      ${buildChatPanel(projectId, sessions)}
+        ${sec('timeline', 'Case Chronology', 'Key events and documentation milestones', buildTimelineInner(factsheet.events ?? []))}
+
+        ${sec('parties', 'Parties & Claims', 'Identified legal entities and claims', buildPartiesClaims(factsheet.parties ?? [], factsheet.claims ?? []))}
+
+        ${sec('factsheet', 'Factsheet', 'Deadlines, damages and documents', buildFactsheetInner(factsheet, attachments, emails))}
+
+        <!-- Footer -->
+        <div class="pt-4 border-t border-outline-variant/10 flex items-center justify-between text-[10px] text-on-surface-variant/40 font-body">
+          <span class="font-mono">${projectId}</span>
+          <span>Created ${formatDate(factsheet.created_at)}</span>
+        </div>
+      </div>
     </div>`;
 
-  // Append viewer modal to app root
+  // Append viewer modal + chat drawer to app root
   const modal = document.createElement('div');
   modal.innerHTML = buildViewerModal();
   document.getElementById('app').appendChild(modal.firstElementChild);
 
+  const drawer = document.createElement('div');
+  drawer.innerHTML = buildChatDrawer(projectId, sessions);
+  document.getElementById('app').appendChild(drawer.firstElementChild);
+
   bindProjectEvents(projectId, data, sessions);
-  bindChatResize();
   bindViewerEvents();
 }
 
 // ── Timeline ─────────────────────────────────────────────────
 
-function buildTimeline(events) {
-  const items = events.length
-    ? events.slice(0, 6).map((ev, i) => timelineItem(ev, i)).join('')
-    : `<p class="text-on-surface-variant text-sm font-body py-6">No events recorded yet. Ask the agent to extract case events.</p>`;
-
+function buildTimelineInner(events) {
+  if (!events.length) {
+    return `<p class="text-on-surface-variant text-sm font-body py-4">No events recorded yet.</p>`;
+  }
   return `
-    <section>
-      <div class="flex items-end justify-between mb-5">
-        <div>
-          <h3 class="font-headline font-black text-2xl text-primary tracking-tight">Case Chronology</h3>
-          <p class="text-on-surface-variant text-sm font-body mt-1">Key events and documentation milestones</p>
-        </div>
-        <div class="flex gap-2">
-          <button class="px-4 py-1.5 text-xs font-bold uppercase tracking-wider bg-surface-container text-secondary rounded-full hover:bg-surface-container-high transition-colors">
-            Export
-          </button>
+    <div class="relative overflow-x-auto pb-4 pt-2">
+      <div class="min-w-[700px] relative px-2">
+        <div class="absolute top-1/2 left-0 w-full h-[2px] bg-secondary/15 -translate-y-1/2 pointer-events-none"></div>
+        <div class="flex justify-between relative gap-4">
+          ${events.slice(0, 6).map((ev, i) => timelineItem(ev, i)).join('')}
         </div>
       </div>
-      <div class="relative overflow-x-auto pb-6 pt-4">
-        <div class="min-w-[800px] relative px-4">
-          <div class="absolute top-1/2 left-0 w-full h-[2px] bg-secondary/15 -translate-y-1/2 pointer-events-none"></div>
-          <div class="flex justify-between relative gap-4">
-            ${items}
-          </div>
-        </div>
-      </div>
-    </section>`;
+    </div>`;
 }
 
 function timelineItem(ev, i) {
@@ -145,61 +161,65 @@ function timelineItem(ev, i) {
 
 // ── Parties ───────────────────────────────────────────────────
 
-function buildPartiesSection(parties) {
-  if (!parties.length) return '';
-
-  const cards = parties.map(p => {
-    const initial = (p.party_name ?? p.name ?? '?')[0].toUpperCase();
-    const role    = p.party_role ?? p.role ?? '';
-    const name    = p.party_name ?? p.name ?? 'Unknown';
-    return `
-      <div class="flex items-center gap-3 p-3 bg-surface-container-lowest rounded-xl
-                  ring-1 ring-transparent hover:ring-secondary/20 transition-all group">
-        <div class="w-10 h-10 rounded-lg bg-primary-container flex items-center justify-center flex-shrink-0">
-          <span class="text-on-primary text-sm font-bold">${initial}</span>
-        </div>
-        <div class="min-w-0">
-          <h4 class="text-sm font-bold text-on-surface truncate">${escHtml(name)}</h4>
-          <p class="text-[10px] font-bold text-secondary uppercase tracking-tight">${escHtml(role)}</p>
-        </div>
-        <button class="ml-auto p-1.5 rounded hover:bg-surface-container transition-colors opacity-0 group-hover:opacity-100">
-          <span class="material-symbols-outlined text-[16px]">mail</span>
-        </button>
-      </div>`;
-  });
+function buildPartiesClaims(parties, claims) {
+  const partyCards = parties.length
+    ? parties.map(p => {
+        const name    = p.legal_name ?? p.party_name ?? p.name ?? 'Unknown';
+        const initial = name[0].toUpperCase();
+        const role    = p.role ?? p.party_role ?? '';
+        const type    = p.entity_type ? ` · ${p.entity_type}` : '';
+        return `
+          <div class="flex items-center gap-3 p-3 bg-surface-container rounded-xl
+                      ring-1 ring-transparent hover:ring-secondary/20 transition-all">
+            <div class="w-9 h-9 rounded-lg bg-primary-container flex items-center justify-center flex-shrink-0">
+              <span class="text-on-primary text-sm font-bold">${escHtml(initial)}</span>
+            </div>
+            <div class="min-w-0">
+              <p class="text-sm font-bold text-on-surface truncate">${escHtml(name)}</p>
+              <p class="text-[10px] font-bold text-secondary uppercase tracking-tight">${escHtml(role + type)}</p>
+            </div>
+          </div>`;
+      }).join('')
+    : `<p class="text-on-surface-variant text-sm italic py-2">No parties recorded.</p>`;
 
   return `
-    <section class="grid grid-cols-1 lg:grid-cols-12 gap-10">
-      <div class="lg:col-span-5">
-        <h3 class="font-headline font-bold text-lg text-primary mb-1">Active Parties</h3>
-        <p class="text-on-surface-variant text-xs mb-5">Identified legal entities and witnesses</p>
-        <div class="bg-surface-container rounded-2xl p-5 space-y-2">
-          ${cards.join('')}
-        </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div>
+        <p class="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-3">Parties</p>
+        <div class="space-y-2">${partyCards}</div>
       </div>
-      <div class="lg:col-span-7" id="claims-damages-section">
-        ${buildClaimsDamages([])}
-      </div>
-    </section>`;
-}
-
-function buildClaimsDamages(claims) {
-  if (!claims.length) return '';
-  return `
-    <h3 class="font-headline font-bold text-lg text-primary mb-1">Claims</h3>
-    <p class="text-on-surface-variant text-xs mb-5">Legal claims and requested relief</p>
-    <div class="space-y-3">
-      ${claims.map(c => `
-        <div class="p-4 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10">
-          <p class="text-sm font-semibold text-on-surface">${escHtml(c.claim_description ?? c.description ?? '')}</p>
-          ${c.amount ? `<p class="text-xs font-bold text-secondary mt-1">${c.amount}</p>` : ''}
-        </div>`).join('')}
+      <div>${buildClaimsSection(claims)}</div>
     </div>`;
 }
 
-// ── Factsheet grid ───────────────────────────────────────────
+function buildClaimsSection(claims) {
+  const items = claims.length
+    ? claims.map(c => {
+        const relief  = c.relief_sought    ? `<p class="text-[10px] text-secondary font-bold mt-1 uppercase tracking-wide">Relief: ${escHtml(c.relief_sought)}</p>` : '';
+        const basis   = c.legal_basis      ? `<p class="text-[10px] text-on-surface-variant mt-0.5">${escHtml(c.legal_basis)}</p>` : '';
+        const role    = c.party_role       ? `<span class="px-1.5 py-0.5 rounded bg-secondary-container/30 text-on-secondary-container text-[9px] font-bold uppercase">${escHtml(c.party_role)}</span>` : '';
+        const cat     = c.category         ? `<span class="px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant text-[9px] font-bold uppercase">${escHtml(c.category)}</span>` : '';
+        const desc    = c.factual_basis ?? c.defense ?? '';
+        return `
+          <div class="p-4 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10">
+            <div class="flex items-start justify-between gap-2 mb-1">
+              <p class="text-sm font-semibold text-on-surface leading-snug">${escHtml(desc)}</p>
+              <div class="flex gap-1 flex-shrink-0">${role}${cat}</div>
+            </div>
+            ${basis}${relief}
+          </div>`;
+      }).join('')
+    : `<p class="text-on-surface-variant text-sm font-body py-4">No claims recorded. Ask the agent to identify claims.</p>`;
 
-function buildFactsheetGrid(factsheet, attachments, emails) {
+  return `
+    <h3 class="font-headline font-bold text-lg text-primary mb-1">Claims</h3>
+    <p class="text-on-surface-variant text-xs mb-5">Legal claims and requested relief</p>
+    <div class="space-y-3">${items}</div>`;
+}
+
+// ── Factsheet inner ───────────────────────────────────────────
+
+function buildFactsheetInner(factsheet, attachments, emails) {
   const deadlines = factsheet.deadlines ?? [];
   const damages   = factsheet.damages   ?? [];
 
@@ -207,8 +227,8 @@ function buildFactsheetGrid(factsheet, attachments, emails) {
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
       <!-- Deadlines -->
-      <section>
-        <h3 class="font-headline font-bold text-lg text-primary mb-4">Deadlines</h3>
+      <div>
+        <p class="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-3">Deadlines</p>
         <div class="space-y-2">
           ${deadlines.length
             ? deadlines.map(d => `
@@ -222,50 +242,69 @@ function buildFactsheetGrid(factsheet, attachments, emails) {
             : `<p class="text-on-surface-variant text-sm font-body py-4">No deadlines recorded.</p>`
           }
         </div>
-      </section>
+      </div>
 
       <!-- Damages -->
-      <section>
-        <h3 class="font-headline font-bold text-lg text-primary mb-4">Damages</h3>
+      <div>
+        <p class="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-3">Damages</p>
         <div class="space-y-2">
           ${damages.length
-            ? damages.map(d => `
-              <div class="flex items-center justify-between p-3.5 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10">
-                <p class="text-sm font-semibold text-on-surface">${escHtml(d.description ?? d.damage_description ?? '')}</p>
-                ${d.amount ? `<span class="text-sm font-bold text-secondary flex-shrink-0 ml-4">${escHtml(String(d.amount))}</span>` : ''}
-              </div>`).join('')
+            ? damages.map(d => {
+                const desc   = d.basis ?? d.category ?? '';
+                const amount = d.amount != null
+                  ? `${d.currency ? escHtml(d.currency) + ' ' : ''}${escHtml(String(d.amount))}`
+                  : '';
+                return `
+                <div class="flex items-center justify-between p-3.5 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10">
+                  <div class="min-w-0">
+                    <p class="text-sm font-semibold text-on-surface">${escHtml(desc)}</p>
+                    ${d.party_role ? `<p class="text-[10px] text-secondary font-bold uppercase mt-0.5">${escHtml(d.party_role)}</p>` : ''}
+                  </div>
+                  ${amount ? `<span class="text-sm font-bold text-secondary flex-shrink-0 ml-4 whitespace-nowrap">${amount}</span>` : ''}
+                </div>`;
+              }).join('')
             : `<p class="text-on-surface-variant text-sm font-body py-4">No damages recorded.</p>`
           }
         </div>
-      </section>
+      </div>
 
       <!-- Attachments -->
-      <section class="lg:col-span-2">
+      <div class="lg:col-span-2">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="font-headline font-bold text-lg text-primary">Documents</h3>
+          <p class="text-xs font-bold uppercase tracking-wider text-on-surface-variant">Documents</p>
           <div class="flex gap-2">
-            <span class="px-2.5 py-1 rounded-full bg-secondary-container/30 text-on-secondary-container text-xs font-bold">
-              ${attachments.length} files
-            </span>
-            <span class="px-2.5 py-1 rounded-full bg-surface-container text-on-surface-variant text-xs font-bold">
-              ${emails.length} emails
-            </span>
+            <span class="px-2.5 py-1 rounded-full bg-secondary-container/30 text-on-secondary-container text-xs font-bold">${attachments.length} files</span>
+            <span class="px-2.5 py-1 rounded-full bg-surface-container text-on-surface-variant text-xs font-bold">${emails.length} emails</span>
           </div>
         </div>
         ${buildAttachmentsList(attachments, emails)}
-      </section>
+      </div>
     </div>`;
+}
+
+const TEXT_MIME_TYPES = new Set(['text/plain', 'text/markdown', 'text/csv', 'text/x-markdown']);
+const TEXT_EXTENSIONS = new Set(['.txt', '.md', '.markdown', '.csv']);
+
+function fileViewType(filename, mimeType) {
+  const ext = filename ? filename.slice(filename.lastIndexOf('.')).toLowerCase() : '';
+  if (mimeType === 'application/pdf') return 'pdf';
+  if (TEXT_MIME_TYPES.has(mimeType) || TEXT_EXTENSIONS.has(ext)) return 'text';
+  return null; // unsupported
 }
 
 function buildAttachmentsList(attachments, emails) {
   const attItems = attachments.map(a => {
-    const isPdf = a.file_type === 'application/pdf';
-    const icon  = isPdf ? 'picture_as_pdf' : 'description';
-    const canOpen = isPdf;  // expand later for other types
+    const vtype = fileViewType(a.filename ?? '', a.file_type ?? '');
+    const isPdf = vtype === 'pdf';
+    const isText = vtype === 'text';
+    const canOpen = isPdf || isText;
+    const icon = isPdf ? 'picture_as_pdf' : isText ? 'article' : 'description';
+    const ext = (a.filename ?? '').slice((a.filename ?? '').lastIndexOf('.')).toLowerCase();
+    const isMarkdown = ext === '.md' || ext === '.markdown';
     return `
     <div class="flex items-center gap-3 p-3 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10
                 hover:ring-secondary/20 transition-all group ${canOpen ? 'cursor-pointer att-item' : 'opacity-60'}"
-         data-type="pdf" data-path="${escHtml(a.path ?? '')}" data-name="${escHtml(a.filename ?? '')}">
+         data-type="${vtype ?? 'pdf'}" data-path="${escHtml(a.path ?? '')}" data-name="${escHtml(a.filename ?? '')}" data-file-type="${escHtml(a.file_type ?? 'application/pdf')}" data-is-markdown="${isMarkdown}">
       <span class="material-symbols-outlined text-[20px] text-secondary">${icon}</span>
       <div class="flex-1 min-w-0">
         <p class="text-xs font-semibold text-on-surface truncate">${escHtml(a.filename ?? '')}</p>
@@ -275,22 +314,22 @@ function buildAttachmentsList(attachments, emails) {
     </div>`;
   });
 
-  const emailItems = emails.map(e => `
+  _emailStore.clear();
+  const emailItems = emails.map(e => {
+    const id = e.email_id ?? e.message_id ?? String(Math.random());
+    _emailStore.set(id, e);
+    return `
     <div class="flex items-center gap-3 p-3 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10
                 hover:ring-secondary/20 transition-all group cursor-pointer att-item"
-         data-type="email"
-         data-subject="${escHtml(e.subject ?? 'No subject')}"
-         data-from="${escHtml(e.from_addr ?? '')}"
-         data-to="${escHtml(Array.isArray(e.to) ? e.to.join(', ') : (e.to ?? ''))}"
-         data-date="${escHtml(e.date ?? '')}"
-         data-body="${escHtml(e.body ?? '')}">
+         data-type="email" data-email-id="${escHtml(id)}">
       <span class="material-symbols-outlined text-[20px] text-secondary">mail</span>
       <div class="flex-1 min-w-0">
         <p class="text-xs font-semibold text-on-surface truncate">${escHtml(e.subject ?? 'No subject')}</p>
         <p class="text-[10px] text-on-surface-variant">${escHtml(e.from_addr ?? '')} · ${formatDate(e.date)}</p>
       </div>
       <span class="material-symbols-outlined text-[16px] text-on-surface-variant/30 group-hover:text-secondary transition-colors">open_in_new</span>
-    </div>`);
+    </div>`;
+  });
 
   if (!attItems.length && !emailItems.length) {
     return `<p class="text-on-surface-variant text-sm font-body py-2">No documents attached.</p>`;
@@ -345,10 +384,20 @@ function buildViewerModal() {
             title="Document viewer">
           </iframe>
 
-          <!-- Email body -->
-          <div id="viewer-email" class="hidden h-full overflow-y-auto p-8 font-body text-sm text-on-surface leading-relaxed">
-            <div id="viewer-email-headers" class="mb-6 space-y-1 pb-6 border-b border-outline-variant/10 text-xs text-on-surface-variant"></div>
-            <div id="viewer-email-body" class="whitespace-pre-wrap"></div>
+          <!-- Email body — Outlook-style -->
+          <div id="viewer-email" class="hidden h-full overflow-y-auto flex flex-col">
+            <div id="viewer-email-headers" class="flex-shrink-0 px-8 pt-6 pb-4 bg-surface-container-low border-b border-outline-variant/10"></div>
+            <div id="viewer-email-body" class="flex-1 px-8 py-6 overflow-y-auto"></div>
+          </div>
+
+          <!-- Text / Markdown viewer -->
+          <div id="viewer-text" class="hidden h-full overflow-y-auto px-10 py-8">
+            <div id="viewer-text-body"
+              class="prose prose-sm max-w-3xl mx-auto text-on-surface font-body leading-relaxed
+                     prose-headings:font-headline prose-headings:text-primary
+                     prose-code:bg-surface-container prose-code:px-1 prose-code:rounded prose-code:text-xs
+                     prose-pre:bg-surface-container prose-pre:rounded-xl prose-pre:text-xs">
+            </div>
           </div>
 
           <!-- Error state -->
@@ -376,7 +425,8 @@ function bindViewerEvents() {
 
     const type = item.dataset.type;
     if (type === 'pdf')   await openPdfViewer(item);
-    if (type === 'email') openEmailViewer(item);
+    if (type === 'text')  await openTextViewer(item);
+    if (type === 'email') openEmailViewer(item.dataset.emailId);
   });
 }
 
@@ -387,6 +437,7 @@ function openViewer(title, meta, icon = 'description') {
   document.getElementById('viewer-loading').classList.remove('hidden');
   document.getElementById('viewer-iframe').classList.add('hidden');
   document.getElementById('viewer-email').classList.add('hidden');
+  document.getElementById('viewer-text').classList.add('hidden');
   document.getElementById('viewer-error').classList.add('hidden');
   document.getElementById('viewer-modal').classList.remove('hidden');
 }
@@ -399,14 +450,14 @@ function closeViewer() {
 }
 
 async function openPdfViewer(item) {
-  const path = item.dataset.path;
-  const name = item.dataset.name;
-  openViewer(name, path, 'picture_as_pdf');
+  const path        = item.dataset.path;
+  const name        = item.dataset.name;
+  const contentType = item.dataset.fileType || 'application/pdf';
+  openViewer(name, 'PDF Document', 'picture_as_pdf');
 
   try {
-    chatLog.info({ path }, 'Fetching signed URL for PDF');
-    const url = await getSignedUrl(path);
-
+    chatLog.info({ path }, 'Fetching PDF via backend proxy');
+    const url    = await fetchFileAsObjectUrl(path, contentType);
     const iframe = document.getElementById('viewer-iframe');
     iframe.onload = () => {
       document.getElementById('viewer-loading').classList.add('hidden');
@@ -421,25 +472,91 @@ async function openPdfViewer(item) {
   }
 }
 
-function openEmailViewer(item) {
-  const { subject, from: fromAddr, to, date, body } = item.dataset;
-  openViewer(subject || 'No subject', `From: ${fromAddr}`, 'mail');
+async function openTextViewer(item) {
+  const path       = item.dataset.path;
+  const name       = item.dataset.name;
+  const isMarkdown = item.dataset.isMarkdown === 'true';
+  openViewer(name, isMarkdown ? 'Markdown Document' : 'Text Document', 'article');
 
+  try {
+    chatLog.info({ path, isMarkdown }, 'Fetching text file via backend proxy');
+    const text   = await fetchTextFile(path);
+    const bodyEl = document.getElementById('viewer-text-body');
+    bodyEl.innerHTML = isMarkdown ? md(text) : `<pre class="whitespace-pre-wrap">${escHtml(text)}</pre>`;
+    document.getElementById('viewer-loading').classList.add('hidden');
+    document.getElementById('viewer-text').classList.remove('hidden');
+  } catch (err) {
+    chatLog.error({ err: err.message }, 'Text viewer error');
+    document.getElementById('viewer-loading').classList.add('hidden');
+    document.getElementById('viewer-error-msg').textContent = err.message;
+    document.getElementById('viewer-error').classList.remove('hidden');
+  }
+}
+
+function openEmailViewer(emailId) {
+  const e = _emailStore.get(emailId);
+  if (!e) return;
+
+  const subject  = e.subject   ?? '(no subject)';
+  const fromAddr = e.from_addr ?? '';
+  const to       = Array.isArray(e.to) ? e.to.join(', ') : (e.to ?? '');
+  const cc       = Array.isArray(e.cc) ? e.cc.join(', ') : (e.cc ?? '');
+  const body     = e.body ?? '';
+  const date     = e.date      ?? '';
+  openViewer(subject, fromAddr, 'mail');
   document.getElementById('viewer-loading').classList.add('hidden');
 
-  const headers = document.getElementById('viewer-email-headers');
-  headers.innerHTML = [
-    fromAddr ? `<p><span class="font-bold uppercase tracking-wider">From</span>&nbsp;&nbsp;${escHtml(fromAddr)}</p>` : '',
-    to       ? `<p><span class="font-bold uppercase tracking-wider">To</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${escHtml(to)}</p>` : '',
-    date     ? `<p><span class="font-bold uppercase tracking-wider">Date</span>&nbsp;&nbsp;${formatDate(date, { dateStyle: 'long', timeStyle: 'short' })}</p>` : '',
-    subject  ? `<p><span class="font-bold uppercase tracking-wider">Subject</span>&nbsp;${escHtml(subject)}</p>` : '',
-  ].filter(Boolean).join('');
+  // Outlook-style header rows
+  const row = (label, value) => value
+    ? `<div class="flex gap-4 py-2 border-b border-outline-variant/10 last:border-0">
+         <span class="w-16 flex-shrink-0 text-[10px] font-black uppercase tracking-wider text-on-surface-variant/60 pt-0.5">${label}</span>
+         <span class="text-sm text-on-surface">${escHtml(value)}</span>
+       </div>`
+    : '';
 
-  document.getElementById('viewer-email-body').textContent = body || '(no body)';
+  document.getElementById('viewer-email-headers').innerHTML = `
+    <div class="mb-1">
+      <h2 class="font-headline font-bold text-xl text-primary">${escHtml(subject)}</h2>
+    </div>
+    <div class="mt-3 bg-surface-container rounded-xl px-4 py-1 text-sm font-body">
+      ${row('From', fromAddr)}
+      ${row('To',   to)}
+      ${cc ? row('Cc', cc) : ''}
+      ${row('Date', date ? formatDate(date, { dateStyle: 'long', timeStyle: 'short' }) : '')}
+    </div>`;
+
+  // Body — plain textContent, same pattern as subject/from_addr
+  const bodyEl = document.getElementById('viewer-email-body');
+  bodyEl.style.whiteSpace = 'pre-wrap';
+  bodyEl.style.fontSize   = '0.875rem';
+  bodyEl.style.lineHeight = '1.6';
+  bodyEl.textContent = body || '(no body)';
+
   document.getElementById('viewer-email').classList.remove('hidden');
 }
 
-// ── Chat panel ────────────────────────────────────────────────
+// ── Chat drawer (floating, slide-in from right) ───────────────
+
+function buildChatDrawer(projectId, sessions) {
+  return `
+    <!-- Floating chat button -->
+    <button id="btn-chat-open"
+      class="fixed bottom-6 right-6 z-[120] flex items-center gap-2 px-4 py-3 rounded-full
+             bg-gradient-to-b from-primary to-primary-container text-on-primary shadow-lg
+             hover:shadow-xl hover:scale-105 transition-all font-headline font-semibold text-sm">
+      <span class="material-symbols-outlined text-[20px]" style="font-variation-settings:'FILL' 1">chat</span>
+      Chat
+    </button>
+
+    <!-- Drawer -->
+    <div id="chat-drawer"
+      class="fixed right-0 z-[110] flex flex-col border-l border-outline-variant/10
+             bg-surface-container-low shadow-[-8px_0_32px_rgba(0,0,0,0.1)]
+             translate-x-full transition-transform duration-300"
+      style="top:57px; bottom:0; width:480px">
+      ${buildChatPanel(projectId, sessions)}
+    </div>`;
+}
 
 function buildChatPanel(projectId, sessions) {
   const sessionOptions = sessions.map(s =>
@@ -447,21 +564,25 @@ function buildChatPanel(projectId, sessions) {
   ).join('');
 
   return `
-    <!-- Session selector -->
-    <div class="p-4 border-b border-outline-variant/10 flex items-center gap-2">
-      <span class="material-symbols-outlined text-[18px] text-on-surface-variant">chat</span>
+    <!-- Session selector + controls -->
+    <div class="p-3 border-b border-outline-variant/10 flex items-center gap-1.5 flex-shrink-0">
+      <span class="material-symbols-outlined text-[18px] text-on-surface-variant flex-shrink-0">chat</span>
       <select id="session-select"
-        class="flex-1 bg-transparent text-sm font-semibold text-on-surface outline-none cursor-pointer">
+        class="flex-1 min-w-0 bg-transparent text-sm font-semibold text-on-surface outline-none cursor-pointer truncate">
         <option value="">— New session —</option>
         ${sessionOptions}
       </select>
       <button id="btn-new-session" title="New session"
-        class="p-1.5 rounded-lg hover:bg-surface-container transition-colors">
+        class="p-1.5 rounded-lg hover:bg-surface-container transition-colors flex-shrink-0">
         <span class="material-symbols-outlined text-[18px] text-on-surface-variant">add</span>
       </button>
       <button id="btn-delete-session" title="Delete session"
-        class="p-1.5 rounded-lg hover:bg-error-container/40 transition-colors">
+        class="p-1.5 rounded-lg hover:bg-error-container/40 transition-colors flex-shrink-0">
         <span class="material-symbols-outlined text-[18px] text-on-surface-variant hover:text-error">delete</span>
+      </button>
+      <button id="btn-chat-close" title="Close chat"
+        class="p-1.5 rounded-lg hover:bg-surface-container transition-colors flex-shrink-0">
+        <span class="material-symbols-outlined text-[18px] text-on-surface-variant">chevron_right</span>
       </button>
     </div>
 
@@ -564,6 +685,26 @@ function bindProjectEvents(projectId, data, sessions) {
     } catch (err) {
       toast(err.message, 'error');
     }
+  });
+
+  // Chat drawer open/close
+  const openDrawer  = () => document.getElementById('chat-drawer')?.classList.replace('translate-x-full', 'translate-x-0');
+  const closeDrawer = () => document.getElementById('chat-drawer')?.classList.replace('translate-x-0', 'translate-x-full');
+
+  document.getElementById('btn-chat-open')?.addEventListener('click', openDrawer);
+  document.getElementById('btn-chat-close')?.addEventListener('click', closeDrawer);
+
+  // Collapsible sections
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.sec-toggle');
+    if (!btn) return;
+    const id   = btn.dataset.sec;
+    const body = document.getElementById(`sec-${id}`);
+    const icon = btn.querySelector('.sec-icon');
+    if (!body) return;
+    const collapsed = body.style.display === 'none';
+    body.style.display    = collapsed ? '' : 'none';
+    if (icon) icon.textContent = collapsed ? 'expand_less' : 'expand_more';
   });
 
   // Send button
@@ -772,36 +913,6 @@ function updateStreamingMessage(aiMsg) {
   if (messages) messages.scrollTop = messages.scrollHeight;
 }
 
-// ── Resize drag handle ────────────────────────────────────────
-
-function bindChatResize() {
-  const handle = document.getElementById('chat-resize-handle');
-  const panel  = document.getElementById('chat-panel');
-  if (!handle || !panel) return;
-
-  let startX = 0, startW = 0;
-
-  handle.addEventListener('mousedown', (e) => {
-    startX = e.clientX;
-    startW = panel.getBoundingClientRect().width;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    function onMove(e) {
-      const delta = startX - e.clientX;        // drag left = wider chat
-      const newW  = Math.min(700, Math.max(280, startW + delta));
-      panel.style.width = `${newW}px`;
-    }
-    function onUp() {
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    }
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  });
-}
 
 function renderMessage(msg) {
   if (msg.type === 'human') {

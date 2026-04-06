@@ -73,7 +73,7 @@ export async function loadProject(projectId) {
       *,
       project_attachments(file_id, file_date, filename, file_type, path, created_at),
       project_events(*),
-      project_parties(*),
+      project_parties(*, project_party_reps(*)),
       project_deadlines(*),
       project_damages(*),
       project_claims(*),

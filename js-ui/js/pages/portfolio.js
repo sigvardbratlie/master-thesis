@@ -190,7 +190,7 @@ function projectCard(p) {
       <div class="space-y-2.5 mb-5">
         <div class="flex justify-between items-center">
           <span class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant/60">Case ID</span>
-          <span class="text-xs font-semibold text-primary font-body">${p.project_id.slice(0,8).toUpperCase()}</span>
+          <span class="text-xs font-semibold text-primary font-body font-mono">${p.project_id}</span>
         </div>
         <div class="flex justify-between items-center">
           <span class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant/60">Last Activity</span>
