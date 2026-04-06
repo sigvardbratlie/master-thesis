@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700;800;900&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+          "surface-container-highest": "#e5e2e0",
+          "on-secondary-fixed": "#001c3a",
+          "surface-container-low": "#f6f3f1",
+          "on-secondary-container": "#335583",
+          "on-surface-variant": "#45464f",
+          "on-surface": "#1b1c1b",
+          "outline": "#757680",
+          "tertiary": "#000000",
+          "secondary-fixed": "#d4e3ff",
+          "on-tertiary-fixed-variant": "#5f4100",
+          "primary-container": "#081942",
+          "inverse-surface": "#31302f",
+          "tertiary-fixed": "#ffdeac",
+          "inverse-on-surface": "#f3f0ee",
+          "on-primary-container": "#7482b2",
+          "error-container": "#ffdad6",
+          "on-error-container": "#93000a",
+          "surface-dim": "#dcd9d8",
+          "on-tertiary": "#ffffff",
+          "inverse-primary": "#b7c5f8",
+          "surface-tint": "#4f5d8a",
+          "on-error": "#ffffff",
+          "primary": "#000000",
+          "on-tertiary-fixed": "#281900",
+          "tertiary-fixed-dim": "#fabc4b",
+          "surface-variant": "#e5e2e0",
+          "on-secondary": "#ffffff",
+          "surface-container-high": "#eae8e6",
+          "surface": "#fcf9f7",
+          "surface-bright": "#fcf9f7",
+          "on-primary-fixed": "#081942",
+          "background": "#fcf9f7",
+          "on-primary-fixed-variant": "#374570",
+          "secondary-container": "#aacbff",
+          "secondary-fixed-dim": "#a7c8fc",
+          "primary-fixed-dim": "#b7c5f8",
+          "outline-variant": "#c6c6d0",
+          "error": "#ba1a1a",
+          "surface-container-lowest": "#ffffff",
+          "secondary": "#3e608e",
+          "primary-fixed": "#dbe1ff",
+          "on-background": "#1b1c1b",
+          "on-primary": "#ffffff",
+          "on-tertiary-container": "#ae7a01",
+          "tertiary-container": "#281900",
+          "surface-container": "#f0edeb",
+          "on-secondary-fixed-variant": "#244874"
+        },
+        "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" },
+        "fontFamily": { "headline": ["Public Sans"], "body": ["Inter"], "label": ["Inter"] }
+      }
+    }
+  }
+</script>
+<style>
+  .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+  .glass-panel { background: rgba(252, 249, 247, 0.92); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); }
+</style>
+</head>
+<body class="bg-surface text-on-surface font-body">
+
+<div class="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-8 bg-on-surface/25 backdrop-blur-sm">
+  <div class="w-full max-w-3xl glass-panel shadow-[0_32px_80px_-8px_rgba(8,25,66,0.20)] border border-white/40 rounded-xl overflow-hidden flex flex-col max-h-[90vh]">
+
+    <!-- Header -->
+    <div class="px-8 py-6 border-b border-outline-variant/15 flex items-center justify-between flex-shrink-0">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-primary-container rounded-lg flex items-center justify-center flex-shrink-0">
+          <span class="material-symbols-outlined text-2xl text-on-primary">payments</span>
+        </div>
+        <div>
+          <h2 class="font-headline text-xl font-bold text-on-surface leading-tight">Lost Revenue — Q3 Operations</h2>
+          <p class="text-[10px] text-on-surface-variant/60 uppercase tracking-widest mt-0.5">ID: A1B2C3D4</p>
+        </div>
+      </div>
+      <button class="p-2 hover:bg-surface-container rounded-lg transition-colors text-on-surface-variant hover:text-on-surface">
+        <span class="material-symbols-outlined text-[22px]">close</span>
+      </button>
+    </div>
+
+    <!-- Body -->
+    <div class="flex-1 overflow-y-auto p-8 space-y-6">
+
+      <!-- Amount featured -->
+      <div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 relative overflow-hidden">
+        <div class="absolute top-0 right-0 p-4 opacity-[0.04]">
+          <span class="material-symbols-outlined text-7xl">payments</span>
+        </div>
+        <label class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60 mb-1 block">Claimed Amount</label>
+        <div class="flex items-baseline gap-3">
+          <span class="text-3xl font-headline font-black text-primary">NOK 3 750 000</span>
+        </div>
+      </div>
+
+      <!-- Badges -->
+      <div class="flex flex-wrap gap-2">
+        <div class="inline-flex items-center gap-2 bg-error-container/40 px-3 py-1.5 rounded-full border border-error/10">
+          <span class="w-2 h-2 rounded-full bg-error flex-shrink-0"></span>
+          <span class="text-[10px] font-bold text-on-error-container uppercase tracking-tight">High Impact</span>
+        </div>
+        <span class="inline-flex items-center px-3 py-1.5 rounded-full bg-surface-container text-on-surface-variant text-[10px] font-bold uppercase tracking-tight">Lost Revenue</span>
+        <span class="inline-flex items-center px-3 py-1.5 rounded-full bg-secondary-container/30 text-on-secondary-container text-[10px] font-bold uppercase tracking-tight">Claimant</span>
+      </div>
+
+      <!-- Basis -->
+      <div>
+        <label class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60 mb-2 block">Basis</label>
+        <div class="bg-surface-container-low p-4 rounded-lg border border-outline-variant/10">
+          <p class="text-sm text-on-surface leading-relaxed">Direct revenue losses attributable to the defendant's unlawful use of proprietary customer data during Q3 2024, resulting in diversion of at least 23 key enterprise accounts. Calculated from audited revenue records and customer exit interviews.</p>
+        </div>
+      </div>
+
+      <!-- Supporting evidence -->
+      <div>
+        <label class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60 mb-2 block">Supporting Evidence</label>
+        <ul class="space-y-2">
+          <li class="flex gap-3 items-start p-3 bg-surface-container-lowest rounded-lg ring-1 ring-outline-variant/10">
+            <span class="material-symbols-outlined text-[15px] text-secondary mt-0.5 flex-shrink-0">attach_file</span>
+            <span class="text-sm text-on-surface">Audited revenue report Q1–Q3 2024 (Exhibit 12-A)</span>
+          </li>
+          <li class="flex gap-3 items-start p-3 bg-surface-container-lowest rounded-lg ring-1 ring-outline-variant/10">
+            <span class="material-symbols-outlined text-[15px] text-secondary mt-0.5 flex-shrink-0">attach_file</span>
+            <span class="text-sm text-on-surface">Customer exit surveys — 23 accounts (Exhibit 12-B)</span>
+          </li>
+          <li class="flex gap-3 items-start p-3 bg-surface-container-lowest rounded-lg ring-1 ring-outline-variant/10">
+            <span class="material-symbols-outlined text-[15px] text-secondary mt-0.5 flex-shrink-0">attach_file</span>
+            <span class="text-sm text-on-surface">Forensic analysis of defendant's CRM records (Exhibit 14)</span>
+          </li>
+        </ul>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div class="px-8 py-5 border-t border-outline-variant/10 flex justify-end gap-3 flex-shrink-0"
+         style="background:rgba(234,232,230,0.9);">
+      <button class="px-5 py-2 text-sm font-semibold text-on-surface-variant hover:text-on-surface transition-colors">Close</button>
+    </div>
+
+  </div>
+</div>
+</body></html>

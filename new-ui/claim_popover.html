@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700;800;900&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-container-highest": "#e5e2e0",
+            "on-secondary-fixed": "#001c3a",
+            "surface-container-low": "#f6f3f1",
+            "on-secondary-container": "#335583",
+            "on-surface-variant": "#45464f",
+            "on-surface": "#1b1c1b",
+            "outline": "#757680",
+            "tertiary": "#000000",
+            "secondary-fixed": "#d4e3ff",
+            "on-tertiary-fixed-variant": "#5f4100",
+            "primary-container": "#081942",
+            "inverse-surface": "#31302f",
+            "tertiary-fixed": "#ffdeac",
+            "inverse-on-surface": "#f3f0ee",
+            "on-primary-container": "#7482b2",
+            "error-container": "#ffdad6",
+            "on-error-container": "#93000a",
+            "surface-dim": "#dcd9d8",
+            "on-tertiary": "#ffffff",
+            "inverse-primary": "#b7c5f8",
+            "surface-tint": "#4f5d8a",
+            "on-error": "#ffffff",
+            "primary": "#000000",
+            "on-tertiary-fixed": "#281900",
+            "tertiary-fixed-dim": "#fabc4b",
+            "surface-variant": "#e5e2e0",
+            "on-secondary": "#ffffff",
+            "surface-container-high": "#eae8e6",
+            "surface": "#fcf9f7",
+            "surface-bright": "#fcf9f7",
+            "on-primary-fixed": "#081942",
+            "background": "#fcf9f7",
+            "on-primary-fixed-variant": "#374570",
+            "secondary-container": "#aacbff",
+            "secondary-fixed-dim": "#a7c8fc",
+            "primary-fixed-dim": "#b7c5f8",
+            "outline-variant": "#c6c6d0",
+            "error": "#ba1a1a",
+            "surface-container-lowest": "#ffffff",
+            "secondary": "#3e608e",
+            "primary-fixed": "#dbe1ff",
+            "on-background": "#1b1c1b",
+            "on-primary": "#ffffff",
+            "on-tertiary-container": "#ae7a01",
+            "tertiary-container": "#281900",
+            "surface-container": "#f0edeb",
+            "on-secondary-fixed-variant": "#244874"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "fontFamily": {
+            "headline": ["Public Sans"],
+            "body": ["Inter"],
+            "label": ["Inter"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    .glass-effect {
+      background: rgba(252, 249, 247, 0.85);
+      backdrop-filter: blur(20px);
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #e5e2e0;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body class="bg-surface font-body text-on-surface antialiased">
+<!-- Background Content (Simulating Project Alpha Screen) -->
+<div class="min-h-screen opacity-20 pointer-events-none select-none overflow-hidden">
+<!-- TopNavBar Implementation -->
+<nav class="fixed top-0 w-full z-50 bg-[#fcf9f7] border-b border-slate-200/15 shadow-[0_32px_32px_rgba(0,0,0,0.06)] flex justify-between items-center h-16 px-8">
+<div class="text-xl font-bold tracking-tighter text-[#081942] uppercase font-['Public_Sans']">Juris Counsel</div>
+<div class="flex gap-6 font-['Public_Sans'] tracking-tight">
+<span class="text-slate-500">Dashboard</span>
+<span class="text-[#3e608e] font-semibold border-b-2 border-[#3e608e] pb-1">Matters</span>
+<span class="text-slate-500">Analytics</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-slate-500">notifications</span>
+<div class="w-8 h-8 rounded-full bg-slate-200"></div>
+</div>
+</nav>
+<!-- SideNavBar Implementation -->
+<aside class="h-screen w-64 fixed left-0 top-0 z-40 bg-slate-100/50 flex flex-col border-r border-slate-200/10 p-4 pt-20">
+<div class="mb-8">
+<div class="font-['Public_Sans'] font-black text-[#081942] text-lg">Project Alpha</div>
+<div class="text-xs text-slate-500">Litigation Phase</div>
+</div>
+<div class="space-y-1">
+<div class="flex items-center gap-3 p-2 text-slate-600"><span class="material-symbols-outlined">event</span> Events</div>
+<div class="flex items-center gap-3 p-2 text-slate-600"><span class="material-symbols-outlined">groups</span> Parties</div>
+<div class="flex items-center gap-3 p-2 bg-white text-[#3e608e] shadow-sm rounded-md"><span class="material-symbols-outlined">gavel</span> Claims</div>
+</div>
+</aside>
+</div>
+<!-- Modal Overlay -->
+<div class="fixed inset-0 z-[60] flex items-center justify-center bg-primary/20 backdrop-blur-sm p-4 md:p-8">
+<!-- Claim Modal Container -->
+<div class="relative w-full max-w-4xl bg-surface-container-lowest rounded-xl shadow-[0_32px_64px_-12px_rgba(8,25,66,0.12)] flex flex-col max-h-[921px] overflow-hidden border border-outline-variant/15">
+<!-- Modal Header -->
+<header class="flex items-start justify-between p-8 pb-6 border-b border-outline-variant/10">
+<div class="space-y-4">
+<div class="flex items-center gap-3">
+<span class="bg-secondary/10 text-secondary px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]" style="font-variation-settings: 'FILL' 1;">gavel</span>
+              Claim ID: 442-B
+            </span>
+<span class="bg-tertiary-fixed text-on-tertiary-fixed px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase">
+              Priority: High
+            </span>
+</div>
+<h1 class="text-3xl font-headline font-extrabold text-primary tracking-tight leading-tight">
+            Claim: Misappropriation of Trade Secrets
+          </h1>
+<div class="flex items-center gap-6">
+<div class="flex items-center gap-2">
+<span class="text-label text-xs text-outline font-medium uppercase tracking-wider">Category:</span>
+<span class="text-sm font-semibold text-on-surface">Intellectual Property</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-label text-xs text-outline font-medium uppercase tracking-wider">Strength:</span>
+<div class="flex items-center gap-1.5">
+<div class="flex gap-0.5">
+<div class="w-3 h-1.5 rounded-full bg-secondary"></div>
+<div class="w-3 h-1.5 rounded-full bg-secondary"></div>
+<div class="w-3 h-1.5 rounded-full bg-secondary"></div>
+<div class="w-3 h-1.5 rounded-full bg-outline-variant"></div>
+</div>
+<span class="text-sm font-bold text-secondary">Strong</span>
+</div>
+</div>
+</div>
+</div>
+<button class="p-2 hover:bg-surface-container rounded-full transition-colors text-outline">
+<span class="material-symbols-outlined">close</span>
+</button>
+</header>
+<!-- Scrollable Content -->
+<div class="flex-1 overflow-y-auto p-8 custom-scrollbar space-y-12">
+<!-- Factual Basis Section -->
+<section class="grid grid-cols-1 md:grid-cols-12 gap-8">
+<div class="md:col-span-3">
+<h2 class="text-xs font-bold text-outline uppercase tracking-[0.2em] sticky top-0">Factual Basis</h2>
+</div>
+<div class="md:col-span-9">
+<ul class="space-y-4">
+<li class="flex gap-4 group">
+<span class="mt-1.5 w-1.5 h-1.5 rounded-full bg-secondary shrink-0 group-hover:scale-125 transition-transform"></span>
+<p class="text-on-surface leading-relaxed">Defendant accessed proprietary customer lists and technical blueprints via unauthorized server login on March 14, 2024.</p>
+</li>
+<li class="flex gap-4 group">
+<span class="mt-1.5 w-1.5 h-1.5 rounded-full bg-secondary shrink-0 group-hover:scale-125 transition-transform"></span>
+<p class="text-on-surface leading-relaxed">Forensic analysis shows the extraction of over 4.2GB of encrypted technical documentation related to "Project Alpha."</p>
+</li>
+<li class="flex gap-4 group">
+<span class="mt-1.5 w-1.5 h-1.5 rounded-full bg-secondary shrink-0 group-hover:scale-125 transition-transform"></span>
+<p class="text-on-surface leading-relaxed">Witness testimony from Lead Developer identifies the unique digital watermarking present in the defendant's current prototype.</p>
+</li>
+</ul>
+</div>
+</section>
+<!-- Legal Basis Section -->
+<section class="grid grid-cols-1 md:grid-cols-12 gap-8">
+<div class="md:col-span-3">
+<h2 class="text-xs font-bold text-outline uppercase tracking-[0.2em] sticky top-0">Legal Basis</h2>
+</div>
+<div class="md:col-span-9">
+<div class="grid grid-cols-1 gap-3">
+<div class="p-4 bg-surface-container-low rounded-lg border-l-2 border-secondary/30 flex items-center justify-between group hover:bg-surface-container-high transition-colors">
+<div class="space-y-1">
+<span class="text-xs font-bold text-secondary uppercase tracking-tight">Citation</span>
+<p class="text-sm font-semibold text-primary">Defend Trade Secrets Act (DTSA), 18 U.S.C. § 1836</p>
+</div>
+<span class="material-symbols-outlined text-outline group-hover:text-secondary">open_in_new</span>
+</div>
+<div class="p-4 bg-surface-container-low rounded-lg border-l-2 border-secondary/30 flex items-center justify-between group hover:bg-surface-container-high transition-colors">
+<div class="space-y-1">
+<span class="text-xs font-bold text-secondary uppercase tracking-tight">Case Law</span>
+<p class="text-sm font-semibold text-primary">Waymo LLC v. Uber Technologies, Inc., 2018</p>
+</div>
+<span class="material-symbols-outlined text-outline group-hover:text-secondary">open_in_new</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Relief Sought Section -->
+<section class="grid grid-cols-1 md:grid-cols-12 gap-8">
+<div class="md:col-span-3">
+<h2 class="text-xs font-bold text-outline uppercase tracking-[0.2em] sticky top-0">Relief Sought</h2>
+</div>
+<div class="md:col-span-9">
+<div class="bg-surface-container-lowest p-6 border border-outline-variant/10 rounded-xl relative overflow-hidden">
+<div class="absolute top-0 right-0 p-4 opacity-5">
+<span class="material-symbols-outlined text-6xl">payments</span>
+</div>
+<div class="space-y-6 relative z-10">
+<div class="flex items-baseline gap-4">
+<span class="text-3xl font-headline font-black text-primary">$2,450,000.00</span>
+<span class="text-xs font-bold text-outline uppercase tracking-wider">Estimated Damages</span>
+</div>
+<p class="text-on-surface-variant text-sm leading-loose">
+                  Immediate permanent injunctive relief barring the use of misappropriated data, compensatory damages for lost business opportunities, and punitive damages reflecting willful and malicious conduct.
+                </p>
+<div class="flex flex-wrap gap-2">
+<span class="bg-secondary-fixed text-on-secondary-fixed-variant px-3 py-1 rounded-full text-[10px] font-bold uppercase">Injunctive Relief</span>
+<span class="bg-secondary-fixed text-on-secondary-fixed-variant px-3 py-1 rounded-full text-[10px] font-bold uppercase">Punitive Damages</span>
+<span class="bg-secondary-fixed text-on-secondary-fixed-variant px-3 py-1 rounded-full text-[10px] font-bold uppercase">Attorneys' Fees</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Modal Footer -->
+<footer class="p-6 bg-surface-container-high flex items-center justify-between">
+<div class="flex items-center gap-4">
+<button class="flex items-center gap-2 text-outline hover:text-primary transition-colors text-sm font-medium">
+<span class="material-symbols-outlined text-lg">print</span>
+            Export PDF
+          </button>
+<button class="flex items-center gap-2 text-outline hover:text-primary transition-colors text-sm font-medium">
+<span class="material-symbols-outlined text-lg">share</span>
+            Share with Counsel
+          </button>
+</div>
+<div class="flex items-center gap-3">
+<button class="px-6 py-2.5 bg-surface-container-lowest border border-outline-variant/20 rounded-md text-sm font-bold text-on-surface hover:bg-surface transition-colors shadow-sm">
+            Close
+          </button>
+<button class="px-8 py-2.5 bg-primary text-on-primary rounded-md text-sm font-bold shadow-lg hover:opacity-90 transition-all flex items-center gap-2 bg-gradient-to-b from-primary to-primary-container">
+            Link to ID
+            <span class="material-symbols-outlined text-[18px]">link</span>
+</button>
+</div>
+</footer>
+</div>
+</div>
+<!-- Bottom Visual Anchor (Optional visual balance) -->
+<div class="fixed bottom-8 right-8 z-[70]">
+<div class="bg-primary p-4 rounded-full shadow-2xl flex items-center justify-center text-on-primary cursor-pointer hover:scale-105 transition-transform">
+<span class="material-symbols-outlined">chat_bubble</span>
+</div>
+</div>
+</body></html>

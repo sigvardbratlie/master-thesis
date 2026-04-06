@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700;800;900&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-highest": "#e5e2e0",
+                        "on-secondary-fixed": "#001c3a",
+                        "surface-container-low": "#f6f3f1",
+                        "on-secondary-container": "#335583",
+                        "on-surface-variant": "#45464f",
+                        "on-surface": "#1b1c1b",
+                        "outline": "#757680",
+                        "tertiary": "#000000",
+                        "secondary-fixed": "#d4e3ff",
+                        "on-tertiary-fixed-variant": "#5f4100",
+                        "primary-container": "#081942",
+                        "inverse-surface": "#31302f",
+                        "tertiary-fixed": "#ffdeac",
+                        "inverse-on-surface": "#f3f0ee",
+                        "on-primary-container": "#7482b2",
+                        "error-container": "#ffdad6",
+                        "on-error-container": "#93000a",
+                        "surface-dim": "#dcd9d8",
+                        "on-tertiary": "#ffffff",
+                        "inverse-primary": "#b7c5f8",
+                        "surface-tint": "#4f5d8a",
+                        "on-error": "#ffffff",
+                        "primary": "#000000",
+                        "on-tertiary-fixed": "#281900",
+                        "tertiary-fixed-dim": "#fabc4b",
+                        "surface-variant": "#e5e2e0",
+                        "on-secondary": "#ffffff",
+                        "surface-container-high": "#eae8e6",
+                        "surface": "#fcf9f7",
+                        "surface-bright": "#fcf9f7",
+                        "on-primary-fixed": "#081942",
+                        "background": "#fcf9f7",
+                        "on-primary-fixed-variant": "#374570",
+                        "secondary-container": "#aacbff",
+                        "secondary-fixed-dim": "#a7c8fc",
+                        "primary-fixed-dim": "#b7c5f8",
+                        "outline-variant": "#c6c6d0",
+                        "error": "#ba1a1a",
+                        "surface-container-lowest": "#ffffff",
+                        "secondary": "#3e608e",
+                        "primary-fixed": "#dbe1ff",
+                        "on-background": "#1b1c1b",
+                        "on-primary": "#ffffff",
+                        "on-tertiary-container": "#ae7a01",
+                        "tertiary-container": "#281900",
+                        "surface-container": "#f0edeb",
+                        "on-secondary-fixed-variant": "#244874"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "fontFamily": {
+                        "headline": ["Public Sans"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .glass-effect {
+            backdrop-filter: blur(20px);
+            background-color: rgba(252, 249, 247, 0.85);
+        }
+    </style>
+</head>
+<body class="bg-surface font-body text-on-surface">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-[#fcf9f7] border-b border-slate-200/15 shadow-[0_32px_32px_rgba(0,0,0,0.06)] flex justify-between items-center h-16 px-8 w-full font-['Public_Sans'] tracking-tight">
+<div class="text-xl font-bold tracking-tighter text-[#081942] uppercase">Juris Counsel</div>
+<div class="hidden md:flex items-center space-x-8">
+<a class="text-slate-500 hover:text-[#081942] transition-colors duration-200 cursor-pointer active:opacity-80" href="#">Dashboard</a>
+<a class="text-[#3e608e] font-semibold border-b-2 border-[#3e608e] pb-1 cursor-pointer active:opacity-80" href="#">Matters</a>
+<a class="text-slate-500 hover:text-[#081942] transition-colors duration-200 cursor-pointer active:opacity-80" href="#">Analytics</a>
+<a class="text-slate-500 hover:text-[#081942] transition-colors duration-200 cursor-pointer active:opacity-80" href="#">Resources</a>
+</div>
+<div class="flex items-center space-x-6">
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:bg-slate-100/50 p-2 rounded-full transition-colors">notifications</span>
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:bg-slate-100/50 p-2 rounded-full transition-colors">settings</span>
+<div class="w-8 h-8 rounded-full bg-surface-container-highest overflow-hidden">
+<img alt="Lead Counsel Profile" class="w-full h-full object-cover" data-alt="professional portrait of an executive in a dark suit with soft office lighting background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCfpH-zZH0ap33YbqGnId8CqRN4rYE5HH_q53Ov6CH1HsREtxghD6-ayln7bxBnUGFXhplz_NCK87WTHt9xbWL1egYl7ZX426fVPVuJ0uL1HMfwfPbFpJ-UtU246Fkm352RUxKhALEEiz4LQU9x4PP3oYsYUYLBiQqlvcGrsNm89w6XW5GK4FM2sScFCqh-PQo_rE4G_FgnAAHmfMgZNlk3JnwrOYFkcgrxIIAMHWNbjSaPR5H_hEqtPJQdoE9KqDFo1GsRWojoDxQ5"/>
+</div>
+</div>
+</nav>
+<!-- SideNavBar -->
+<aside class="h-screen w-64 fixed left-0 top-0 z-40 bg-[#fcf9f7] flex flex-col border-r border-slate-200/10 p-4 pt-20 font-['Inter'] text-sm font-medium">
+<div class="mb-8 px-2">
+<div class="flex items-center gap-3 mb-1">
+<div class="w-8 h-8 bg-primary-container rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-white text-lg" data-icon="gavel">gavel</span>
+</div>
+<div class="font-['Public_Sans'] font-black text-[#081942] text-lg">Project Alpha</div>
+</div>
+<div class="text-xs text-on-surface-variant px-1">Litigation Phase</div>
+</div>
+<nav class="flex-1 space-y-1">
+<div class="flex items-center gap-3 px-3 py-2 bg-white text-[#3e608e] shadow-sm rounded-md transition-all ease-in-out">
+<span class="material-symbols-outlined" data-icon="event">event</span>
+<span>Events</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-200/50 transition-transform duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+<span>Parties</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-200/50 transition-transform duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="alarm_on">alarm_on</span>
+<span>Deadlines</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-200/50 transition-transform duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="payments">payments</span>
+<span>Damages</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-200/50 transition-transform duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="gavel">gavel</span>
+<span>Claims</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-200/50 transition-transform duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+<span>Documents</span>
+</div>
+</nav>
+<button class="mt-4 w-full py-2.5 bg-primary text-on-primary rounded-md font-semibold text-sm shadow-sm hover:opacity-90 transition-opacity">
+            New Entry
+        </button>
+<div class="mt-auto pt-4 border-t border-slate-200/10 space-y-1">
+<div class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-200/50 transition-transform duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="archive">archive</span>
+<span>Archive</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-600 hover:bg-slate-200/50 transition-transform duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+<span>Support</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Canvas (Background for Modal) -->
+<main class="pl-64 pt-16 min-h-screen bg-surface-container">
+<div class="p-12 max-w-7xl mx-auto space-y-12">
+<!-- Background Content Mockup -->
+<header class="flex justify-between items-end">
+<div>
+<h1 class="text-4xl font-black font-headline tracking-tighter text-on-surface">Case Timeline</h1>
+<p class="text-on-surface-variant mt-2 font-medium">Comprehensive procedural history for Project Alpha</p>
+</div>
+</header>
+<div class="grid grid-cols-12 gap-8">
+<div class="col-span-8 space-y-8">
+<div class="bg-surface-container-lowest p-8 rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
+<div class="h-64 flex items-center justify-center text-on-surface-variant/30 italic">
+                            Timeline Visualization Placeholder
+                        </div>
+</div>
+</div>
+<div class="col-span-4 space-y-6">
+<div class="bg-surface-container-lowest p-6 rounded-xl">
+<h3 class="font-headline font-bold mb-4">Quick Stats</h3>
+<div class="space-y-4">
+<div class="flex justify-between items-center py-2 border-b border-outline-variant/15">
+<span class="text-sm font-medium">Active Parties</span>
+<span class="text-sm font-bold">12</span>
+</div>
+<div class="flex justify-between items-center py-2 border-b border-outline-variant/15">
+<span class="text-sm font-medium">Total Claims</span>
+<span class="text-sm font-bold">$1.4M</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- POP-UP MODAL OVERLAY -->
+<div class="fixed inset-0 z-[60] flex items-center justify-center p-4">
+<!-- Backdrop -->
+<div class="absolute inset-0 bg-surface-dim/60 backdrop-blur-sm"></div>
+<!-- Modal Container -->
+<div class="relative glass-effect w-full max-w-2xl rounded-xl shadow-[0_32px_64px_rgba(0,0,0,0.12)] border border-outline-variant/10 overflow-hidden">
+<!-- Modal Header -->
+<div class="flex justify-between items-center p-6 border-b border-outline-variant/10">
+<h2 class="text-2xl font-black font-headline tracking-tight text-primary uppercase">Event Details</h2>
+<button class="text-on-surface-variant hover:bg-surface-container-high p-2 rounded-full transition-colors">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<!-- Modal Body -->
+<div class="p-8 space-y-8">
+<!-- Primary Event Info -->
+<div class="flex justify-between items-start gap-6">
+<div class="space-y-2">
+<div class="flex items-center gap-3">
+<span class="bg-tertiary-fixed text-on-tertiary-fixed text-[10px] font-bold px-2 py-0.5 rounded tracking-widest uppercase">High Significance</span>
+<span class="bg-secondary-container text-on-secondary-container text-xs font-semibold px-3 py-1 rounded-full">Court Hearing</span>
+</div>
+<h3 class="text-3xl font-black font-headline text-[#081942]">Preliminary Injunction Hearing</h3>
+<div class="flex items-center gap-2 text-secondary font-semibold">
+<span class="material-symbols-outlined text-sm">calendar_today</span>
+<span class="text-sm tracking-tight">October 24, 2024 • 09:00 AM EST</span>
+</div>
+</div>
+</div>
+<!-- Description Section -->
+<div class="space-y-3">
+<h4 class="text-xs font-bold text-on-surface-variant uppercase tracking-widest">Description</h4>
+<div class="bg-surface-container-low p-5 rounded-lg border border-outline-variant/10">
+<p class="text-sm leading-relaxed text-on-surface font-medium">
+                            Oral arguments regarding the motion for preliminary injunction filed by Project Alpha. The focus of this session will be on the irreparable harm claim and the likelihood of success on the merits concerning the intellectual property theft allegations. Judge Henderson presiding in Courtroom 4B. Expected duration is 3-4 hours.
+                        </p>
+</div>
+</div>
+<!-- Involved Parties -->
+<div class="space-y-4">
+<h4 class="text-xs font-bold text-on-surface-variant uppercase tracking-widest">Involved Parties</h4>
+<div class="grid grid-cols-2 gap-4">
+<!-- Party Card 1 -->
+<div class="flex items-center gap-4 p-4 bg-surface-container-lowest rounded-lg border border-outline-variant/10 shadow-sm">
+<div class="w-10 h-10 rounded-full bg-secondary-fixed flex items-center justify-center">
+<span class="material-symbols-outlined text-on-secondary-fixed" data-icon="person">person</span>
+</div>
+<div>
+<div class="text-sm font-bold text-primary">Marcus V. Thorne</div>
+<div class="text-[10px] font-semibold text-secondary uppercase tracking-wider">Lead Litigator</div>
+</div>
+</div>
+<!-- Party Card 2 -->
+<div class="flex items-center gap-4 p-4 bg-surface-container-lowest rounded-lg border border-outline-variant/10 shadow-sm">
+<div class="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="account_balance">account_balance</span>
+</div>
+<div>
+<div class="text-sm font-bold text-primary">Hon. Sarah Henderson</div>
+<div class="text-[10px] font-semibold text-secondary uppercase tracking-wider">Presiding Judge</div>
+</div>
+</div>
+<!-- Party Card 3 -->
+<div class="flex items-center gap-4 p-4 bg-surface-container-lowest rounded-lg border border-outline-variant/10 shadow-sm">
+<div class="w-10 h-10 rounded-full bg-error-container flex items-center justify-center">
+<span class="material-symbols-outlined text-on-error-container" data-icon="shield_person">shield_person</span>
+</div>
+<div>
+<div class="text-sm font-bold text-primary">Elena Rodriguez</div>
+<div class="text-[10px] font-semibold text-secondary uppercase tracking-wider">Defense Counsel</div>
+</div>
+</div>
+<!-- Party Card 4 -->
+<div class="flex items-center gap-4 p-4 bg-surface-container-lowest rounded-lg border border-outline-variant/10 shadow-sm">
+<div class="w-10 h-10 rounded-full bg-tertiary-fixed-dim/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-on-tertiary-container" data-icon="assignment_ind">assignment_ind</span>
+</div>
+<div>
+<div class="text-sm font-bold text-primary">Julian Vance</div>
+<div class="text-[10px] font-semibold text-secondary uppercase tracking-wider">Expert Witness</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Modal Footer -->
+<div class="p-6 bg-surface-container-high/40 flex justify-between items-center">
+<button class="px-6 py-2 border border-[#3e608e] text-[#3e608e] font-bold text-sm rounded transition-all hover:bg-secondary-fixed/30 active:scale-[0.98]">
+                    Link to ID
+                </button>
+<div class="flex gap-4">
+<button class="px-6 py-2 text-on-surface-variant font-bold text-sm">Cancel</button>
+<button class="px-8 py-2.5 bg-primary text-on-primary font-bold text-sm rounded shadow-lg hover:opacity-90 active:translate-y-0.5 transition-all">Save Changes</button>
+</div>
+</div>
+</div>
+</div>
+</body></html>
