@@ -13,7 +13,13 @@ import {
 import { renderSidebar, bindSidebarEvents } from '../components/sidebar.js';
 import { renderTopbar }                     from '../components/topbar.js';
 import { appState }                         from '../state.js';
-import { formatDate, timeAgo, toast, skeleton, uuid, simpleMarkdown, escHtml } from '../utils.js';
+import { formatDate, timeAgo, toast, skeleton, uuid, escHtml } from '../utils.js';
+import { marked }                           from 'marked';
+import { chatLog }                          from '../logger.js';
+
+// Configure marked: safe, breaks on newline
+marked.setOptions({ breaks: true, gfm: true });
+const md = (text) => marked.parse(text ?? '');
 
 // ── Active streaming controller (cancel on navigation) ──────
 let _streamController = null;
@@ -64,12 +70,20 @@ function buildProjectShell(projectId, data, sessions) {
       ${buildFactsheetGrid(factsheet, attachments, emails)}
     </div>
 
-    <!-- Right: chat sidebar -->
-    <div class="w-[400px] flex-shrink-0 border-l border-outline-variant/10 bg-surface-container-low flex flex-col" id="chat-panel">
+    <!-- Drag handle -->
+    <div id="chat-resize-handle"
+      class="w-1 flex-shrink-0 cursor-col-resize bg-outline-variant/10 hover:bg-secondary/30 active:bg-secondary/50 transition-colors relative group"
+      title="Drag to resize">
+      <div class="absolute inset-y-0 -left-1 -right-1"></div>
+    </div>
+
+    <!-- Right: chat panel -->
+    <div class="flex-shrink-0 border-l border-outline-variant/10 bg-surface-container-low flex flex-col" id="chat-panel" style="width:400px; min-width:280px; max-width:700px">
       ${buildChatPanel(projectId, sessions)}
     </div>`;
 
   bindProjectEvents(projectId, data, sessions);
+  bindChatResize();
 }
 
 // ── Timeline ─────────────────────────────────────────────────
@@ -458,10 +472,17 @@ async function loadSession(sessionId) {
 }
 
 function getEventContent(ev) {
-  const d = ev.data ?? {};
+  // ev.data kan være string (JSON), objekt, eller null
+  let d = ev.data ?? {};
+  if (typeof d === 'string') {
+    try { d = JSON.parse(d); } catch { d = { content: d }; }
+  }
+
+  chatLog.debug({ type: ev.type, dataKeys: Object.keys(d) }, 'getEventContent');
+
   if (ev.type === 'human')       return d.content ?? '';
   if (ev.type === 'ai')          return d.token_stream ?? d.content ?? '';
-  if (ev.type === 'tool_result') return `Tool: ${d.tool_name ?? ''}`;
+  if (ev.type === 'tool_result') return d.tool_name ?? '';
   return '';
 }
 
@@ -587,25 +608,56 @@ function updateStreamingMessage(aiMsg) {
   const el = document.querySelector(`[data-query-id="${aiMsg.queryId}"].ai-message`);
   if (!el) { renderMessages(); return; }
   const contentEl = el.querySelector('.msg-content');
-  if (contentEl) contentEl.innerHTML = simpleMarkdown(aiMsg.content);
+  if (contentEl) contentEl.innerHTML = md(aiMsg.content);
   const dotEl = el.querySelector('.streaming-dot');
   if (dotEl) dotEl.classList.toggle('hidden', !aiMsg.streaming);
   const messages = document.getElementById('chat-messages');
   if (messages) messages.scrollTop = messages.scrollHeight;
 }
 
+// ── Resize drag handle ────────────────────────────────────────
+
+function bindChatResize() {
+  const handle = document.getElementById('chat-resize-handle');
+  const panel  = document.getElementById('chat-panel');
+  if (!handle || !panel) return;
+
+  let startX = 0, startW = 0;
+
+  handle.addEventListener('mousedown', (e) => {
+    startX = e.clientX;
+    startW = panel.getBoundingClientRect().width;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    function onMove(e) {
+      const delta = startX - e.clientX;        // drag left = wider chat
+      const newW  = Math.min(700, Math.max(280, startW + delta));
+      panel.style.width = `${newW}px`;
+    }
+    function onUp() {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
 function renderMessage(msg) {
   if (msg.type === 'human') {
     return `
       <div class="flex justify-end">
-        <div class="max-w-[85%] bg-primary-container text-on-primary rounded-2xl rounded-tr-sm px-4 py-3 text-sm">
-          ${simpleMarkdown(msg.content)}
+        <div class="max-w-[85%] bg-primary-container text-on-primary rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed">
+          ${escHtml(msg.content)}
         </div>
       </div>`;
   }
 
   if (msg.type === 'tool_result') {
-    const toolName = msg.toolData?.tool_name ?? msg.toolData?.data?.tool_name ?? 'tool';
+    const toolName = msg.content || msg.toolData?.tool_name ?? msg.toolData?.data?.tool_name ?? 'tool';
     return `
       <div class="flex items-start gap-2">
         <span class="material-symbols-outlined text-[16px] text-on-surface-variant mt-0.5 flex-shrink-0">build</span>
@@ -631,10 +683,13 @@ function renderMessage(msg) {
         ${msg.reasoning ? `
           <details class="mb-2 text-xs text-on-surface-variant">
             <summary class="cursor-pointer hover:text-primary transition-colors font-bold">Reasoning</summary>
-            <p class="mt-1 font-body leading-relaxed opacity-70">${simpleMarkdown(msg.reasoning)}</p>
+            <div class="mt-1 font-body leading-relaxed opacity-70 prose prose-sm max-w-none">${md(msg.reasoning)}</div>
           </details>` : ''}
-        <div class="msg-content text-sm text-on-surface font-body leading-relaxed">
-          ${msg.content ? simpleMarkdown(msg.content) : ''}
+        <div class="msg-content prose prose-sm max-w-none text-on-surface font-body leading-relaxed
+                    prose-headings:font-headline prose-headings:text-primary
+                    prose-code:bg-surface-container prose-code:px-1 prose-code:rounded prose-code:text-xs
+                    prose-pre:bg-surface-container prose-pre:rounded-xl prose-pre:text-xs">
+          ${msg.content ? md(msg.content) : ''}
           <span class="streaming-dot ${msg.streaming ? '' : 'hidden'} inline-block w-1.5 h-3.5 bg-secondary animate-pulse rounded-sm ml-0.5 align-middle"></span>
         </div>
       </div>

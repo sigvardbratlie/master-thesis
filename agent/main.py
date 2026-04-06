@@ -126,11 +126,12 @@ def setup_app():
 
 app = setup_app()
 def include_routers(app: FastAPI):
-    from api.routers import agent, clean, project, vectorstore
+    from api.routers import agent, clean, project, vectorstore, storage
     app.include_router(agent.router)
     app.include_router(clean.router)
     app.include_router(vectorstore.router)
     app.include_router(project.router)
+    app.include_router(storage.router)
     return app
 
 app = include_routers(app)
