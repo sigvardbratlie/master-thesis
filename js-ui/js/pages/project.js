@@ -7,14 +7,21 @@
 // ============================================================
 
 import {
-  loadProject, loadProjectSessions, loadSessionHistory,
-  createSession, deleteSession, streamChat,
+  loadProjectMeta,
+  loadProjectEvents,
+  loadProjectParties,
+  loadProjectClaims,
+  loadProjectDeadlines,
+  loadProjectDamages,
+  loadProjectAttachments,
+  loadProjectEmails,
+  loadEmailBody,
 } from '../api.js';
 import { fetchFileAsObjectUrl, fetchTextFile } from '../storage.js';
 import { renderSidebar, bindSidebarEvents } from '../components/sidebar.js';
 import { renderTopbar }                     from '../components/topbar.js';
-import { appState }                         from '../state.js';
-import { formatDate, timeAgo, toast, skeleton, uuid, escHtml } from '../utils.js';
+import { formatDate, skeleton, escHtml }    from '../utils.js';
+import { initPopovers, registerItems }      from '../components/popovers.js';
 import { marked }                           from 'marked';
 import { chatLog }                          from '../logger.js';
 
@@ -22,11 +29,10 @@ import { chatLog }                          from '../logger.js';
 marked.setOptions({ breaks: true, gfm: true });
 const md = (text) => marked.parse(text ?? '');
 
-// ── Active streaming controller (cancel on navigation) ──────
-let _streamController = null;
-
 // ── Email store — avoids data-attribute encoding issues ───────
-const _emailStore = new Map(); // key: email_id → email object
+const _emailStore  = new Map(); // key: email_id → email object
+const _attachStore = new Map(); // key: file_id  → attachment object
+let   _viewerBound = false;     // prevents duplicate document listeners across navigations
 
 export async function renderProject(params) {
   const projectId = params.id;
@@ -37,6 +43,12 @@ export async function renderProject(params) {
       ${renderTopbar({
         title: 'Loading...',
         breadcrumb: { label: 'Projects', href: '#/' },
+        actions: `
+          <a href="#/chat/${projectId}"
+             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant text-xs font-headline font-semibold hover:bg-primary hover:text-on-primary transition-all">
+            <span class="material-symbols-outlined text-[16px]" style="font-variation-settings:'FILL' 1">chat</span>
+            Open Chat
+          </a>`,
       })}
       <div id="project-body" class="flex-1 flex">
         <div class="flex-1 p-10 space-y-4">${skeleton(5)}</div>
@@ -45,16 +57,52 @@ export async function renderProject(params) {
 
   bindSidebarEvents();
 
+  // Load meta first — needed for title + shell structure
+  let meta;
   try {
-    const [data, sessions] = await Promise.all([
-      loadProject(projectId),
-      loadProjectSessions(projectId),
-    ]);
-    buildProjectShell(projectId, data, sessions);
+    meta = await loadProjectMeta(projectId);
   } catch (err) {
     document.getElementById('project-body').innerHTML =
       `<div class="p-10 text-error text-sm">${err.message}</div>`;
+    return;
   }
+
+  buildProjectShell(projectId, meta);
+
+  // Helper: fetch → render a section, fail gracefully per section
+  function loadSection(secId, fetchFn, renderFn) {
+    fetchFn().then(data => {
+      const el = document.getElementById(`sec-${secId}`);
+      if (el) el.innerHTML = renderFn(data);
+    }).catch(err => {
+      const el = document.getElementById(`sec-${secId}`);
+      if (el) el.innerHTML = `<p class="text-error text-xs py-2">${err.message}</p>`;
+    });
+  }
+
+  // Fire all sections in parallel
+  loadSection('timeline',  () => loadProjectEvents(projectId),      buildTimelineInner);
+  loadSection('parties',   () => loadProjectParties(projectId),     buildPartiesInner);
+  loadSection('claims',    () => loadProjectClaims(projectId),      buildClaimsSection);
+  loadSection('deadlines', () => loadProjectDeadlines(projectId),   buildDeadlinesInner);
+  loadSection('damages',   () => loadProjectDamages(projectId),     buildDamagesInner);
+
+  // Documents section needs both attachments + emails
+  Promise.all([loadProjectAttachments(projectId), loadProjectEmails(projectId)])
+    .then(([attachments, emails]) => {
+      // Update subtitle with counts
+      const btn = document.querySelector('[data-sec="documents"]');
+      if (btn) {
+        const sub = btn.querySelector('p');
+        if (sub) sub.textContent = `${attachments.length} files · ${emails.length} emails`;
+      }
+      const el = document.getElementById('sec-documents');
+      if (el) el.innerHTML = buildAttachmentsList(attachments, emails);
+    })
+    .catch(err => {
+      const el = document.getElementById('sec-documents');
+      if (el) el.innerHTML = `<p class="text-error text-xs py-2">${err.message}</p>`;
+    });
 }
 
 // ── Section helper (collapsible) ─────────────────────────────
@@ -78,48 +126,54 @@ function sec(id, title, subtitle, content) {
 
 // ── Shell layout ─────────────────────────────────────────────
 
-function buildProjectShell(projectId, data, sessions) {
-  const { factsheet, attachments, emails } = data;
-  const title = factsheet.title ?? 'Untitled Project';
+function buildProjectShell(projectId, meta) {
+  const title = meta.title ?? 'Untitled Project';
 
   // Update topbar title
   document.querySelector('#app header h2').textContent = title;
 
+  const sectionSkeleton = `<div class="space-y-2 py-2">${skeleton(2)}</div>`;
+
   document.getElementById('project-body').innerHTML = `
-    <!-- Full-width scrollable factsheet -->
     <div class="flex-1 overflow-y-auto min-w-0" id="factsheet-panel">
-      <div class="max-w-5xl mx-auto px-10 py-10 space-y-6">
+      <div class="max-w-4xl mx-auto px-10 py-10">
 
-        ${sec('background', 'Background', null,
-          factsheet.background
-            ? `<p class="text-sm text-on-surface font-body leading-relaxed whitespace-pre-line">${escHtml(factsheet.background)}</p>`
-            : `<p class="text-sm text-on-surface-variant font-body italic">No background recorded.</p>`
-        )}
+        <!-- Case title -->
+        <div class="mb-8">
+          <h1 class="font-headline font-black text-3xl text-primary tracking-tight leading-tight">${escHtml(title)}</h1>
+          <p class="text-xs text-on-surface-variant/50 font-mono mt-2">${projectId}</p>
+        </div>
 
-        ${sec('timeline', 'Case Chronology', 'Key events and documentation milestones', buildTimelineInner(factsheet.events ?? []))}
+        <div class="space-y-4">
+          ${sec('background', 'Background', null,
+            meta.background
+              ? `<p class="text-sm text-on-surface font-body leading-relaxed whitespace-pre-line">${escHtml(meta.background)}</p>`
+              : `<p class="text-sm text-on-surface-variant font-body italic">No background recorded.</p>`
+          )}
 
-        ${sec('parties', 'Parties & Claims', 'Identified legal entities and claims', buildPartiesClaims(factsheet.parties ?? [], factsheet.claims ?? []))}
+          ${sec('timeline',  'Case Chronology', 'Key events · high-significance shown in full', sectionSkeleton)}
+          ${sec('parties',   'Active Parties',  null, sectionSkeleton)}
+          ${sec('claims',    'Claims',          null, sectionSkeleton)}
+          ${sec('deadlines', 'Deadlines',       null, sectionSkeleton)}
+          ${sec('damages',   'Damages',         null, sectionSkeleton)}
+          ${sec('documents', 'Documents',       'Loading…', sectionSkeleton)}
+        </div>
 
-        ${sec('factsheet', 'Factsheet', 'Deadlines, damages and documents', buildFactsheetInner(factsheet, attachments, emails))}
-
-        <!-- Footer -->
-        <div class="pt-4 border-t border-outline-variant/10 flex items-center justify-between text-[10px] text-on-surface-variant/40 font-body">
-          <span class="font-mono">${projectId}</span>
-          <span>Created ${formatDate(factsheet.created_at)}</span>
+        <div class="mt-8 pt-4 border-t border-outline-variant/10 flex items-center justify-between text-[10px] text-on-surface-variant/30 font-body">
+          <span>Created ${formatDate(meta.created_at)}</span>
         </div>
       </div>
     </div>`;
 
-  // Append viewer modal + chat drawer to app root
+  // Append viewer modal only
   const modal = document.createElement('div');
   modal.innerHTML = buildViewerModal();
   document.getElementById('app').appendChild(modal.firstElementChild);
 
-  const drawer = document.createElement('div');
-  drawer.innerHTML = buildChatDrawer(projectId, sessions);
-  document.getElementById('app').appendChild(drawer.firstElementChild);
+  // Init entity popovers (idempotent)
+  initPopovers();
 
-  bindProjectEvents(projectId, data, sessions);
+  bindProjectEvents(projectId);
   bindViewerEvents();
 }
 
@@ -129,81 +183,124 @@ function buildTimelineInner(events) {
   if (!events.length) {
     return `<p class="text-on-surface-variant text-sm font-body py-4">No events recorded yet.</p>`;
   }
-  return `
-    <div class="relative overflow-x-auto pb-4 pt-2">
-      <div class="min-w-[700px] relative px-2">
-        <div class="absolute top-1/2 left-0 w-full h-[2px] bg-secondary/15 -translate-y-1/2 pointer-events-none"></div>
-        <div class="flex justify-between relative gap-4">
-          ${events.slice(0, 6).map((ev, i) => timelineItem(ev, i)).join('')}
-        </div>
-      </div>
-    </div>`;
-}
 
-function timelineItem(ev, i) {
-  const isAbove = i % 2 === 0;
-  const isKey   = ev.is_key_event;
-  const dot     = isKey
-    ? `<div class="w-5 h-5 bg-primary rounded-full ring-[5px] ring-secondary-container/30 z-10 flex-shrink-0"></div>`
-    : `<div class="w-3.5 h-3.5 bg-secondary rounded-full ring-4 ring-surface z-10 flex-shrink-0"></div>`;
-  const card = `
-    <div class="p-4 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10 shadow-sm w-44
-                ${isKey ? 'ring-secondary/20 shadow-lg' : ''}
-                transition-all hover:-translate-y-0.5 hover:shadow-md">
-      <span class="text-[9px] font-bold text-secondary uppercase block mb-1">${formatDate(ev.date ?? ev.event_date, { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-      <p class="text-xs font-semibold text-primary leading-tight line-clamp-3">${escHtml(ev.description ?? ev.event_description ?? '')}</p>
-    </div>`;
+  registerItems('event', events, 'event_id');
 
-  return isAbove
-    ? `<div class="relative flex flex-col items-center group">${card}${dot}</div>`
-    : `<div class="relative flex flex-col items-center group">${dot}${card}</div>`;
+  const sorted = [...events].sort((a, b) =>
+    new Date(a.event_start_date ?? 0) - new Date(b.event_start_date ?? 0)
+  );
+
+  const isHigh = e => (e.significance ?? '').toLowerCase() === 'high';
+
+  // Group non-high events by year-month
+  const monthMap = new Map();
+  sorted.filter(e => !isHigh(e)).forEach(ev => {
+    const d   = ev.event_start_date ? new Date(ev.event_start_date) : null;
+    const key = d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` : 'z-unknown';
+    if (!monthMap.has(key)) monthMap.set(key, []);
+    monthMap.get(key).push(ev);
+  });
+
+  const items = [
+    ...sorted.filter(isHigh).map(ev => ({ type: 'event', ev, sort: +new Date(ev.event_start_date ?? 0) })),
+    ...[...monthMap.entries()].map(([key, evs]) => ({
+      type: 'group', evs, key,
+      sort: key === 'z-unknown' ? 0 : +new Date(key + '-01'),
+    })),
+  ].sort((a, b) => a.sort - b.sort);
+
+  return `<div class="space-y-0">${items.map((item, i) => {
+    const isLast = i === items.length - 1;
+    const line   = isLast ? '' : `<div class="w-px flex-1 bg-outline-variant/20 my-1 ml-px"></div>`;
+
+    if (item.type === 'event') {
+      const ev      = item.ev;
+      const date    = ev.event_start_date ? formatDate(ev.event_start_date, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+      const endDate = ev.event_end_date   ? ` – ${formatDate(ev.event_end_date, { day: 'numeric', month: 'short', year: 'numeric' })}` : '';
+      return `
+        <div class="flex gap-5 pb-6">
+          <div class="flex flex-col items-center flex-shrink-0 w-3">
+            <div class="w-3 h-3 rounded-full bg-primary ring-4 ring-primary/15 flex-shrink-0 mt-1"></div>
+            ${line}
+          </div>
+          <div class="flex-1 min-w-0 pb-1 cursor-pointer popover-item group"
+               data-popover-type="event" data-popover-id="${escHtml(ev.event_id)}">
+            <p class="text-[10px] font-bold text-secondary uppercase tracking-wider">${date}${endDate}</p>
+            <h4 class="text-sm font-bold text-on-surface mt-0.5 leading-snug group-hover:text-secondary transition-colors">${escHtml(ev.event_name ?? ev.description ?? '')}</h4>
+            ${ev.event_name && ev.description ? `<p class="text-xs text-on-surface-variant mt-1 leading-relaxed">${escHtml(ev.description)}</p>` : ''}
+            <div class="flex flex-wrap gap-1 mt-1.5">
+              ${ev.disputed ? `<span class="px-1.5 py-0.5 rounded bg-error-container/40 text-error text-[9px] font-bold uppercase">Disputed</span>` : ''}
+              ${ev.category ? `<span class="px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant text-[9px] font-bold uppercase">${escHtml(ev.category)}</span>` : ''}
+            </div>
+          </div>
+        </div>`;
+    } else {
+      const label = item.key !== 'z-unknown'
+        ? new Date(item.key + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+        : 'Undated';
+      return `
+        <div class="flex gap-5 pb-4">
+          <div class="flex flex-col items-center flex-shrink-0 w-3">
+            <div class="w-2 h-2 rounded-full bg-secondary/30 ring-2 ring-secondary/15 flex-shrink-0 mt-1.5"></div>
+            ${line}
+          </div>
+          <div class="flex items-center gap-2 pb-1">
+            <span class="text-[10px] text-on-surface-variant">${label}</span>
+            <span class="px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant text-[10px] font-semibold">
+              ${item.evs.length} event${item.evs.length > 1 ? 's' : ''}
+            </span>
+          </div>
+        </div>`;
+    }
+  }).join('')}</div>`;
 }
 
 // ── Parties ───────────────────────────────────────────────────
 
-function buildPartiesClaims(parties, claims) {
-  const partyCards = parties.length
-    ? parties.map(p => {
-        const name    = p.legal_name ?? p.party_name ?? p.name ?? 'Unknown';
-        const initial = name[0].toUpperCase();
-        const role    = p.role ?? p.party_role ?? '';
-        const type    = p.entity_type ? ` · ${p.entity_type}` : '';
-        return `
-          <div class="flex items-center gap-3 p-3 bg-surface-container rounded-xl
-                      ring-1 ring-transparent hover:ring-secondary/20 transition-all">
-            <div class="w-9 h-9 rounded-lg bg-primary-container flex items-center justify-center flex-shrink-0">
-              <span class="text-on-primary text-sm font-bold">${escHtml(initial)}</span>
-            </div>
-            <div class="min-w-0">
-              <p class="text-sm font-bold text-on-surface truncate">${escHtml(name)}</p>
-              <p class="text-[10px] font-bold text-secondary uppercase tracking-tight">${escHtml(role + type)}</p>
-            </div>
-          </div>`;
-      }).join('')
-    : `<p class="text-on-surface-variant text-sm italic py-2">No parties recorded.</p>`;
-
-  return `
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      <div>
-        <p class="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-3">Parties</p>
-        <div class="space-y-2">${partyCards}</div>
-      </div>
-      <div>${buildClaimsSection(claims)}</div>
-    </div>`;
+function buildPartiesInner(parties) {
+  if (!parties.length) return `<p class="text-on-surface-variant text-sm italic py-2">No parties recorded.</p>`;
+  registerItems('party', parties, 'party_id');
+  return `<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+    ${parties.map(p => {
+      const name    = p.legal_name ?? p.party_name ?? p.name ?? 'Unknown';
+      const initial = name[0].toUpperCase();
+      const role    = p.role ?? p.party_role ?? '';
+      const type    = p.entity_type ? ` · ${p.entity_type}` : '';
+      return `
+        <div class="flex items-center gap-3 p-3 bg-surface-container rounded-xl ring-1 ring-transparent
+                    hover:ring-secondary/20 transition-all cursor-pointer popover-item"
+             data-popover-type="party" data-popover-id="${escHtml(p.party_id)}">
+          <div class="w-9 h-9 rounded-lg bg-primary-container flex items-center justify-center flex-shrink-0">
+            <span class="text-on-primary text-sm font-bold">${escHtml(initial)}</span>
+          </div>
+          <div class="min-w-0">
+            <p class="text-sm font-bold text-on-surface truncate">${escHtml(name)}</p>
+            <p class="text-[10px] font-bold text-secondary uppercase tracking-tight">${escHtml(role + type)}</p>
+          </div>
+        </div>`;
+    }).join('')}
+  </div>`;
 }
 
 function buildClaimsSection(claims) {
+  if (claims.length) registerItems('claim', claims, 'claim_id');
   const items = claims.length
     ? claims.map(c => {
         const relief  = c.relief_sought    ? `<p class="text-[10px] text-secondary font-bold mt-1 uppercase tracking-wide">Relief: ${escHtml(c.relief_sought)}</p>` : '';
         const basis   = c.legal_basis      ? `<p class="text-[10px] text-on-surface-variant mt-0.5">${escHtml(c.legal_basis)}</p>` : '';
         const role    = c.party_role       ? `<span class="px-1.5 py-0.5 rounded bg-secondary-container/30 text-on-secondary-container text-[9px] font-bold uppercase">${escHtml(c.party_role)}</span>` : '';
         const cat     = c.category         ? `<span class="px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant text-[9px] font-bold uppercase">${escHtml(c.category)}</span>` : '';
+        const title   = c.title ?? '';
         const desc    = c.factual_basis ?? c.defense ?? '';
         return `
-          <div class="p-4 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10">
+          <div class="p-4 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10
+                      hover:ring-secondary/20 transition-all cursor-pointer popover-item"
+               data-popover-type="claim" data-popover-id="${escHtml(c.claim_id)}">
             <div class="flex items-start justify-between gap-2 mb-1">
-              <p class="text-sm font-semibold text-on-surface leading-snug">${escHtml(desc)}</p>
+              <div class="min-w-0">
+                ${title ? `<p class="text-xs font-bold text-secondary uppercase tracking-tight mb-0.5">${escHtml(title)}</p>` : ''}
+                <p class="text-sm font-semibold text-on-surface leading-snug">${escHtml(desc)}</p>
+              </div>
               <div class="flex gap-1 flex-shrink-0">${role}${cat}</div>
             </div>
             ${basis}${relief}
@@ -217,69 +314,46 @@ function buildClaimsSection(claims) {
     <div class="space-y-3">${items}</div>`;
 }
 
-// ── Factsheet inner ───────────────────────────────────────────
+// ── Deadlines / Damages (individual sections) ─────────────────
 
-function buildFactsheetInner(factsheet, attachments, emails) {
-  const deadlines = factsheet.deadlines ?? [];
-  const damages   = factsheet.damages   ?? [];
-
-  return `
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-      <!-- Deadlines -->
-      <div>
-        <p class="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-3">Deadlines</p>
-        <div class="space-y-2">
-          ${deadlines.length
-            ? deadlines.map(d => `
-              <div class="flex items-center justify-between p-3.5 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10">
-                <div>
-                  <p class="text-sm font-semibold text-on-surface">${escHtml(d.description ?? d.deadline_description ?? '')}</p>
-                  <p class="text-[10px] text-on-surface-variant mt-0.5">${formatDate(d.date ?? d.deadline_date)}</p>
-                </div>
-                <span class="material-symbols-outlined text-[18px] text-tertiary-fixed-dim">event</span>
-              </div>`).join('')
-            : `<p class="text-on-surface-variant text-sm font-body py-4">No deadlines recorded.</p>`
-          }
+function buildDeadlinesInner(deadlines) {
+  if (!deadlines.length) return `<p class="text-on-surface-variant text-sm italic py-2">No deadlines recorded.</p>`;
+  registerItems('deadline', deadlines, 'deadline_id');
+  return `<div class="space-y-2">
+    ${deadlines.map(d => `
+      <div class="flex items-center justify-between p-3 bg-surface-container rounded-xl ring-1 ring-outline-variant/10
+                  hover:ring-secondary/20 transition-all cursor-pointer popover-item"
+           data-popover-type="deadline" data-popover-id="${escHtml(d.deadline_id)}">
+        <div class="min-w-0">
+          ${d.title ? `<p class="text-[10px] font-bold text-secondary uppercase tracking-tight mb-0.5">${escHtml(d.title)}</p>` : ''}
+          <p class="text-sm font-semibold text-on-surface truncate">${escHtml(d.description ?? '')}</p>
+          <p class="text-[10px] text-secondary font-bold mt-0.5">${formatDate(d.deadline_date ?? d.date)}</p>
         </div>
-      </div>
+        <span class="material-symbols-outlined text-[18px] text-tertiary-fixed-dim flex-shrink-0 ml-3">event</span>
+      </div>`).join('')}
+  </div>`;
+}
 
-      <!-- Damages -->
-      <div>
-        <p class="text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-3">Damages</p>
-        <div class="space-y-2">
-          ${damages.length
-            ? damages.map(d => {
-                const desc   = d.basis ?? d.category ?? '';
-                const amount = d.amount != null
-                  ? `${d.currency ? escHtml(d.currency) + ' ' : ''}${escHtml(String(d.amount))}`
-                  : '';
-                return `
-                <div class="flex items-center justify-between p-3.5 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10">
-                  <div class="min-w-0">
-                    <p class="text-sm font-semibold text-on-surface">${escHtml(desc)}</p>
-                    ${d.party_role ? `<p class="text-[10px] text-secondary font-bold uppercase mt-0.5">${escHtml(d.party_role)}</p>` : ''}
-                  </div>
-                  ${amount ? `<span class="text-sm font-bold text-secondary flex-shrink-0 ml-4 whitespace-nowrap">${amount}</span>` : ''}
-                </div>`;
-              }).join('')
-            : `<p class="text-on-surface-variant text-sm font-body py-4">No damages recorded.</p>`
-          }
-        </div>
-      </div>
-
-      <!-- Attachments -->
-      <div class="lg:col-span-2">
-        <div class="flex items-center justify-between mb-4">
-          <p class="text-xs font-bold uppercase tracking-wider text-on-surface-variant">Documents</p>
-          <div class="flex gap-2">
-            <span class="px-2.5 py-1 rounded-full bg-secondary-container/30 text-on-secondary-container text-xs font-bold">${attachments.length} files</span>
-            <span class="px-2.5 py-1 rounded-full bg-surface-container text-on-surface-variant text-xs font-bold">${emails.length} emails</span>
+function buildDamagesInner(damages) {
+  if (!damages.length) return `<p class="text-on-surface-variant text-sm italic py-2">No damages recorded.</p>`;
+  registerItems('damage', damages, 'damage_id');
+  return `<div class="space-y-2">
+    ${damages.map(d => {
+      const desc   = d.basis ?? d.category ?? '';
+      const amount = d.amount != null ? `${d.currency ? escHtml(d.currency) + ' ' : ''}${escHtml(String(d.amount))}` : '';
+      return `
+        <div class="flex items-center justify-between p-3 bg-surface-container rounded-xl ring-1 ring-outline-variant/10
+                    hover:ring-secondary/20 transition-all cursor-pointer popover-item"
+             data-popover-type="damage" data-popover-id="${escHtml(d.damage_id)}">
+          <div class="min-w-0">
+            ${d.title ? `<p class="text-[10px] font-bold text-secondary uppercase tracking-tight mb-0.5">${escHtml(d.title)}</p>` : ''}
+            <p class="text-sm font-semibold text-on-surface">${escHtml(desc)}</p>
+            ${d.party_role ? `<p class="text-[10px] text-secondary font-bold uppercase mt-0.5">${escHtml(d.party_role)}</p>` : ''}
           </div>
-        </div>
-        ${buildAttachmentsList(attachments, emails)}
-      </div>
-    </div>`;
+          ${amount ? `<span class="text-sm font-bold text-secondary flex-shrink-0 ml-4 whitespace-nowrap">${amount}</span>` : ''}
+        </div>`;
+    }).join('')}
+  </div>`;
 }
 
 const TEXT_MIME_TYPES = new Set(['text/plain', 'text/markdown', 'text/csv', 'text/x-markdown']);
@@ -293,6 +367,9 @@ function fileViewType(filename, mimeType) {
 }
 
 function buildAttachmentsList(attachments, emails) {
+  _attachStore.clear();
+  attachments.forEach(a => { if (a.file_id) _attachStore.set(a.file_id, a); });
+
   const attItems = attachments.map(a => {
     const vtype = fileViewType(a.filename ?? '', a.file_type ?? '');
     const isPdf = vtype === 'pdf';
@@ -386,7 +463,7 @@ function buildViewerModal() {
 
           <!-- Email body — Outlook-style -->
           <div id="viewer-email" class="hidden h-full overflow-y-auto flex flex-col">
-            <div id="viewer-email-headers" class="flex-shrink-0 px-8 pt-6 pb-4 bg-surface-container-low border-b border-outline-variant/10"></div>
+            <div id="viewer-email-headers" class="flex-shrink-0 bg-surface-container-low"></div>
             <div id="viewer-email-body" class="flex-1 px-8 py-6 overflow-y-auto"></div>
           </div>
 
@@ -413,21 +490,47 @@ function buildViewerModal() {
 }
 
 function bindViewerEvents() {
-  // Close on backdrop or button
+  // Close on backdrop or button — scoped to modal elements, safe to re-add
   document.getElementById('viewer-close')?.addEventListener('click', closeViewer);
   document.getElementById('viewer-backdrop')?.addEventListener('click', closeViewer);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeViewer(); });
 
-  // Attachment / email click
-  document.addEventListener('click', async (e) => {
-    const item = e.target.closest('.att-item');
-    if (!item) return;
-
-    const type = item.dataset.type;
-    if (type === 'pdf')   await openPdfViewer(item);
-    if (type === 'text')  await openTextViewer(item);
-    if (type === 'email') openEmailViewer(item.dataset.emailId);
-  });
+  // Keydown + att-item click: use { once: false } but guard with a module-level flag
+  // so we don't stack listeners across navigations
+  if (!_viewerBound) {
+    _viewerBound = true;
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeViewer(); });
+    document.addEventListener('click', async (e) => {
+      const item = e.target.closest('.att-item');
+      if (!item) return;
+      const type = item.dataset.type;
+      if (type === 'pdf')   await openPdfViewer(item);
+      if (type === 'text')  await openTextViewer(item);
+      if (type === 'email') await openEmailViewer(item.dataset.emailId);
+    });
+    document.addEventListener('open-source', async (e) => {
+      const { type, id } = e.detail ?? {};
+      if (!type || !id) return;
+      if (type === 'email') {
+        await openEmailViewer(id);
+      } else {
+        const a = _attachStore.get(id);
+        if (!a) return;
+        const vtype = fileViewType(a.filename ?? '', a.file_type ?? '');
+        const ext   = (a.filename ?? '').slice((a.filename ?? '').lastIndexOf('.')).toLowerCase();
+        const fakeItem = {
+          dataset: {
+            type: vtype,
+            path: a.path ?? '',
+            name: a.filename ?? '',
+            fileType: a.file_type ?? 'application/pdf',
+            isMarkdown: String(ext === '.md' || ext === '.markdown'),
+          },
+        };
+        if (vtype === 'pdf')  await openPdfViewer(fakeItem);
+        if (vtype === 'text') await openTextViewer(fakeItem);
+      }
+    });
+  }
 }
 
 function openViewer(title, meta, icon = 'description') {
@@ -493,208 +596,86 @@ async function openTextViewer(item) {
   }
 }
 
-function openEmailViewer(emailId) {
+// Parse "Display Name <email@domain>" or plain "email@domain"
+function parseEmailAddr(raw) {
+  const m = (raw ?? '').match(/^(.*?)\s*<(.+?)>$/);
+  if (m) return { name: m[1].trim(), email: m[2].trim() };
+  return { name: '', email: (raw ?? '').trim() };
+}
+
+async function openEmailViewer(emailId) {
   const e = _emailStore.get(emailId);
-  if (!e) return;
+  if (!e) {
+    chatLog.warn({ emailId }, 'openEmailViewer — email not found in store');
+    return;
+  }
 
-  const subject  = e.subject   ?? '(no subject)';
-  const fromAddr = e.from_addr ?? '';
-  const to       = Array.isArray(e.to) ? e.to.join(', ') : (e.to ?? '');
-  const cc       = Array.isArray(e.cc) ? e.cc.join(', ') : (e.cc ?? '');
-  const body     = e.body ?? '';
-  const date     = e.date      ?? '';
-  openViewer(subject, fromAddr, 'mail');
-  document.getElementById('viewer-loading').classList.add('hidden');
+  const subject = e.subject   ?? '(no subject)';
+  const from    = parseEmailAddr(e.from_addr ?? '');
+  const to      = Array.isArray(e.to) ? e.to.join(', ') : (e.to ?? '');
+  const cc      = Array.isArray(e.cc) ? e.cc.join(', ') : (e.cc ?? '');
+  const date    = e.date ?? '';
 
-  // Outlook-style header rows
-  const row = (label, value) => value
-    ? `<div class="flex gap-4 py-2 border-b border-outline-variant/10 last:border-0">
-         <span class="w-16 flex-shrink-0 text-[10px] font-black uppercase tracking-wider text-on-surface-variant/60 pt-0.5">${label}</span>
-         <span class="text-sm text-on-surface">${escHtml(value)}</span>
-       </div>`
-    : '';
+  openViewer(subject, from.email || from.name, 'mail');
 
-  document.getElementById('viewer-email-headers').innerHTML = `
-    <div class="mb-1">
-      <h2 class="font-headline font-bold text-xl text-primary">${escHtml(subject)}</h2>
-    </div>
-    <div class="mt-3 bg-surface-container rounded-xl px-4 py-1 text-sm font-body">
-      ${row('From', fromAddr)}
-      ${row('To',   to)}
-      ${cc ? row('Cc', cc) : ''}
-      ${row('Date', date ? formatDate(date, { dateStyle: 'long', timeStyle: 'short' }) : '')}
-    </div>`;
+  try {
+    chatLog.info({ emailId }, 'Fetching email body on-demand');
+    const body = await loadEmailBody(emailId);
 
-  // Body — plain textContent, same pattern as subject/from_addr
-  const bodyEl = document.getElementById('viewer-email-body');
-  bodyEl.style.whiteSpace = 'pre-wrap';
-  bodyEl.style.fontSize   = '0.875rem';
-  bodyEl.style.lineHeight = '1.6';
-  bodyEl.textContent = body || '(no body)';
+    // Initials avatar from sender name or email
+    const displayName = from.name || from.email;
+    const initials    = displayName.split(/[\s@<>]+/).filter(Boolean).map(p => p[0]).join('').toUpperCase().slice(0, 2) || '?';
+    const dateStr     = date ? new Date(date).toLocaleString('no-NO', { dateStyle: 'long', timeStyle: 'short' }) : '';
 
-  document.getElementById('viewer-email').classList.remove('hidden');
+    // "To: A, B · Cc: C" compact recipient line
+    const recipientLine = [
+      to ? `Til: ${escHtml(to)}` : '',
+      cc ? `Cc: ${escHtml(cc)}`  : '',
+    ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+
+    document.getElementById('viewer-email-headers').innerHTML = `
+      <!-- Subject -->
+      <h2 class="font-headline font-bold text-xl text-on-surface mb-4 px-8 pt-6">${escHtml(subject)}</h2>
+
+      <!-- Sender row — Outlook style -->
+      <div class="flex items-start gap-4 px-8 pb-5 border-b border-outline-variant/10">
+        <div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center flex-shrink-0 mt-0.5">
+          <span class="text-on-primary text-sm font-bold">${escHtml(initials)}</span>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-start justify-between gap-6">
+            <div class="min-w-0">
+              <p class="text-sm font-semibold text-on-surface leading-snug">
+                ${escHtml(from.name || from.email)}
+                ${from.name ? `<span class="font-normal text-on-surface-variant text-xs">&lt;${escHtml(from.email)}&gt;</span>` : ''}
+              </p>
+              ${recipientLine ? `<p class="text-xs text-on-surface-variant mt-0.5">${recipientLine}</p>` : ''}
+            </div>
+            <p class="text-[11px] text-on-surface-variant flex-shrink-0 mt-0.5">${escHtml(dateStr)}</p>
+          </div>
+        </div>
+      </div>`;
+
+    const bodyEl = document.getElementById('viewer-email-body');
+    bodyEl.style.whiteSpace = 'pre-wrap';
+    bodyEl.style.fontSize   = '0.875rem';
+    bodyEl.style.lineHeight = '1.6';
+    bodyEl.textContent = body || '(no body)';
+
+    document.getElementById('viewer-loading').classList.add('hidden');
+    document.getElementById('viewer-email').classList.remove('hidden');
+  } catch (err) {
+    chatLog.error({ err: err.message, emailId }, 'Email body fetch failed');
+    document.getElementById('viewer-loading').classList.add('hidden');
+    document.getElementById('viewer-error-msg').textContent = err.message;
+    document.getElementById('viewer-error').classList.remove('hidden');
+  }
 }
 
-// ── Chat drawer (floating, slide-in from right) ───────────────
 
-function buildChatDrawer(projectId, sessions) {
-  return `
-    <!-- Floating chat button -->
-    <button id="btn-chat-open"
-      class="fixed bottom-6 right-6 z-[120] flex items-center gap-2 px-4 py-3 rounded-full
-             bg-gradient-to-b from-primary to-primary-container text-on-primary shadow-lg
-             hover:shadow-xl hover:scale-105 transition-all font-headline font-semibold text-sm">
-      <span class="material-symbols-outlined text-[20px]" style="font-variation-settings:'FILL' 1">chat</span>
-      Chat
-    </button>
+// ── Project events (collapsible sections only) ────────────────
 
-    <!-- Drawer -->
-    <div id="chat-drawer"
-      class="fixed right-0 z-[110] flex flex-col border-l border-outline-variant/10
-             bg-surface-container-low shadow-[-8px_0_32px_rgba(0,0,0,0.1)]
-             translate-x-full transition-transform duration-300"
-      style="top:57px; bottom:0; width:480px">
-      ${buildChatPanel(projectId, sessions)}
-    </div>`;
-}
-
-function buildChatPanel(projectId, sessions) {
-  const sessionOptions = sessions.map(s =>
-    `<option value="${s.session_id}">${escHtml(s.title ?? 'Untitled Session')}</option>`
-  ).join('');
-
-  return `
-    <!-- Session selector + controls -->
-    <div class="p-3 border-b border-outline-variant/10 flex items-center gap-1.5 flex-shrink-0">
-      <span class="material-symbols-outlined text-[18px] text-on-surface-variant flex-shrink-0">chat</span>
-      <select id="session-select"
-        class="flex-1 min-w-0 bg-transparent text-sm font-semibold text-on-surface outline-none cursor-pointer truncate">
-        <option value="">— New session —</option>
-        ${sessionOptions}
-      </select>
-      <button id="btn-new-session" title="New session"
-        class="p-1.5 rounded-lg hover:bg-surface-container transition-colors flex-shrink-0">
-        <span class="material-symbols-outlined text-[18px] text-on-surface-variant">add</span>
-      </button>
-      <button id="btn-delete-session" title="Delete session"
-        class="p-1.5 rounded-lg hover:bg-error-container/40 transition-colors flex-shrink-0">
-        <span class="material-symbols-outlined text-[18px] text-on-surface-variant hover:text-error">delete</span>
-      </button>
-      <button id="btn-chat-close" title="Close chat"
-        class="p-1.5 rounded-lg hover:bg-surface-container transition-colors flex-shrink-0">
-        <span class="material-symbols-outlined text-[18px] text-on-surface-variant">chevron_right</span>
-      </button>
-    </div>
-
-    <!-- Messages -->
-    <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-4 font-body text-sm">
-      <div id="chat-welcome" class="flex flex-col items-center justify-center h-full py-12 text-center">
-        <span class="material-symbols-outlined text-4xl text-on-surface-variant/30 mb-3">chat_bubble</span>
-        <p class="text-on-surface-variant text-sm">Select a session or start a new conversation.</p>
-      </div>
-    </div>
-
-    <!-- Input area -->
-    <div class="p-4 border-t border-outline-variant/10">
-      <!-- Model selector — format: provider_modelname (matches pick_llm in agent/utils.py) -->
-      <div class="flex items-center gap-2 mb-3">
-        <span class="material-symbols-outlined text-[14px] text-on-surface-variant">smart_toy</span>
-        <select id="model-select" class="text-xs text-on-surface-variant bg-transparent outline-none cursor-pointer">
-          <option value="google_gemini-2.5-flash" selected>Gemini 2.5 Flash</option>
-          <option value="google_gemini-2.5-pro">Gemini 2.5 Pro</option>
-          <option value="anthropic_claude-sonnet-4-6">Claude Sonnet 4.6</option>
-          <option value="anthropic_claude-haiku-4-5">Claude Haiku 4.5</option>
-          <option value="openai_gpt-5.3-chat-latest">GPT-5.3</option>
-        </select>
-      </div>
-
-      <!-- Text input -->
-      <div class="flex items-end gap-2">
-        <textarea
-          id="chat-input"
-          rows="2"
-          placeholder="Ask a question about this case..."
-          class="flex-1 resize-none bg-surface-container ring-1 ring-outline-variant/20 focus:ring-2 focus:ring-secondary
-                 rounded-xl px-3.5 py-2.5 text-sm font-body outline-none transition-all placeholder:text-on-surface-variant/40"
-        ></textarea>
-        <button id="btn-send"
-          class="flex-shrink-0 p-2.5 rounded-xl bg-gradient-to-b from-primary to-primary-container text-on-primary
-                 hover:opacity-90 transition-opacity disabled:opacity-40">
-          <span class="material-symbols-outlined text-[20px]">send</span>
-        </button>
-      </div>
-
-      <!-- File upload -->
-      <div class="mt-2 flex items-center gap-2">
-        <label for="file-upload" class="flex items-center gap-1.5 cursor-pointer text-xs text-on-surface-variant hover:text-secondary transition-colors">
-          <span class="material-symbols-outlined text-[16px]">attach_file</span>
-          Attach file
-        </label>
-        <input id="file-upload" type="file" class="hidden" multiple
-               accept=".pdf,.txt,.eml,.csv,.xlsx,.pptx,.docx">
-        <div id="file-chips" class="flex flex-wrap gap-1"></div>
-      </div>
-    </div>`;
-}
-
-// ── Chat state ────────────────────────────────────────────────
-
-const chatState = {
-  projectId:  null,
-  sessionId:  null,
-  messages:   [],       // { role, content, type, queryId }
-  pendingFiles: [],     // File objects
-  streaming:  false,
-};
-
-function bindProjectEvents(projectId, data, sessions) {
-  chatState.projectId = projectId;
-  chatState.sessions  = sessions;
-
-  // Session selector
-  document.getElementById('session-select')?.addEventListener('change', async (e) => {
-    const sid = e.target.value;
-    if (!sid) {
-      chatState.sessionId = null;
-      chatState.messages  = [];
-      renderMessages();
-      return;
-    }
-    chatState.sessionId = sid;
-    await loadSession(sid);
-  });
-
-  // New session button
-  document.getElementById('btn-new-session')?.addEventListener('click', async () => {
-    await startNewSession(projectId);
-  });
-
-  // Delete session button
-  document.getElementById('btn-delete-session')?.addEventListener('click', async () => {
-    if (!chatState.sessionId) return;
-    if (!confirm('Delete this session?')) return;
-    try {
-      await deleteSession(chatState.sessionId, projectId);
-      chatState.sessionId = null;
-      chatState.messages  = [];
-      toast('Session deleted', 'success');
-      // Refresh sessions list
-      const updated = await loadProjectSessions(projectId);
-      updateSessionSelect(updated);
-      renderMessages();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  });
-
-  // Chat drawer open/close
-  const openDrawer  = () => document.getElementById('chat-drawer')?.classList.replace('translate-x-full', 'translate-x-0');
-  const closeDrawer = () => document.getElementById('chat-drawer')?.classList.replace('translate-x-0', 'translate-x-full');
-
-  document.getElementById('btn-chat-open')?.addEventListener('click', openDrawer);
-  document.getElementById('btn-chat-close')?.addEventListener('click', closeDrawer);
-
-  // Collapsible sections
+function bindProjectEvents(_projectId) {
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('.sec-toggle');
     if (!btn) return;
@@ -703,280 +684,7 @@ function bindProjectEvents(projectId, data, sessions) {
     const icon = btn.querySelector('.sec-icon');
     if (!body) return;
     const collapsed = body.style.display === 'none';
-    body.style.display    = collapsed ? '' : 'none';
+    body.style.display = collapsed ? '' : 'none';
     if (icon) icon.textContent = collapsed ? 'expand_less' : 'expand_more';
-  });
-
-  // Send button
-  document.getElementById('btn-send')?.addEventListener('click', () => sendMessage(projectId));
-
-  // Enter key (Shift+Enter for newline)
-  document.getElementById('chat-input')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage(projectId);
-    }
-  });
-
-  // File upload
-  document.getElementById('file-upload')?.addEventListener('change', (e) => {
-    chatState.pendingFiles = Array.from(e.target.files ?? []);
-    renderFileChips();
-  });
-}
-
-function updateSessionSelect(sessions) {
-  const sel = document.getElementById('session-select');
-  if (!sel) return;
-  const opts = sessions.map(s =>
-    `<option value="${s.session_id}" ${s.session_id === chatState.sessionId ? 'selected' : ''}>
-      ${escHtml(s.title ?? 'Untitled Session')}
-    </option>`
-  ).join('');
-  sel.innerHTML = `<option value="">— New session —</option>${opts}`;
-}
-
-async function startNewSession(projectId) {
-  try {
-    const session = await createSession(projectId, appState.user.id);
-    chatState.sessionId = session.session_id;
-    chatState.messages  = [];
-    const updated = await loadProjectSessions(projectId);
-    updateSessionSelect(updated);
-    renderMessages();
-    toast('New session started', 'success');
-  } catch (err) {
-    toast(err.message, 'error');
-  }
-}
-
-async function loadSession(sessionId) {
-  const messagesEl = document.getElementById('chat-messages');
-  if (messagesEl) messagesEl.innerHTML = `<div class="space-y-3">${skeleton(4)}</div>`;
-
-  try {
-    const { events } = await loadSessionHistory(sessionId);
-    chatState.messages = events.map(ev => ({
-      role:    ev.type,
-      content: getEventContent(ev),
-      type:    ev.type,
-      queryId: ev.query_id,
-      toolData: ev.type === 'tool_result' ? ev.data : null,
-    }));
-    renderMessages();
-  } catch (err) {
-    toast(err.message, 'error');
-  }
-}
-
-function getEventContent(ev) {
-  // ev.data kan være string (JSON), objekt, eller null
-  let d = ev.data ?? {};
-  if (typeof d === 'string') {
-    try { d = JSON.parse(d); } catch { d = { content: d }; }
-  }
-
-  chatLog.debug({ type: ev.type, dataKeys: Object.keys(d) }, 'getEventContent');
-
-  if (ev.type === 'human')       return d.content ?? '';
-  if (ev.type === 'ai')          return d.token_stream ?? d.content ?? '';
-  if (ev.type === 'tool_result') return d.tool_name ?? '';
-  return '';
-}
-
-// ── Sending messages ─────────────────────────────────────────
-
-async function sendMessage(projectId) {
-  if (chatState.streaming) return;
-
-  const inputEl  = document.getElementById('chat-input');
-  const question = inputEl?.value.trim();
-  if (!question) return;
-
-  // Ensure session
-  if (!chatState.sessionId) {
-    await startNewSession(projectId);
-    if (!chatState.sessionId) return;
-  }
-
-  inputEl.value = '';
-  inputEl.disabled = true;
-  document.getElementById('btn-send').disabled = true;
-
-  const queryId = uuid();
-  const model   = document.getElementById('model-select')?.value ?? 'gemini-2.5-flash';
-
-  // Build file attachments (base64)
-  const attachments = await buildAttachmentPayloads(chatState.pendingFiles, queryId);
-  chatState.pendingFiles = [];
-  renderFileChips();
-
-  // Add human message to UI
-  chatState.messages.push({ role: 'human', content: question, type: 'human', queryId });
-  renderMessages();
-
-  // Streaming AI message placeholder
-  const aiMsg = { role: 'ai', content: '', type: 'ai', queryId, streaming: true };
-  chatState.messages.push(aiMsg);
-  chatState.streaming = true;
-  renderMessages();
-
-  const request = {
-    question,
-    attachments,
-    session_id:  chatState.sessionId,
-    llm_model:   model,
-    query_id:    queryId,
-    project_id:  projectId,
-  };
-
-  _streamController = streamChat(request, {
-    onToken: (token) => {
-      aiMsg.content += token;
-      updateStreamingMessage(aiMsg);
-    },
-    onReasoning: (text) => {
-      aiMsg.reasoning = (aiMsg.reasoning ?? '') + text;
-      updateStreamingMessage(aiMsg);
-    },
-    onToolResult: (data) => {
-      chatState.messages.push({ role: 'tool_result', content: `Tool: ${data.tool_name ?? ''}`, type: 'tool_result', toolData: data, queryId });
-      renderMessages(true);
-    },
-    onDone: () => {
-      aiMsg.streaming = false;
-      chatState.streaming = false;
-      inputEl.disabled = false;
-      document.getElementById('btn-send').disabled = false;
-      renderMessages();
-    },
-    onError: (err) => {
-      aiMsg.content += `\n\n*Error: ${err.message}*`;
-      aiMsg.streaming = false;
-      chatState.streaming = false;
-      inputEl.disabled = false;
-      document.getElementById('btn-send').disabled = false;
-      renderMessages();
-      toast(err.message, 'error');
-    },
-  });
-}
-
-async function buildAttachmentPayloads(files, queryId) {
-  return Promise.all(files.map(async (file) => {
-    const bytes  = await file.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(bytes)));
-    const fileId = uuid();
-    return {
-      filename:  file.name,
-      file_id:   fileId,
-      content:   base64,
-      path:      `${appState.user.id}/${chatState.sessionId}/${fileId}${file.name.slice(file.name.lastIndexOf('.'))}`,
-      file_type: file.type,
-      size:      file.size,
-      query_id:  queryId,
-    };
-  }));
-}
-
-// ── Message rendering ─────────────────────────────────────────
-
-function renderMessages(keepScroll = false) {
-  const el = document.getElementById('chat-messages');
-  if (!el) return;
-
-  if (!chatState.messages.length) {
-    el.innerHTML = `
-      <div class="flex flex-col items-center justify-center h-full py-12 text-center">
-        <span class="material-symbols-outlined text-4xl text-on-surface-variant/30 mb-3">chat_bubble</span>
-        <p class="text-on-surface-variant text-sm">Ask a question to begin the conversation.</p>
-      </div>`;
-    return;
-  }
-
-  const wasAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
-  el.innerHTML = chatState.messages.map(msg => renderMessage(msg)).join('');
-
-  if (!keepScroll && (wasAtBottom || chatState.streaming)) {
-    el.scrollTop = el.scrollHeight;
-  }
-}
-
-function updateStreamingMessage(aiMsg) {
-  const el = document.querySelector(`[data-query-id="${aiMsg.queryId}"].ai-message`);
-  if (!el) { renderMessages(); return; }
-  const contentEl = el.querySelector('.msg-content');
-  if (contentEl) contentEl.innerHTML = md(aiMsg.content);
-  const dotEl = el.querySelector('.streaming-dot');
-  if (dotEl) dotEl.classList.toggle('hidden', !aiMsg.streaming);
-  const messages = document.getElementById('chat-messages');
-  if (messages) messages.scrollTop = messages.scrollHeight;
-}
-
-
-function renderMessage(msg) {
-  if (msg.type === 'human') {
-    return `
-      <div class="flex justify-end">
-        <div class="max-w-[85%] bg-primary-container text-on-primary rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed">
-          ${escHtml(msg.content)}
-        </div>
-      </div>`;
-  }
-
-  if (msg.type === 'tool_result') {
-    const toolName = msg.content || (msg.toolData?.tool_name ?? msg.toolData?.data?.tool_name ?? 'tool');
-    return `
-      <div class="flex items-start gap-2">
-        <span class="material-symbols-outlined text-[16px] text-on-surface-variant mt-0.5 flex-shrink-0">build</span>
-        <details class="flex-1 bg-surface-container rounded-xl overflow-hidden text-xs">
-          <summary class="px-3 py-2 font-bold text-on-surface-variant cursor-pointer hover:bg-surface-container-high transition-colors list-none flex items-center gap-2">
-            <span class="material-symbols-outlined text-[14px]">chevron_right</span>
-            ${escHtml(toolName)}
-          </summary>
-          <div class="px-3 pb-3 text-on-surface-variant font-mono overflow-x-auto">
-            <pre class="whitespace-pre-wrap text-[10px]">${escHtml(JSON.stringify(msg.toolData?.data ?? {}, null, 2))}</pre>
-          </div>
-        </details>
-      </div>`;
-  }
-
-  // AI message
-  return `
-    <div class="flex items-start gap-2 ai-message" data-query-id="${msg.queryId ?? ''}">
-      <div class="w-6 h-6 rounded-full bg-secondary-container flex items-center justify-center flex-shrink-0 mt-0.5">
-        <span class="material-symbols-outlined text-[14px] text-secondary" style="font-variation-settings:'FILL' 1">smart_toy</span>
-      </div>
-      <div class="flex-1 min-w-0">
-        ${msg.reasoning ? `
-          <details class="mb-2 text-xs text-on-surface-variant">
-            <summary class="cursor-pointer hover:text-primary transition-colors font-bold">Reasoning</summary>
-            <div class="mt-1 font-body leading-relaxed opacity-70 prose prose-sm max-w-none">${md(msg.reasoning)}</div>
-          </details>` : ''}
-        <div class="msg-content prose prose-sm max-w-none text-on-surface font-body leading-relaxed
-                    prose-headings:font-headline prose-headings:text-primary
-                    prose-code:bg-surface-container prose-code:px-1 prose-code:rounded prose-code:text-xs
-                    prose-pre:bg-surface-container prose-pre:rounded-xl prose-pre:text-xs">
-          ${msg.content ? md(msg.content) : ''}
-          <span class="streaming-dot ${msg.streaming ? '' : 'hidden'} inline-block w-1.5 h-3.5 bg-secondary animate-pulse rounded-sm ml-0.5 align-middle"></span>
-        </div>
-      </div>
-    </div>`;
-}
-
-function renderFileChips() {
-  const el = document.getElementById('file-chips');
-  if (!el) return;
-  el.innerHTML = chatState.pendingFiles.map((f, i) => `
-    <div class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-secondary-container/30 text-on-secondary-container text-[10px] font-semibold">
-      ${escHtml(f.name.length > 20 ? f.name.slice(0,18) + '…' : f.name)}
-      <button class="ml-1 hover:text-error" data-file-index="${i}">×</button>
-    </div>`).join('');
-
-  el.querySelectorAll('[data-file-index]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      chatState.pendingFiles.splice(Number(btn.dataset.fileIndex), 1);
-      renderFileChips();
-    });
   });
 }

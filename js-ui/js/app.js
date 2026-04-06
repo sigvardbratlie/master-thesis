@@ -9,6 +9,7 @@ import { appState }         from './state.js';
 import { renderLogin }      from './pages/login.js';
 import { renderPortfolio }  from './pages/portfolio.js';
 import { renderProject }    from './pages/project.js';
+import { renderChat }       from './pages/chat.js';
 import { renderUser }       from './pages/user.js';
 import { renderCompany }    from './pages/company.js';
 
@@ -74,9 +75,10 @@ function setupRouter() {
   router
     .on('/',              ()       => renderPortfolio())
     .on('/project/:id',  (params) => renderProject(params))
+    .on('/chat',          ()       => renderChat({}))
+    .on('/chat/:id',     (params) => renderChat(params))
     .on('/user',          ()       => renderUser())
     .on('/company',       ()       => renderCompany())
-    // Fallback
     .on('/.*',            ()       => renderPortfolio());
 }
 

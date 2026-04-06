@@ -10,7 +10,9 @@ import { apiLog }      from './logger.js';
 
 const TTL = {
   projects:     120_000,  // 2 min
-  project:       60_000,  // 1 min
+  projectMeta:   60_000,  // 1 min
+  section:       60_000,  // 1 min (events, parties, claims, etc.)
+  emailBody:     30_000,  // 30 s  (on-demand, cleared on reload)
   userDetails:  300_000,  // 5 min
   company:      300_000,  // 5 min
   sessions:      60_000,  // 1 min
@@ -62,46 +64,149 @@ export async function loadProjects(userId) {
   return data;
 }
 
-export async function loadProject(projectId) {
-  const cacheKey = `project:${projectId}`;
+// ── Per-table project loaders ────────────────────────────────
+
+export async function loadProjectMeta(projectId) {
+  const cacheKey = `project-meta:${projectId}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
   const { data, error } = await authService.client
     .from('projects')
-    .select(`
-      *,
-      project_attachments(file_id, file_date, filename, file_type, path, created_at),
-      project_events(*),
-      project_parties(*, project_party_reps(*)),
-      project_deadlines(*),
-      project_damages(*),
-      project_claims(*),
-      project_emails(email_id, from_addr, to, cc, bcc, subject, body, date, message_id, created_at, path)
-    `)
+    .select('project_id, title, background, created_at, start_date')
     .eq('project_id', projectId)
     .single();
 
   if (error) throw error;
+  cache.set(cacheKey, data, TTL.projectMeta);
+  return data;
+}
 
-  const result = {
-    factsheet: {
-      ...data,
-      parties:   data.project_parties   ?? [],
-      events:    data.project_events    ?? [],
-      deadlines: data.project_deadlines ?? [],
-      damages:   data.project_damages   ?? [],
-      claims:    data.project_claims    ?? [],
-    },
-    attachments: data.project_attachments ?? [],
-    emails:      data.project_emails      ?? [],
-  };
-  // clean up nested keys from factsheet
-  ['project_parties','project_events','project_deadlines','project_damages',
-   'project_claims','project_attachments','project_emails'].forEach(k => delete result.factsheet[k]);
+export async function loadProjectEvents(projectId) {
+  const cacheKey = `project-events:${projectId}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
 
-  cache.set(cacheKey, result, TTL.project);
-  return result;
+  const { data, error } = await authService.client
+    .from('project_events')
+    .select('event_id, event_name, description, significance, category, event_start_date, event_end_date, disputed, parties, email_id, file_id, project_id, created_by, updated_by, created_at, updated_at')
+    .eq('project_id', projectId)
+    .order('event_start_date', { ascending: true });
+
+  if (error) throw error;
+  cache.set(cacheKey, data ?? [], TTL.section);
+  return data ?? [];
+}
+
+export async function loadProjectParties(projectId) {
+  const cacheKey = `project-parties:${projectId}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const { data, error } = await authService.client
+    .from('project_parties')
+    .select('*, project_party_reps(*)')
+    .eq('project_id', projectId);
+
+  if (error) throw error;
+  cache.set(cacheKey, data ?? [], TTL.section);
+  return data ?? [];
+}
+
+export async function loadProjectClaims(projectId) {
+  const cacheKey = `project-claims:${projectId}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const { data, error } = await authService.client
+    .from('project_claims')
+    .select('claim_id, title, factual_basis, legal_basis, defense, party_role, relief_sought, strength_assessment, category, significance, email_id, file_id, project_id, created_by, updated_by, created_at, updated_at')
+    .eq('project_id', projectId);
+
+  if (error) throw error;
+  cache.set(cacheKey, data ?? [], TTL.section);
+  return data ?? [];
+}
+
+export async function loadProjectDeadlines(projectId) {
+  const cacheKey = `project-deadlines:${projectId}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const { data, error } = await authService.client
+    .from('project_deadlines')
+    .select('deadline_id, title, description, deadline_date, party_role, significance, email_id, file_id, project_id, created_by, updated_by, created_at, updated_at')
+    .eq('project_id', projectId)
+    .order('deadline_date', { ascending: true });
+
+  if (error) throw error;
+  cache.set(cacheKey, data ?? [], TTL.section);
+  return data ?? [];
+}
+
+export async function loadProjectDamages(projectId) {
+  const cacheKey = `project-damages:${projectId}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const { data, error } = await authService.client
+    .from('project_damages')
+    .select('damage_id, title, basis, category, amount, currency, party_role, significance, supporting_evidence, email_id, file_id, project_id, created_by, updated_by, created_at, updated_at')
+    .eq('project_id', projectId);
+
+  if (error) throw error;
+  cache.set(cacheKey, data ?? [], TTL.section);
+  return data ?? [];
+}
+
+export async function loadProjectAttachments(projectId) {
+  const cacheKey = `project-attachments:${projectId}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const { data, error } = await authService.client
+    .from('project_attachments')
+    .select('file_id, filename, file_type, path, file_date, created_at, category, significance')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  cache.set(cacheKey, data ?? [], TTL.section);
+  return data ?? [];
+}
+
+export async function loadProjectEmails(projectId) {
+  const cacheKey = `project-emails:${projectId}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  // Intentionally excludes `body` — fetched on-demand via loadEmailBody
+  const { data, error } = await authService.client
+    .from('project_emails')
+    .select('email_id, from_addr, to, cc, subject, date, message_id, significance')
+    .eq('project_id', projectId)
+    .order('date', { ascending: false });
+
+  if (error) throw error;
+  cache.set(cacheKey, data ?? [], TTL.section);
+  return data ?? [];
+}
+
+export async function loadEmailBody(emailId) {
+  const cacheKey = `email-body:${emailId}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const { data, error } = await authService.client
+    .from('project_emails')
+    .select('body')
+    .eq('email_id', emailId)
+    .maybeSingle();
+
+  if (error) throw error;
+  const body = data?.body ?? '';
+  cache.set(cacheKey, body, TTL.emailBody);
+  return body;
 }
 
 export async function createProject(userId, title) {
@@ -377,4 +482,70 @@ function _streamProject(path, request, callbacks) {
   })();
 
   return controller;
+}
+
+// ── Entity update functions ──────────────────────────────────
+
+function _withAudit(updates, userId) {
+  return { ...updates, updated_at: new Date().toISOString(), updated_by: userId };
+}
+
+export async function updateProjectEvent(eventId, projectId, updates, userId) {
+  const { data, error } = await authService.client
+    .from('project_events')
+    .update(_withAudit(updates, userId))
+    .eq('event_id', eventId)
+    .select()
+    .single();
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-events:${projectId}`);
+  return data;
+}
+
+export async function updateProjectClaim(claimId, projectId, updates, userId) {
+  const { data, error } = await authService.client
+    .from('project_claims')
+    .update(_withAudit(updates, userId))
+    .eq('claim_id', claimId)
+    .select()
+    .single();
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-claims:${projectId}`);
+  return data;
+}
+
+export async function updateProjectDeadline(deadlineId, projectId, updates, userId) {
+  const { data, error } = await authService.client
+    .from('project_deadlines')
+    .update(_withAudit(updates, userId))
+    .eq('deadline_id', deadlineId)
+    .select()
+    .single();
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-deadlines:${projectId}`);
+  return data;
+}
+
+export async function updateProjectDamage(damageId, projectId, updates, userId) {
+  const { data, error } = await authService.client
+    .from('project_damages')
+    .update(_withAudit(updates, userId))
+    .eq('damage_id', damageId)
+    .select()
+    .single();
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-damages:${projectId}`);
+  return data;
+}
+
+export async function updateProjectParty(partyId, projectId, updates, userId) {
+  const { data, error } = await authService.client
+    .from('project_parties')
+    .update(_withAudit(updates, userId))
+    .eq('party_id', partyId)
+    .select()
+    .single();
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-parties:${projectId}`);
+  return data;
 }

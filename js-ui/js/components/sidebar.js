@@ -8,6 +8,7 @@ import { appState }    from '../state.js';
 
 const NAV_ITEMS = [
   { icon: 'folder_open',    label: 'Projects',  path: '/'        },
+  { icon: 'chat',           label: 'Chat',      path: '/chat'    },
   { icon: 'calendar_today', label: 'Calendar',  path: '/calendar'},
   { icon: 'domain',         label: 'Company',   path: '/company' },
   { icon: 'manage_accounts',label: 'Settings',  path: '/user'    },
