@@ -25,7 +25,7 @@ const SIGNED_URL_TTL = 55 * 60 * 1000; // 55 min (GCS signed URLs er typisk 60 m
  * Hent en signed URL for en GCS-fil.
  * Signed URL er midlertidig og kan brukes direkte i <iframe>/<img>/fetch.
  */
-export async function getSignedUrl(path) {
+export async function getSignedUrl(path, contentType = 'application/pdf') {
   const cacheKey = `signed-url:${path}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
@@ -37,13 +37,13 @@ export async function getSignedUrl(path) {
       'Content-Type':  'application/json',
       'Authorization': `Bearer ${token}`,
     },
-    body: JSON.stringify({ path }),
+    body: JSON.stringify({ path, content_type: contentType }),
   });
 
   if (!res.ok) throw new Error(`signed-url feilet: ${res.status}`);
   const { url } = await res.json();
   cache.set(cacheKey, url, SIGNED_URL_TTL);
-  apiLog.debug({ path }, 'Signed URL hentet');
+  apiLog.debug({ path, contentType }, 'Signed URL hentet');
   return url;
 }
 

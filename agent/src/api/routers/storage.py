@@ -26,29 +26,32 @@ def _get_storage_client():
 
 
 class SignedUrlRequest(BaseModel):
-    path: str
+    path:         str
+    content_type: str = "application/pdf"
 
 
-@router.post("/signed-url")
-async def get_signed_url(
-    req: SignedUrlRequest,
-    user_id: str = Depends(get_current_user),
+@router.get("/file")
+async def stream_file(
+    path:         str,
+    content_type: str = "application/pdf",
+    user_id:      str = Depends(get_current_user),
 ):
     """
-    Generer en signed URL for en GCS-fil.
-    Speil av database_service.py read_attachment() — men returnerer URL
-    i stedet for bytes, slik at browser kan hente direkte fra GCS.
+    Stream en GCS-fil direkte gjennom backend med korrekte headers.
+    Unngår alle cross-origin / Content-Type-problemer med signed URLs.
     """
+    from fastapi.responses import StreamingResponse
+    import io
     try:
-        client = _get_storage_client()
-        blob   = client.bucket(GCS_BUCKET).blob(GCS_PREFIX + req.path)
-        url    = blob.generate_signed_url(
-            expiration=SIGNED_URL_TTL,
-            method="GET",
-            version="v4",
+        client  = _get_storage_client()
+        blob    = client.bucket(GCS_BUCKET).blob(GCS_PREFIX + path)
+        content = blob.download_as_bytes()
+        logger.info(f"✅ Streamer fil {path} ({len(content)} bytes) til user {user_id}")
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type=content_type,
+            headers={"Content-Disposition": "inline"},
         )
-        logger.info(f"✅ Signed URL generert for {req.path} (user: {user_id})")
-        return {"url": url}
     except Exception as e:
-        logger.exception(f"❌ Signed URL feilet for {req.path}")
+        logger.exception(f"❌ Stream feilet for {path}")
         raise HTTPException(status_code=500, detail=str(e))

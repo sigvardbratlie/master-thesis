@@ -10,6 +10,7 @@ import {
   loadProject, loadProjectSessions, loadSessionHistory,
   createSession, deleteSession, streamChat,
 } from '../api.js';
+import { getSignedUrl } from '../storage.js';
 import { renderSidebar, bindSidebarEvents } from '../components/sidebar.js';
 import { renderTopbar }                     from '../components/topbar.js';
 import { appState }                         from '../state.js';
@@ -82,8 +83,14 @@ function buildProjectShell(projectId, data, sessions) {
       ${buildChatPanel(projectId, sessions)}
     </div>`;
 
+  // Append viewer modal to app root
+  const modal = document.createElement('div');
+  modal.innerHTML = buildViewerModal();
+  document.getElementById('app').appendChild(modal.firstElementChild);
+
   bindProjectEvents(projectId, data, sessions);
   bindChatResize();
+  bindViewerEvents();
 }
 
 // ── Timeline ─────────────────────────────────────────────────
@@ -251,30 +258,38 @@ function buildFactsheetGrid(factsheet, attachments, emails) {
 }
 
 function buildAttachmentsList(attachments, emails) {
-  const fileIconMap = {
-    'application/pdf': 'picture_as_pdf',
-    'message/rfc822':  'mail',
-    'default':         'description',
-  };
-
-  const attItems = attachments.slice(0, 8).map(a => `
-    <div class="flex items-center gap-3 p-3 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10 hover:ring-secondary/20 transition-all group cursor-pointer">
-      <span class="material-symbols-outlined text-[20px] text-secondary">
-        ${fileIconMap[a.file_type] ?? fileIconMap.default}
-      </span>
+  const attItems = attachments.map(a => {
+    const isPdf = a.file_type === 'application/pdf';
+    const icon  = isPdf ? 'picture_as_pdf' : 'description';
+    const canOpen = isPdf;  // expand later for other types
+    return `
+    <div class="flex items-center gap-3 p-3 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10
+                hover:ring-secondary/20 transition-all group ${canOpen ? 'cursor-pointer att-item' : 'opacity-60'}"
+         data-type="pdf" data-path="${escHtml(a.path ?? '')}" data-name="${escHtml(a.filename ?? '')}">
+      <span class="material-symbols-outlined text-[20px] text-secondary">${icon}</span>
       <div class="flex-1 min-w-0">
         <p class="text-xs font-semibold text-on-surface truncate">${escHtml(a.filename ?? '')}</p>
         <p class="text-[10px] text-on-surface-variant">${formatDate(a.file_date ?? a.created_at)}</p>
       </div>
-    </div>`);
+      ${canOpen ? `<span class="material-symbols-outlined text-[16px] text-on-surface-variant/30 group-hover:text-secondary transition-colors">open_in_new</span>` : ''}
+    </div>`;
+  });
 
-  const emailItems = emails.slice(0, 4).map(e => `
-    <div class="flex items-center gap-3 p-3 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10 hover:ring-secondary/20 transition-all group cursor-pointer">
-      <span class="material-symbols-outlined text-[20px] text-on-surface-variant">mail</span>
+  const emailItems = emails.map(e => `
+    <div class="flex items-center gap-3 p-3 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10
+                hover:ring-secondary/20 transition-all group cursor-pointer att-item"
+         data-type="email"
+         data-subject="${escHtml(e.subject ?? 'No subject')}"
+         data-from="${escHtml(e.from_addr ?? '')}"
+         data-to="${escHtml(Array.isArray(e.to) ? e.to.join(', ') : (e.to ?? ''))}"
+         data-date="${escHtml(e.date ?? '')}"
+         data-body="${escHtml(e.body ?? '')}">
+      <span class="material-symbols-outlined text-[20px] text-secondary">mail</span>
       <div class="flex-1 min-w-0">
         <p class="text-xs font-semibold text-on-surface truncate">${escHtml(e.subject ?? 'No subject')}</p>
         <p class="text-[10px] text-on-surface-variant">${escHtml(e.from_addr ?? '')} · ${formatDate(e.date)}</p>
       </div>
+      <span class="material-symbols-outlined text-[16px] text-on-surface-variant/30 group-hover:text-secondary transition-colors">open_in_new</span>
     </div>`);
 
   if (!attItems.length && !emailItems.length) {
@@ -282,6 +297,146 @@ function buildAttachmentsList(attachments, emails) {
   }
 
   return `<div class="grid grid-cols-2 gap-2">${[...attItems, ...emailItems].join('')}</div>`;
+}
+
+// ── Viewer modal ──────────────────────────────────────────────
+
+function buildViewerModal() {
+  return `
+    <div id="viewer-modal" class="hidden fixed inset-0 z-[200] flex flex-col">
+      <!-- Backdrop -->
+      <div id="viewer-backdrop" class="absolute inset-0 bg-black/40 backdrop-blur-sm"></div>
+
+      <!-- Panel -->
+      <div class="relative m-6 flex-1 flex flex-col bg-surface-container-lowest rounded-2xl shadow-[0_32px_80px_-16px_rgba(0,0,0,0.3)] overflow-hidden ring-1 ring-outline-variant/10">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant/10 flex-shrink-0">
+          <div class="flex items-center gap-3 min-w-0">
+            <span id="viewer-icon" class="material-symbols-outlined text-[20px] text-secondary">description</span>
+            <div class="min-w-0">
+              <p id="viewer-title" class="font-headline font-bold text-primary truncate text-sm"></p>
+              <p id="viewer-meta"  class="text-[10px] text-on-surface-variant mt-0.5"></p>
+            </div>
+          </div>
+          <button id="viewer-close"
+            class="p-2 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant hover:text-primary">
+            <span class="material-symbols-outlined text-[20px]">close</span>
+          </button>
+        </div>
+
+        <!-- Content -->
+        <div id="viewer-body" class="flex-1 overflow-hidden relative">
+          <!-- Loading state -->
+          <div id="viewer-loading" class="absolute inset-0 flex items-center justify-center">
+            <div class="flex flex-col items-center gap-3">
+              <div class="flex gap-1">
+                <span class="w-2 h-2 bg-secondary rounded-full animate-bounce" style="animation-delay:0ms"></span>
+                <span class="w-2 h-2 bg-secondary rounded-full animate-bounce" style="animation-delay:150ms"></span>
+                <span class="w-2 h-2 bg-secondary rounded-full animate-bounce" style="animation-delay:300ms"></span>
+              </div>
+              <p class="text-sm text-on-surface-variant">Loading document...</p>
+            </div>
+          </div>
+
+          <!-- PDF iframe -->
+          <iframe id="viewer-iframe"
+            class="hidden w-full h-full border-0"
+            title="Document viewer">
+          </iframe>
+
+          <!-- Email body -->
+          <div id="viewer-email" class="hidden h-full overflow-y-auto p-8 font-body text-sm text-on-surface leading-relaxed">
+            <div id="viewer-email-headers" class="mb-6 space-y-1 pb-6 border-b border-outline-variant/10 text-xs text-on-surface-variant"></div>
+            <div id="viewer-email-body" class="whitespace-pre-wrap"></div>
+          </div>
+
+          <!-- Error state -->
+          <div id="viewer-error" class="hidden absolute inset-0 flex items-center justify-center">
+            <div class="text-center">
+              <span class="material-symbols-outlined text-4xl text-error/40 mb-3 block">error</span>
+              <p id="viewer-error-msg" class="text-sm text-error"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function bindViewerEvents() {
+  // Close on backdrop or button
+  document.getElementById('viewer-close')?.addEventListener('click', closeViewer);
+  document.getElementById('viewer-backdrop')?.addEventListener('click', closeViewer);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeViewer(); });
+
+  // Attachment / email click
+  document.addEventListener('click', async (e) => {
+    const item = e.target.closest('.att-item');
+    if (!item) return;
+
+    const type = item.dataset.type;
+    if (type === 'pdf')   await openPdfViewer(item);
+    if (type === 'email') openEmailViewer(item);
+  });
+}
+
+function openViewer(title, meta, icon = 'description') {
+  document.getElementById('viewer-title').textContent = title;
+  document.getElementById('viewer-meta').textContent  = meta;
+  document.getElementById('viewer-icon').textContent  = icon;
+  document.getElementById('viewer-loading').classList.remove('hidden');
+  document.getElementById('viewer-iframe').classList.add('hidden');
+  document.getElementById('viewer-email').classList.add('hidden');
+  document.getElementById('viewer-error').classList.add('hidden');
+  document.getElementById('viewer-modal').classList.remove('hidden');
+}
+
+function closeViewer() {
+  const modal   = document.getElementById('viewer-modal');
+  const iframe  = document.getElementById('viewer-iframe');
+  if (iframe) iframe.src = '';   // stop loading / free memory
+  modal?.classList.add('hidden');
+}
+
+async function openPdfViewer(item) {
+  const path = item.dataset.path;
+  const name = item.dataset.name;
+  openViewer(name, path, 'picture_as_pdf');
+
+  try {
+    chatLog.info({ path }, 'Fetching signed URL for PDF');
+    const url = await getSignedUrl(path);
+
+    const iframe = document.getElementById('viewer-iframe');
+    iframe.onload = () => {
+      document.getElementById('viewer-loading').classList.add('hidden');
+      iframe.classList.remove('hidden');
+    };
+    iframe.src = url;
+  } catch (err) {
+    chatLog.error({ err: err.message }, 'PDF viewer error');
+    document.getElementById('viewer-loading').classList.add('hidden');
+    document.getElementById('viewer-error-msg').textContent = err.message;
+    document.getElementById('viewer-error').classList.remove('hidden');
+  }
+}
+
+function openEmailViewer(item) {
+  const { subject, from: fromAddr, to, date, body } = item.dataset;
+  openViewer(subject || 'No subject', `From: ${fromAddr}`, 'mail');
+
+  document.getElementById('viewer-loading').classList.add('hidden');
+
+  const headers = document.getElementById('viewer-email-headers');
+  headers.innerHTML = [
+    fromAddr ? `<p><span class="font-bold uppercase tracking-wider">From</span>&nbsp;&nbsp;${escHtml(fromAddr)}</p>` : '',
+    to       ? `<p><span class="font-bold uppercase tracking-wider">To</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${escHtml(to)}</p>` : '',
+    date     ? `<p><span class="font-bold uppercase tracking-wider">Date</span>&nbsp;&nbsp;${formatDate(date, { dateStyle: 'long', timeStyle: 'short' })}</p>` : '',
+    subject  ? `<p><span class="font-bold uppercase tracking-wider">Subject</span>&nbsp;${escHtml(subject)}</p>` : '',
+  ].filter(Boolean).join('');
+
+  document.getElementById('viewer-email-body').textContent = body || '(no body)';
+  document.getElementById('viewer-email').classList.remove('hidden');
 }
 
 // ── Chat panel ────────────────────────────────────────────────
@@ -320,13 +475,15 @@ function buildChatPanel(projectId, sessions) {
 
     <!-- Input area -->
     <div class="p-4 border-t border-outline-variant/10">
-      <!-- Model selector -->
+      <!-- Model selector — format: provider_modelname (matches pick_llm in agent/utils.py) -->
       <div class="flex items-center gap-2 mb-3">
         <span class="material-symbols-outlined text-[14px] text-on-surface-variant">smart_toy</span>
         <select id="model-select" class="text-xs text-on-surface-variant bg-transparent outline-none cursor-pointer">
-          <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-          <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-          <option value="gpt-4o-mini">GPT-4o Mini</option>
+          <option value="google_gemini-2.5-flash" selected>Gemini 2.5 Flash</option>
+          <option value="google_gemini-2.5-pro">Gemini 2.5 Pro</option>
+          <option value="anthropic_claude-sonnet-4-6">Claude Sonnet 4.6</option>
+          <option value="anthropic_claude-haiku-4-5">Claude Haiku 4.5</option>
+          <option value="openai_gpt-5.3-chat-latest">GPT-5.3</option>
         </select>
       </div>
 
@@ -657,7 +814,7 @@ function renderMessage(msg) {
   }
 
   if (msg.type === 'tool_result') {
-    const toolName = msg.content || msg.toolData?.tool_name ?? msg.toolData?.data?.tool_name ?? 'tool';
+    const toolName = msg.content || (msg.toolData?.tool_name ?? msg.toolData?.data?.tool_name ?? 'tool');
     return `
       <div class="flex items-start gap-2">
         <span class="material-symbols-outlined text-[16px] text-on-surface-variant mt-0.5 flex-shrink-0">build</span>
