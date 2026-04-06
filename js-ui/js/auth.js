@@ -5,9 +5,9 @@
 // Tokens are refreshed silently before expiry.
 // ============================================================
 
-import { CONFIG } from './config.js';
-
-const { createClient } = window.supabase;
+import { CONFIG }   from './config.js';
+import { authLog }  from './logger.js';
+import { createClient } from '@supabase/supabase-js';
 
 class AuthService {
   constructor() {
@@ -27,8 +27,10 @@ class AuthService {
 
   /** Login with email + password */
   async login(email, password) {
+    authLog.info({ email }, 'Attempting login');
     const { data, error } = await this._client.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    if (error) { authLog.error({ err: error.message }, 'Login failed'); throw error; }
+    authLog.info({ userId: data.user?.id }, 'Login successful');
     return data;
   }
 

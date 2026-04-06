@@ -8,6 +8,9 @@ import { renderSidebar, bindSidebarEvents }            from '../components/sideb
 import { renderTopbar }                                from '../components/topbar.js';
 import { appState }                                    from '../state.js';
 import { formatDate, timeAgo, toast, skeleton, uuid }  from '../utils.js';
+import { logger }                                      from '../logger.js';
+
+const log = logger.child({ module: 'portfolio' });
 
 export async function renderPortfolio() {
   const shell = `
@@ -29,12 +32,30 @@ export async function renderPortfolio() {
 
 async function loadPortfolioContent() {
   const container = document.getElementById('portfolio-content');
+
+  // Debug: sjekk at appState er satt
+  log.info({ userId: appState.user?.id, userEmail: appState.user?.email }, 'loadPortfolioContent start');
+
+  if (!appState.user?.id) {
+    log.error({}, 'appState.user.id er null — bruker ikke logget inn?');
+    container.innerHTML = `<p class="text-error text-sm">Bruker ikke funnet i appState. Sjekk Console.</p>`;
+    return;
+  }
+
   try {
+    log.debug({ userId: appState.user.id }, 'Henter prosjekter fra Supabase...');
     const projects = await loadProjects(appState.user.id);
+    log.info({ count: projects?.length }, 'Prosjekter hentet');
+
+    if (!projects?.length) {
+      log.warn({}, 'Ingen prosjekter returnert — sjekk RLS-regler i Supabase');
+    }
+
     container.innerHTML = buildPortfolioHTML(projects);
     bindProjectCards(projects);
   } catch (err) {
-    container.innerHTML = `<p class="text-error text-sm">${err.message}</p>`;
+    log.error({ err: err.message }, 'loadPortfolioContent feilet');
+    container.innerHTML = `<p class="text-error text-sm font-body p-4">Feil: ${err.message}</p>`;
   }
 }
 

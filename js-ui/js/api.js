@@ -6,6 +6,7 @@
 import { CONFIG }      from './config.js';
 import { authService } from './auth.js';
 import { cache }       from './cache.js';
+import { apiLog }      from './logger.js';
 
 const TTL = {
   projects:     120_000,  // 2 min
@@ -38,15 +39,25 @@ async function apiFetch(path, options = {}) {
 export async function loadProjects(userId) {
   const cacheKey = `projects:${userId}`;
   const cached = cache.get(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    apiLog.debug({ count: cached.length }, 'loadProjects — cache hit');
+    return cached;
+  }
 
-  const { data, error } = await authService.client
+  apiLog.debug({ userId }, 'loadProjects — spør Supabase');
+
+  const { data, error, status, statusText } = await authService.client
     .from('projects')
-    .select('project_id, title, created_at, status')
+    .select('project_id, title, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
-  if (error) throw error;
+  if (error) {
+    apiLog.error({ err: error.message, code: error.code, status }, 'loadProjects feilet');
+    throw error;
+  }
+
+  apiLog.info({ count: data.length, status }, 'loadProjects OK');
   cache.set(cacheKey, data, TTL.projects);
   return data;
 }

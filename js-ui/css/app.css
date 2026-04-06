@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+/* ── Design token overrides (fra DESIGN.md) ─────────────────── */
+@theme {
+  --color-surface-container-high:     #eae8e6;
+  --color-on-secondary-container:     #335583;
+  --color-secondary-fixed-dim:        #a7c8fc;
+  --color-on-primary-fixed-variant:   #374570;
+  --color-on-primary-container:       #7482b2;
+  --color-surface-bright:             #fcf9f7;
+  --color-outline-variant:            #c6c6d0;
+  --color-secondary-container:        #aacbff;
+  --color-primary:                    #000000;
+  --color-on-primary:                 #ffffff;
+  --color-on-surface:                 #1b1c1b;
+  --color-primary-container:          #081942;
+  --color-secondary:                  #3e608e;
+  --color-surface-variant:            #e5e2e0;
+  --color-error-container:            #ffdad6;
+  --color-secondary-fixed:            #d4e3ff;
+  --color-error:                      #ba1a1a;
+  --color-on-surface-variant:         #45464f;
+  --color-on-tertiary-container:      #ae7a01;
+  --color-on-background:              #1b1c1b;
+  --color-surface-dim:                #dcd9d8;
+  --color-surface-container-lowest:   #ffffff;
+  --color-surface-tint:               #4f5d8a;
+  --color-outline:                    #757680;
+  --color-surface-container:          #f0edeb;
+  --color-on-error-container:         #93000a;
+  --color-on-secondary-fixed:         #001c3a;
+  --color-surface-container-low:      #f6f3f1;
+  --color-surface-container-highest:  #e5e2e0;
+  --color-on-secondary-fixed-variant: #244874;
+  --color-on-secondary:               #ffffff;
+  --color-background:                 #fcf9f7;
+  --color-tertiary-fixed:             #ffdeac;
+  --color-surface:                    #fcf9f7;
+  --color-on-primary-fixed:           #081942;
+  --color-tertiary-fixed-dim:         #fabc4b;
+
+  --font-headline: 'Public Sans', sans-serif;
+  --font-body:     'Inter', sans-serif;
+  --font-label:    'Inter', sans-serif;
+
+  --radius:    0.125rem;
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.5rem;
+}
+
+/* ── Material Symbols ────────────────────────────────────────── */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────── */
+::-webkit-scrollbar        { width: 4px; height: 4px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: #dcd9d8; border-radius: 10px; }
+*                          { scrollbar-width: thin; scrollbar-color: #dcd9d8 transparent; }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Details/summary ─────────────────────────────────────────── */
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+details[open] > summary .material-symbols-outlined { transform: rotate(90deg); }
+
+/* ── Page transitions ────────────────────────────────────────── */
+#app > * { animation: fadeIn 0.15s ease-out; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
