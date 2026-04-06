@@ -121,6 +121,7 @@ class Claim(BaseModel):
     strength_assessment: Literal["strong", "moderate", "weak"] = Field(
         description="Assessment of claim strength"
     )
+    title : str = Field(description="Concise title of the claim")
     defense: str | None = Field(None, description="Defense strategy if defending")
     file_id: str | None = None  # For claims from attachments
     email_id: str | None = None  # For claims from emails
@@ -137,6 +138,7 @@ class Damage(BaseModel):
     currency: str | None = Field(None, description="Currency of the amount, e.g., 'NOK', 'USD', etc.")
     basis: str
     supporting_evidence: list[str] = Field(description="File_IDs supporting the damage claim")
+    title : str = Field(description="Concise title of the damage")
     file_id: str | None = None  # For damages from attachments
     email_id: str | None = None  # For damages from emails
     party_role: PartyRole = Field(description="Party role associated with this damage claim, e.g., plaintiff, defendant, etc.")
@@ -172,9 +174,10 @@ class Deadline(BaseModel):
     @classmethod
     def coerce_deadline_date(cls, v):
         return _coerce_partial_date(v)
+    title : str = Field(description="Concise title of the deadline.")
     description: str
     file_id: str | None = Field(None, description="Related attachment reference")
-    email_id: str | None = None  # For deadlines from emails
+    email_id: str | None = None 
     party_role : PartyRole | None = None
     significance : significance_levels = Field(default="medium", description="Significance of the deadline to the case")
 
