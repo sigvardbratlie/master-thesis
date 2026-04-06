@@ -68,6 +68,7 @@ def mock_agent():
         mock_config.async_tasks.storage.max_concurrent_requests = 1
         mock_config.async_tasks.vectorstore.max_concurrent_requests = 2
         mock_config.agent.max_token_tool = 10000
+        mock_config.agent.context_window = 128000
         mock_config.agent.sum_rate = 20
         mock_config.agent.context_window = 250000
         mock_config.agent.use_factsheet = False

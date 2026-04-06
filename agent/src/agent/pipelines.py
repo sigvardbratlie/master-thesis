@@ -792,6 +792,17 @@ class ProjectPipeline:
         # ============= PHASE 3 =================
         # Insert data tables + metadata in parallel (FK parents already committed)
         # ========================================
+        party_reps = []
+        parties = []
+        for party in (init_input.parties or []):
+            if party.party_reps:
+                for rep in party.party_reps:
+                    party_reps.append(
+                        rep if rep.party_id else rep.model_copy(update={"party_id": party.party_id})
+                    )
+            parties.append(party.model_dump(mode='json', exclude={"party_reps"}))
+
+
         to_insert = {
             "project_events": events,
             "project_damages": damages,
@@ -799,11 +810,12 @@ class ProjectPipeline:
             "project_deadlines": deadlines,
         }
         to_replace = {
-            "project_parties": init_input.parties or [],
+            "project_parties": parties or [],
+            "project_party_reps" : party_reps,
         }
 
         async def insert_data_table(table_name, items, replace=False):
-            if not items or not hasattr(items[0], "model_dump"):
+            if not items or (not replace and not hasattr(items[0], "model_dump")):
                 logger.warning(f"No valid items to save for {table_name}. Skipping storage for this table.")
                 return
             async with self._semaphore_db:
@@ -927,6 +939,7 @@ class ProjectPipeline:
         })
 
         initial_input = await self.context_manager.update_initial_input(events=events, existing_initial_input=existing_init_input)
+        logger.debug(f'\n\nUpdated metadata {initial_input.model_dump(mode="json")}\n\n')
         writer({
             "type": "status",
             "phase": ["update_metadata"],
