@@ -531,3 +531,45 @@ from normality \cite{levene1960} --- a necessary property given the non-normal,
 left-skewed score distributions confirmed by Shapiro-Wilk ($p < 10^{-18}$ for every
 metric).
 
+% -------------------------------------------------------
+
+\section{Development Tooling and AI Assistance}
+
+This section documents the tools and practices used during the development of this thesis — both the software infrastructure supporting the project and the role of AI assistance in the process.
+
+\subsection{Version Control and Repository Structure}
+
+The entire project is maintained in a single Git monorepo hosted on GitHub. This encompasses the agent source code, auxiliary modules (\texttt{ui}, \texttt{evals}, \texttt{data-viewer}), the evaluation datasets, and the \LaTeX{} source for this thesis. Keeping all artefacts in one repository simplifies cross-referencing between the written thesis and the underlying implementation, and allows figures generated in the evaluation notebooks to be committed directly to the \texttt{thesis/figures/} directory — making figure updates a matter of running a notebook cell and committing the result. The only assets not stored in the repository are the datasets and case files, which are hosted in Google Cloud Storage due to their size and confidentiality.
+
+Git's branching model and worktree support were used throughout development. Feature branches isolated experimental work from the stable main branch, and Git worktrees allowed parallel development — for example, running an evaluation trial on one worktree while implementing new features in another — without disrupting the working state.
+
+\subsection{Dependency Management}
+
+Python dependencies are managed with \textbf{uv}, a fast, standards-compliant package manager. \texttt{uv}'s workspace feature allows all four Python packages (\texttt{agent}, \texttt{ui}, \texttt{evals}, \texttt{data-viewer}) to share a single lock file and virtual environment root while maintaining separate dependency declarations per package. This was a key practical consideration for a monorepo of this scope.
+
+\subsection{Report Authoring}
+
+The thesis is written in \LaTeX{} and compiled using \texttt{latexmk}, which automates the multi-pass build required for references, cross-references, and bibliography. The source is version-controlled alongside the codebase, enabling tight coupling between the report and the implementation: code snippets, figures, and table data are all traceable to specific commits.
+
+\subsection{Data Viewer}
+
+A lightweight \textbf{Streamlit} application (\texttt{data-viewer}) was developed to support dataset work and result inspection. It provides a browser-based interface for browsing and editing both training datasets and case files stored in GCS, displaying evaluation results, and inspecting analysis outputs. This reduced the overhead of dataset quality control and made it easier to identify issues during ground-truth annotation.
+
+\subsection{Use of AI Assistance}
+\label{sec:ai-use}
+
+AI tools were used during the development of this thesis in accordance with NMBU's guidelines for the use of artificial intelligence in academic work \cite{nmbu_ai_guidelines}. All use is disclosed here as required.
+
+The primary tool was \textbf{Claude Code} (Anthropic), a CLI-based AI assistant integrated into the IDE.
+
+\paragraph{Code.}
+Claude Code was used for code review, targeted refactoring, and implementation of cross-cutting infrastructure concerns — such as retry logic, rate-limit handling, and concurrency patterns — that are peripheral to the core research contribution. All architectural decisions, data model design, and system-level trade-offs were made independently by the author.
+
+\paragraph{Report writing.}
+AI assistance was used for reformulation and rewording of written content, improving clarity and maintaining a consistent academic register. It was also used to locate relevant background literature and identify applicable theoretical frameworks. All substantive content, arguments, and conclusions are the author's own, and all AI-assisted formulations have been critically reviewed and verified.
+
+\paragraph{Dataset construction.}
+For the THRD-2021 dataset, synthetic case materials (correspondence, internal notes, and supporting documents) were generated using an LLM, seeded from the authentic court record. This approach is discussed in Section~\ref{sec:dataset-limitations} as a methodological caveat: while the synthetic documents were constructed to be consistent with the factual matrix of the authentic record, there is an inherent risk of logical inconsistencies between the real and synthetic materials, and this constitutes a recognised limitation of that dataset.
+
+Ground-truth answers were reviewed and validated using AI-assisted quality control, in collaboration with legal experts at BAHR AS.
+
