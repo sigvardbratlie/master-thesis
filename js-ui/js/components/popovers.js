@@ -44,8 +44,19 @@ export function initPopovers() {
 
 export function registerItems(type, items, idKey) {
   if (!_stores[type]) return;
-  _stores[type].clear();
-  items.forEach(item => _stores[type].set(item[idKey], item));
+  // Merge: incoming items from cache may be stale vs. an in-session save,
+  // so only replace an entry if we don't already have a locally-saved copy
+  // (indicated by updated_at being more recent than what's incoming).
+  items.forEach(item => {
+    const existing = _stores[type].get(item[idKey]);
+    if (existing && existing._savedLocally) return; // keep the locally-saved version
+    _stores[type].set(item[idKey], item);
+  });
+  // Remove entries that no longer exist in the incoming set
+  const incomingIds = new Set(items.map(i => i[idKey]));
+  for (const [k, v] of _stores[type]) {
+    if (!incomingIds.has(k) && !v._savedLocally) _stores[type].delete(k);
+  }
 }
 
 export function openPopover(type, id) {
@@ -214,8 +225,9 @@ async function _handleSave() {
       case 'party':    updated = await updateProjectParty(entityId,    projectId, updates, userId); break;
     }
 
-    // Merge — preserve joined data (e.g. project_party_reps) not returned by plain update
-    _currentData = { ..._currentData, ...updated };
+    // Merge — preserve joined data (e.g. project_party_reps) not returned by plain update.
+    // _savedLocally flag prevents registerItems from overwriting with stale cache data.
+    _currentData = { ..._currentData, ...updated, _savedLocally: true };
     _stores[_currentType]?.set(_currentData[idKey], _currentData);
 
     _editMode = false;
@@ -301,7 +313,13 @@ function _daysRemaining(date) {
 
 function _isoToDate(iso) {
   if (!iso) return '';
-  try { return new Date(iso).toISOString().slice(0, 10); } catch { return ''; }
+  try {
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  } catch { return ''; }
 }
 
 function _evidenceToText(evidence) {
@@ -462,7 +480,7 @@ function _editFooter() {
 
 function _renderDeadline(d) {
   const title   = d.title ?? d.description ?? 'Deadline';
-  const shortId = (d.deadline_id ?? '').slice(0, 8).toUpperCase();
+  const shortId = (d.deadline_id ?? '');
   const date    = d.deadline_date ? new Date(d.deadline_date) : null;
   const day     = date ? date.getDate() : '—';
   const month   = date ? date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase() : '';
@@ -543,7 +561,7 @@ function _renderDeadline(d) {
 
 function _renderClaim(c) {
   const title   = c.title ?? 'Claim';
-  const shortId = (c.claim_id ?? '').slice(0, 8).toUpperCase();
+  const shortId = (c.claim_id ?? '');
   const points  = _splitPoints(c.factual_basis);
 
   return `
@@ -630,7 +648,7 @@ function _renderEvent(ev) {
     <div class="flex items-center justify-between px-7 py-5 border-b border-outline-variant/10 flex-shrink-0">
       <div>
         <h2 class="font-headline text-xl font-black tracking-tight text-primary uppercase">Event Details</h2>
-        <p class="text-[10px] text-on-surface-variant/50 font-mono mt-0.5">event_id: ${escHtml((ev.event_id ?? '').slice(0, 8).toUpperCase())}</p>
+        <p class="text-[10px] text-on-surface-variant/50 font-mono mt-0.5">event_id: ${escHtml((ev.event_id ?? ''))}</p>
       </div>
       ${_headerActions()}
     </div>
@@ -698,7 +716,7 @@ function _renderParty(p) {
             ${p.entity_type && p.role ? `<span class="text-on-surface-variant/30 text-xs">·</span>` : ''}
             ${p.role ? `<span class="text-xs font-medium text-on-surface-variant">${escHtml(p.role)}</span>` : ''}
             <span class="text-on-surface-variant/20 text-xs">·</span>
-            <span class="text-[10px] text-on-surface-variant/40 font-mono">party_id: ${escHtml((p.party_id ?? '').slice(0, 8).toUpperCase())}</span>
+            <span class="text-[10px] text-on-surface-variant/40 font-mono">party_id: ${escHtml((p.party_id ?? ''))}</span>
           </div>
         </div>
       </div>
@@ -747,7 +765,7 @@ function _renderParty(p) {
 
 function _renderDamage(d) {
   const title    = d.title ?? d.basis ?? d.category ?? 'Damage';
-  const shortId  = (d.damage_id ?? '').slice(0, 8).toUpperCase();
+  const shortId  = (d.damage_id ?? '');
   const amount   = d.amount != null ? formatCurrency(d.amount, d.currency ?? 'NOK') : null;
   const evidence = Array.isArray(d.supporting_evidence)
     ? d.supporting_evidence
@@ -805,7 +823,7 @@ function _renderDamage(d) {
 // ────────────────────────────────────────────────────────────
 
 function _renderEditDeadline(d) {
-  const shortId = (d.deadline_id ?? '').slice(0, 8).toUpperCase();
+  const shortId = (d.deadline_id ?? '');
   const iconHtml = `<div class="w-10 h-10 bg-primary-container rounded-lg flex items-center justify-center flex-shrink-0">
     <span class="material-symbols-outlined text-xl text-on-primary">alarm_on</span></div>`;
 
@@ -828,7 +846,7 @@ function _renderEditDeadline(d) {
 }
 
 function _renderEditClaim(c) {
-  const shortId  = (c.claim_id ?? '').slice(0, 8).toUpperCase();
+  const shortId  = (c.claim_id ?? '');
   const iconHtml = `<div class="w-10 h-10 bg-secondary/10 rounded-lg flex items-center justify-center flex-shrink-0">
     <span class="material-symbols-outlined text-xl text-secondary" style="font-variation-settings:'FILL' 1;">gavel</span></div>`;
 
@@ -854,7 +872,7 @@ function _renderEditClaim(c) {
 }
 
 function _renderEditEvent(ev) {
-  const shortId  = (ev.event_id ?? '').slice(0, 8).toUpperCase();
+  const shortId  = (ev.event_id ?? '');
   const iconHtml = `<div class="w-10 h-10 bg-primary-container rounded-lg flex items-center justify-center flex-shrink-0">
     <span class="material-symbols-outlined text-xl text-on-primary">event</span></div>`;
 
@@ -884,7 +902,7 @@ function _renderEditEvent(ev) {
 function _renderEditParty(p) {
   const name     = p.legal_name ?? 'Unknown Party';
   const initial  = (name[0] ?? '?').toUpperCase();
-  const shortId  = (p.party_id ?? '').slice(0, 8).toUpperCase();
+  const shortId  = (p.party_id ?? '');
   const reps     = Array.isArray(p.project_party_reps) ? p.project_party_reps : [];
   const iconHtml = `
     <div class="w-12 h-12 rounded-xl bg-primary-container flex items-center justify-center flex-shrink-0">
@@ -921,7 +939,7 @@ function _renderEditParty(p) {
 }
 
 function _renderEditDamage(d) {
-  const shortId  = (d.damage_id ?? '').slice(0, 8).toUpperCase();
+  const shortId  = (d.damage_id ?? '');
   const iconHtml = `<div class="w-10 h-10 bg-primary-container rounded-lg flex items-center justify-center flex-shrink-0">
     <span class="material-symbols-outlined text-xl text-on-primary">payments</span></div>`;
 

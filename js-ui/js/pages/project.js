@@ -32,10 +32,15 @@ const md = (text) => marked.parse(text ?? '');
 // ── Email store — avoids data-attribute encoding issues ───────
 const _emailStore  = new Map(); // key: email_id → email object
 const _attachStore = new Map(); // key: file_id  → attachment object
-let   _viewerBound = false;     // prevents duplicate document listeners across navigations
+let   _viewerBound        = false; // prevents duplicate document listeners across navigations
+let   _projectEventsBound = false; // same guard for project-page listeners
 
 export async function renderProject(params) {
   const projectId = params.id;
+
+  // Clear stores so previous project's data doesn't linger
+  _emailStore.clear();
+  _attachStore.clear();
 
   document.getElementById('app').innerHTML = `
     ${renderSidebar()}
@@ -80,17 +85,34 @@ export async function renderProject(params) {
     });
   }
 
+  // Shared docs promise — fetched once, used by both timeline and documents section
+  const docsPromise = Promise.all([
+    loadProjectAttachments(projectId),
+    loadProjectEmails(projectId),
+  ]);
+
   // Fire all sections in parallel
-  loadSection('timeline',  () => loadProjectEvents(projectId),      buildTimelineInner);
+  Promise.all([loadProjectEvents(projectId), docsPromise])
+    .then(([events, [attachments, emails]]) => {
+      const el = document.getElementById('sec-timeline');
+      if (el) {
+        el.innerHTML = buildTimelineInner(events, attachments, emails);
+        initTimeline(el);
+      }
+    })
+    .catch(err => {
+      const el = document.getElementById('sec-timeline');
+      if (el) el.innerHTML = `<p class="text-error text-xs py-2">${err.message}</p>`;
+    });
+
   loadSection('parties',   () => loadProjectParties(projectId),     buildPartiesInner);
   loadSection('claims',    () => loadProjectClaims(projectId),      buildClaimsSection);
   loadSection('deadlines', () => loadProjectDeadlines(projectId),   buildDeadlinesInner);
   loadSection('damages',   () => loadProjectDamages(projectId),     buildDamagesInner);
 
-  // Documents section needs both attachments + emails
-  Promise.all([loadProjectAttachments(projectId), loadProjectEmails(projectId)])
+  // Documents section reuses the same fetch
+  docsPromise
     .then(([attachments, emails]) => {
-      // Update subtitle with counts
       const btn = document.querySelector('[data-sec="documents"]');
       if (btn) {
         const sub = btn.querySelector('p');
@@ -151,7 +173,7 @@ function buildProjectShell(projectId, meta) {
               : `<p class="text-sm text-on-surface-variant font-body italic">No background recorded.</p>`
           )}
 
-          ${sec('timeline',  'Case Chronology', 'Key events · high-significance shown in full', sectionSkeleton)}
+          ${sec('timeline',  'Case Chronology', 'Scroll horizontally · key events always visible · click dots to expand', sectionSkeleton)}
           ${sec('parties',   'Active Parties',  null, sectionSkeleton)}
           ${sec('claims',    'Claims',          null, sectionSkeleton)}
           ${sec('deadlines', 'Deadlines',       null, sectionSkeleton)}
@@ -177,82 +199,277 @@ function buildProjectShell(projectId, meta) {
   bindViewerEvents();
 }
 
-// ── Timeline ─────────────────────────────────────────────────
+// ── Timeline (horizontal, scrollable) ────────────────────────
 
-function buildTimelineInner(events) {
-  if (!events.length) {
+function buildTimelineInner(events, attachments = [], emails = []) {
+  // Register attachments and emails in stores so the viewer can open them
+  attachments.forEach(a => { if (a.file_id) _attachStore.set(a.file_id, a); });
+  emails.forEach(e => {
+    const id = e.email_id ?? e.message_id;
+    if (id) _emailStore.set(id, e);
+  });
+
+  if (events.length) registerItems('event', events, 'event_id');
+
+  if (!events.length && !attachments.length && !emails.length) {
     return `<p class="text-on-surface-variant text-sm font-body py-4">No events recorded yet.</p>`;
   }
 
-  registerItems('event', events, 'event_id');
+  // Determine date range across all item types
+  const allTs = [
+    ...events.map(e => e.event_start_date),
+    ...attachments.map(a => a.file_date ?? a.created_at),
+    ...emails.map(e => e.date),
+  ].filter(Boolean).map(d => +new Date(d)).filter(ts => !isNaN(ts));
 
-  const sorted = [...events].sort((a, b) =>
-    new Date(a.event_start_date ?? 0) - new Date(b.event_start_date ?? 0)
-  );
+  if (!allTs.length) {
+    return `<p class="text-on-surface-variant text-sm font-body py-4">No dated items found.</p>`;
+  }
 
-  const isHigh = e => (e.significance ?? '').toLowerCase() === 'high';
+  const minTs      = Math.min(...allTs);
+  const maxTs      = Math.max(...allTs);
+  const spanMs     = maxTs - minTs || 30 * 24 * 3600 * 1000;
+  const rangeStart = minTs - spanMs * 0.06;
+  const rangeEnd   = maxTs + spanMs * 0.14;
+  const totalRange = rangeEnd - rangeStart;
 
-  // Group non-high events by year-month
-  const monthMap = new Map();
-  sorted.filter(e => !isHigh(e)).forEach(ev => {
-    const d   = ev.event_start_date ? new Date(ev.event_start_date) : null;
-    const key = d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` : 'z-unknown';
-    if (!monthMap.has(key)) monthMap.set(key, []);
-    monthMap.get(key).push(ev);
+  const toLeft = (dateVal) => {
+    if (!dateVal) return null;
+    const ts = +new Date(dateVal);
+    if (isNaN(ts)) return null;
+    return Math.max(2, Math.min(98, ((ts - rangeStart) / totalRange) * 100));
+  };
+
+  const isHigh  = e => (e.significance ?? '').toLowerCase() === 'high';
+  const byDate  = (a, b) => +new Date(a.event_start_date || 0) - +new Date(b.event_start_date || 0);
+  const highEvents = [...events].filter(isHigh).sort(byDate);
+  const lowEvents  = [...events].filter(e => !isHigh(e)).sort(byDate);
+
+  const months    = Math.ceil(spanMs / (30 * 24 * 3600 * 1000));
+  const minWidth  = Math.max(1600, months * 110);
+  const CONTAINER_H = 500;
+  const AXIS_PCT    = 50; // axis at vertical midpoint
+
+  // Center of mass — average left% across all dated items (used for auto-scroll)
+  const allLeftPcts = [
+    ...events.map(e => toLeft(e.event_start_date)),
+    ...attachments.map(a => toLeft(a.file_date ?? a.created_at)),
+    ...emails.map(e => toLeft(e.date)),
+  ].filter(v => v !== null);
+  const centerPct = allLeftPcts.length
+    ? allLeftPcts.reduce((s, v) => s + v, 0) / allLeftPcts.length
+    : 50;
+
+  let html = '';
+
+  // ── Duration spans (events with both start + end date) ───────
+  // Rendered as horizontal bars in a Gantt-like strip near the axis.
+  // Lane algorithm: assign each event to the lowest lane that doesn't overlap.
+  const spanEvents = [...highEvents, ...lowEvents]
+    .filter(ev => ev.event_start_date && ev.event_end_date);
+  const laneEnds = []; // laneEnds[i] = rightmost end-% of last event in lane i
+  spanEvents.forEach(ev => {
+    const leftPct  = toLeft(ev.event_start_date);
+    const rightPct = toLeft(ev.event_end_date);
+    if (leftPct === null || rightPct === null || rightPct <= leftPct + 0.4) return;
+
+    let lane = 0;
+    while (lane < laneEnds.length && laneEnds[lane] > leftPct + 0.5) lane++;
+    if (lane === laneEnds.length) laneEnds.push(0);
+    laneEnds[lane] = rightPct;
+
+    const widthPct = rightPct - leftPct;
+    const LANE_H   = 9;
+    const LANE_GAP = 4;
+    const yTop     = 10 + lane * (LANE_H + LANE_GAP); // px from container top
+    const barColor = isHigh(ev)
+      ? 'background:rgba(62,96,142,0.55);'
+      : 'background:rgba(198,198,208,0.6);';
+    const name     = escHtml(ev.event_name ?? ev.description ?? '');
+
+    html += `
+      <div class="absolute cursor-pointer popover-item group"
+           style="left:${leftPct}%; width:${widthPct}%; top:${yTop}px; height:${LANE_H}px; border-radius:999px; overflow:hidden;"
+           data-popover-type="event" data-popover-id="${escHtml(ev.event_id)}"
+           title="${name}">
+        <div class="w-full h-full group-hover:brightness-75 transition-all" style="${barColor} border-radius:999px;"></div>
+        ${widthPct > 4 ? `<span class="absolute inset-0 flex items-center px-2 text-[8px] font-bold text-on-surface-variant/80 truncate pointer-events-none">${name}</span>` : ''}
+      </div>`;
   });
 
-  const items = [
-    ...sorted.filter(isHigh).map(ev => ({ type: 'event', ev, sort: +new Date(ev.event_start_date ?? 0) })),
-    ...[...monthMap.entries()].map(([key, evs]) => ({
-      type: 'group', evs, key,
-      sort: key === 'z-unknown' ? 0 : +new Date(key + '-01'),
-    })),
-  ].sort((a, b) => a.sort - b.sort);
+  // ── High-significance events (full cards, alternating above/below axis)
+  highEvents.forEach((ev, i) => {
+    const left = toLeft(ev.event_start_date);
+    if (left === null) return;
+    const above   = i % 2 === 0;
+    const dateStr = ev.event_start_date ? formatDate(ev.event_start_date, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+    const endStr  = ev.event_end_date   ? ` – ${formatDate(ev.event_end_date, { day: 'numeric', month: 'short', year: 'numeric' })}` : '';
+    const name    = escHtml(ev.event_name ?? ev.description ?? '');
+    const desc    = (ev.event_name && ev.description)
+      ? `<p class="text-[9px] text-on-surface-variant mt-1 leading-relaxed line-clamp-2">${escHtml(ev.description)}</p>` : '';
+    const badges  = [
+      ev.disputed ? `<span class="px-1 py-0.5 rounded bg-error-container text-error text-[8px] font-bold uppercase">Disputed</span>` : '',
+      ev.category ? `<span class="px-1 py-0.5 rounded bg-surface-container text-on-surface-variant text-[8px] font-bold uppercase">${escHtml(ev.category)}</span>` : '',
+    ].filter(Boolean).join('');
 
-  return `<div class="space-y-0">${items.map((item, i) => {
-    const isLast = i === items.length - 1;
-    const line   = isLast ? '' : `<div class="w-px flex-1 bg-outline-variant/20 my-1 ml-px"></div>`;
+    const card = `
+      <div class="w-48 p-3 bg-surface-container-lowest rounded-xl shadow-md border border-secondary/20
+                  cursor-pointer popover-item hover:shadow-lg hover:-translate-y-0.5 transition-all flex-shrink-0"
+           data-popover-type="event" data-popover-id="${escHtml(ev.event_id)}">
+        <p class="text-[9px] font-black text-secondary uppercase mb-0.5">${dateStr}${endStr}</p>
+        <h4 class="text-[11px] font-bold text-on-surface leading-tight">${name}</h4>
+        ${desc}
+        ${badges ? `<div class="flex flex-wrap gap-0.5 mt-1.5">${badges}</div>` : ''}
+      </div>`;
+    const stem = `<div class="w-px flex-shrink-0 bg-gradient-to-b from-secondary/50 to-secondary/20" style="height:40px;"></div>`;
+    const dot  = `<div class="w-4 h-4 rounded-full bg-primary border-2 border-surface shadow-lg z-20 flex-shrink-0"></div>`;
 
-    if (item.type === 'event') {
-      const ev      = item.ev;
-      const date    = ev.event_start_date ? formatDate(ev.event_start_date, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
-      const endDate = ev.event_end_date   ? ` – ${formatDate(ev.event_end_date, { day: 'numeric', month: 'short', year: 'numeric' })}` : '';
-      return `
-        <div class="flex gap-5 pb-6">
-          <div class="flex flex-col items-center flex-shrink-0 w-3">
-            <div class="w-3 h-3 rounded-full bg-primary ring-4 ring-primary/15 flex-shrink-0 mt-1"></div>
-            ${line}
-          </div>
-          <div class="flex-1 min-w-0 pb-1 cursor-pointer popover-item group"
-               data-popover-type="event" data-popover-id="${escHtml(ev.event_id)}">
-            <p class="text-[10px] font-bold text-secondary uppercase tracking-wider">${date}${endDate}</p>
-            <h4 class="text-sm font-bold text-on-surface mt-0.5 leading-snug group-hover:text-secondary transition-colors">${escHtml(ev.event_name ?? ev.description ?? '')}</h4>
-            ${ev.event_name && ev.description ? `<p class="text-xs text-on-surface-variant mt-1 leading-relaxed">${escHtml(ev.description)}</p>` : ''}
-            <div class="flex flex-wrap gap-1 mt-1.5">
-              ${ev.disputed ? `<span class="px-1.5 py-0.5 rounded bg-error-container/40 text-error text-[9px] font-bold uppercase">Disputed</span>` : ''}
-              ${ev.category ? `<span class="px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant text-[9px] font-bold uppercase">${escHtml(ev.category)}</span>` : ''}
-            </div>
-          </div>
+    if (above) {
+      html += `
+        <div class="absolute flex flex-col items-center" style="left:${left}%; bottom:${100 - AXIS_PCT}%; transform:translateX(-50%);">
+          ${card}${stem}${dot}
         </div>`;
     } else {
-      const label = item.key !== 'z-unknown'
-        ? new Date(item.key + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-        : 'Undated';
-      return `
-        <div class="flex gap-5 pb-4">
-          <div class="flex flex-col items-center flex-shrink-0 w-3">
-            <div class="w-2 h-2 rounded-full bg-secondary/30 ring-2 ring-secondary/15 flex-shrink-0 mt-1.5"></div>
-            ${line}
-          </div>
-          <div class="flex items-center gap-2 pb-1">
-            <span class="text-[10px] text-on-surface-variant">${label}</span>
-            <span class="px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant text-[10px] font-semibold">
-              ${item.evs.length} event${item.evs.length > 1 ? 's' : ''}
-            </span>
-          </div>
+      html += `
+        <div class="absolute flex flex-col items-center" style="left:${left}%; top:${AXIS_PCT}%; transform:translateX(-50%);">
+          ${dot}${stem}${card}
         </div>`;
     }
-  }).join('')}</div>`;
+  });
+
+  // ── Low-significance events (dots on axis, click to expand card)
+  lowEvents.forEach((ev, i) => {
+    const left = toLeft(ev.event_start_date);
+    if (left === null) return;
+    const above   = i % 2 === 0;
+    const dateStr = ev.event_start_date ? formatDate(ev.event_start_date, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+    const name    = escHtml(ev.event_name ?? ev.description ?? '');
+
+    const card = `
+      <div class="tl-dot-card hidden w-44 p-2.5 bg-surface-container rounded-xl shadow-lg border border-outline-variant/20 flex-shrink-0
+                  cursor-pointer popover-item"
+           data-popover-type="event" data-popover-id="${escHtml(ev.event_id)}">
+        <p class="text-[9px] font-black text-on-surface-variant/70 uppercase mb-0.5">${dateStr}</p>
+        <p class="text-[10px] font-bold text-on-surface leading-tight">${name}</p>
+      </div>`;
+    const gap = `<div class="w-px flex-shrink-0 bg-outline-variant/30" style="height:14px;"></div>`;
+    const dot = `<div class="w-2.5 h-2.5 rounded-full bg-outline-variant border border-surface cursor-pointer tl-dot
+                             hover:bg-secondary hover:scale-150 transition-all flex-shrink-0 z-20"></div>`;
+
+    if (above) {
+      html += `
+        <div class="absolute tl-dot-wrap flex flex-col items-center" style="left:${left}%; bottom:${100 - AXIS_PCT}%; transform:translateX(-50%);">
+          ${card}${gap}${dot}
+        </div>`;
+    } else {
+      html += `
+        <div class="absolute tl-dot-wrap flex flex-col items-center" style="left:${left}%; top:${AXIS_PCT}%; transform:translateX(-50%);">
+          ${dot}${gap}${card}
+        </div>`;
+    }
+  });
+
+  // ── Email dots (green, above axis, click to expand then opens viewer)
+  emails.forEach((e) => {
+    const id   = e.email_id ?? e.message_id;
+    if (!id) return;
+    const left = toLeft(e.date);
+    if (left === null) return;
+
+    html += `
+      <div class="absolute tl-dot-wrap flex flex-col items-center" style="left:${left}%; bottom:${100 - AXIS_PCT + 3}%; transform:translateX(-50%);">
+        <div class="tl-dot-card hidden w-48 p-2.5 bg-green-50 rounded-xl shadow-lg border border-green-200 flex-shrink-0 att-item cursor-pointer"
+             data-type="email" data-email-id="${escHtml(id)}">
+          <div class="flex items-center gap-1.5 mb-0.5">
+            <span class="material-symbols-outlined text-green-500" style="font-size:13px;">mail</span>
+            <span class="text-[10px] font-bold text-green-700 truncate">${escHtml(e.subject ?? 'Email')}</span>
+          </div>
+          <p class="text-[9px] text-green-600">${formatDate(e.date)}</p>
+          ${e.from_addr ? `<p class="text-[9px] text-green-500/80 truncate mt-0.5">${escHtml(e.from_addr)}</p>` : ''}
+        </div>
+        <div class="w-px flex-shrink-0 bg-green-400/50" style="height:18px;"></div>
+        <div class="w-3 h-3 rounded-full bg-green-500 border-2 border-surface shadow tl-dot cursor-pointer hover:scale-125 transition-transform flex-shrink-0 z-20"></div>
+      </div>`;
+  });
+
+  // ── Attachment dots (blue, below axis, click to expand then opens viewer)
+  attachments.forEach((a) => {
+    const left  = toLeft(a.file_date ?? a.created_at);
+    if (left === null) return;
+    const vtype = fileViewType(a.filename ?? '', a.file_type ?? '');
+    const ext   = (a.filename ?? '').slice((a.filename ?? '').lastIndexOf('.')).toLowerCase();
+    const isMd  = ext === '.md' || ext === '.markdown';
+
+    html += `
+      <div class="absolute tl-dot-wrap flex flex-col items-center" style="left:${left}%; top:${AXIS_PCT + 3}%; transform:translateX(-50%);">
+        <div class="w-3 h-3 rounded-full bg-blue-500 border-2 border-surface shadow tl-dot cursor-pointer hover:scale-125 transition-transform flex-shrink-0 z-20"></div>
+        <div class="w-px flex-shrink-0 bg-blue-400/50" style="height:18px;"></div>
+        <div class="tl-dot-card hidden w-48 p-2.5 bg-blue-50 rounded-xl shadow-lg border border-blue-200 flex-shrink-0
+                    ${vtype ? 'att-item cursor-pointer' : 'opacity-70'}"
+             data-type="${vtype ?? ''}" data-path="${escHtml(a.path ?? '')}"
+             data-name="${escHtml(a.filename ?? '')}" data-file-type="${escHtml(a.file_type ?? '')}"
+             data-is-markdown="${isMd}">
+          <div class="flex items-center gap-1.5 mb-0.5">
+            <span class="material-symbols-outlined text-blue-500" style="font-size:13px;">attachment</span>
+            <span class="text-[10px] font-bold text-blue-700 truncate">${escHtml(a.filename ?? 'Attachment')}</span>
+          </div>
+          <p class="text-[9px] text-blue-600">${formatDate(a.file_date ?? a.created_at)}</p>
+        </div>
+      </div>`;
+  });
+
+  // ── Legend + zoom controls
+  const legend = `
+    <div class="flex items-center gap-4 px-5 pt-4 pb-3 border-b border-outline-variant/10 flex-shrink-0 flex-wrap gap-y-1.5">
+      <div class="flex items-center gap-1.5">
+        <span class="inline-block w-2.5 h-2.5 rounded-full bg-primary flex-shrink-0"></span>
+        <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wide">Key Events</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="inline-block w-2.5 h-2.5 rounded-full bg-outline-variant flex-shrink-0"></span>
+        <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wide">Other Events</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="inline-block w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0"></span>
+        <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wide">Emails</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="inline-block w-2.5 h-2.5 rounded-full bg-blue-500 flex-shrink-0"></span>
+        <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wide">Attachments</span>
+      </div>
+      <!-- Zoom controls -->
+      <div class="ml-auto flex items-center gap-1">
+        <button class="tl-zoom-btn tl-zoom-out w-7 h-7 flex items-center justify-center rounded-lg bg-surface-container hover:bg-surface-container-high transition-colors text-on-surface-variant">
+          <span class="material-symbols-outlined" style="font-size:16px;">remove</span>
+        </button>
+        <span class="tl-zoom-label text-[10px] font-mono text-on-surface-variant w-10 text-center">—</span>
+        <button class="tl-zoom-btn tl-zoom-in w-7 h-7 flex items-center justify-center rounded-lg bg-surface-container hover:bg-surface-container-high transition-colors text-on-surface-variant">
+          <span class="material-symbols-outlined" style="font-size:16px;">add</span>
+        </button>
+        <button class="tl-zoom-btn tl-zoom-reset ml-1 px-2 h-7 flex items-center rounded-lg bg-surface-container hover:bg-surface-container-high transition-colors text-on-surface-variant text-[10px] font-bold uppercase tracking-wide">
+          Fit
+        </button>
+      </div>
+    </div>`;
+
+  return `
+    <div class="rounded-xl bg-surface-container-lowest border border-outline-variant/10 shadow-sm -mx-2 flex flex-col">
+      ${legend}
+      <div class="tl-scroll overflow-x-auto" data-tl-center="${centerPct.toFixed(2)}">
+        <div class="tl-inner relative"
+             data-tl-base-width="${minWidth}"
+             data-tl-range-start="${rangeStart}"
+             data-tl-total-range="${totalRange}"
+             style="min-width:${minWidth}px; height:${CONTAINER_H}px;">
+          <!-- Axis line -->
+          <div class="absolute left-0 right-0" style="top:${AXIS_PCT}%; height:2px; background:rgba(198,198,208,0.35);"></div>
+          <!-- All timeline items (spans, events, dots) -->
+          ${html}
+          <!-- Date ruler — populated dynamically by initTimeline -->
+          <div class="tl-tick-ruler absolute left-0 right-0" style="height:28px; bottom:4px;"></div>
+        </div>
+      </div>
+    </div>`;
 }
 
 // ── Parties ───────────────────────────────────────────────────
@@ -367,7 +584,6 @@ function fileViewType(filename, mimeType) {
 }
 
 function buildAttachmentsList(attachments, emails) {
-  _attachStore.clear();
   attachments.forEach(a => { if (a.file_id) _attachStore.set(a.file_id, a); });
 
   const attItems = attachments.map(a => {
@@ -391,7 +607,6 @@ function buildAttachmentsList(attachments, emails) {
     </div>`;
   });
 
-  _emailStore.clear();
   const emailItems = emails.map(e => {
     const id = e.email_id ?? e.message_id ?? String(Math.random());
     _emailStore.set(id, e);
@@ -673,9 +888,14 @@ async function openEmailViewer(emailId) {
 }
 
 
-// ── Project events (collapsible sections only) ────────────────
+// ── Project events (collapsible sections + timeline dots) ─────
 
 function bindProjectEvents(_projectId) {
+  // Guard: only attach document listeners once across all navigations
+  if (_projectEventsBound) return;
+  _projectEventsBound = true;
+
+  // Collapsible sections
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('.sec-toggle');
     if (!btn) return;
@@ -687,4 +907,123 @@ function bindProjectEvents(_projectId) {
     body.style.display = collapsed ? '' : 'none';
     if (icon) icon.textContent = collapsed ? 'expand_less' : 'expand_more';
   });
+
+  // Timeline dot single-click → toggle preview card
+  document.addEventListener('click', (e) => {
+    const dot = e.target.closest('.tl-dot');
+    if (dot) {
+      const wrap = dot.closest('.tl-dot-wrap');
+      if (!wrap) return;
+      const card = wrap.querySelector('.tl-dot-card');
+      if (!card) return;
+      document.querySelectorAll('.tl-dot-card:not(.hidden)').forEach(c => {
+        if (c !== card) c.classList.add('hidden');
+      });
+      card.classList.toggle('hidden');
+      return;
+    }
+    if (!e.target.closest('.tl-dot-wrap') && !e.target.closest('.tl-zoom-btn')) {
+      document.querySelectorAll('.tl-dot-card:not(.hidden)').forEach(c => c.classList.add('hidden'));
+    }
+  });
+
+  // Timeline dot double-click → open viewer/popover directly
+  document.addEventListener('dblclick', (e) => {
+    const dot = e.target.closest('.tl-dot');
+    if (!dot) return;
+    e.preventDefault();
+    const wrap = dot.closest('.tl-dot-wrap');
+    if (!wrap) return;
+    const card = wrap.querySelector('.tl-dot-card');
+    if (!card) return;
+    // Ensure card is visible so att-item / popover-item handlers can find it
+    card.classList.remove('hidden');
+    card.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  });
+}
+
+// ── Timeline zoom + auto-scroll setup ────────────────────────
+
+function initTimeline(secEl) {
+  const scrollEl = secEl.querySelector('.tl-scroll');
+  const innerEl  = secEl.querySelector('.tl-inner');
+  if (!scrollEl || !innerEl) return;
+
+  const baseWidth  = parseInt(innerEl.dataset.tlBaseWidth,   10)  || 1600;
+  const rangeStart = parseFloat(innerEl.dataset.tlRangeStart)      || 0;
+  const totalRange = parseFloat(innerEl.dataset.tlTotalRange)      || 1;
+  const centerPct  = parseFloat(scrollEl.dataset.tlCenter)         || 50;
+  let   zoom       = 1;
+
+  // ── Adaptive tick ruler ───────────────────────────────────────
+  const updateTicks = () => {
+    const ruler = secEl.querySelector('.tl-tick-ruler');
+    if (!ruler) return;
+
+    const actualWidth = baseWidth * zoom;
+    const spanDays    = totalRange / 86400000;
+    const pxPerDay    = actualWidth / spanDays;
+
+    // Choose tick interval based on density
+    let getNext, format;
+    const dt = new Date(rangeStart);
+    if (pxPerDay >= 30) {
+      dt.setHours(0, 0, 0, 0);
+      getNext = d => d.setDate(d.getDate() + 1);
+      format  = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } else if (pxPerDay >= 6) {
+      dt.setHours(0, 0, 0, 0);
+      dt.setDate(dt.getDate() - dt.getDay()); // snap to Sunday
+      getNext = d => d.setDate(d.getDate() + 7);
+      format  = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } else if (pxPerDay >= 1.2) {
+      dt.setDate(1); dt.setHours(0, 0, 0, 0);
+      getNext = d => d.setMonth(d.getMonth() + 1);
+      format  = d => d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    } else if (pxPerDay >= 0.3) {
+      dt.setMonth(Math.floor(dt.getMonth() / 3) * 3);
+      dt.setDate(1); dt.setHours(0, 0, 0, 0);
+      getNext = d => d.setMonth(d.getMonth() + 3);
+      format  = d => `Q${Math.floor(d.getMonth() / 3) + 1} '${String(d.getFullYear()).slice(2)}`;
+    } else {
+      dt.setMonth(0); dt.setDate(1); dt.setHours(0, 0, 0, 0);
+      getNext = d => d.setFullYear(d.getFullYear() + 1);
+      format  = d => d.getFullYear().toString();
+    }
+
+    const rangeEnd = rangeStart + totalRange;
+    const parts    = [];
+    while (+dt <= rangeEnd + 86400000) {
+      const leftPct = Math.max(0.2, Math.min(99.8, ((+dt - rangeStart) / totalRange) * 100));
+      parts.push(
+        `<div class="absolute flex flex-col items-center" style="left:${leftPct}%; bottom:0; transform:translateX(-50%);">` +
+        `<div style="width:1px;height:8px;background:rgba(198,198,208,0.5);"></div>` +
+        `<span style="font-size:9px;font-family:monospace;color:rgba(69,70,79,0.5);margin-top:2px;white-space:nowrap;">${format(dt)}</span>` +
+        `</div>`
+      );
+      getNext(dt);
+    }
+    ruler.innerHTML = parts.join('');
+  };
+
+  const applyZoom = (z) => {
+    zoom = Math.max(0.2, Math.min(4, z));
+    innerEl.style.minWidth = Math.round(baseWidth * zoom) + 'px';
+    const target = (centerPct / 100) * baseWidth * zoom - scrollEl.offsetWidth / 2;
+    scrollEl.scrollLeft = Math.max(0, target);
+    const label = secEl.querySelector('.tl-zoom-label');
+    if (label) label.textContent = Math.round(zoom * 100) + '%';
+    updateTicks();
+  };
+
+  // Default: fit to viewport
+  const fitZoom = Math.max(0.2, Math.min(0.7, scrollEl.offsetWidth / baseWidth));
+  applyZoom(fitZoom);
+
+  secEl.querySelector('.tl-zoom-in')?.addEventListener('click',
+    (e) => { e.stopPropagation(); applyZoom(zoom * 1.5); });
+  secEl.querySelector('.tl-zoom-out')?.addEventListener('click',
+    (e) => { e.stopPropagation(); applyZoom(zoom / 1.5); });
+  secEl.querySelector('.tl-zoom-reset')?.addEventListener('click',
+    (e) => { e.stopPropagation(); applyZoom(fitZoom); });
 }
