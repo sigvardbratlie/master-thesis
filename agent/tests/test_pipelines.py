@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from agent.pipelines import ProjectPipeline
-from models import PipelineState, AskAgentRequest, InitialInput, ProjectData, FactSheet, Party, Attachment, Event
+from models import PipelineState, AskAgentRequest, InitialInput, ProjectData, FactSheet, Party, PartyRep, Attachment, Event
 from tests.fixtures.agent_data import (
     get_mock_ask_agent_request,
     get_mock_ask_agent_request_with_attachments,
@@ -482,3 +482,106 @@ async def test_initialize_project_saves_project(mock_pipeline):
     # Pipeline should have collected attachments and events
     assert len(final_state["attachments"]) >= 1
     assert len(final_state["events"]) >= 1
+
+
+# ============================================
+#           SAVE UPDATE NODE
+# ============================================
+
+@pytest.mark.asyncio
+async def test_save_update_node_extracts_party_reps(mock_pipeline):
+    """_save_update_node should split party_reps into a separate table from parties."""
+    query = get_mock_ask_agent_request()
+
+    party_rep = PartyRep(
+        party_rep_id="rep-001",
+        first_name="Erik",
+        last_name="Advokatsen",
+        rep_role="lawyer",
+    )
+    initial_input = InitialInput(
+        title="Test Case",
+        background="Test background",
+        parties=[
+            Party(
+                party_id="party-001",
+                legal_name="Anders Kristiansen",
+                role="plaintiff",
+                entity_type="individual",
+                party_reps=[party_rep],
+            ),
+            Party(
+                party_id="party-002",
+                legal_name="Carl Danielsen",
+                role="defendant",
+                entity_type="individual",
+            ),
+        ],
+    )
+
+    state = PipelineState(
+        query=query,
+        input_=initial_input,
+        attachments=[],
+        events=[],
+        damages=[],
+        claims=[],
+        deadlines=[],
+        emails=[],
+    )
+
+    upsert_replace_calls = []
+    mock_pipeline.conversation_manager.upsert_replace_project_element = MagicMock(
+        side_effect=lambda **kwargs: upsert_replace_calls.append(kwargs)
+    )
+    mock_pipeline.conversation_manager.insert_project_element = MagicMock()
+    mock_pipeline.conversation_manager.upsert_project = MagicMock()
+
+    mock_writer = MagicMock()
+    with patch('agent.pipelines.get_stream_writer', return_value=mock_writer), \
+         patch('agent.pipelines.get_config', return_value=MOCK_THREAD_CONFIG):
+        await mock_pipeline._save_update_node(state)
+
+    table_names = [c["table_name"] for c in upsert_replace_calls]
+    assert "project_parties" in table_names
+    assert "project_party_reps" in table_names
+
+    # parties should be dicts with party_reps excluded
+    parties_call = next(c for c in upsert_replace_calls if c["table_name"] == "project_parties")
+    for party in parties_call["data"]:
+        assert isinstance(party, dict)
+        assert "party_reps" not in party
+
+    # party_reps should have party_id set from parent party
+    reps_call = next(c for c in upsert_replace_calls if c["table_name"] == "project_party_reps")
+    assert len(reps_call["data"]) == 1
+    assert reps_call["data"][0].party_id == "party-001"
+
+
+@pytest.mark.asyncio
+async def test_save_update_node_no_parties(mock_pipeline):
+    """_save_update_node should handle empty parties gracefully."""
+    query = get_mock_ask_agent_request()
+    initial_input = InitialInput(title="Test", background="Test", parties=[])
+
+    state = PipelineState(
+        query=query,
+        input_=initial_input,
+        attachments=[],
+        events=[],
+        damages=[],
+        claims=[],
+        deadlines=[],
+        emails=[],
+    )
+
+    mock_pipeline.conversation_manager.upsert_replace_project_element = MagicMock()
+    mock_pipeline.conversation_manager.insert_project_element = MagicMock()
+    mock_pipeline.conversation_manager.upsert_project = MagicMock()
+
+    mock_writer = MagicMock()
+    with patch('agent.pipelines.get_stream_writer', return_value=mock_writer), \
+         patch('agent.pipelines.get_config', return_value=MOCK_THREAD_CONFIG):
+        await mock_pipeline._save_update_node(state)
+
+    mock_pipeline.conversation_manager.upsert_project.assert_called_once()

@@ -81,6 +81,69 @@ def test_save_project(mock_supabase_manager):
     assert client.table.call_count == 7
 
 
+def test_save_project_with_party_reps(mock_supabase_manager):
+    """save_project should upsert party_reps to project_party_reps when parties have reps."""
+    from models import FactSheet, Party, PartyRep, Attachment
+
+    party_rep = PartyRep(
+        party_rep_id="rep-001",
+        first_name="Erik",
+        last_name="Advokatsen",
+        rep_role="lawyer",
+        party_id="party-001",
+    )
+    factsheet = FactSheet(
+        events=[],
+        parties=[
+            Party(
+                party_id="party-001",
+                legal_name="Anders Kristiansen",
+                role="plaintiff",
+                entity_type="individual",
+                party_reps=[party_rep],
+            ),
+            Party(
+                party_id="party-002",
+                legal_name="Carl Danielsen",
+                role="defendant",
+                entity_type="individual",
+            ),
+        ],
+    )
+
+    client = mock_supabase_manager.supabase
+    client.reset_mock()
+
+    mock_supabase_manager.save_project(
+        factsheet=factsheet,
+        attachments=[],
+        user_id="test_user_id",
+        project_id="test_project_id",
+        session_id="test_session_id",
+        llm_model="test_model",
+    )
+
+    table_calls = [call[0][0] for call in client.table.call_args_list]
+    assert "project_party_reps" in table_calls, "project_party_reps table should be called"
+    assert "project_parties" in table_calls, "project_parties table should be called"
+
+    # Collect all upserted data per table (table and upsert calls are in 1:1 order)
+    all_upsert_calls = client.table.return_value.upsert.call_args_list
+    data_by_table = {table: all_upsert_calls[i][0][0] for i, table in enumerate(table_calls)}
+
+    # party_reps upsert should have party_id and audit fields set
+    upserted_reps = data_by_table["project_party_reps"]
+    assert len(upserted_reps) == 1
+    assert upserted_reps[0]["party_rep_id"] == "rep-001"
+    assert upserted_reps[0]["project_id"] == "test_project_id"
+    assert upserted_reps[0]["created_by"] == "test_model"
+
+    # parties upserted without party_reps field
+    upserted_parties = data_by_table["project_parties"]
+    for p in upserted_parties:
+        assert "party_reps" not in p or p["party_reps"] is None
+
+
 def test_insert_project_element(mock_supabase_manager):
     data = get_mock_save_project_data().get("factsheet").model_dump(mode = "json").get("parties")
     client = mock_supabase_manager.supabase
@@ -93,6 +156,8 @@ def test_insert_project_element(mock_supabase_manager):
 
     assert client.table.called, "table() was never called"
     client.table.assert_any_call("project_parties")
+    client.table.return_value.upsert.assert_called()
+    client.table.return_value.upsert.return_value.execute.assert_called()
     client.table.return_value.upsert.assert_called()
     client.table.return_value.upsert.return_value.execute.assert_called()
 

@@ -121,6 +121,9 @@ class ContextManager:
         init_input = await structured_llm.ainvoke(prompt, config=config)
         for party in init_input.parties or []:
             party.party_id = str(uuid4())
+            for party_rep in party.party_reps or []:
+                party_rep.party_rep_id = str(uuid4())
+                party_rep.party_id = party.party_id
         logger.debug('\n\n' + "="*5 + f' Analyzed Initial Input: {str(init_input.model_dump(mode = "json"))[:500]} ' + '='*5 + '\n\n')
         return init_input
     
@@ -707,6 +710,10 @@ class ContextManager:
         for party in updated_input.parties:
             if not party.party_id or not self.is_valid_uuid(party.party_id):
                 party.party_id = str(uuid.uuid4())
+            for rep in party.party_reps or []:
+                rep.party_id = party.party_id
+                if not rep.party_rep_id or not self.is_valid_uuid(rep.party_rep_id):
+                    rep.party_rep_id = str(uuid.uuid4())
 
         seen = set()
         deduped = []

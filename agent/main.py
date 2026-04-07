@@ -21,6 +21,9 @@ from agent import ProjectPipeline, ProjectClean
 
 load_dotenv()
 
+noisy_packages = ["httpx", "httpcore", "hpack", "urllib3", 
+                      "anthropic", "openai", "asyncio", "langsmith", "ocrmypdf", "PIL", 
+                      "img2pdf", "botocore","textractor", "google_genai"]
 def silence_loggers():
     noisy_packages =  [
         "httpx", "httpcore", 
@@ -41,6 +44,9 @@ def silence_loggers():
         "psycopg_pool",
         "uvicorn.access",
         "langsmith"
+        "httpx", "httpcore", "hpack", "urllib3", 
+        "anthropic", "openai", "asyncio", "langsmith", "ocrmypdf", "PIL", 
+        "img2pdf", "botocore","textractor", "google_genai"
     ]
     [logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
 
@@ -142,160 +148,3 @@ def root():
 if __name__ == "__main__":
     port = int(os.getenv("PORT",8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
-
-
-# # ================== API ENDPOINTS ==================
-# # MAIN ENDPOINTS
-# @app.post("/ask-agent")
-# async def ask_agent_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
-#     """
-#     Frontend calls this endpoint. It returns a StreamingResponse
-#     using our `stream_generator`.
-#     """
-    
-#     async def stream_generator(query : AskAgentRequest,
-#                            user_id: str = Depends(auth.get_current_user)):
-#         """
-#         Call the agent's streaming method and format output
-#         for Server-Sent Events (SSE) expected by the frontend.
-#         """
-#         thread = to_thread_config(query=query, user_id=user_id)
-#         try:
-#             async for response_part in agent.stream_response(query = query,user_id = user_id):                                        
-#                 data_string = json.dumps(response_part)
-#                 yield f"data: {data_string}\n\n"
-#                 await asyncio.sleep(0.01)
-#         except Exception as e:
-#             logger.error(f"Error in /ask-agent: {e}", exc_info=True)
-#             raise HTTPException(status_code=500, detail=str(e))
-
-#     return StreamingResponse(
-#         stream_generator(query = query,user_id = user_id),
-#         media_type="text/event-stream"
-#     )
-
-# # INITIALIZE & UPDATE PROJECT ENDPOINTS
-# @app.post("/init-project")
-# async def init_project_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
-#     """
-#     Endpoint to initialize scanning and processing of attachments.
-#     """
-#     thread: RunnableConfig  = to_thread_config(query=query, user_id=user_id)
-#     init_graph = pm.compile_init_pipeline()
-#     async def gen():
-#         try:
-#             async for chunk in init_graph.astream({"query": query}, config=thread, stream_mode="custom"):
-#                 yield f'data: {json.dumps(chunk)}\n\n'
-#                 await asyncio.sleep(0.01)
-#         except Exception as e:
-#             logger.error(f"Error in init_stream_generator: {e}", exc_info=True)
-#             yield f'data: {json.dumps({"error": str(e)})}\n\n'
-
-#     return StreamingResponse(gen(), media_type="text/event-stream")
-
-# @app.post("/update-project")
-# async def update_project_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
-#     """
-#     Endpoint to update the project with new input and attachments.
-#     """
-#     thread: RunnableConfig = to_thread_config(query=query, user_id=user_id)
-#     update_graph = pm.compile_update_pipeline()
-#     async def gen():
-#         try:
-#             async for chunk in update_graph.astream({"query": query}, config=thread, stream_mode="custom"):
-#                 yield f'data: {json.dumps(chunk)}\n\n'
-#                 await asyncio.sleep(0.01)
-#         except Exception as e:
-#             logger.error(f"Error in update_stream_generator: {e}", exc_info=True)
-#             yield f'data: {json.dumps({"error": str(e)})}\n\n'
-#     return StreamingResponse(gen(), media_type="text/event-stream")
-
-# @app.post("/update-project-from-session")
-# async def update_project_from_session_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
-#     updated_query = await asyncio.to_thread(pm.mk_update_query_from_session, query=query)
-#     thread: RunnableConfig = to_thread_config(query=query, user_id=user_id)
-#     update_graph = pm.compile_update_pipeline()
-#     async def gen():
-        
-#         try:
-#             async for chunk in update_graph.astream({"query": updated_query}, config=thread, stream_mode="custom"):
-#                 yield f'data: {json.dumps(chunk)}\n\n'
-#                 await asyncio.sleep(0.01)
-#         except Exception as e:
-#             logger.error(f"Error in update_stream_generator: {e}", exc_info=True)
-#             yield f'data: {json.dumps({"error": str(e)})}\n\n'
-#     return StreamingResponse(gen(), media_type="text/event-stream")
-
-# # CLEAN ENDPOINTS
-
-# @app.post("/cleanup-all-metadata")
-# async def cleanup_all_metadata_endpoint(query: AskAgentRequest, user_id: str = Depends(auth.get_current_user)):
-#     thread = to_thread_config(query=query, user_id=user_id)
-#     clean_meta = clean.compile_clean_metadata()
-#     async def gen():    
-#         try:
-#             async for chunk in clean_meta.astream_events(query=query, config=thread):
-#                 yield f'data: {json.dumps(chunk)}\n\n'
-#                 await asyncio.sleep(0.01)
-#         except Exception as e:
-#             logger.error(f"Error in cleanup_all_metadata_endpoint: {e}", exc_info=True)
-#             yield f'data: {json.dumps({"error": str(e)})}\n\n'
-#     return StreamingResponse(gen(), media_type="text/event-stream")
-
-# @app.post("/cleanup-project-elements")
-# async def cleanup_project_elements_endpoint(query: CleanupElementsRequest, user_id: str = Depends(auth.get_current_user)):
-#     thread: RunnableConfig = to_thread_config(query=query, user_id=user_id)
-#     clean_element = clean.compile_clean_elements()
-#     async def gen():
-#         try:
-#             async for chunk in clean_element.astream_events(query=query, config=thread):
-#                 yield f'data: {json.dumps(chunk)}\n\n'
-#                 await asyncio.sleep(0.01)
-#         except Exception as e:
-#             logger.error(f"Error in cleanup_project_elements_endpoint: {e}", exc_info=True)
-#             yield f'data: {json.dumps({"error": str(e)})}\n\n'
-#     return StreamingResponse(gen(), media_type="text/event-stream")
-
-# #DATABASE ENDPOINTS
-# @app.delete("/delete-vectorstore-project/{project_id}")
-# async def delete_vectorstore_project_endpoint(project_id: str):
-#     """Delete project from BigQuery vector store."""
-#     try:
-#         result = agent.delete_project_vectorstore(project_id)
-#         return result
-#     except Exception as e:
-#         logger.error(f"Error in /delete-vectorstore-project: {e}", exc_info=True)
-#         raise HTTPException(status_code=500, detail=f"Error deleting from vector store: {str(e)}")
-
-# @app.delete("/delete-vectorstore-file/{file_id}")
-# async def delete_vectorstore_file_endpoint(file_id: str):
-#     """Delete file from BigQuery vector store."""
-#     try:
-#         agent.vs.delete_file(file_id)
-#         return {"success": True, "file_id": file_id}
-#     except Exception as e:
-#         logger.error(f"Error in /delete-vectorstore-file: {e}", exc_info=True)
-#         raise HTTPException(status_code=500, detail=f"Error deleting file from vector store: {str(e)}")
-
-
-# # READING FROM DB
-# @app.get("/load-session-history/{session_id}")
-# async def load_session_history(session_id: str):
-#     return conversation_manager.load_session_history(session_id=session_id)
-
-# @app.get("/load-user-sessions")
-# async def load_user_sessions(user_id: str = Depends(auth.get_current_user)):
-#     return conversation_manager.load_user_sessions(user_id=user_id)
-
-# @app.get("/load-project/{project_id}")
-# async def load_project(project_id: str):
-#     return conversation_manager.load_project(project_id=project_id)
-
-# @app.get("/load-projects")
-# async def load_projects(user_id: str = Depends(auth.get_current_user)):
-#     return conversation_manager.load_projects(user_id=user_id)
-
-# @app.get("/load-project-sessions/{project_id}")
-# async def load_project_sessions(project_id: str): 
-#     return conversation_manager.load_project_sessions(project_id=project_id)
