@@ -96,6 +96,8 @@ The system supports multiple LLM providers through LangChain's \texttt{init\_cha
 
 \subsection{Tech Stack Summary}
 
+Table~\ref{tab:tech-stack} provides a concise overview of all major technologies used in the system, grouped by architectural layer.
+
 \begin{table}[h]
 \centering
 \begin{tabular}{ll}
@@ -128,11 +130,11 @@ Web search & Tavily \\
 
 The system architecture was guided by several pragmatic design choices, prioritizing development speed, flexibility, and cost-efficiency given the constraints of a master's thesis. By separating the descriptive architecture from the rationale, the core motivations for the selected technologies are outlined below.
 
-\subsection*{Agent Layer and Orchestration}
+\subsection{Agent Layer and Orchestration}
 
 The core agent is implemented using \textbf{LangGraph} \cite{langgraph}. This framework was chosen primarily for its fast build time, which is essential given the limited time available for this thesis. It provides a clean \texttt{StateGraph} abstraction that is highly expandable for future extensions, such as adding dedicated reasoning nodes or document re-ranking stages. Furthermore, LangGraph is model-agnostic, providing built-in support for multiple LLM providers. This flexibility is crucial, allowing the system to easily switch between models or add new ones as desired for evaluation and experimentation.
 
-\subsection*{Database and Storage Architecture}
+\subsection{Database and Storage Architecture}
 
 The system's persistence layer separates structured relational data, unstructured document storage, and semantic vector retrieval to optimize for specific access patterns and constraints.
 
@@ -228,11 +230,11 @@ Semantic retrieval relies on \textbf{Google's embedding model} (\texttt{gemini-e
 
 For the vector database, a two-tier approach is used. \textbf{ChromaDB} is utilized as an in-memory store for fast, session-scoped retrieval. For persistent, project-scoped retrieval, \textbf{BigQuery Vector Search} is employed. BigQuery was chosen because it is affordable and operates on an on-demand pricing model. The primary drawback of BigQuery is its high latency, meaning a significant amount of time is spent indexing and saving to the vector store. However, this trade-off is worthwhile: the alternative would require provisioning an always-running vector database server, which introduces high continuous costs and additional operational setup.
 
-\subsection*{FastAPI and Server-Sent Events}
+\subsection{FastAPI and Server-Sent Events}
 
 The backend is exposed as a standalone REST API using \textbf{FastAPI} \cite{fastapi} to decouple it from the frontend. \textbf{Server-Sent Events (SSE)} are used for streaming responses because the agent pipeline is long-running and asynchronous. SSE provides a responsive user experience by pushing incremental status updates and partial results without the complexity of WebSockets, which are unnecessary for this unidirectional communication flow.
 
-\subsection*{Concurrency, Reliability, and Tool Efficiency}
+\subsection{Concurrency, Reliability, and Tool Efficiency}
 
 Several engineering decisions were made to ensure the system operates efficiently under the latency and throughput constraints imposed by external APIs and large document volumes.
 
@@ -362,6 +364,8 @@ Since the scope of the thesis is not to evaluate the models themselves, but rath
         \hline
     \end{tabular}
 \end{table}
+
+Table~\ref{tab:model_config} lists the four models included in the evaluation, together with their parameter counts and providers.
 
 The evaluation will be conducted across all datasets using consistent model-agent pairings. To account for the inherent stochastic nature of LLM outputs, each evaluation set (model + agent configuration) will be executed 3 times to ensure statistical significance in the results.
 

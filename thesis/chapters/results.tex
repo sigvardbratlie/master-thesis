@@ -74,6 +74,42 @@ across many documents.
 
 \bigbreak
 
+Figure~\ref{fig:deepeval-violin} shows the same comparison as a violin plot, making the distributional differences and interquartile ranges directly visible.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/deep_eval_violin.png}
+    \caption{Violin plot of DeepEval quality metrics (correctness, relevancy, completeness) by agent configuration.
+             The custom agent exhibits narrower distributions with higher medians across all three metrics.}
+    \label{fig:deepeval-violin}
+\end{figure}
+
+\bigbreak
+
+Figure~\ref{fig:deepeval-success-dist} shows the distribution of binary pass/fail outcomes across all queries.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/deep_eval_success_distribution.png}
+    \caption{Distribution of pass/fail outcomes across all queries for each agent configuration,
+             based on the DeepEval threshold. The custom agent achieves a higher pass rate.}
+    \label{fig:deepeval-success-dist}
+\end{figure}
+
+\bigbreak
+
+The aggregate score distribution across all DeepEval metrics is shown in Figure~\ref{fig:deepeval-distribution}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/deepeval_distribution.png}
+    \caption{Aggregate distribution of all DeepEval metric scores. The custom agent's distribution
+             is more concentrated near the upper end, while the baseline exhibits a heavier low-scoring tail.}
+    \label{fig:deepeval-distribution}
+\end{figure}
+
+\bigbreak
+
 The model-level breakdown (Figure~\ref{fig:deepeval-barplot-llms}) adds a further dimension.
 
 \begin{figure}[H]
@@ -174,6 +210,19 @@ configurations, typically in the range of 1--3 calls per query.
     \label{fig:resource-lineplot}
 \end{figure}
 
+Figure~\ref{fig:duration-vs-correctness} plots inference duration against correctness score for individual queries, illustrating that higher latency does not correspond to higher quality.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/duration_vs_correctness.png}
+    \caption{Scatter plot of inference duration (seconds) against correctness score per query.
+             No positive correlation is observed, indicating that longer inference time does not
+             reliably produce higher-quality responses.}
+    \label{fig:duration-vs-correctness}
+\end{figure}
+
+\bigbreak
+
 Unlike the quality metrics, no consistent trend is visible in the resource trajectories
 over session progression. Token counts and latencies fluctuate without a systematic
 increase, and the two configurations track each other closely throughout
@@ -243,7 +292,7 @@ While the Mann-Whitney U test establishes that the custom agent's scores tend to
 stochastically \emph{higher}, it says nothing about the \emph{spread} of those scores.
 Levene's test for equality of variance addresses this directly: it tests whether the
 two configurations exhibit significantly different score variability, without assuming
-normality.
+normality. The results are presented in Table~\ref{tab:levene}.
 
 \begin{table}[H]
 \centering
