@@ -13,17 +13,7 @@ All results reported below are computed on the filtered dataset.
 
 \subsection{DeepEval: Correctness, Relevancy, and Completeness}
 
-These three metrics are evaluated by an LLM judge against the gold-standard reference
-answer. \textbf{Correctness} measures whether the factual claims in the response are
-accurate; it is the most diagnostic metric in this evaluation because it directly captures
-the architectural advantage under test. \textbf{Relevancy} measures whether the response
-addresses the question asked, serving as a sanity check that neither agent drifts off-topic.
-\textbf{Completeness} measures whether the response covers all facts required by the reference,
-complementing correctness by penalising omissions rather than errors. Together the three
-metrics span the accuracy--coverage--focus dimensions of answer quality.
-
-The joint distribution of correctness, relevancy, and completeness across all queries
-and sessions is shown in Figure~\ref{fig:deepeval-pairplot}.
+The joint distribution of correctness, relevancy, and completeness (defined in Section~\ref{sec:metrics}) across all queries and sessions is shown in Figure~\ref{fig:deepeval-pairplot}.
 
 \begin{figure}[H]
     \centering
@@ -229,17 +219,7 @@ baseline already achieves high scores, leaving less headroom for improvement.
 \subsection{BERTScore}
 % -------------------------------------------------------
 
-BERTScore quantifies token-level semantic overlap between the generated response and the
-reference using contextualised BERT embeddings. Unlike the LLM-judge metrics, it requires
-no separate inference call and is insensitive to judge-prompt phrasing, making it a useful
-cross-validation signal. Sentence-BERT similarity complements BERTScore by capturing
-global embedding-level proximity rather than token-level overlap. Both metrics are included
-to verify that any quality differences are not an artefact of the LLM judge's own biases.
-
-BERTScore measures surface-level semantic similarity to the reference answer and is
-therefore less sensitive to structured factual completeness than the DeepEval metrics.
-A response can score well on BERTScore while omitting specific facts that correctness
-and completeness evaluation would penalise.
+BERTScore and Sentence-BERT similarity (defined in Section~\ref{sec:metrics}) serve as a cross-validation signal that is independent of the LLM judge used for the DeepEval metrics. Because BERTScore measures surface-level semantic overlap, it is less sensitive to structured factual completeness than the DeepEval metrics: a response can score well on BERTScore while omitting specific facts that correctness and completeness evaluation would penalise. Agreement between the two metric families therefore provides stronger evidence that observed quality differences reflect genuine architectural effects rather than judge artefacts.
 
 \begin{figure}[H]
     \centering
@@ -280,13 +260,7 @@ factual coverage.
 \subsection{Resource Metrics}
 % -------------------------------------------------------
 
-Resource metrics --- inference duration, input tokens, output tokens, and LLM call count
---- are included to assess whether any quality improvements come at a disproportionate
-computational cost. Input tokens directly drive API cost and context-window pressure;
-inference duration determines user-facing latency; LLM call count indicates how much
-internal orchestration each query requires. These metrics are analysed alongside quality
-scores to determine whether the custom agent's architectural overhead is justified by
-its performance gains.
+Resource metrics (defined in Section~\ref{sec:metrics}) are analysed alongside quality scores to determine whether the custom agent's architectural overhead is justified by its performance gains.
 
 \begin{figure}[H]
     \centering
@@ -451,10 +425,7 @@ not the model's intrinsic reasoning efficiency.
 
 \subsection{Mann-Whitney U Test}
 
-All hypothesis tests use the one-sided Mann-Whitney U test, appropriate given the
-non-normal distributions of all metrics (Shapiro-Wilk, $p < 10^{-18}$ for every metric
-tested). The null hypothesis in each case is that the custom agent's scores are not
-stochastically greater than those of the baseline agent.
+Hypothesis tests follow the design described in Section~\ref{sec:metrics}. Normality was confirmed to be absent via Shapiro-Wilk ($p < 10^{-18}$ for every metric tested), validating the use of the one-sided Mann-Whitney U test as described in Chapter~\ref{chap:method}.
 
 \paragraph{Quality metrics.}
 Table~\ref{tab:mann-whitney} summarises the results. Correctness and relevancy both show
@@ -486,9 +457,11 @@ hardest to satisfy and most sensitive to the architectural differences under eva
 and the significant result ($p = 1.03 \times 10^{-2}$) carries the most interpretive
 weight.
 
-The absence of a significant completeness result likely reflects the smaller number of
-completeness observations in the dataset and the inherent difficulty of distinguishing
-partial from complete answers when both agents frequently cover the required facts.
+The absence of a significant completeness result has a structural explanation that goes beyond chance. The evaluation dataset distinguishes between \emph{factual} and \emph{summary} query types. Completeness is only evaluated on factual queries --- those whose reference answers enumerate a finite, verifiable set of required facts (e.g.\ ``Who are the parties?'', ``What damages are claimed?''). Summary queries, which ask for a narrative overview, are excluded from completeness evaluation because the concept of a ``complete'' answer is not well-defined when the reference is itself a prose summary: any sufficiently informative response could be considered complete, making the metric uninterpretable. This design decision is methodologically correct but has a direct consequence for statistical power: the effective sample size for completeness is substantially smaller than for correctness and relevancy, which are computed across all query types.
+
+The difference in sample size is visible in the U-statistics. The completeness U-statistic (27{,}278) is approximately 36\% of the correctness U-statistic (74{,}780). Since the maximum possible U is $n_1 \times n_2$, this ratio implies that the completeness dataset contains roughly 60\% as many observations as the correctness dataset. A smaller $n$ directly reduces the statistical power of the test: the same underlying effect requires a larger sample to clear the significance threshold.
+
+Two factors therefore combine to produce $p = 0.106$. First, the reduced sample size lowers power. Second, the observed mean difference for completeness (5.4 percentage points) is modestly smaller than for correctness (7.1 percentage points), reflecting that both agents tend to cover the required facts at least partially on factual queries, leaving less room for differentiation. Neither factor constitutes evidence that the custom agent does not improve completeness --- the directional trend is identical to correctness, and Levene's test does find a statistically significant reduction in completeness variance ($p = 0.006$), confirming that the distribution difference is real. The most accurate interpretation is that the current evaluation lacks the statistical power to confirm the completeness mean shift, not that the shift is absent.
 
 \paragraph{Resource metrics.}
 Neither input token usage ($U = 71{,}961$, $p = 0.859$) nor inference duration
@@ -553,15 +526,6 @@ supervise than one that performs steadily, even if its average score is similar.
 % -------------------------------------------------------
 \subsection{Self-consistency}
 % -------------------------------------------------------
-
-Self-consistency measures how semantically similar the agent's responses are when the
-same query is posed in different sessions. It is computed as the mean pairwise cosine
-similarity of the output embeddings produced for the same query across repeated runs.
-A high self-consistency score indicates that the agent produces reliable, reproducible
-answers regardless of session state; a low score suggests sensitivity to context noise
-or retrieval variance. This metric is included to capture a dimension of reliability
-that per-query quality scores cannot --- the degree to which the agent converges on the
-same answer given the same question.
 
 \begin{figure}[H]
     \centering
