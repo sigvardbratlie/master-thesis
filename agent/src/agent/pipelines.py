@@ -3,8 +3,7 @@ from models import FactSheet, AttachmentModel, EmailModel
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer, get_config
-from documents import DocumentProcessor, EmailHandler
-from documents.pdf_module import PDFHandler
+from documents import DocumentProcessor, EmailHandler, PDFHandler, EmailThreadParser
 import logging
 import asyncio
 from utils import AppConfig
@@ -13,7 +12,7 @@ from datetime import datetime
 import base64
 import tiktoken
 import email as python_email
-from database import SupabaseStorageManager, SupabaseManager, BQVectorStore, GCSManager
+from database import SupabaseManager, BQVectorStore, GCSManager
 
 from models import PipelineState, AskAgentRequest, ProjectData, InitialInput
 
@@ -355,7 +354,7 @@ class ProjectPipeline:
         return {"docs_by_file": docs_by_file, "query": stripped_query}
 
     def _collapse_emails_node(self, state: PipelineState):
-        eml_handler = EmailHandler()
+        eml_handler = EmailThreadParser()
         collapsed_emails: dict = {}
         writer = get_stream_writer()
         query = state.query

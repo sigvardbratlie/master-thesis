@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from email.utils import parsedate_to_datetime
 
-from models import EmailModel, EmailExtracted, Email
+from models import EmailModel, EmailExtracted, Email, WriteEmail
 
 
 # ============================================
@@ -238,3 +238,62 @@ def get_mock_eml_metadata() -> dict:
         "user_id": "user-123",
         "query_id": "query-456",
     }
+
+
+def get_mock_eml_outlook_thread() -> bytes:
+    """Email with an Outlook-style quoted thread block in the body."""
+    body = (
+        "Hei,\n\nTakk for informasjonen.\n\n"
+        "Fra: avsender@test.no\n"
+        "Dato: 5. januar 2024 kl. 10:30\n"
+        "Til: mottaker@test.no\n"
+        "Emne: Spørsmål om saken\n\n"
+        "Hva er status på saken?"
+    )
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = "Re: Spørsmål om saken"
+    msg["From"] = "mottaker@test.no"
+    msg["To"] = "avsender@test.no"
+    msg["Date"] = "Mon, 8 Jan 2024 14:00:00 +0100"
+    msg["Message-ID"] = "<outlook-thread-001@test.no>"
+    return msg.as_bytes()
+
+
+def get_mock_eml_gmail_thread() -> bytes:
+    """Email with a Norwegian inline (Gmail-style) thread pattern in the body."""
+    body = (
+        "Hei,\n\nFlott, vi sees da.\n\n"
+        "5. januar 2024 kl. 10:30 skrev avsender@test.no:\n\n"
+        "Kan vi møtes fredag?"
+    )
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = "Re: Møte fredag"
+    msg["From"] = "mottaker@test.no"
+    msg["To"] = "avsender@test.no"
+    msg["Date"] = "Mon, 8 Jan 2024 14:00:00 +0100"
+    msg["Message-ID"] = "<gmail-thread-001@test.no>"
+    return msg.as_bytes()
+
+
+def get_mock_write_email() -> WriteEmail:
+    """A WriteEmail model for mk_eml tests."""
+    return WriteEmail(
+        from_addr="advokat@juridisk.no",
+        to=["klient@example.com"],
+        cc=["partner@juridisk.no"],
+        bcc=None,
+        subject="Test Email fra advokat",
+        body="Dette er en test e-post angående saken.",
+    )
+
+
+def get_mock_write_email_with_bcc() -> WriteEmail:
+    """A WriteEmail with CC and BCC set."""
+    return WriteEmail(
+        from_addr="sender@example.no",
+        to=["recipient@example.no"],
+        cc=["cc@example.no"],
+        bcc=["bcc@example.no"],
+        subject="Test med CC og BCC",
+        body="Melding med kopimottakere.",
+    )
