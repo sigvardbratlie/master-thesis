@@ -1,11 +1,26 @@
 \chapter{Results}
 \label{chap:results}
 
+\paragraph{Data pre-processing.}
+Prior to analysis, runs with a duration exceeding 600 seconds (10 minutes) were excluded
+as anomalies. These correspond to timed-out or otherwise pathological executions whose
+resource measurements would distort the distribution of duration and token statistics.
+All results reported below are computed on the filtered dataset.
+
 % -------------------------------------------------------
 \section{Quality Metrics}
 % -------------------------------------------------------
 
 \subsection{DeepEval: Correctness, Relevancy, and Completeness}
+
+These three metrics are evaluated by an LLM judge against the gold-standard reference
+answer. \textbf{Correctness} measures whether the factual claims in the response are
+accurate; it is the most diagnostic metric in this evaluation because it directly captures
+the architectural advantage under test. \textbf{Relevancy} measures whether the response
+addresses the question asked, serving as a sanity check that neither agent drifts off-topic.
+\textbf{Completeness} measures whether the response covers all facts required by the reference,
+complementing correctness by penalising omissions rather than errors. Together the three
+metrics span the accuracy--coverage--focus dimensions of answer quality.
 
 The joint distribution of correctness, relevancy, and completeness across all queries
 and sessions is shown in Figure~\ref{fig:deepeval-pairplot}.
@@ -130,9 +145,96 @@ base model has limited capacity to compensate for noisy or incomplete retrieval.
 The implications of this model-dependent effect are discussed further in
 Chapter~\ref{chap:discussion}.
 
+
+\paragraph{Dataset-level breakdown.}
+Table~\ref{tab:results} reports per-model scores for both agent configurations across
+each dataset. Table~\ref{tab:diff_results_pct} condenses this into mean custom-minus-baseline
+differences, and Table~\ref{tab:diff_variance} reports the variance of that gap across LLMs.
+
+\begin{table}[htbp]
+\centering
+\caption{Mean completeness, correctness, and relevancy by dataset, model, and agent
+         configuration (baseline\_rag and custom).}
+\label{tab:results}
+\begin{tabular}{llrrrrrr}
+\toprule
+\textbf{Dataset} & \textbf{Model} & \textbf{Comp.\ base} & \textbf{Comp.\ cust} & \textbf{Corr.\ base} & \textbf{Corr.\ cust} & \textbf{Rel.\ base} & \textbf{Rel.\ cust} \\
+\midrule
+THRD-2021 & GLM-5             & 0.880 & 0.921 & 0.890 & 0.928 & 0.992 & 1.000 \\
+THRD-2021 & Qwen3.5-397B      & 0.937 & 0.947 & 0.927 & 0.944 & 0.996 & 1.000 \\
+THRD-2021 & gemini-2.5-flash  & 0.740 & 0.853 & 0.665 & 0.831 & 0.996 & 0.979 \\
+THRD-2021 & gemini-2.5-pro    & 0.903 & 0.870 & 0.894 & 0.871 & 1.000 & 1.000 \\
+\midrule
+TOSL-2024 & GLM-5             & 0.992 & 0.982 & 0.971 & 0.956 & 1.000 & 1.000 \\
+TOSL-2024 & Qwen3.5-397B      & 0.700 & 0.926 & 0.727 & 0.927 & 0.733 & 1.000 \\
+TOSL-2024 & gemini-2.5-flash  & 0.822 & 0.911 & 0.718 & 0.889 & 0.967 & 0.980 \\
+TOSL-2024 & gemini-2.5-pro    & 0.956 & 0.956 & 0.911 & 0.924 & 0.998 & 1.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Mean difference (custom $-$ baseline) per dataset, in percentage points.
+         Positive values indicate the custom agent scores higher.}
+\label{tab:diff_results_pct}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Dataset} & \textbf{Completeness} & \textbf{Correctness} & \textbf{Relevancy} \\
+\midrule
+THRD-2021-163881     & $+3.27$\% & $+4.96$\% & $-0.10$\% \\
+TOSL-2024-125319-MIN & $+7.60$\% & $+9.24$\% & $+7.06$\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\caption{Variance of the per-model custom$-$baseline difference per dataset, expressed
+         as a percentage ($\times 100$). Higher variance indicates less uniform gains
+         across LLMs.}
+\label{tab:diff_variance}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Dataset} & \textbf{Completeness} & \textbf{Correctness} & \textbf{Relevancy} \\
+\midrule
+THRD-2021-163881     & $0.38$\% & $0.67$\% & $0.01$\% \\
+TOSL-2024-125319-MIN & $1.20$\% & $1.18$\% & $1.71$\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The dataset-level breakdown reveals a consistent asymmetry: the custom agent's advantage
+is substantially larger on TOSL-2024 than on THRD-2021 across all three quality
+dimensions. On THRD-2021, the mean correctness gain is $+4.96$ percentage points; on
+TOSL-2024 it more than doubles to $+9.24$ pp. Completeness follows the same pattern
+($+3.27$ vs.\ $+7.60$ pp), while relevancy is effectively neutral on THRD-2021 ($-0.10$
+pp) but shows a clear positive gain on TOSL-2024 ($+7.06$ pp).
+
+This asymmetry is consistent with the architectural hypothesis. TOSL-2024 is the fully
+authentic dataset with a larger and more heterogeneous document set; queries on this case
+require cross-document synthesis that naive RAG is most prone to fail. The factsheet's
+structured representation provides the greatest marginal benefit precisely where
+retrieval-only approaches are most likely to miss facts dispersed across many documents.
+
+The variance table reinforces this interpretation. The variance of the per-model gap is
+uniformly higher on TOSL-2024 than on THRD-2021 across all metrics. This indicates that
+the advantage is less uniform across LLMs on the more complex dataset: some models
+benefit more from the structured context than others, and this interaction is amplified
+when the case is harder. The notable exception is gemini-2.5-pro on TOSL-2024, where the
+baseline already achieves high scores, leaving less headroom for improvement.
+
+
 % -------------------------------------------------------
 \subsection{BERTScore}
 % -------------------------------------------------------
+
+BERTScore quantifies token-level semantic overlap between the generated response and the
+reference using contextualised BERT embeddings. Unlike the LLM-judge metrics, it requires
+no separate inference call and is insensitive to judge-prompt phrasing, making it a useful
+cross-validation signal. Sentence-BERT similarity complements BERTScore by capturing
+global embedding-level proximity rather than token-level overlap. Both metrics are included
+to verify that any quality differences are not an artefact of the LLM judge's own biases.
 
 BERTScore measures surface-level semantic similarity to the reference answer and is
 therefore less sensitive to structured factual completeness than the DeepEval metrics.
@@ -177,6 +279,14 @@ factual coverage.
 % -------------------------------------------------------
 \subsection{Resource Metrics}
 % -------------------------------------------------------
+
+Resource metrics --- inference duration, input tokens, output tokens, and LLM call count
+--- are included to assess whether any quality improvements come at a disproportionate
+computational cost. Input tokens directly drive API cost and context-window pressure;
+inference duration determines user-facing latency; LLM call count indicates how much
+internal orchestration each query requires. These metrics are analysed alongside quality
+scores to determine whether the custom agent's architectural overhead is justified by
+its performance gains.
 
 \begin{figure}[H]
     \centering
@@ -231,7 +341,111 @@ by the context compression mechanisms applied to the custom agent: as the factsh
 significance filtering and display shortening keep the payload from expanding
 proportionally.
 
+\paragraph{Cost analysis.}
+Absolute token counts are not directly comparable across datasets with different document
+volumes and session lengths. The total cost for TOSL-2024 is substantially higher than for THRD-2021, making direct comparison of absolute costs misleading. 
+To enable model-level cost comparisons, each run's estimated cost (input tokens $\times$ price-per-token $+$ output tokens $\times$ price-per-token)
+is normalised to a percentile rank within its dataset:
+%
+\begin{equation*}
+  \texttt{rank\_cost} = \text{rank}_{\text{pct}}\!\left(\text{total\_cost}\right)
+  \quad \text{grouped by dataset}
+\end{equation*}
+%
+A rank of 1.0 means the most expensive configuration within that dataset; 0.0 means the
+cheapest. This makes cost comparable across datasets of different scales without requiring
+absolute price estimates for every provider.
+
+Figures~\ref{fig:cost-vs-correctness}--\ref{fig:cost-vs-completeness} plot cost rank
+against each quality metric for individual queries.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/cost_vs_correctness.png}
+    \caption{Estimated relative cost rank vs.\ correctness score per query. The custom
+             agent (orange) occupies the upper-left region for several models, achieving
+             higher correctness at lower or equal relative cost.}
+    \label{fig:cost-vs-correctness}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/cost_vs_relevancy.png}
+    \caption{Estimated relative cost rank vs relevancy score per query. Relevancy is
+             less sensitive to architecture than correctness: both configurations cluster
+             near the top of the relevancy scale regardless of cost, reflecting that
+             on-topic responses are easy to achieve once retrieval succeeds.}
+    \label{fig:cost-vs-relevancy}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/cost_vs_completeness.png}
+    \caption{Estimated relative cost rank vs.\ completeness score per query. The custom
+             agent dominates the upper portion of the completeness axis at comparable
+             or lower cost, mirroring the correctness pattern.}
+    \label{fig:cost-vs-completeness}
+\end{figure}
+
+The correctness and completeness scatter plots reveal a consistent pattern: the custom
+agent (orange) occupies the upper portion of both axes at comparable or lower relative
+cost for most models. The most striking case is \texttt{gemini-2.5-flash}, where the
+custom configuration achieves a cost rank of 0.125 (cheapest in the set) while delivering
+a correctness score of 0.860, versus the baseline's rank of 0.250 and score of 0.691.
+Relevancy, by contrast, is less discriminative: both configurations cluster near 1.0
+regardless of cost, consistent with the earlier finding that on-topic responses are
+easy to achieve once retrieval succeeds at all.
+
+Table~\ref{tab:cost-quality} summarises mean cost rank and quality scores per model and
+agent configuration.
+
+\begin{table}[htbp]
+\centering
+\caption{Mean relative cost rank and quality scores per model and agent configuration.
+         Cost rank is a within-dataset percentile ($0 =$ cheapest, $1 =$ most expensive).}
+\label{tab:cost-quality}
+\begin{tabular}{llrrrr}
+\toprule
+\textbf{Model} & \textbf{Agent} & \textbf{Cost rank} & \textbf{Correctness} & \textbf{Relevancy} & \textbf{Completeness} \\
+\midrule
+GLM-5             & baseline\_rag & 0.875 & 0.930 & 0.996 & 0.936 \\
+GLM-5             & custom        & 1.000 & 0.942 & 1.000 & 0.951 \\
+Qwen3.5-397B      & baseline\_rag & 0.438 & 0.827 & 0.865 & 0.818 \\
+Qwen3.5-397B      & custom        & 0.438 & 0.935 & 1.000 & 0.936 \\
+gemini-2.5-flash  & baseline\_rag & 0.250 & 0.691 & 0.981 & 0.781 \\
+gemini-2.5-flash  & custom        & 0.125 & 0.860 & 0.980 & 0.882 \\
+gemini-2.5-pro    & baseline\_rag & 0.688 & 0.902 & 0.999 & 0.929 \\
+gemini-2.5-pro    & custom        & 0.688 & 0.898 & 1.000 & 0.913 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The table highlights the practical trade-off. For three of the four models tested,
+the custom agent achieves equal or lower cost rank while delivering meaningfully higher
+correctness and completeness. \texttt{gemini-2.5-pro} is the exception: both
+configurations share the same cost rank and their quality scores are within one
+percentage point, confirming that the most capable model compensates for the absence
+of structured context through its own reasoning. The structured factsheet therefore
+functions most effectively as a cost-efficient capability amplifier for mid-tier models.
+
+\paragraph{Actual vs. Advertised Cost.}
+A further nuance emerges when examining the relationship between advertised input token price and the actual, usage-weighted input cost. The advertised price per token does not fully predict the total cost of a query, because more capable models may use tools more efficiently, requiring fewer tokens overall to arrive at an answer. Figure~\ref{fig:actual-input-cost} illustrates this by plotting the ranked actual input cost against the advertised price.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/actual_input_cost.png}
+    \caption{Actual input cost (ranked) vs. advertised input price per token. The relationship is non-linear, indicating that more capable models can be more token-efficient.}
+    \label{fig:actual-input-cost}
+\end{figure}
+
+The relationship is notably non-linear. The open-source models, despite having competitive advertised prices, tend to incur a higher relative \texttt{actual\_input\_cost\_rank}. 
+Conversely, the closed-source models demonstrate greater token efficiency. \texttt{gemini-2.5-pro}, for instance, shows a significant drop in actual cost rank compared to its position on the price axis, 
+performing on par with models that are nominally cheaper per token. \texttt{gemini-2.5-flash} also performs well on this metric, delivering a low actual cost. 
+This finding, while secondary to the main research questions, is a valuable insight for practical deployment: the true cost of operating a model is a function of both its price 
+and its underlying capability to reason efficiently and use tools judiciously. The custom agent architecture does not significantly alter this dynamic, as its primary contribution is to the quality and consistency of the context, 
+not the model's intrinsic reasoning efficiency.
 % -------------------------------------------------------
+
 \section{Statistical Modeling}
 % -------------------------------------------------------
 
@@ -255,9 +469,9 @@ Completeness does not reach significance, though the directional trend is the sa
 \hline
 \textbf{Metric} & \textbf{U-statistic} & \textbf{p-value} & \textbf{Result} \\
 \hline
-Correctness  & 105{,}587.00 & $8.49 \times 10^{-3}$ & Significant ($p < 0.05$) \\
-Relevancy    & 101{,}782.50 & $3.42 \times 10^{-4}$ & Significant ($p < 0.05$) \\
-Completeness &  38{,}820.00 & $8.34 \times 10^{-2}$ & Not significant \\
+Correctness  & 74{,}780.50 & $1.03 \times 10^{-2}$ & Significant ($p < 0.05$) \\
+Relevancy    & 72{,}733.00 & $5.54 \times 10^{-5}$ & Significant ($p < 0.05$) \\
+Completeness & 27{,}278.50 & $1.06 \times 10^{-1}$ & Not significant \\
 \hline
 \end{tabular}
 \end{table}
@@ -269,7 +483,7 @@ difference is primarily driven by cases where the baseline fails to retrieve any
 documents and consequently produces no substantive answer, incurring a near-zero
 relevancy score. \textbf{Correctness is the most diagnostic quality metric}: it is
 hardest to satisfy and most sensitive to the architectural differences under evaluation,
-and the significant result ($p = 8.49 \times 10^{-3}$) carries the most interpretive
+and the significant result ($p = 1.03 \times 10^{-2}$) carries the most interpretive
 weight.
 
 The absence of a significant completeness result likely reflects the smaller number of
@@ -277,12 +491,12 @@ completeness observations in the dataset and the inherent difficulty of distingu
 partial from complete answers when both agents frequently cover the required facts.
 
 \paragraph{Resource metrics.}
-Neither input token usage ($U = 99{,}750$, $p = 0.730$) nor inference duration
-($U = 93{,}705$, $p = 0.163$) differs significantly between configurations. Mean input
-token counts are almost identical (custom: 72{,}286 $\pm$ 77{,}114; baseline:
-71{,}968 $\pm$ 75{,}645) and mean durations are within one second of each other
-(custom: 35.1 s; baseline: 36.1 s). The custom agent achieves its quality improvements
-without imposing a measurable additional cost in tokens or latency.
+Neither input token usage ($U = 71{,}961$, $p = 0.859$) nor inference duration
+($U = 69{,}100$, $p = 0.538$) differs significantly between configurations. Mean input
+token counts are comparable (custom: 79{,}319 $\pm$ 82{,}405; baseline:
+75{,}395 $\pm$ 78{,}670) and mean durations are within one second of each other
+(custom: 39.8 s $\pm$ 27.2 s; baseline: 39.6 s $\pm$ 28.9 s). The custom agent achieves
+its quality improvements without imposing a measurable additional cost in tokens or latency.
 
 % -------------------------------------------------------
 \subsection{Levene's Test for Equality of Variance}
@@ -296,31 +510,41 @@ normality. The results are presented in Table~\ref{tab:levene}.
 
 \begin{table}[H]
 \centering
-\caption{Levene's test results for equality of variance across quality metrics
-         (custom vs.\ baseline+RAG). A significant result indicates the custom agent
-         has lower variance.}
+\caption{Levene's test results for equality of variance (custom vs.\ baseline+RAG).
+         A significant result ($p < 0.05$) indicates the two configurations differ in
+         score variability.}
 \label{tab:levene}
 \begin{tabular}{lrrl}
 \hline
 \textbf{Metric} & \textbf{Levene statistic} & \textbf{p-value} & \textbf{Result} \\
 \hline
-Correctness         & 18.29 & $< 0.001$ & Significant \\
-Relevancy           & 11.00 & $0.0009$  & Significant \\
-Completeness        &  9.14 & $0.0026$  & Significant \\
-BERTScore F1        &  8.00 & $0.0048$  & Significant \\
-Sentence-BERT sim.  & 14.69 & $< 0.001$ & Significant \\
+Correctness         & 18.38 & $< 0.001$ & Significant \\
+Relevancy           & 11.56 & $0.0007$  & Significant \\
+Completeness        &  7.76 & $0.0056$  & Significant \\
+BERTScore F1        &  7.41 & $0.0066$  & Significant \\
+Sentence-BERT sim.  & 16.13 & $< 0.001$ & Significant \\
+\hline
+Duration (s)        &  0.25 & $0.620$   & Not significant \\
+Input tokens        &  0.02 & $0.885$   & Not significant \\
+Self-consistency    &  0.06 & $0.810$   & Not significant \\
 \hline
 \end{tabular}
 \end{table}
 
-The test returns a significant result for every metric, including the complementary
-metrics (BERTScore and sentence-BERT similarity) where the mean difference between
-configurations is small. This means the custom agent is not only more accurate on
-average --- it is \emph{more consistent}. The baseline agent's score distribution is
-significantly wider across all five metrics, with a heavier low-scoring tail that
-represents cases of partial or failed retrieval. The custom agent's reduced variance
-implies more predictable, reliable responses: fewer failures at the low end, and less
-dependence on whether retrieval happens to return the right chunks for a given query.
+The test returns a significant result for all five quality metrics, including the
+complementary BERTScore and sentence-BERT similarity where the mean difference is small.
+This means the custom agent is not only more accurate on average --- it is
+\emph{more consistent}. The baseline's distribution is significantly wider across all
+quality dimensions, with a heavier low-scoring tail representing cases of partial or
+failed retrieval. The custom agent's reduced variance implies more predictable, reliable
+responses: fewer failures at the low end and less dependence on whether retrieval happens
+to surface the right chunks for a given query.
+
+By contrast, variance in inference duration, input token counts, and self-consistency
+scores does not differ significantly between configurations. The resource overhead of the
+two agents is therefore comparable not only in expectation but also in spread, and
+self-consistency variability is similarly matched. The reliability advantage of the
+custom agent is specific to output quality, not a general property of all metrics.
 
 In a legal setting, this reliability dimension may be as practically significant as the
 mean improvement. A system that occasionally fails unpredictably is harder to trust and
@@ -330,6 +554,15 @@ supervise than one that performs steadily, even if its average score is similar.
 \subsection{Self-consistency}
 % -------------------------------------------------------
 
+Self-consistency measures how semantically similar the agent's responses are when the
+same query is posed in different sessions. It is computed as the mean pairwise cosine
+similarity of the output embeddings produced for the same query across repeated runs.
+A high self-consistency score indicates that the agent produces reliable, reproducible
+answers regardless of session state; a low score suggests sensitivity to context noise
+or retrieval variance. This metric is included to capture a dimension of reliability
+that per-query quality scores cannot --- the degree to which the agent converges on the
+same answer given the same question.
+
 \begin{figure}[H]
     \centering
     \includegraphics[width=\textwidth]{figures/self_consistency_violin.png}
@@ -338,11 +571,15 @@ supervise than one that performs steadily, even if its average score is similar.
     \label{fig:self-consistency-violin}
 \end{figure}
 
-Self-consistency scores reinforce the pattern seen in the DeepEval metrics. The custom
-agent exhibits a higher median and a narrower interquartile range than the baseline,
-indicating more consistent responses across repeated queries. The baseline shows a wider
-spread, with more low-scoring outliers, suggesting greater variability in how it handles
-similar questions across sessions.
+Self-consistency scores reinforce the pattern seen in the DeepEval metrics visually:
+the custom agent exhibits a higher median and a narrower interquartile range than the
+baseline, suggesting more reproducible responses across sessions. However, a one-sided
+Mann-Whitney U test does not confirm a statistically significant advantage
+($U = 7{,}039$, $p = 0.875$). Similarly, Levene's test finds no significant difference
+in self-consistency variance between the two configurations (statistic $= 0.06$,
+$p = 0.810$). The descriptive pattern is therefore directionally consistent with the
+quality findings but does not reach significance, likely due to the smaller number of
+observations available at the session-group level.
 
 % -------------------------------------------------------
 \section{Summary by Research Question}
@@ -360,7 +597,7 @@ Table~\ref{tab:rq-summary} summarises the empirical evidence for each research q
 \textbf{RQ} & \textbf{Finding} & \textbf{Evidence} \\
 \hline
 Main & Custom agent improves factual accuracy without significant cost increase &
-  Correctness significant ($p{=}8.5{\times}10^{-3}$); token usage and latency
+  Correctness significant ($p{=}1.03{\times}10^{-2}$); token usage and latency
   statistically equivalent \\[6pt]
 RQ1 & Evidence is directionally consistent but inconclusive; a larger gap on the more
   complex dataset is suggestive but rests on few sessions and does not hold uniformly &

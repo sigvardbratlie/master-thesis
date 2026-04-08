@@ -100,72 +100,33 @@ This thesis makes three contributions:
 
 \section{Limitations and Future Work}
 
-The evaluation rests on two datasets, which limits the generalisability of the findings.
-A larger benchmark spanning more cases and document volumes would provide stronger
-evidence for the scaling behaviour observed here, and would better distinguish the
-effect of document volume from other case-specific characteristics.
+The evaluation in this thesis has several limitations that point toward avenues for future research.
 
-The evaluation queries were deliberately restricted to factual, document-grounded
-questions to enable objective grading. This scope is appropriate for establishing a
-controlled baseline but does not cover the full range of legal reasoning tasks --- in
-particular, normative and predictive questions where the benefit of structured extraction
-may differ. Extending the evaluation to cover multi-step legal reasoning, conflicting
-evidence reconciliation, and temporal argument construction is a natural next step.
+\paragraph{Dataset and Generalisability.}
+The evaluation rests on two datasets, which limits the generalisability of the findings. A larger benchmark spanning more cases and document volumes would provide stronger evidence for the scaling behaviour observed here, and would better distinguish the effect of document volume from other case-specific characteristics. A potential weakness is that the datasets were developed in conjunction with this thesis, which introduces a risk that their design was implicitly influenced by the research questions, potentially limiting their independence as a neutral benchmark.
 
-The structured representation in this thesis uses a fixed entity schema (parties, events,
-claims, damages, deadlines). For cases with different legal structures, such as regulatory
-compliance matters or transactional disputes, the schema may require adaptation. An
-interesting direction is schema induction: learning the relevant entity types from the
-case documents themselves rather than relying on a predefined legal ontology.
+A more fundamental limitation, however, is the scarcity of publicly available, high-quality datasets suitable for benchmarking legal agents in realistic, long-duration scenarios. The datasets used, while adequate for the research questions posed, represent a simplified proxy for the complexity of a genuine legal case that unfolds over months or years. The evaluation was necessarily limited to a sequence of sessions within a static, pre-existing document corpus. A crucial direction for future work is therefore the development of high-quality, publicly available datasets designed specifically for full-scale, real-world scenario testing. Such benchmarks are essential for the field to move beyond simple, short-form question-answering formats and begin to test agent capabilities in a manner that mirrors actual legal practice. These datasets should be designed to test agents across time, presenting new information and evolving case dynamics in a structured way that challenges an agent's ability to maintain a coherent, long-term understanding of a case. Creating such a benchmark is a substantial research project in its own right, arguably the subject of a separate thesis. It would require careful curation of case materials, the design of a longitudinal evaluation protocol, and the definition of tasks that probe for deep synthesis and long-range reasoning rather than simple fact retrieval.
 
-The RQ3 result points toward a practically relevant optimization problem: given a target
-quality level and a budget constraint, what is the optimal combination of model size and
-extraction investment? The evidence suggests this trade-off exists and is exploitable,
-but characterising it precisely requires a more systematic sweep over model and
-architecture configurations than was feasible within the scope of this thesis.
+\paragraph{Scope of Legal Reasoning.}
+The evaluation queries were deliberately restricted to factual, document-grounded questions to enable objective grading. This scope is appropriate for establishing a controlled baseline but does not cover the full range of legal reasoning tasks --- in particular, normative and predictive questions where the benefit of structured extraction may differ. Extending the evaluation to cover multi-step legal reasoning, conflicting evidence reconciliation, and temporal argument construction is a natural next step.
 
-\paragraph{Reliability as a first-class research question.}
-The variance reduction observed across all five metrics is a post-hoc finding and was
-not designed into the evaluation. A natural follow-up study would treat reliability as
-a first-class research question: formally hypothesising that structured extraction
-reduces output variance, designing the evaluation around variance-sensitive query sets
-(particularly retrieval-failure-prone queries), and testing across a broader range of
-cases and document volumes. Given the practical significance of predictability in legal
-settings, this direction warrants dedicated investigation.
+\paragraph{Schema Flexibility.}
+The structured representation in this thesis uses a fixed entity schema (parties, events, claims, damages, deadlines). For cases with different legal structures, such as regulatory compliance matters or transactional disputes, the schema may require adaptation. An interesting direction is schema induction: learning the relevant entity types from the case documents themselves rather than relying on a predefined legal ontology.
 
-\paragraph{Advanced retrieval over structured elements.}
-The current implementation queries the factsheet through simple SQL lookups filtered by
-date range and significance level. The richness of the extracted representation --- typed
-entities with source references, timestamps, significance scores, and relational links ---
-supports substantially more sophisticated retrieval strategies. Graph traversal across
-entity relationships, cross-referencing events with the documents that substantiate them,
-and ranking elements by their relevance to a specific query rather than by static
-significance are all unexplored. The factsheet as implemented is a data foundation whose
-retrieval layer has not been fully exploited.
+\paragraph{Cost-Quality Optimisation.}
+The RQ3 result points toward a practically relevant optimization problem: given a target quality level and a budget constraint, what is the optimal combination of model size and extraction investment? The evidence suggests this trade-off exists and is exploitable, but characterising it precisely requires a more systematic sweep over model and architecture configurations than was feasible within the scope of this thesis.
 
-\paragraph{Agentic reasoning and task queuing.}
-The current agent executes a single reasoning pass per query. Adding a task queue that
-allows the agent to decompose complex queries into ordered sub-tasks --- each potentially
-using a specialised node, toolset, and system prompt --- would support multi-step legal
-reasoning that the current flat architecture cannot perform. This is analogous to
-chain-of-thought planning at the agent level: rather than producing an answer in one
-shot, the agent could plan, retrieve, verify, and synthesise across multiple coordinated
-steps.
+\paragraph{Reliability as a First-Class Research Question.}
+The variance reduction observed across all five metrics is a post-hoc finding and was not designed into the evaluation. A natural follow-up study would treat reliability as a first-class research question: formally hypothesising that structured extraction reduces output variance, designing the evaluation around variance-sensitive query sets (particularly retrieval-failure-prone queries), and testing across a broader range of cases and document volumes. Given the practical significance of predictability in legal settings, this direction warrants dedicated investigation.
 
-\paragraph{Background and asynchronous tooling.}
-The pipeline already runs offline, but the agent itself is purely reactive: it only acts
-when a query arrives. A natural extension is a set of background tools that run during
-idle periods --- monitoring connected document repositories and inboxes for new material,
-triggering incremental factsheet updates on arrival, or proactively flagging newly
-detected deadlines and conflicts to the practitioner. This would move the system from
-reactive assistant to proactive case monitor.
+\paragraph{Advanced Retrieval over Structured Elements.}
+The current implementation queries the factsheet through simple SQL lookups filtered by date range and significance level. The richness of the extracted representation --- typed entities with source references, timestamps, significance scores, and relational links --- supports substantially more sophisticated retrieval strategies. Graph traversal across entity relationships, cross-referencing events with the documents that substantiate them, and ranking elements by their relevance to a specific query rather than by static significance are all unexplored. The factsheet as implemented is a data foundation whose retrieval layer has not been fully exploited.
 
-\paragraph{Graph database and GraphRAG.}
-The relational PostgreSQL schema captures entity types and source links but does not
-natively represent or traverse relationships between entities. Migrating the structured
-representation to a graph database would enable direct traversal of entity relationships
---- for example, following a chain from a claim to the events that substantiate it to
-the documents that evidence those events. Combined with graph-native retrieval, this
-would address the cross-document reasoning limitation more completely than the current
-hybrid approach and bring the system closer to a full domain-specific GraphRAG
-architecture.
+\paragraph{Agentic Reasoning and Task Queuing.}
+The current agent executes a single reasoning pass per query. Adding a task queue that allows the agent to decompose complex queries into ordered sub-tasks --- each potentially using a specialised node, toolset, and system prompt --- would support multi-step legal reasoning that the current flat architecture cannot perform. This is analogous to chain-of-thought planning at the agent level: rather than producing an answer in one shot, the agent could plan, retrieve, verify, and synthesise across multiple coordinated steps.
+
+\paragraph{Background and Asynchronous Tooling.}
+The pipeline already runs offline, but the agent itself is purely reactive: it only acts when a query arrives. A natural extension is a set of background tools that run during idle periods --- monitoring connected document repositories and inboxes for new material, triggering incremental factsheet updates on arrival, or proactively flagging newly detected deadlines and conflicts to the practitioner. This would move the system from reactive assistant to proactive case monitor.
+
+\paragraph{Graph Database and GraphRAG.}
+The relational PostgreSQL schema captures entity types and source links but does not natively represent or traverse relationships between entities. Migrating the structured representation to a graph database would enable direct traversal of entity relationships --- for example, following a chain from a claim to the events that substantiate it to the documents that evidence those events. Combined with graph-native retrieval, this would address the cross-document reasoning limitation more completely than the current hybrid approach and bring the system closer to a full domain-specific GraphRAG architecture.

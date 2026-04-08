@@ -1,4 +1,3 @@
-
 \chapter{Method}
 
 
@@ -290,6 +289,10 @@ The datasets are organized to simulate the chronological lifecycle of a legal pr
 
 By following a chronological order, the sessions require the agent to handle increasing amounts of information and maintain consistency over time, reflecting the professional requirements of a legal practitioner managing an ongoing case.
 
+A significant effort was dedicated to the creation and refinement of these datasets, as no publicly available alternatives met the specific structural requirements of this evaluation. A survey of existing legal and large-scale QA datasets revealed that while many share some characteristics with the present work, none combine all the necessary elements. For instance, datasets like \texttt{Multi-LexSum} \cite{shahmirzadi2025multilexsum} offer large case files and expert summaries but lack the session-based, chronological query structure needed to evaluate temporal reasoning. Others, such as \texttt{CaseGen} \cite{li2025casegen}, provide authentic, multi-section case samples but do not include the large, unstructured document collections typical of real-world litigation. Datasets like \texttt{EnronQA} \cite{fang2023enronqa} contain extensive email corpora but are not situated within a legal context. Finally, established benchmarks like \texttt{LegalBench}, \texttt{LexGLUE}, and others are primarily focused on legal reasoning over statutes or case law rather than fact management in an evolving case file. The evaluation thus necessitated a custom-built dataset format that included not only a large corpus of interconnected documents and emails but also a series of chronologically ordered, session-based queries designed to test contextual awareness over time.
+
+The construction of the queries and their corresponding ground-truth answers was a meticulous process. Queries were designed to be fact-based, verifiable against the source documents, and challenging enough to require cross-document synthesis. Crafting the ground-truth answers presented a further challenge, particularly for queries where a range of correct responses is possible. The goal was to define a minimal, essential answer that captures the core facts, ensuring that the evaluation framework would not penalise models for providing additional, correct information. This required an in-depth manual review of all case documents for each query. After cleaning and removing anomalies, a total of 742 query-answer pairs were collected for the evaluation. Given the resource-intensive nature of this process, the expansion of these datasets and the creation of new ones remain important avenues for future work.
+
 \subsection{Evaluation Limitations and Caveats}
 \label{sec:dataset-limitations}
 
@@ -347,7 +350,23 @@ Two agent configurations are evaluated:
 A plain LLM baseline without document retrieval was considered but excluded from the evaluation for the reasons described in Section~\ref{sec:dataset-limitations}: the volume of case material immediately saturates provider rate limits, making repeated evaluation impossible.
 
 \textbf{Model Configuration:} \\
-Since the scope of the thesis is not to evaluate the models themselves, but rather the design and architecture of the agent, a selection of four models is used for comparison. These include both closed-source and open-source variants to ensure the agent's performance is consistent across different provider architectures.
+Since the scope of the thesis is not to evaluate the models themselves, but rather the design and architecture of the agent, a selection of four models is used for comparison. 
+These include both closed-source and open-source variants to ensure the agent's performance is consistent across different provider architectures.
+
+For open-source models, several were tested. Initial trials with smaller models, such as \texttt{Qwen3-Next-80B-A3B-Instruct} \cite{qwen3.5}, 
+demonstrated that they lacked the capacity to handle the complexity of the reasoning and extraction tasks, failing to produce coherent or useful outputs. 
+Consequently, the evaluation focused on two of the top-performing large-scale open-source models available at the time of writing: \texttt{Qwen 3.5} 
+from Alibaba and \texttt{GLM-5} from Zhipu AI. Both have a similar scale in terms of total parameters (approx. 400B), 
+but differ significantly in their Mixture-of-Experts (MoE) architecture. Qwen activates 17B parameters per forward pass, 
+whereas GLM-5 activates 40B, giving it a theoretical advantage in capacity that is later reflected in the results. 
+Inference for these models was run via the \texttt{together.ai} \cite{togetherai} API, which was chosen for its production-grade scalability, affordable pricing, and seamless compatibility with the existing LangChain and OpenAI SDKs.
+
+For closed-source models, Google's Gemini family was selected. \texttt{Gemini 2.5 Flash} provides a cost-effective and reliable baseline, 
+suitable for extensive testing without incurring prohibitive costs. \texttt{Gemini 2.5 Pro} serves as the high-capability "gold standard" against which 
+other models are measured. While other providers were considered and are supported by the system's architecture, 
+Google's offerings were particularly advantageous for this evaluation due to their generous rate limits (per second, minute, and day) and large context windows. 
+This was a critical practical consideration, as it minimised the risk of hitting API limits during the time-consuming data collection process, 
+which could otherwise halt evaluation runs despite the presence of retry logic.
 
 \begin{table}[h!]
     \centering
@@ -359,7 +378,7 @@ Since the scope of the thesis is not to evaluate the models themselves, but rath
         \hline
         Gemini 2.5 Pro & Closed & Unknown & Unknown & Google \\
         Gemini 2.5 Flash & Closed & Unknown & Unknown & Google \\
-        Qwen 3.5 \cite{yang2025qwen3technicalreport} & Open (MoE) & 397B & 17B & Alibaba  \\
+        Qwen 3.5 \cite{qwen3technicalreport} & Open (MoE) & 397B & 17B & Alibaba  \\
         GLM-5 \cite{glm5team2026glm5vibecodingagentic}  & Open (MoE) & 435.2B & 40B & Zhipu AI \\
         \hline
     \end{tabular}
