@@ -425,7 +425,24 @@ class ProjectPipeline:
             current_email_attachments = data.get("attachments", [])
             if current_email_attachments:
                 logger.info(f"📎 Email '{email.subject}': {len(current_email_attachments)} nested attachment(s) → dispatching as doc batch")
-                query.attachments.extend(current_email_attachments)
+                for att in current_email_attachments:
+                    if att.file_type != "message/rfc822":
+                        query.attachments.append(att)
+                    else:
+                        data = eml.extract_email_data(msg = python_email.message_from_bytes(att.content), 
+                                                      user_id=user_id, 
+                                                      query_id=query.query_id, 
+                                                      session_id=query.session_id, 
+                                                      file_id=att.file_id)
+                        nested_email = data.get("email")
+                        nested_attachments = data.get("attachments", [])
+                        if nested_email:
+                            logger.info(f'📧 Nested email found in attachment of email "{email.subject}": "{nested_email.subject}"')
+                            output_emails.append(nested_email)
+                        if nested_attachments:
+                            logger.info(f"📎 Email '{email.subject}': {len(nested_attachments)} additional nested attachment(s) found in '{nested_email.subject}' → dispatching as doc batch")
+                            query.attachments.extend(nested_attachments)
+
             else:
                 logger.debug(f"📭 Email '{email.subject}': no nested attachments")
 

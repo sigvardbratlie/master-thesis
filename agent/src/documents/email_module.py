@@ -111,14 +111,15 @@ class EmailHandler(BaseHandler):
                 file_type = part.get_content_type()
                 if filename:
                     if file_type in allowed_types:
+                        payload = part.get_payload(decode=True)
                         if file_type == "application/octet-stream":
                             file_type = self._resolve_content_type(part)
-                        
-                        payload = part.get_payload(decode=True)
-                        try:
-                            content = payload.decode(part.get_content_charset() or "utf-8")
-                        except (UnicodeDecodeError, LookupError):
-                            content = base64.b64encode(payload).decode("ascii")
+                            content = payload
+                        else:
+                            try:
+                                content = payload.decode(part.get_content_charset() or "utf-8")
+                            except (UnicodeDecodeError, LookupError):
+                                content = base64.b64encode(payload).decode("ascii")
                         attachments.append({
                             "filename": filename,
                             "file_type": file_type,
