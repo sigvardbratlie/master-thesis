@@ -301,15 +301,16 @@ class EmailExtracted(BaseExtracted):
 
 class Email(EmailExtracted):
     """Email model - Python-friendly names with RFC aliases"""
-    # IDs
-    #email_id: str | None = None
     project_id: str | None = None
     
-    # Core RFC 5322 headers - lowercase Python names
-    from_addr: str = Field(alias="from")  # ✅ Python-friendly
+    from_addr: str = Field(alias="from")
+    from_name: str | None = Field(None)
     to: list[str] = Field(default_factory=list)
+    to_names: list[str] | None = Field(None, description="List of recipient names corresponding to the 'to' email addresses")
     cc: list[str] | None = Field(default_factory=list)
+    cc_names: list[str] | None = Field(None, description="List of recipient names corresponding to the 'cc' email addresses")
     bcc: list[str] | None = Field(default_factory=list)
+    bcc_names : list[str] | None = Field(None, description="List of recipient names corresponding to the 'bcc' email addresses")
     subject: str
     date: datetime
     

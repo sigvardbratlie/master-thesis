@@ -169,7 +169,7 @@ class ProjectPipeline:
 
         doc_tasks = []
 
-        logger.info(f"📎 Preparing analysis tasks for {len(attachments or [])} attachment(s)")
+        logger.info(f"📎 Preparing analysis tasks for {len(attachments or [])} attachment(s) | project_id={state.query.project_id}")
 
         # =========== DOCUMENTS (PDF, WORD, ETC) =============
         for att in attachments or []:
@@ -373,7 +373,7 @@ class ProjectPipeline:
                           for att in query.attachments if att.file_type == "message/rfc822"}
             if raw_emails:
                 collapsed_emails = eml_handler.collapse_threads(raw_emails)
-                logger.info(f'ℹ️ Collapsed {len(raw_emails)} raw email(s) to {len(collapsed_emails)} for analysis')
+                logger.info(f'ℹ️ Collapsed {len(raw_emails)} raw email(s) to {len(collapsed_emails)} for analysis | project_id={query.project_id}')
 
         writer({
             "type": "status",
@@ -407,7 +407,7 @@ class ProjectPipeline:
         eml = EmailHandler()
         emails_to_handle = shortened_emails or {}
         output_emails = []
-        logger.info(f'ℹ️ Processing {len(emails_to_handle)} email(s) for analysis')
+        logger.info(f'ℹ️ Processing {len(emails_to_handle)} email(s) for analysis | project_id={query.project_id}')
         for id_, messages in emails_to_handle.items():
             data = eml.extract_email_data(
                 msg=messages[0],
@@ -924,7 +924,7 @@ class ProjectPipeline:
         return {"input_": project_data}
 
     async def _update_metadata_node(self, state: PipelineState):
-        logger.info("🏷️ Running metadata update node")
+        logger.info(f"🏷️ Running metadata update node | project_id={state.query.project_id}")
         writer = get_stream_writer()
         
         project_data = state.input_

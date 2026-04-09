@@ -40,14 +40,6 @@ class EmailBaseClass(BaseHandler):
         except:
             return text.strip()
 
-    def _parse_address(self, raw: str) -> tuple[str, str]:
-        """Decode MIME-encoded words in an address field, then extract (name, email)."""
-        try:
-            decoded = str(make_header(decode_header(raw.strip())))
-        except Exception:
-            decoded = raw.strip()
-        return parseaddr(decoded)
-
 
 class EmailHandler(EmailBaseClass):
     def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
@@ -146,20 +138,24 @@ class EmailHandler(EmailBaseClass):
         body = self._extract_email_body(msg)
         refs = msg.get("References")
         email_size = len(msg.as_bytes()) if hasattr(msg, 'as_bytes') else len(msg.as_string().encode('utf-8'))
+        parsed_from = parseaddr(msg.get("From", ""))
+        parsed_to = [parseaddr(addr) for addr in msg.get("To", "").split(",")]
+        parsed_cc = [parseaddr(addr) for addr in msg.get("Cc", "").split(",")] if msg.get("Cc") else []
+        parsed_bcc = [parseaddr(addr) for addr in msg.get("Bcc", "").split(",")] if msg.get("Bcc") else []
         email_data = EmailModel(
                 file_id=file_id,
                 path = f'{user_id}/{session_id}/{file_id}.eml',
                 query_id=query_id,
 
                 subject=self.decode_eml_string(msg.get("Subject", "")),
-                from_addr=self._parse_address(msg.get("From", ""))[1],
-                from_name=self._parse_address(msg.get("From", ""))[0] or None,
-                to=[self._parse_address(addr)[1] for addr in msg.get("To", "").split(",")],
-                to_names=[n for addr in msg.get("To", "").split(",") if (n := self._parse_address(addr)[0])] or None,
-                cc=[self._parse_address(addr)[1] for addr in msg.get("Cc", "").split(",")] if msg.get("Cc") else None,
-                cc_names=[n for addr in msg.get("Cc", "").split(",") if (n := self._parse_address(addr)[0])] if msg.get("Cc") else None,
-                bcc=[self._parse_address(addr)[1] for addr in msg.get("Bcc", "").split(",")] if msg.get("Bcc") else None,
-                bcc_names=[n for addr in msg.get("Bcc", "").split(",") if (n := self._parse_address(addr)[0])] if msg.get("Bcc") else None,
+                from_addr=parsed_from[1],
+                from_name=parsed_from[0] or None,
+                to=[addr[1] for addr in parsed_to],
+                to_names=[name for name, _ in parsed_to if name] or None,
+                cc=[addr[1] for addr in parsed_cc] if msg.get("Cc") else None,
+                cc_names=[name for name, _ in parsed_cc if name] if msg.get("Cc") else None,
+                bcc=[addr[1] for addr in parsed_bcc] if msg.get("Bcc") else None,
+                bcc_names=[name for name, _ in parsed_bcc if name] if msg.get("Bcc") else None,
                 date=email.utils.parsedate_to_datetime(msg.get("Date")) if msg.get("Date") else None,
 
                 message_id=msg.get("Message-ID"),
