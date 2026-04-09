@@ -1,13 +1,14 @@
 import pytest
 import sys
 import os
+import email as python_email
 from datetime import datetime
 from unittest.mock import AsyncMock, patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from agent.pipelines import ProjectPipeline
-from models import PipelineState, AskAgentRequest, InitialInput, ProjectData, FactSheet, Party, Attachment, Event
+from models import PipelineState, AskAgentRequest, InitialInput, ProjectData, FactSheet, Party, PartyRep, Attachment, Event
 from tests.fixtures.agent_data import (
     get_mock_ask_agent_request,
     get_mock_ask_agent_request_with_attachments,
@@ -16,6 +17,7 @@ from tests.fixtures.agent_data import (
     get_mock_vector_store_docs,
 )
 from tests.fixtures.context_manager_data import get_mock_factsheet, get_mock_attachments
+from tests.fixtures.email_data import get_mock_eml_plain_text, get_mock_eml_with_text_attachment
 
 
 MOCK_THREAD_CONFIG = {
@@ -34,7 +36,7 @@ def mock_pipeline():
     """Creates a ProjectPipeline with mocked dependencies."""
     with patch('agent.pipelines.ContextManager') as mock_cm, \
          patch('agent.pipelines.DocumentProcessor') as mock_dp, \
-         patch('agent.pipelines.SupabaseStorageManager') as mock_storage, \
+         patch('agent.pipelines.GCSManager') as mock_storage, \
          patch('agent.pipelines.BQVectorStore') as mock_bq, \
          patch('agent.pipelines.SupabaseManager') as mock_db:
 
@@ -482,3 +484,206 @@ async def test_initialize_project_saves_project(mock_pipeline):
     # Pipeline should have collected attachments and events
     assert len(final_state["attachments"]) >= 1
     assert len(final_state["events"]) >= 1
+
+
+# ============================================
+#           SAVE UPDATE NODE
+# ============================================
+
+@pytest.mark.asyncio
+async def test_save_update_node_extracts_party_reps(mock_pipeline):
+    """_save_update_node should split party_reps into a separate table from parties."""
+    query = get_mock_ask_agent_request()
+
+    party_rep = PartyRep(
+        party_rep_id="rep-001",
+        first_name="Erik",
+        last_name="Advokatsen",
+        rep_role="lawyer",
+    )
+    initial_input = InitialInput(
+        title="Test Case",
+        background="Test background",
+        parties=[
+            Party(
+                party_id="party-001",
+                legal_name="Anders Kristiansen",
+                role="plaintiff",
+                entity_type="individual",
+                party_reps=[party_rep],
+            ),
+            Party(
+                party_id="party-002",
+                legal_name="Carl Danielsen",
+                role="defendant",
+                entity_type="individual",
+            ),
+        ],
+    )
+
+    state = PipelineState(
+        query=query,
+        input_=initial_input,
+        attachments=[],
+        events=[],
+        damages=[],
+        claims=[],
+        deadlines=[],
+        emails=[],
+    )
+
+    upsert_replace_calls = []
+    mock_pipeline.conversation_manager.upsert_replace_project_element = MagicMock(
+        side_effect=lambda **kwargs: upsert_replace_calls.append(kwargs)
+    )
+    mock_pipeline.conversation_manager.insert_project_element = MagicMock()
+    mock_pipeline.conversation_manager.upsert_project = MagicMock()
+
+    mock_writer = MagicMock()
+    with patch('agent.pipelines.get_stream_writer', return_value=mock_writer), \
+         patch('agent.pipelines.get_config', return_value=MOCK_THREAD_CONFIG):
+        await mock_pipeline._save_update_node(state)
+
+    table_names = [c["table_name"] for c in upsert_replace_calls]
+    assert "project_parties" in table_names
+    assert "project_party_reps" in table_names
+
+    # parties should be dicts with party_reps excluded
+    parties_call = next(c for c in upsert_replace_calls if c["table_name"] == "project_parties")
+    for party in parties_call["data"]:
+        assert isinstance(party, dict)
+        assert "party_reps" not in party
+
+    # party_reps should have party_id set from parent party
+    reps_call = next(c for c in upsert_replace_calls if c["table_name"] == "project_party_reps")
+    assert len(reps_call["data"]) == 1
+    assert reps_call["data"][0].party_id == "party-001"
+
+
+@pytest.mark.asyncio
+async def test_save_update_node_no_parties(mock_pipeline):
+    """_save_update_node should handle empty parties gracefully."""
+    query = get_mock_ask_agent_request()
+    initial_input = InitialInput(title="Test", background="Test", parties=[])
+
+    state = PipelineState(
+        query=query,
+        input_=initial_input,
+        attachments=[],
+        events=[],
+        damages=[],
+        claims=[],
+        deadlines=[],
+        emails=[],
+    )
+
+    mock_pipeline.conversation_manager.upsert_replace_project_element = MagicMock()
+    mock_pipeline.conversation_manager.insert_project_element = MagicMock()
+    mock_pipeline.conversation_manager.upsert_project = MagicMock()
+
+    mock_writer = MagicMock()
+    with patch('agent.pipelines.get_stream_writer', return_value=mock_writer), \
+         patch('agent.pipelines.get_config', return_value=MOCK_THREAD_CONFIG):
+        await mock_pipeline._save_update_node(state)
+
+    mock_pipeline.conversation_manager.upsert_project.assert_called_once()
+
+
+# ============================================
+#           EXTRACT EMAILS NODE
+# ============================================
+
+def test_extract_emails_node_empty_collapsed(mock_pipeline):
+    """_extract_emails_node returns empty email_models when collapsed_emails is empty."""
+    query = get_mock_ask_agent_request()
+    state = PipelineState(query=query, collapsed_emails={})
+
+    mock_writer = MagicMock()
+    with patch('agent.pipelines.get_stream_writer', return_value=mock_writer), \
+         patch('agent.pipelines.get_config', return_value=MOCK_THREAD_CONFIG):
+        result = mock_pipeline._extract_emails_node(state)
+
+    assert result["email_models"] == []
+
+
+def test_extract_emails_node_single_email(mock_pipeline):
+    """_extract_emails_node extracts one EmailModel from a single collapsed email."""
+    raw_msg = python_email.message_from_bytes(get_mock_eml_plain_text())
+    collapsed = {"uuid-001": (raw_msg, set())}
+
+    query = get_mock_ask_agent_request()
+    state = PipelineState(query=query, collapsed_emails=collapsed)
+
+    mock_writer = MagicMock()
+    with patch('agent.pipelines.get_stream_writer', return_value=mock_writer), \
+         patch('agent.pipelines.get_config', return_value=MOCK_THREAD_CONFIG):
+        result = mock_pipeline._extract_emails_node(state)
+
+    assert len(result["email_models"]) == 1
+    email_model = result["email_models"][0]
+    assert email_model.subject == "Re: Eiendomssak Fjellveien 42A"
+    assert email_model.reference_paths is None
+
+
+def test_extract_emails_node_sets_reference_paths(mock_pipeline):
+    """_extract_emails_node sets reference_paths from child UUIDs in the thread."""
+    raw_msg = python_email.message_from_bytes(get_mock_eml_plain_text())
+    child_uuids = {"uuid-child-001", "uuid-child-002"}
+    collapsed = {"uuid-root": (raw_msg, child_uuids)}
+
+    query = get_mock_ask_agent_request()
+    state = PipelineState(query=query, collapsed_emails=collapsed)
+
+    mock_writer = MagicMock()
+    with patch('agent.pipelines.get_stream_writer', return_value=mock_writer), \
+         patch('agent.pipelines.get_config', return_value=MOCK_THREAD_CONFIG):
+        result = mock_pipeline._extract_emails_node(state)
+
+    email_model = result["email_models"][0]
+    assert email_model.reference_paths is not None
+    assert len(email_model.reference_paths) == 2
+    user_id = MOCK_THREAD_CONFIG["configurable"]["user_id"]
+    session_id = query.session_id
+    for path in email_model.reference_paths:
+        assert path.startswith(f"{user_id}/{session_id}/")
+        assert path.endswith(".eml")
+
+
+def test_extract_emails_node_appends_nested_attachments(mock_pipeline):
+    """_extract_emails_node appends nested email attachments to query.attachments."""
+    raw_msg = python_email.message_from_bytes(get_mock_eml_with_text_attachment())
+    collapsed = {"uuid-001": (raw_msg, set())}
+
+    query = get_mock_ask_agent_request()
+    initial_count = len(query.attachments or [])
+    state = PipelineState(query=query, collapsed_emails=collapsed)
+
+    mock_writer = MagicMock()
+    with patch('agent.pipelines.get_stream_writer', return_value=mock_writer), \
+         patch('agent.pipelines.get_config', return_value=MOCK_THREAD_CONFIG):
+        result = mock_pipeline._extract_emails_node(state)
+
+    updated_query = result["query"]
+    assert len(updated_query.attachments) > initial_count
+
+
+def test_extract_emails_node_skips_missing_email(mock_pipeline):
+    """_extract_emails_node skips entries where extract_email_data returns no email."""
+    raw_msg = python_email.message_from_bytes(get_mock_eml_plain_text())
+    collapsed = {"uuid-001": (raw_msg, set())}
+
+    query = get_mock_ask_agent_request()
+    state = PipelineState(query=query, collapsed_emails=collapsed)
+
+    mock_writer = MagicMock()
+    with patch('agent.pipelines.get_stream_writer', return_value=mock_writer), \
+         patch('agent.pipelines.get_config', return_value=MOCK_THREAD_CONFIG), \
+         patch('agent.pipelines.EmailHandler') as mock_handler_cls:
+        mock_handler = MagicMock()
+        mock_handler_cls.return_value = mock_handler
+        mock_handler.extract_email_data.return_value = {"email": None, "attachments": []}
+        result = mock_pipeline._extract_emails_node(state)
+
+    assert result["email_models"] == []
+
+

@@ -9,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # ===== CONTEXT MANAGER MODELS
-PartyRole = Literal[
+party_roles = [
     # Sivile hovedparter
     "plaintiff",
     "defendant",
@@ -55,10 +55,13 @@ PartyRole = Literal[
 
     "other"
 ]
+PartyRole = Literal[*party_roles]
 
-entity_types = Literal["individual", "company", "government"]
+entity_types = ["individual", "company", "government"]
+EntityType= Literal[*entity_types]
 
-significance_levels = Literal["high", "medium", "low"]
+significance_levels = ["high", "medium", "low"]
+SignificanceLevel = Literal[*significance_levels]
 
 def shorten_element(elements : list,  
                     element_name : Literal["attachments", "emails","events", "parties", "claims", "damages", "deadlines"] , 
@@ -126,7 +129,7 @@ class Claim(BaseModel):
     file_id: str | None = None  # For claims from attachments
     email_id: str | None = None  # For claims from emails
     party_role : PartyRole = Field(description="Party role associated with this claim, e.g., plaintiff, defendant, etc.")
-    significance : significance_levels = Field(default="medium", description="Significance of the claim to the case")
+    significance : SignificanceLevel = Field(default="medium", description="Significance of the claim to the case")
 
 class Claims(BaseModel):
     claims: list[Claim] = Field(description="Legal claims made by the parties, including legal and factual basis, relief sought, and strength assessment")
@@ -142,7 +145,7 @@ class Damage(BaseModel):
     file_id: str | None = None  # For damages from attachments
     email_id: str | None = None  # For damages from emails
     party_role: PartyRole = Field(description="Party role associated with this damage claim, e.g., plaintiff, defendant, etc.")
-    significance : significance_levels = Field(default="medium", description="Significance of the damage claim to the case")
+    significance : SignificanceLevel = Field(default="medium", description="Significance of the damage claim to the case")
     
 class Damages(BaseModel):
     damages: list[Damage] = Field(description="Information about damages claimed or incurred in the case, including type, amount if mentioned, evidentiary basis, and associated party roles")
@@ -179,17 +182,23 @@ class Deadline(BaseModel):
     file_id: str | None = Field(None, description="Related attachment reference")
     email_id: str | None = None 
     party_role : PartyRole | None = None
-    significance : significance_levels = Field(default="medium", description="Significance of the deadline to the case")
+    significance : SignificanceLevel = Field(default="medium", description="Significance of the deadline to the case")
 
 class Deadlines(BaseModel):
     deadlines: list[Deadline] = Field(description="Important deadlines mentioned in the case, e.g., contract milestones, court dates, statute of limitations, etc.")
 
 # ====== BASIC FIELDS =====
-class Contact(BaseModel):
-    name: str = Field(description="Full name of contact person")
-    title: str | None = None
-    phone: str | None = None
+
+class PartyRep(BaseModel):
+    party_rep_id: str | None = None
+    first_name: str
+    last_name: str
+    party_id : str | None = None
+    rep_role : str | None = Field(None, description="Role of the representative, e.g., 'lawyer', 'project manager', etc.")
+    project_id: str | None = None
+    phone : str | None = None
     email: str | None = None
+    significance : SignificanceLevel = Field(default="medium", description="Significance of the representative to the case")
 
 class Party(BaseModel):
     legal_name: str
@@ -197,10 +206,10 @@ class Party(BaseModel):
     role: PartyRole = Field(
         default="other",
         description="Functional role of the party. Use 'legal_rep_*' roles ONLY for qualified legal counsel (lawyers/attorneys). For professional service providers (architects, consultants, engineers, etc.) use 'contractor' or 'party_representative'. Assign based on the party's actual function, not assumed litigation framing.")
-    entity_type: entity_types
-    key_contact: Contact | None = Field(None, description="Primary contact person for this party")
+    entity_type: EntityType
+    party_reps : list[PartyRep] | None = Field(None, description="List of representatives for this party")
     role_description: str | None = Field(None, description="Additional details about the party's role or involvement in the case")
-    significance : significance_levels = Field(default="medium", description="Significance of the party to the case")
+    significance : SignificanceLevel = Field(default="medium", description="Significance of the party to the case")
 
 
 class Parties(BaseModel):
@@ -221,7 +230,7 @@ class Event(BaseModel):
     description: str
     category: str = Field(description="Categorization of the event, e.g., 'court_filing', 'evidence_submission', 'contract_signing', 'communication', etc.")
     parties: list[str] | None = Field(None, description="Roles of parties involved in the event")
-    significance: significance_levels = Field(default="medium", description="Significance of the event to the case")
+    significance: SignificanceLevel = Field(default="medium", description="Significance of the event to the case")
     disputed: bool
 
 class Events(BaseModel):
@@ -243,7 +252,7 @@ class BaseExtracted(BaseModel):
     """Common extraction fields for all document types and emails"""
     title : str = Field(description="Concise title of the content (MAX 10 words)")
     description: str = Field(description="Concise summary of the content")
-    significance: significance_levels = Field(default="medium", description="Importance level")
+    significance: SignificanceLevel = Field(default="medium", description="Importance level")
     party_roles: list[str] | None = Field(None, description="Party roles mentioned")
     deadlines: list[Deadline] | None = Field(None, description="Relevant deadlines if any")
     damages: list[Damage] | None = Field(None, description="Damage information if applicable")
@@ -346,22 +355,13 @@ class FactSheet(InitialInput,
                                element_name="events", 
                                format_keys=shorten_keys, 
                                significance=significance)
-        # return self.shorten_element(  
-        #                        element_name="events", 
-        #                        format_keys=shorten_keys, 
-        #                        significance=significance)
         
-
     def shorten_parties(self, significance: list[Literal["high", "medium", "low"]] = None) -> str:
         shorten_keys = ["legal_name", "entity_type", "role", "role_description"]
         return shorten_element(self.parties, 
                                 element_name="parties", 
                                 format_keys=shorten_keys, 
                                 significance=significance)
-        # return self.shorten_element(
-        #                         element_name="parties", 
-        #                         format_keys=shorten_keys, 
-        #                         significance=significance)
         
 
     def shorten_claims(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
@@ -369,9 +369,7 @@ class FactSheet(InitialInput,
         return shorten_element(self.claims, 
                                 element_name="claims", 
                                format_keys=shorten_keys, significance=significance)
-        # return self.shorten_element( 
-        #                         element_name="claims", 
-        #                        format_keys=shorten_keys, significance=significance)
+
         
 
     def shorten_damages(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
@@ -380,10 +378,7 @@ class FactSheet(InitialInput,
                                 element_name="damages", 
                                 format_keys=shorten_keys, 
                                 significance=significance)
-        # return self.shorten_element(
-        #                         element_name="damages", 
-        #                         format_keys=shorten_keys, 
-        #                         significance=significance)
+
 
     def shorten_deadlines(self, significance : list[Literal["high", "medium", "low"]] = None) -> str:
         shorten_keys = ["deadline_date", "description","file_id", "email_id"]
@@ -391,10 +386,7 @@ class FactSheet(InitialInput,
                                 element_name="deadlines", 
                                 format_keys=shorten_keys, 
                                 significance=significance)
-        # return self.shorten_element(
-        #                         element_name="deadlines", 
-        #                         format_keys=shorten_keys, 
-        #                         significance=significance)
+
     
     def shorten_factsheet(self, 
                           excluded_fields: list[Literal["events", "parties", "claims", "damages", "deadlines", "background"]] = None,

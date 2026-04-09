@@ -187,7 +187,7 @@ class SupabaseManager:
                 "claims" : "get_claims_with_dates",
                 "damages" : "get_damages_with_dates",
                 "deadlines": "get_deadlines",
-                "parties" : "get_parties", 
+                "parties" : "get_parties_with_reps", 
                 }
         result = {}
         
@@ -242,7 +242,8 @@ class SupabaseManager:
         deadlines = factsheet_dict.pop("deadlines", [])
         events = factsheet_dict.pop("events", [])
         parties = factsheet_dict.pop("parties", [])
-        
+        party_reps = []
+
         now = datetime.now().isoformat()
         factsheet_dict["project_id"] = project_id
         factsheet_dict["user_id"] = user_id
@@ -285,14 +286,34 @@ class SupabaseManager:
 
         if parties:
             # ========== PROJECT PARTIES ==========
-            try:
-                parties_with_project = [
-                        {**party, "project_id": project_id, "created_by": llm_model, "updated_by": llm_model, "updated_at": now}
-                        for party in parties]
-                self.supabase.table("project_parties").upsert(parties_with_project).execute()
+            for party in parties:
+                party["project_id"] = project_id
+                party["created_by"] = llm_model
+                party["updated_by"] = llm_model
+                party["updated_at"] = now
+                reps = party.pop("party_reps", None)
+                for rep in (reps or []):
+                    rep_dict = rep.model_dump(mode='json') if hasattr(rep, 'model_dump') else rep
+                    if not rep_dict.get("party_rep_id"):
+                        rep_dict["party_rep_id"] = str(uuid.uuid4())
+                    rep_dict["project_id"] = project_id
+                    rep_dict["created_by"] = llm_model
+                    rep_dict["updated_by"] = llm_model
+                    rep_dict["updated_at"] = now
+                    party_reps.append(rep_dict)
+            
+            try: 
+                self.supabase.table("project_parties").upsert(parties).execute()
                 logger.debug(f'Upserted {len(parties)} parties for project {project_id} in Supabase.')
             except Exception as e:
                 logger.exception(f'Error upserting parties for project {project_id} in Supabase: {e}')
+
+            if party_reps:
+                try:
+                    self.supabase.table("project_party_reps").upsert(party_reps).execute()
+                    logger.debug(f'Upserted {len(party_reps)} party representatives for project {project_id} in Supabase.')
+                except Exception as e:
+                    logger.exception(f'Error upserting party representatives for project {project_id} in Supabase: {e}')
 
         if events:
             # ========== PROJECT EVENTS ==========
@@ -343,7 +364,7 @@ class SupabaseManager:
     @_with_reconnect
     def insert_project_element(self,data : list[dict],
                     project_id : str,
-                    table_name: str,
+                    table_name: Literal[*_TABLE_ID_FIELDS],
                     llm_model: str = ""):
         if not data:
             logger.warning(f"No data provided to insert for project {project_id} in table {table_name}. Skipping insert.")
@@ -370,7 +391,7 @@ class SupabaseManager:
     def replace_project_element(self,
                     data : list[BaseModel],
                     project_id : str,
-                    table_name: str,
+                    table_name: Literal["project_parties", "project_events", "project_claims", "project_damages", "project_deadlines"],
                     llm_model: str = ""):
         if not data:
             logger.warning(f"No data provided to replace for project {project_id} in table {table_name}. Skipping replace.")
@@ -431,6 +452,9 @@ class SupabaseManager:
             if not isinstance(item_dict, dict):
                 raise ValueError("Each item in data must be a BaseModel or a dict.")
             item_id = item_dict.get(id_field) if id_field else None
+            if id_field and not item_id:
+                item_id = str(uuid.uuid4())
+                item_dict[id_field] = item_id
             existing_entry = existing_map.get(item_id) if item_id else None
             item_dict["project_id"] = project_id
             item_dict["updated_by"] = llm_model

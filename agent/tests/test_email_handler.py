@@ -12,11 +12,16 @@ from tests.fixtures.email_data import (
     get_mock_eml_multipart,
     get_mock_eml_with_text_attachment,
     get_mock_eml_metadata,
+    get_mock_eml_outlook_thread,
+    get_mock_eml_gmail_thread,
+    get_mock_write_email,
+    get_mock_write_email_with_bcc,
+    get_mock_eml_with_sender_names,
 )
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from documents import EmailHandler
+from documents import EmailHandler, EmailThreadParser
 from models.api_request_models import AttachmentModel, EmailModel
 
 
@@ -43,11 +48,7 @@ def _make_msg(msg_id: str, refs: str = None, date: str = "Mon, 15 Jan 2024 10:00
 
 @pytest.fixture
 def parser():
-    handler = EmailHandler()
-    # Alias private name to the renamed public method so that internal
-    # calls to self._extract_email_data() still resolve correctly.
-    handler._extract_email_data = handler.extract_email_data
-    return handler
+    return EmailHandler()
 
 
 # ============================================
@@ -207,6 +208,36 @@ def test_extract_email_data_threading_fields(parser):
     assert email_data.message_id == "<test-message-id-001@juridisk.no>"
     assert email_data.in_reply_to == "<original-message-id@example.com>"
     assert email_data.thread_topic == "Eiendomssak Fjellveien 42A"
+
+
+def test_extract_email_data_sender_name(parser):
+    """from_name and to_names should be extracted when display names are present."""
+    raw = get_mock_eml_with_sender_names()
+    msg = email.message_from_bytes(raw)
+    result = parser.extract_email_data(
+        msg, file_id="f-n01", query_id="q-n01", user_id="u-001", session_id="s-001"
+    )
+
+    email_data = result["email"]
+    assert email_data.from_name == "Advokat Hansen"
+    assert email_data.from_addr == "advokat@juridisk.no"
+    assert email_data.to_names is not None
+    assert "Klient Olsen" in email_data.to_names
+    assert "Partner Dahl" in email_data.to_names
+    assert email_data.cc_names is not None
+    assert "Sekretær Berg" in email_data.cc_names
+
+
+def test_extract_email_data_no_display_name(parser):
+    """from_name should be None when the From header contains only an email address."""
+    raw = get_mock_eml_plain_text()
+    msg = email.message_from_bytes(raw)
+    result = parser.extract_email_data(
+        msg, file_id="f-n02", query_id="q-n02", user_id="u-001", session_id="s-001"
+    )
+
+    email_data = result["email"]
+    assert email_data.from_name is None
 
 
 def test_extract_email_data_body_text(parser):
@@ -448,34 +479,34 @@ def test_email_model_reference_paths_accepts_list():
 #   shorten_raw_emails TESTS
 # ============================================
 
-def test_shorten_raw_emails_single_email(parser):
+def test_shorten_raw_emails_single_email(thread_parser):
     """Single email with no references should be returned as its own root."""
     msg = _make_msg("<msg-001@test.no>")
-    result = parser.collapse_threads({"uuid-001": msg})
+    result = thread_parser.collapse_threads({"uuid-001": msg})
 
     assert "uuid-001" in result
     root_msg, child_uuids = result["uuid-001"]
     assert child_uuids == set()
 
 
-def test_shorten_raw_emails_thread_grouped(parser):
+def test_shorten_raw_emails_thread_grouped(thread_parser):
     """Two emails in a thread should be grouped under one root entry."""
     root = _make_msg("<root@test.no>", date="Mon, 15 Jan 2024 08:00:00 +0100")
     reply = _make_msg("<reply@test.no>", refs="<root@test.no>", date="Mon, 15 Jan 2024 10:00:00 +0100")
 
-    result = parser.collapse_threads({"uuid-root": root, "uuid-reply": reply})
+    result = thread_parser.collapse_threads({"uuid-root": root, "uuid-reply": reply})
 
     assert len(result) == 1
     root_uuid, (root_email, child_uuids) = next(iter(result.items()))
     assert "uuid-reply" in child_uuids or root_uuid == "uuid-reply"
 
 
-def test_shorten_raw_emails_newest_is_root(parser):
+def test_shorten_raw_emails_newest_is_root(thread_parser):
     """The newest email in a thread should be selected as root (it contains all quoted content)."""
     old_msg = _make_msg("<old@test.no>", date="Mon, 15 Jan 2024 08:00:00 +0100")
     new_msg = _make_msg("<new@test.no>", refs="<old@test.no>", date="Mon, 15 Jan 2024 12:00:00 +0100")
 
-    result = parser.collapse_threads({"uuid-old": old_msg, "uuid-new": new_msg})
+    result = thread_parser.collapse_threads({"uuid-old": old_msg, "uuid-new": new_msg})
 
     root_uuid = next(iter(result))
     assert root_uuid == "uuid-new"
@@ -483,24 +514,274 @@ def test_shorten_raw_emails_newest_is_root(parser):
     assert "uuid-old" in child_uuids
 
 
-def test_shorten_raw_emails_independent_threads(parser):
+def test_shorten_raw_emails_independent_threads(thread_parser):
     """Two unrelated emails should produce two separate root entries."""
     msg_a = _make_msg("<a@test.no>", date="Mon, 15 Jan 2024 08:00:00 +0100")
     msg_b = _make_msg("<b@test.no>", date="Mon, 15 Jan 2024 09:00:00 +0100")
 
-    result = parser.collapse_threads({"uuid-a": msg_a, "uuid-b": msg_b})
+    result = thread_parser.collapse_threads({"uuid-a": msg_a, "uuid-b": msg_b})
 
     assert len(result) == 2
     assert "uuid-a" in result
     assert "uuid-b" in result
 
 
-def test_shorten_raw_emails_child_uuids_exclude_root(parser):
+def test_shorten_raw_emails_child_uuids_exclude_root(thread_parser):
     """Child UUID set must not include the root UUID itself."""
     root = _make_msg("<root2@test.no>", date="Mon, 15 Jan 2024 08:00:00 +0100")
     reply = _make_msg("<reply2@test.no>", refs="<root2@test.no>", date="Mon, 15 Jan 2024 10:00:00 +0100")
 
-    result = parser.collapse_threads({"uuid-r": root, "uuid-c": reply})
+    result = thread_parser.collapse_threads({"uuid-r": root, "uuid-c": reply})
 
     root_uuid, (_, child_uuids) = next(iter(result.items()))
     assert root_uuid not in child_uuids
+
+
+# ============================================
+#           mk_eml TESTS
+# ============================================
+
+def test_mk_eml_creates_bytes(parser):
+    """mk_eml should return bytes from a WriteEmail model."""
+    write_email = get_mock_write_email()
+    result = parser.mk_eml(write_email)
+
+    assert isinstance(result, bytes)
+    assert len(result) > 0
+
+
+def test_mk_eml_round_trip(parser):
+    """mk_eml output should be parseable and contain the original fields."""
+    write_email = get_mock_write_email()
+    result = parser.mk_eml(write_email)
+
+    parsed = email.message_from_bytes(result)
+    assert parsed["Subject"] == write_email.subject
+    assert write_email.from_addr in parsed["From"]
+    assert write_email.to[0] in parsed["To"]
+
+
+def test_mk_eml_with_cc(parser):
+    """mk_eml should include CC header when provided."""
+    write_email = get_mock_write_email()
+    result = parser.mk_eml(write_email)
+
+    parsed = email.message_from_bytes(result)
+    assert parsed["Cc"] is not None
+    assert write_email.cc[0] in parsed["Cc"]
+
+
+def test_mk_eml_with_bcc(parser):
+    """mk_eml should include BCC header when provided."""
+    write_email = get_mock_write_email_with_bcc()
+    result = parser.mk_eml(write_email)
+
+    parsed = email.message_from_bytes(result)
+    assert parsed["Bcc"] is not None
+    assert write_email.bcc[0] in parsed["Bcc"]
+
+
+def test_mk_eml_no_cc_bcc_omits_headers(parser):
+    """mk_eml should not include CC/BCC headers when they are None."""
+    from models import WriteEmail
+    write_email = WriteEmail(
+        from_addr="sender@test.no",
+        to=["recv@test.no"],
+        subject="No CC",
+        body="Body.",
+    )
+    result = parser.mk_eml(write_email)
+
+    parsed = email.message_from_bytes(result)
+    assert parsed["Cc"] is None
+    assert parsed["Bcc"] is None
+
+
+# ============================================
+#           EmailThreadParser TESTS
+# ============================================
+
+@pytest.fixture
+def thread_parser():
+    return EmailThreadParser()
+
+
+def test_thread_parser_clean_text_removes_quote_markers(thread_parser):
+    """_clean_text should strip leading '>' characters from each line."""
+    text = "> Hei\n>> Dette er sitert\n> Og dette"
+    result = thread_parser._clean_text(text)
+    assert ">" not in result
+    assert "Hei" in result
+
+
+def test_thread_parser_clean_text_removes_mailto(thread_parser):
+    """_clean_text should strip <mailto:...> links."""
+    text = "Kontakt oss på person@test.no <mailto:person@test.no> for spørsmål."
+    result = thread_parser._clean_text(text)
+    assert "<mailto:" not in result
+    assert "person@test.no" in result
+
+
+def test_thread_parser_extract_emails_single(thread_parser):
+    """_extract_emails returns a list with a single email address."""
+    result = thread_parser._extract_emails("Name Surname <email@test.no>")
+    assert result == ["email@test.no"]
+
+
+def test_thread_parser_extract_emails_multiple(thread_parser):
+    """_extract_emails returns all addresses from a comma-separated string."""
+    result = thread_parser._extract_emails("a@test.no, b@test.no; c@test.no")
+    assert len(result) == 3
+    assert "a@test.no" in result
+    assert "b@test.no" in result
+    assert "c@test.no" in result
+
+
+def test_thread_parser_extract_emails_none_input(thread_parser):
+    """_extract_emails returns None for None or empty input."""
+    assert thread_parser._extract_emails(None) is None
+    assert thread_parser._extract_emails("") is None
+
+
+def test_thread_parser_normalize_date_norwegian(thread_parser):
+    """normalize_date handles Norwegian date strings with 'kl.'."""
+    result = thread_parser.normalize_date("5. januar 2024 kl. 10:30")
+    assert result is not None
+    assert "2024-01-05" in result
+    assert "10:30" in result
+
+
+def test_thread_parser_normalize_date_rfc2822(thread_parser):
+    """normalize_date falls back to RFC 2822 parsing."""
+    result = thread_parser.normalize_date("Mon, 15 Jan 2024 10:00:00 +0100")
+    assert result is not None
+    assert "2024" in result
+
+
+def test_thread_parser_normalize_date_empty_returns_none(thread_parser):
+    """normalize_date returns None for empty/None input."""
+    assert thread_parser.normalize_date(None) is None
+    assert thread_parser.normalize_date("") is None
+
+
+def test_thread_parser_decode_eml_string_plain(thread_parser):
+    """decode_eml_string returns the original string when not base64 encoded."""
+    result = thread_parser.decode_eml_string("Re: Eiendomssak")
+    assert result == "Re: Eiendomssak"
+
+
+def test_thread_parser_decode_eml_string_base64(thread_parser):
+    """decode_eml_string decodes a ?B?...?= encoded string."""
+    import base64 as b64
+    encoded_text = b64.b64encode("Testemne".encode("utf-8")).decode("ascii")
+    subject = f"=?utf-8?B?{encoded_text}?="
+    result = thread_parser.decode_eml_string(subject)
+    assert result == "Testemne"
+
+
+def test_thread_parser_decode_eml_string_none(thread_parser):
+    """decode_eml_string returns None for None or empty input."""
+    assert thread_parser.decode_eml_string(None) is None
+    assert thread_parser.decode_eml_string("") is None
+
+
+def test_thread_parser_parse_text_part_no_header(thread_parser):
+    """parse_text_part with no header pattern returns the whole chunk as body."""
+    chunk = "Dette er en enkel melding uten trådhoder."
+    part = thread_parser.parse_text_part(chunk)
+    assert part.body == chunk
+    assert part.sender is None
+    assert part.date is None
+
+
+def test_thread_parser_parse_text_part_outlook_block(thread_parser):
+    """parse_text_part extracts sender, date, recipient and subject from Outlook block."""
+    chunk = (
+        "Fra: avsender@test.no\n"
+        "Dato: 5. januar 2024 kl. 10:30\n"
+        "Til: mottaker@test.no\n"
+        "Emne: Testmelding\n\n"
+        "Innhold av meldingen."
+    )
+    part = thread_parser.parse_text_part(chunk)
+    assert part.sender == "avsender@test.no"
+    assert part.recipient is not None
+    assert "mottaker@test.no" in part.recipient
+    assert part.date is not None
+    assert part.subject is not None
+
+
+def test_thread_parser_parse_text_part_inline_pattern(thread_parser):
+    """parse_text_part extracts sender and date from inline Norwegian thread pattern."""
+    chunk = "5. januar 2024 kl. 10:30 skrev avsender@test.no:\n\nOpprinnelig melding."
+    part = thread_parser.parse_text_part(chunk)
+    assert part.date is not None
+    assert "2024" in part.date
+
+
+def test_thread_parser_get_email_thread_single_part(thread_parser):
+    """get_email_thread returns one EmailPart for a plain email with no thread markers."""
+    raw_msg = email.message_from_bytes(get_mock_eml_plain_text())
+    text_part = next(p for p in raw_msg.walk() if p.get_content_type() == "text/plain")
+
+    result = thread_parser.get_email_thread(text_part)
+
+    assert len(result) == 1
+    assert "eiendomssaken" in result[0].body.lower()
+
+
+def test_thread_parser_get_email_thread_outlook(thread_parser):
+    """get_email_thread splits an Outlook-threaded body into multiple parts."""
+    raw_msg = email.message_from_bytes(get_mock_eml_outlook_thread())
+    text_part = next(p for p in raw_msg.walk() if p.get_content_type() == "text/plain")
+
+    result = thread_parser.get_email_thread(text_part)
+
+    assert len(result) >= 2
+
+
+def test_thread_parser_get_email_thread_gmail(thread_parser):
+    """get_email_thread splits a Gmail inline thread into multiple parts."""
+    raw_msg = email.message_from_bytes(get_mock_eml_gmail_thread())
+    text_part = next(p for p in raw_msg.walk() if p.get_content_type() == "text/plain")
+
+    result = thread_parser.get_email_thread(text_part)
+
+    assert len(result) >= 2
+
+
+def test_thread_parser_expand_email_backfills_date_and_subject(thread_parser):
+    """expand_email backfills date and subject into the first EmailPart when missing."""
+    raw_msg = email.message_from_bytes(get_mock_eml_plain_text())
+    result = thread_parser.expand_email(raw_msg)
+
+    assert len(result) >= 1
+    first = result[0]
+    assert first.date is not None
+    assert first.subject is not None
+
+
+def test_thread_parser_expand_email_first_part_has_sender(thread_parser):
+    """expand_email ensures the first part has a sender (from message headers if absent)."""
+    raw_msg = email.message_from_bytes(get_mock_eml_plain_text())
+    result = thread_parser.expand_email(raw_msg)
+
+    assert result[0].sender is not None
+
+
+def test_thread_parser_expand_email_no_empty_lists(thread_parser):
+    """expand_email converts empty recipient/cc lists to None (Pydantic safety)."""
+    raw_msg = email.message_from_bytes(get_mock_eml_plain_text())
+    result = thread_parser.expand_email(raw_msg)
+
+    for part in result:
+        assert part.recipient != []
+        assert part.cc != []
+
+
+def test_thread_parser_expand_email_outlook_thread_multiple_parts(thread_parser):
+    """expand_email produces multiple parts for an Outlook-threaded email."""
+    raw_msg = email.message_from_bytes(get_mock_eml_outlook_thread())
+    result = thread_parser.expand_email(raw_msg)
+
+    assert len(result) >= 2

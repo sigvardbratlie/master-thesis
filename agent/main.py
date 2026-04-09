@@ -21,6 +21,9 @@ from agent import ProjectPipeline, ProjectClean
 
 load_dotenv()
 
+noisy_packages = ["httpx", "httpcore", "hpack", "urllib3", 
+                      "anthropic", "openai", "asyncio", "langsmith", "ocrmypdf", "PIL", 
+                      "img2pdf", "botocore","textractor", "google_genai"]
 def silence_loggers():
     noisy_packages =  [
         "httpx", "httpcore", 
@@ -41,6 +44,9 @@ def silence_loggers():
         "psycopg_pool",
         "uvicorn.access",
         "langsmith"
+        "httpx", "httpcore", "hpack", "urllib3", 
+        "anthropic", "openai", "asyncio", "langsmith", "ocrmypdf", "PIL", 
+        "img2pdf", "botocore","textractor", "google_genai"
     ]
     [logging.getLogger(_pkg).setLevel(logging.WARNING) for _pkg in noisy_packages]
 

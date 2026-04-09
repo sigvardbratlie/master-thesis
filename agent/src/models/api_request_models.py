@@ -6,7 +6,7 @@ from datetime import datetime,date
 import uuid
 from langgraph.graph.message import add_messages
 
-FileType = Literal[#Basic MIME types
+file_types = [#Basic MIME types
                    "application/pdf", 
                    "text/plain", 
                    "text/csv",
@@ -31,6 +31,7 @@ FileType = Literal[#Basic MIME types
                     #"application/msword",
                     #"application/vnd.ms-excel", 
                     ]
+FileType = Literal[*file_types]
 #=================================
 # ===== API REQUEST MODELS =======
 
@@ -57,9 +58,13 @@ class EmailModel(BaseModel):
 
     subject: str
     from_addr: str
+    from_name: str | None = None
     to: list[str]
+    to_names: list[str] | None = None
     cc: list[str] | None = None
+    cc_names: list[str] | None = None
     bcc: list[str] | None = None
+    bcc_names: list[str] | None = None
     date: datetime | None = None
     
     message_id: str | None = None
@@ -91,7 +96,7 @@ class AskAgentRequest(BaseModel):
 
 class CleanupElementsRequest(AskAgentRequest):
     """POST /cleanup-project-elements request"""
-    element_types: list[str]
+    element_types: list[Literal["events", "damages", "claims", "deadlines"]]
 
 
 class StreamlitUserInfo(BaseModel):
@@ -160,18 +165,13 @@ class VectorStoreMetadata(BaseModel):
     language : str | None = None
     encryption : str | None = None
     keywords : str | None = None
+    comments : str | None = None
 
     chunk : int | None = None
     total_chunks : int | None = None
+    embedding_model : str = None
 
     @field_serializer("uploaded_at", "created_at", "updated_at")
     def serialize_datetime(self, v: datetime | None) -> str | None:
         return v.isoformat() if v is not None else None
-    creator : str | None = None
-    producer : str | None = None
-    embedding_model : str = None
-    title : str | None = None
-    language : str | None = None
-    comments : str | None = None
-    keywords : str | None = None
 

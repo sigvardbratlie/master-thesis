@@ -13,11 +13,43 @@ from email.message import Message
 import email
 from email.utils import parsedate_to_datetime
 from .base_module import BaseHandler
+import re
+from typing import Optional, List
+from pydantic import BaseModel, Field
+from email.utils import parseaddr, parsedate_to_datetime
+from email.header import decode_header, make_header
+from base64 import b64decode
+from email.message import Message
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+class EmailBaseClass(BaseHandler):
+    def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
+        super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
-class EmailHandler(BaseHandler):
+    def _clean_text(self, text: str) -> str:
+        text = re.sub(r"^>+", "", text, flags=re.MULTILINE)
+        return re.sub(r"<mailto:[^>]+>", "", text).strip()
+
+    def decode_eml_string(self, text: str | None) -> str | None:
+        if not text: return None
+        try:
+            decoded = str(make_header(decode_header(text))).strip()
+            return decoded if decoded else None
+        except:
+            return text.strip()
+
+    def _parse_address(self, raw: str) -> tuple[str, str]:
+        """Decode MIME-encoded words in an address field, then extract (name, email)."""
+        try:
+            decoded = str(make_header(decode_header(raw.strip())))
+        except Exception:
+            decoded = raw.strip()
+        return parseaddr(decoded)
+
+
+class EmailHandler(EmailBaseClass):
     def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
         super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
@@ -34,38 +66,59 @@ class EmailHandler(BaseHandler):
         else:
             body_text = msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8")
             body_html = None
-        return {"html" : body_html, "text": body_text}
+        return {"html" : body_html, "text": self._clean_text(body_text)}
+
+    def _resolve_content_type(self, part) -> str:
+        EXTENSION_TYPE_MAP = {
+                            ".eml": "message/rfc822",
+                            ".pdf": "application/pdf",
+                            ".doc": "application/msword",
+                            ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            ".txt": "text/plain",
+                            ".csv": "text/csv",
+                        }
+        content_type = part.get_content_type()
+        if content_type == "application/octet-stream":
+            filename = part.get_filename() or ""
+            ext = os.path.splitext(filename)[1].lower()
+            return EXTENSION_TYPE_MAP.get(ext, content_type)
+        return content_type
 
     def _extract_attachments(self, msg : Message) -> list:
         allowed_types = ["application/pdf", 
-                         "application/msword", 
-                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                         "text/plain",
-                         "text/csv",
-                         "message/rfc822",
-
-                         ]
+                            "application/msword", 
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            "text/plain",
+                            "text/csv",
+                            "message/rfc822",
+                            'application/octet-stream',
+                            ]
         attachments = []
         for part in msg.walk():
             content_disposition = part.get("Content-Disposition")
             if content_disposition and "attachment" in content_disposition:
                 filename = part.get_filename()
+                file_type = part.get_content_type()
                 if filename:
-                    if part.get_content_type() in allowed_types:
+                    if file_type in allowed_types:
                         payload = part.get_payload(decode=True)
-                        try:
-                            content = payload.decode(part.get_content_charset() or "utf-8")
-                        except (UnicodeDecodeError, LookupError):
-                            content = base64.b64encode(payload).decode("ascii")
+                        if file_type == "application/octet-stream":
+                            file_type = self._resolve_content_type(part)
+                            content = payload
+                        else:
+                            try:
+                                content = payload.decode(part.get_content_charset() or "utf-8")
+                            except (UnicodeDecodeError, LookupError):
+                                content = base64.b64encode(payload).decode("ascii")
                         attachments.append({
                             "filename": filename,
-                            "file_type": part.get_content_type(),
+                            "file_type": file_type,
                             "size" : len(payload),
                             "file_id": str(uuid.uuid4()),
                             "content": content
                         })
                     else:
-                        logger.warning(f"⚠️  Skipping attachment '{filename}' — unsupported type '{part.get_content_type()}'")
+                        logger.warning(f"⚠️  Skipping attachment '{filename}' — unsupported type '{file_type}'")
                 else:
                     logger.warning("⚠️  Attachment part found without filename — skipping")
         return attachments
@@ -98,11 +151,15 @@ class EmailHandler(BaseHandler):
                 path = f'{user_id}/{session_id}/{file_id}.eml',
                 query_id=query_id,
 
-                subject=msg.get("Subject", ""),
-                from_addr=msg.get("From", ""),
-                to=[addr.strip() for addr in msg.get("To", "").split(",")],
-                cc=[addr.strip() for addr in msg.get("Cc", "").split(",")] if msg.get("Cc") else None,
-                bcc=[addr.strip() for addr in msg.get("Bcc", "").split(",")] if msg.get("Bcc") else None,
+                subject=self.decode_eml_string(msg.get("Subject", "")),
+                from_addr=self._parse_address(msg.get("From", ""))[1],
+                from_name=self._parse_address(msg.get("From", ""))[0] or None,
+                to=[self._parse_address(addr)[1] for addr in msg.get("To", "").split(",")],
+                to_names=[n for addr in msg.get("To", "").split(",") if (n := self._parse_address(addr)[0])] or None,
+                cc=[self._parse_address(addr)[1] for addr in msg.get("Cc", "").split(",")] if msg.get("Cc") else None,
+                cc_names=[n for addr in msg.get("Cc", "").split(",") if (n := self._parse_address(addr)[0])] if msg.get("Cc") else None,
+                bcc=[self._parse_address(addr)[1] for addr in msg.get("Bcc", "").split(",")] if msg.get("Bcc") else None,
+                bcc_names=[n for addr in msg.get("Bcc", "").split(",") if (n := self._parse_address(addr)[0])] if msg.get("Bcc") else None,
                 date=email.utils.parsedate_to_datetime(msg.get("Date")) if msg.get("Date") else None,
 
                 message_id=msg.get("Message-ID"),
@@ -140,11 +197,11 @@ class EmailHandler(BaseHandler):
         except Exception as e:
             logger.exception(f"❌ EML parse failed")
             raise ValueError("Invalid EML content") from e
-        email_data = self._extract_email_data(msg, 
-                                              query_id=query_id, 
-                                              user_id=user_id, 
-                                              session_id=session_id, 
-                                              file_id=file_id)
+        email_data = self.extract_email_data(msg,
+                                             query_id=query_id,
+                                             user_id=user_id,
+                                             session_id=session_id,
+                                             file_id=file_id)
         return email_data
     
     def parse_eml(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> tuple[str, dict]:
@@ -186,6 +243,191 @@ class EmailHandler(BaseHandler):
         msg.set_content(email_data.body)
         return msg.as_bytes()
 
+    
+    
+class EmailPart(BaseModel):
+    sender: Optional[str] = Field(None, alias="from")
+    recipient: Optional[List[str]] = Field(None, alias="to")
+    cc: Optional[List[str]] = None
+    date: Optional[str] = None
+    subject: Optional[str] = None
+    body: str
+
+    class Config:
+        populate_by_name = True
+
+class EmailThreadParser(EmailBaseClass):
+    def __init__(self):
+        # BLOCK: Outlook-stil
+        self.block_pattern = re.compile(
+            r"\*?(?:Fra|From)\s*\*?:\s*\*?(?P<from>.*?)\s*"
+            r"\*?(?:Sendt|Dato|Date)\s*\*?:\s*\*?(?P<date>.*?)\s*"
+            r"\*?(?:Til|To)\s*\*?:\s*\*?(?P<to>.*?)\s*"
+            r"(?:\*?(?:Kopi|Cc)\s*\*?:\s*\*?(?P<cc>.*?)\s*)?"
+            r"\*?(?:Emne|Subject)\s*\*?:\s*\*?(?P<subject>.*?)(?=\r|\n|$)", 
+            re.IGNORECASE
+        )
+        
+        # INLINE: Gmail/Mobil-stil
+        self.inline_pattern = re.compile(
+            r"(?P<date>\d{1,2}\.\s+\w+\.?\s+\d{4}\s+kl\.\s+\d{2}:\d{2})\s+skrev\s+(?P<from>.*?):",
+            re.IGNORECASE
+        )
+
+        self.norwegian_months = {
+            'jan': 1, 'januar': 1, 'feb': 2, 'februar': 2, 'mar': 3, 'mars': 3,
+            'apr': 4, 'april': 4, 'mai': 5, 'jun': 6, 'juni': 6, 'jul': 7, 'juli': 7,
+            'aug': 8, 'august': 8, 'sep': 9, 'september': 9, 'okt': 10, 'oktober': 10,
+            'nov': 11, 'november': 11, 'des': 12, 'desember': 12
+        }
+
+    # def _clean_text(self, text: str) -> str:
+    #     text = re.sub(r"^>+", "", text, flags=re.MULTILINE)
+    #     return re.sub(r"<mailto:[^>]+>", "", text).strip()
+
+    # def decode_subject(self, subject: Optional[str]) -> Optional[str]:
+    #     if not subject: return None
+    #     if match := re.search(r'\?B\?([A-Za-z0-9+/=]+)\?=', subject):
+    #         subject = match.group(1).strip()
+    #         subject += '=' * ((4 - len(subject) % 4) % 4)
+    #         try:
+    #             return b64decode(subject).decode('utf-8', errors='replace')
+    #         except: pass
+    #     return subject.strip()
+
+
+    def _extract_emails(self, text: Optional[str]) -> Optional[List[str]]:
+        if not text: return None
+        emails = []
+        for p in re.split(r'[;,]', text.replace('\n', ' ')):
+            _, addr = parseaddr(p.strip())
+            if addr:
+                emails.append(addr.lower())
+            elif '@' in p and (match := re.search(r'[\w\.-]+@[\w\.-]+', p)):
+                emails.append(match.group().lower())
+        return emails if emails else None
+
+    def normalize_date(self, date_str: str) -> str:
+        if not date_str: return None
+        date_str = date_str.replace('*', '').strip()
+        
+        pattern = re.compile(
+            r"(?:[a-zæøå]+,\s*)?(?P<day>\d{1,2})\.\s*(?P<month>[a-zæøå]+)\.?\s*(?P<year>\d{4})\s*(?:kl\.)?\s*(?P<hour>\d{2}):(?P<minute>\d{2})", 
+            re.IGNORECASE
+        )
+        
+        if match := pattern.search(date_str):
+            m_str = match.group('month').lower()
+            m_num = self.norwegian_months.get(m_str, self.norwegian_months.get(m_str[:3], 1))
+            try:
+                return datetime(int(match.group('year')), m_num, int(match.group('day')), 
+                                int(match.group('hour')), int(match.group('minute'))).isoformat()
+            except: pass
+        
+        try:
+            return parsedate_to_datetime(date_str).isoformat()
+        except: return date_str
+
+
+    def parse_text_part(self, chunk: str) -> EmailPart:
+        chunk = self._clean_text(chunk)
+        
+        if match := self.block_pattern.search(chunk):
+            meta = match.groupdict()
+            body = chunk[match.end():].strip()
+        elif match := self.inline_pattern.search(chunk):
+            meta = match.groupdict()
+            body = chunk[match.end():].strip()
+        else:
+            meta = {}
+            body = chunk
+
+        sender_list = self._extract_emails(meta.get("from"))
+        
+        return EmailPart(
+            sender=sender_list[0] if sender_list else None,
+            recipient=self._extract_emails(meta.get("to")),
+            cc=self._extract_emails(meta.get("cc")),
+            date=self.normalize_date(meta.get("date")),
+            subject=meta.get("subject").strip() if meta.get("subject") else None,
+            body=body
+        )
+
+    def get_email_thread(self, part) -> List[EmailPart]:
+        payload = part.get_payload(decode=True)
+        if not payload: return []
+        
+        raw_text = payload.decode(part.get_content_charset() or "utf-8", errors="ignore")
+        
+        PATTERNS = [
+            r"\d{1,2}\.\s+\w+\.?\s+\d{4}\s+kl\.\s+\d{2}:\d{2}\s+skrev\s+.*?:",
+            r"\*?(?:Fra|From)\s*\*?:\s*.*?\s*\*?(?:Sendt|Dato|Date)\s*\*?:"
+        ]
+        
+        parts = re.split(f"({'|'.join(PATTERNS)})", raw_text, flags=re.IGNORECASE)
+        
+        if len(parts) <= 1:
+            return [self.parse_text_part(raw_text)]
+
+        thread = [self.parse_text_part(parts[0])]
+        for i in range(1, len(parts), 2):
+            thread.append(self.parse_text_part(parts[i] + parts[i+1]))
+
+        return thread
+
+    def expand_email(self, msg: Message) -> List[EmailPart]:
+        # 1. Hent ut alle tråd-deler
+        results = []
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain":
+                results.extend(self.get_email_thread(part))
+                
+        if not results:
+            return []
+
+        # 2. Trekk ut hoved-metadata én gang
+        raw_date = msg.get("Date")
+        parsed_date = parsedate_to_datetime(raw_date) if raw_date else None
+        main_date = parsed_date.isoformat() if parsed_date else raw_date
+        
+        main_sender = parseaddr(msg.get("From"))[1] if msg.get("From") else None
+        main_recipients = self._extract_emails(msg.get("To")) or []
+        main_cc = self._extract_emails(msg.get("Cc")) or []
+        main_subject = self.decode_eml_string(msg.get("Subject"))
+        
+        main_sender_low = main_sender.lower() if main_sender else ""
+        main_recipients_low = [r.lower() for r in main_recipients]
+
+        # 3. Backfill logikk for tråden
+        for i, part in enumerate(results):
+            if i == 0:
+                part.sender = part.sender or main_sender
+            
+            curr_sender = part.sender.lower() if part.sender else ""
+            
+            # Boolsk logikk for å gjøre koden lesbar
+            is_first = (i == 0)
+            is_main_sender = (curr_sender == main_sender_low)
+            is_main_recipient = (curr_sender in main_recipients_low)
+
+            if is_first or is_main_sender or is_main_recipient:
+                # Fyll inn manglende felles-data
+                part.date = part.date or main_date
+                part.subject = part.subject or main_subject
+                part.cc = part.cc or (main_cc if main_cc else None)
+
+                # Avgjør hvem som er mottaker basert på hvem som sendte svaret
+                if is_first or is_main_sender:
+                    part.recipient = part.recipient or (main_recipients if main_recipients else None)
+                elif is_main_recipient:
+                    part.recipient = part.recipient or ([main_sender] if main_sender else None)
+
+            # Sikre at tomme lister blir None for Pydantic
+            part.recipient = part.recipient or None
+            part.cc = part.cc or None
+
+        return results
+    
     def collapse_threads(self, emails: dict[str, Message]) -> dict[str, tuple[Message, set[str]]]:
         """Extracts the root email from a thread and lists all related file_uuids.
         
@@ -219,5 +461,3 @@ class EmailHandler(BaseHandler):
             result[root_uuid] = (root_email, child_uuids)
             
         return result
-    
-

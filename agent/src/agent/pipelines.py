@@ -3,8 +3,7 @@ from models import FactSheet, AttachmentModel, EmailModel
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer, get_config
-from documents import DocumentProcessor, EmailHandler
-from documents.pdf_module import PDFHandler
+from documents import DocumentProcessor, EmailHandler, PDFHandler, EmailThreadParser
 import logging
 import asyncio
 from utils import AppConfig
@@ -13,7 +12,7 @@ from datetime import datetime
 import base64
 import tiktoken
 import email as python_email
-from database import SupabaseStorageManager, SupabaseManager, BQVectorStore, GCSManager
+from database import SupabaseManager, BQVectorStore, GCSManager
 
 from models import PipelineState, AskAgentRequest, ProjectData, InitialInput
 
@@ -355,7 +354,7 @@ class ProjectPipeline:
         return {"docs_by_file": docs_by_file, "query": stripped_query}
 
     def _collapse_emails_node(self, state: PipelineState):
-        eml_handler = EmailHandler()
+        eml_handler = EmailThreadParser()
         collapsed_emails: dict = {}
         writer = get_stream_writer()
         query = state.query
@@ -426,7 +425,24 @@ class ProjectPipeline:
             current_email_attachments = data.get("attachments", [])
             if current_email_attachments:
                 logger.info(f"📎 Email '{email.subject}': {len(current_email_attachments)} nested attachment(s) → dispatching as doc batch")
-                query.attachments.extend(current_email_attachments)
+                for att in current_email_attachments:
+                    if att.file_type != "message/rfc822":
+                        query.attachments.append(att)
+                    else:
+                        data = eml.extract_email_data(msg = python_email.message_from_bytes(att.content), 
+                                                      user_id=user_id, 
+                                                      query_id=query.query_id, 
+                                                      session_id=query.session_id, 
+                                                      file_id=att.file_id)
+                        nested_email = data.get("email")
+                        nested_attachments = data.get("attachments", [])
+                        if nested_email:
+                            logger.info(f'📧 Nested email found in attachment of email "{email.subject}": "{nested_email.subject}"')
+                            output_emails.append(nested_email)
+                        if nested_attachments:
+                            logger.info(f"📎 Email '{email.subject}': {len(nested_attachments)} additional nested attachment(s) found in '{nested_email.subject}' → dispatching as doc batch")
+                            query.attachments.extend(nested_attachments)
+
             else:
                 logger.debug(f"📭 Email '{email.subject}': no nested attachments")
 
@@ -792,6 +808,17 @@ class ProjectPipeline:
         # ============= PHASE 3 =================
         # Insert data tables + metadata in parallel (FK parents already committed)
         # ========================================
+        party_reps = []
+        parties = []
+        for party in (init_input.parties or []):
+            if party.party_reps:
+                for rep in party.party_reps:
+                    party_reps.append(
+                        rep if rep.party_id else rep.model_copy(update={"party_id": party.party_id})
+                    )
+            parties.append(party.model_dump(mode='json', exclude={"party_reps"}))
+
+
         to_insert = {
             "project_events": events,
             "project_damages": damages,
@@ -799,11 +826,12 @@ class ProjectPipeline:
             "project_deadlines": deadlines,
         }
         to_replace = {
-            "project_parties": init_input.parties or [],
+            "project_parties": parties or [],
+            "project_party_reps" : party_reps,
         }
 
         async def insert_data_table(table_name, items, replace=False):
-            if not items or not hasattr(items[0], "model_dump"):
+            if not items or (not replace and not hasattr(items[0], "model_dump")):
                 logger.warning(f"No valid items to save for {table_name}. Skipping storage for this table.")
                 return
             async with self._semaphore_db:
@@ -927,6 +955,7 @@ class ProjectPipeline:
         })
 
         initial_input = await self.context_manager.update_initial_input(events=events, existing_initial_input=existing_init_input)
+        logger.debug(f'\n\nUpdated metadata {initial_input.model_dump(mode="json")}\n\n')
         writer({
             "type": "status",
             "phase": ["update_metadata"],

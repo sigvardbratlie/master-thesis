@@ -1,5 +1,5 @@
-
 \chapter{Method}
+\label{chap:method}
 
 
 \section{System Architecture}
@@ -51,27 +51,102 @@ An ablated tool configuration, \texttt{BASELINE\_RAG\_TOOLS}, is defined for eva
 
 Document persistence is handled through two complementary mechanisms. Raw files (PDF, DOCX, PPTX, EML) are stored in \textbf{Google Cloud Storage (GCS)}, where they can be retrieved on demand by the \texttt{read\_attachments} tool when no parsed body cache is available. Parsed and chunked document content is embedded and stored in a persistent \textbf{vector store} for semantic retrieval. Structured project data — including the \texttt{FactSheet} and session metadata — is stored in a \textbf{PostgreSQL} database via the \texttt{SupabaseManager} CRUD interface.
 
+\subsection{FactSheet Schema}
+\label{sec:factsheet-schema}
+
+The \textit{FactSheet} is the central persistent artifact of the system: a structured, machine-readable representation of the legal case that the agent maintains across the full lifecycle of a matter. It is stored relationally in PostgreSQL and loaded into context on each agent call, supplementing vector retrieval for case-level queries. The schema is defined using Pydantic \texttt{BaseModel} classes, which enforce field types and validation at runtime and serve as the structured output target for all LLM extraction calls.
+
+The top-level \texttt{FactSheet} object aggregates five typed entity collections alongside a free-text background and case metadata. Table~\ref{tab:factsheet-schema} summarises the complete schema, organised by entity type.
+
+\begin{table}[H]
+\centering
+\caption{FactSheet entity schema. All entity types share a \texttt{significance} field (\textit{high / medium / low}) and a \texttt{file\_id} / \texttt{email\_id} back-reference to the source document.}
+\label{tab:factsheet-schema}
+\small
+\begin{tabular}{llp{6.5cm}}
+\toprule
+\textbf{Entity} & \textbf{Field} & \textbf{Description} \\
+\midrule
+\textit{FactSheet} & \texttt{title}      & Short case title (max 10 words) \\
+                   & \texttt{background} & Narrative factual summary of the case \\
+                   & \texttt{start\_date} & Date the matter began \\
+\midrule
+\textit{Party}     & \texttt{legal\_name}       & Full legal name of the party \\
+                   & \texttt{role}              & Functional role: \textit{plaintiff, defendant, witness, expert, contractor,} etc. \\
+                   & \texttt{entity\_type}       & \textit{individual, company,} or \textit{government} \\
+                   & \texttt{role\_description}  & Free-text elaboration of the party's involvement \\
+                   & \texttt{party\_reps}        & List of named legal representatives (name, role, contact) \\
+\midrule
+\textit{Event}     & \texttt{event\_name}        & Short descriptive name \\
+                   & \texttt{event\_start\_date} & Start date (partial dates coerced to first of month) \\
+                   & \texttt{event\_end\_date}   & End date if applicable \\
+                   & \texttt{description}        & Narrative description of what occurred \\
+                   & \texttt{category}           & e.g.\ \textit{court\_filing, contract\_signing, communication} \\
+                   & \texttt{disputed}           & Boolean flag: is this event contested? \\
+\midrule
+\textit{Claim}     & \texttt{category}           & \textit{principal\_claim, counterclaim, objection, ancillary\_claim,} etc. \\
+                   & \texttt{legal\_basis}        & Statutory or contractual basis (e.g.\ \textit{avtaleloven \S 36}) \\
+                   & \texttt{factual\_basis}      & Key facts that support the claim \\
+                   & \texttt{relief\_sought}      & What is being claimed (damages, injunction, etc.) \\
+                   & \texttt{strength\_assessment} & LLM assessment: \textit{strong, moderate,} or \textit{weak} \\
+                   & \texttt{party\_role}         & Which party asserts this claim \\
+\midrule
+\textit{Damage}    & \texttt{category}           & \textit{direct\_losses, interest, consequential,} or \textit{punitive} \\
+                   & \texttt{amount}             & Monetary amount if stated; \texttt{None} if unspecified \\
+                   & \texttt{currency}           & e.g.\ \textit{NOK, USD} \\
+                   & \texttt{basis}              & Factual basis for the damage claim \\
+                   & \texttt{supporting\_evidence} & List of \texttt{file\_id}s that evidence this damage \\
+                   & \texttt{party\_role}         & Which party asserts this damage \\
+\midrule
+\textit{Deadline}  & \texttt{deadline\_date}     & The deadline date \\
+                   & \texttt{description}        & What the deadline concerns \\
+                   & \texttt{party\_role}         & Which party is subject to this deadline \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Every entity carries a \texttt{significance} field (\texttt{"high"}, \texttt{"medium"}, \texttt{"low"}), assigned by the extracting LLM based on the entity's centrality to the case. This field is used at query time by the context compression layer (Section~\ref{sec:design-choices}): only entities above a configurable significance threshold are included in the context injected into the LLM, keeping token consumption bounded as the factsheet grows. Each entity also carries a \texttt{file\_id} or \texttt{email\_id} back-reference to the source document, enabling the agent to trace any extracted fact back to its evidentiary origin.
+
+The schema is deliberately domain-specific: rather than a general-purpose knowledge graph, it captures precisely the entity types that legal practitioners reason over in a case management context --- who the parties are, what happened and when, what is claimed and on what legal basis, what damages are asserted, and what procedural deadlines apply. This specificity is a design trade-off (discussed further in Section~\ref{sec:design-choices}): the schema matches the query patterns of legal practitioners but requires adaptation for other legal domains.
+
 \subsection{Init and Update Pipeline}
 
-Project initialization (\texttt{POST /init-project}) and updates (\texttt{POST /update-project}) are handled by the \texttt{ProjectPipeline} class, which compiles a LangGraph \texttt{StateGraph} for each operation (see Figure~\ref{fig:init-pipeline}). The graph exploits LangGraph's fan-out semantics to run independent work in parallel:
+Project initialization (\texttt{POST /init-project}) and updates (\texttt{POST /update-project}) are handled by the \texttt{ProjectPipeline} class, which compiles a LangGraph \texttt{StateGraph} for each operation (see Figure~\ref{fig:init-pipeline}). The graph exploits LangGraph's fan-out semantics to run independent branches in parallel, minimising total wall-clock time for the ingestion of large document sets.
+
+\paragraph{Initialization pipeline.}
+The following describes each node and its role in the \texttt{init} graph, in execution order:
 
 \begin{itemize}
-    \item \texttt{collapse\_emails} and \texttt{initialize\_input} start in parallel from \texttt{START}. \texttt{collapse\_emails} merges EML thread duplicates; \texttt{initialize\_input} runs an LLM call to extract an initial structured summary from the user's case description.
-    \item \texttt{extract\_emails} follows \texttt{collapse\_emails} and decodes email attachments from the collapsed threads.
-    \item \texttt{parsing} and \texttt{storage} both fan out from \texttt{extract\_emails}. \texttt{parsing} processes all documents (PDF/OCR, DOCX, PPTX, EML) into plain text; \texttt{storage} uploads raw files to GCS in parallel.
-    \item \texttt{embedding} follows \texttt{parsing} and indexes chunked document content into the persistent vector store.
-    \item \texttt{analyze} is a fan-in node that waits for both \texttt{parsing} and \texttt{initialize\_input} to complete. It then dispatches all documents and emails to the LLM in size-bounded batches (see Section~\ref{sec:design-choices}) to extract structured entities: attachments, emails, events, claims, damages, and deadlines.
-    \item \texttt{update\_metadata} follows \texttt{analyze} and runs an LLM call to update the case title, background, start date, and primary parties based on all extracted data.
-    \item \texttt{qc\_analysis} also fans out from \texttt{analyze} and runs a quality-control pass over the extracted entities, logging any inconsistencies or discrepancies found.
-    \item \texttt{save} follows \texttt{update\_metadata} and persists all extracted entities to Supabase PostgreSQL.
+    \item \textbf{\texttt{collapse\_emails}} and \textbf{\texttt{initialize\_input}} are launched concurrently from \texttt{START}.
+    \texttt{collapse\_emails} deduplicates EML threads by collapsing reply chains into canonical thread objects, preventing the same email content from being processed multiple times.
+    \texttt{initialize\_input} runs a lightweight LLM call over the user-provided case description to produce an initial structured seed for the factsheet: a short title, a factual background summary, and a list of named parties. This seed is used immediately as the factsheet starting state before any documents are processed.
+
+    \item \textbf{\texttt{extract\_emails}} follows \texttt{collapse\_emails} and decodes each collapsed email thread, extracting inline attachments and populating the pipeline's document list with any files referenced in the email bodies.
+
+    \item \textbf{\texttt{parsing}} and \textbf{\texttt{storage}} both fan out from \texttt{extract\_emails} and run concurrently.
+    \texttt{parsing} processes each document into plain text: PDFs are parsed with PyPDF2 (with OCR via \texttt{ocrmypdf} as fallback for scanned documents), DOCX files with \texttt{python-docx}, PPTX with \texttt{python-pptx}, and EML bodies directly from the collapsed thread objects. The parsed text is stored in the pipeline state for downstream use.
+    \texttt{storage} uploads each raw file to Google Cloud Storage in parallel, populating the retrieval-by-ID cache used by the \texttt{read\_attachments} tool.
+
+    \item \textbf{\texttt{embedding}} follows \texttt{parsing} and chunks all parsed document text before indexing it into the persistent BigQuery vector store using Google's \texttt{gemini-embedding-001} model. This node runs independently and terminates at \texttt{END} once indexing is complete.
+
+    \item \textbf{\texttt{analyze}} is a fan-in node that waits for both \texttt{parsing} and \texttt{initialize\_input} to complete before executing. It is the core extraction node: all parsed documents and emails are dispatched to the LLM in size-bounded batches, and the model is asked to extract structured entities --- events, claims, damages, deadlines, and document metadata --- from each batch using the Pydantic schema described in Section~\ref{sec:factsheet-schema}. LLM calls are issued concurrently across batches via \texttt{asyncio.gather}, subject to the semaphore concurrency limits. The extracted entities from all batches are then merged into the pipeline state.
+
+    \item \textbf{\texttt{update\_metadata}} follows \texttt{analyze} and runs a further LLM call to synthesise a coherent case title, background narrative, start date, and primary party list from the full set of extracted data, overwriting the initial seed produced by \texttt{initialize\_input}. This ensures the factsheet metadata reflects the complete document set rather than only the initial user description.
+
+    \item \textbf{\texttt{qc\_analysis}} fans out from \texttt{analyze} in parallel with \texttt{update\_metadata}. It runs a quality-control pass over the extracted entity set, asking the LLM to identify logical inconsistencies, date conflicts, missing required fields, or implausible significance assignments. The results are logged and — if critical issues are found — surfaced to the frontend as warnings, but do not block the pipeline. This node provides a lightweight audit trail of extraction quality without introducing a blocking correction loop.
+
+    \item \textbf{\texttt{save}} follows \texttt{update\_metadata} and persists all extracted and updated entities to Supabase PostgreSQL via the \texttt{SupabaseManager} CRUD interface. Once saved, the factsheet is immediately available for agent queries.
 \end{itemize}
 
-The update pipeline is identical in structure but adds a \texttt{load\_project\_data} node at the start that loads the existing factsheet before analysis, enabling incremental updates. Status events are streamed back to the frontend via SSE at each node transition.
+After all terminal nodes (\texttt{embedding}, \texttt{storage}, \texttt{save}, \texttt{qc\_analysis}) complete, a final status event is streamed to the frontend via SSE confirming that the project is ready for querying.
+
+\paragraph{Update pipeline.}
+The update pipeline shares the same graph topology as initialization, with one structural difference: a \textbf{\texttt{load\_project\_data}} node is inserted at \texttt{START} in parallel with \texttt{collapse\_emails}. This node retrieves the existing factsheet from the database before the new documents are processed. The \texttt{analyze} fan-in then waits for both \texttt{load\_project\_data} \emph{and} \texttt{parsing} to complete --- substituting the \texttt{initialize\_input} branch used during initialization --- so that the LLM extraction step receives both the new document text and the full prior case state. This allows the model to resolve conflicts with previously extracted entities (e.g., duplicate events or parties already in the factsheet) rather than treating each update as an isolated extraction. The \texttt{save} node in the update pipeline merges new entities with the existing factsheet rather than overwriting it.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=\textwidth]{figures/project_graph.png}
-    \caption{Init and update pipeline graph: parallel fan-out for parsing, storage, and initialisation, converging at the \texttt{analyze} fan-in node.}
+    \caption{Init and update pipeline graph. \texttt{collapse\_emails} and \texttt{initialize\_input} (init) or \texttt{load\_project\_data} (update) run in parallel from \texttt{START}. After email extraction and document parsing, \texttt{analyze} acts as the central fan-in node. \texttt{update\_metadata}, \texttt{qc\_analysis}, \texttt{embedding}, and \texttt{storage} fan out from there, each terminating independently at \texttt{END}.}
     \label{fig:init-pipeline}
 \end{figure}
 
@@ -95,6 +170,8 @@ The \texttt{ProjectClean} class provides a cleanup graph that can be triggered o
 The system supports multiple LLM providers through LangChain's \texttt{init\_chat\_model} interface. \textbf{Google Gemini} serves as the primary provider, with \textbf{OpenAI GPT} available as a secondary option. The system also supports a range of open-source models from providers such as Qwen (Alibaba) and Zhipu AI, accessed through compatible APIs. The active model is configurable per session request, allowing for flexible experimentation and evaluation across providers and model families.
 
 \subsection{Tech Stack Summary}
+
+Table~\ref{tab:tech-stack} provides a concise overview of all major technologies used in the system, grouped by architectural layer.
 
 \begin{table}[h]
 \centering
@@ -128,11 +205,11 @@ Web search & Tavily \\
 
 The system architecture was guided by several pragmatic design choices, prioritizing development speed, flexibility, and cost-efficiency given the constraints of a master's thesis. By separating the descriptive architecture from the rationale, the core motivations for the selected technologies are outlined below.
 
-\subsection*{Agent Layer and Orchestration}
+\subsection{Agent Layer and Orchestration}
 
 The core agent is implemented using \textbf{LangGraph} \cite{langgraph}. This framework was chosen primarily for its fast build time, which is essential given the limited time available for this thesis. It provides a clean \texttt{StateGraph} abstraction that is highly expandable for future extensions, such as adding dedicated reasoning nodes or document re-ranking stages. Furthermore, LangGraph is model-agnostic, providing built-in support for multiple LLM providers. This flexibility is crucial, allowing the system to easily switch between models or add new ones as desired for evaluation and experimentation.
 
-\subsection*{Database and Storage Architecture}
+\subsection{Database and Storage Architecture}
 
 The system's persistence layer separates structured relational data, unstructured document storage, and semantic vector retrieval to optimize for specific access patterns and constraints.
 
@@ -228,11 +305,11 @@ Semantic retrieval relies on \textbf{Google's embedding model} (\texttt{gemini-e
 
 For the vector database, a two-tier approach is used. \textbf{ChromaDB} is utilized as an in-memory store for fast, session-scoped retrieval. For persistent, project-scoped retrieval, \textbf{BigQuery Vector Search} is employed. BigQuery was chosen because it is affordable and operates on an on-demand pricing model. The primary drawback of BigQuery is its high latency, meaning a significant amount of time is spent indexing and saving to the vector store. However, this trade-off is worthwhile: the alternative would require provisioning an always-running vector database server, which introduces high continuous costs and additional operational setup.
 
-\subsection*{FastAPI and Server-Sent Events}
+\subsection{FastAPI and Server-Sent Events}
 
 The backend is exposed as a standalone REST API using \textbf{FastAPI} \cite{fastapi} to decouple it from the frontend. \textbf{Server-Sent Events (SSE)} are used for streaming responses because the agent pipeline is long-running and asynchronous. SSE provides a responsive user experience by pushing incremental status updates and partial results without the complexity of WebSockets, which are unnecessary for this unidirectional communication flow.
 
-\subsection*{Concurrency, Reliability, and Tool Efficiency}
+\subsection{Concurrency, Reliability, and Tool Efficiency}
 
 Several engineering decisions were made to ensure the system operates efficiently under the latency and throughput constraints imposed by external APIs and large document volumes.
 
@@ -278,8 +355,6 @@ The evaluation relies on two datasets developed specifically for this thesis in 
 
 \textbf{TOSL-2024} is a fully authentic case for which explicit permission was obtained to use the original documents. It is substantially larger and more complex than THRD-2021: it involves more parties, a longer timeline, more contested legal issues, and a higher total document volume. The original case file includes close to a thousand emails; these were excluded from the evaluation dataset due to the prohibitive per-run cost and execution time they would introduce across repeated evaluation trials. Even after this exclusion, TOSL-2024 remains considerably larger and more complex than THRD-2021. Because TOSL-2024 is a real case with real documents, it more closely represents the conditions under which the agent would operate in production, and its results should therefore be given greater interpretive weight than those from THRD-2021.
 
-Both datasets are organized to simulate the chronological lifecycle of a legal proceeding. Each case is structured into several \textit{sessions}, each containing a sequence of \textit{queries}. This structure is designed to evaluate two critical capabilities of the agent:
-
 The datasets are organized to simulate the chronological lifecycle of a legal proceeding. Each case is structured into several \textit{sessions}, each containing a sequence of \textit{queries}. This structure is designed to evaluate two critical capabilities of the agent:
 \begin{enumerate}
     \item \textbf{Contextual Awareness}: The ability to maintain a coherent understanding of the case as it evolves through different stages of litigation.
@@ -287,6 +362,24 @@ The datasets are organized to simulate the chronological lifecycle of a legal pr
 \end{enumerate}
 
 By following a chronological order, the sessions require the agent to handle increasing amounts of information and maintain consistency over time, reflecting the professional requirements of a legal practitioner managing an ongoing case.
+
+A significant effort was dedicated to the creation and refinement of these datasets, as no publicly available alternatives met the specific structural requirements of this evaluation. A survey of existing legal and large-scale QA datasets revealed that while many share some characteristics with the present work, 
+none combine all the necessary elements. For instance, datasets like \texttt{Multi-LexSum} \cite{shahmirzadi2025multilexsum} offer large case files and expert summaries but lack the session-based, chronological query structure needed to evaluate temporal reasoning. Others, such as \texttt{CaseGen} \cite{li2025casegen}, 
+provide authentic, multi-section case samples but do not include the large, unstructured document collections typical of real-world litigation. Datasets like \texttt{EnronQA} \cite{fang2023enronqa} contain extensive email corpora but are not situated within a legal context. Finally, established benchmarks like \texttt{LegalBench}, \texttt{LexGLUE}, 
+and others are primarily focused on legal reasoning over statutes or case law rather than fact management in an evolving case file. The evaluation thus necessitated a custom-built dataset format that included not only a large corpus of interconnected documents and emails but also a series of chronologically ordered, session-based queries designed to test contextual awareness over time.
+
+The construction of the queries and their corresponding ground-truth answers was a meticulous process. Queries were designed to be fact-based, verifiable against the source documents, and challenging enough to require cross-document synthesis. Crafting the ground-truth answers presented a further challenge, particularly for queries where a range of correct responses is possible. 
+The goal was to define a minimal, essential answer that captures the core facts, ensuring that the evaluation framework would not penalise models for providing additional, correct information. This required an in-depth manual review of all case documents for each query. After cleaning and removing anomalies, a total of 742 query-answer pairs were collected for the evaluation. 
+Given the resource-intensive nature of this process, the expansion of these datasets and the creation of new ones remain important avenues for future work.
+
+\paragraph{Query type taxonomy: factual vs.\ summary.}
+Each query in the dataset is classified into one of two types: \emph{factual} or \emph{summary}. This distinction drives which metrics are computed for each query and is central to the validity of the evaluation.
+
+\textbf{Factual queries} ask for specific, enumerable facts that can be directly verified against the case documents: for example, ``Who are the parties to the main contract?'', ``What damages are claimed by the plaintiff?'', or ``On what date was the court submission filed?''. These queries have a well-defined correct answer --- there is a finite set of required facts that a complete and accurate response must cover. Reference-based metrics (correctness, completeness) are reliable on factual queries because the reference answer is an objective ground truth, not merely one of many valid framings.
+
+\textbf{Summary queries} ask the agent to synthesise a narrative overview: for example, ``Summarise the key events of the dispute'', or ``What is the overall legal position of the defendant?''. These queries do not have a single correct answer. A practitioner could frame an equally valid and complete response in multiple ways --- emphasising different events, using different levels of abstraction, or organising the information differently --- and all such responses would be professionally appropriate. Reference-based metrics are \emph{not} reliable on summary queries because they compare the agent's response against one specific reference framing. A response that is factually complete and legally accurate but structured differently from the reference will be penalised as incomplete or incorrect, not because it is wrong, but because it chose a different framing. This constitutes unfair penalisation and would systematically underestimate both agents' performance on summary questions.
+
+The practical consequence for the evaluation is that completeness is only computed on factual queries, where the concept of ``required facts'' is well-defined and the metric is interpretable. Correctness and relevancy are computed across all query types, since these metrics are more robust to framing variation: a factually accurate response tends to score well on correctness even if its structure differs from the reference, and relevancy only requires that the response is on-topic. This design decision deliberately sacrifices completeness coverage for measurement validity.
 
 \subsection{Evaluation Limitations and Caveats}
 \label{sec:dataset-limitations}
@@ -324,9 +417,10 @@ does not wait for it. The relevant cost comparison is therefore query-time cost,
 is what the reported metrics reflect.
 
 \paragraph{Limitations of expected-answer evaluation.}
-Model responses are graded against expected answers produced in collaboration with legal experts at BAHR AS. This approach carries two inherent risks: the expected answers themselves may contain inaccuracies, and — more fundamentally — many legal queries are open-ended, such that a correct and complete model response may differ substantially from the reference without being wrong. Three mitigations were applied to reduce this risk:
+Model responses are graded against expected answers produced in collaboration with legal experts at BAHR AS. This approach carries two inherent risks: the expected answers themselves may contain inaccuracies, and --- more fundamentally --- many legal queries are open-ended, such that a correct and complete model response may differ substantially from the reference without being wrong. The framing problem is particularly acute for summary queries: a response that synthesises the case accurately but organises the information differently from the reference will appear incomplete to an automated judge even though it may be professionally superior. Four mitigations were applied to reduce this risk:
 \begin{enumerate}
-    \item \textbf{Fact-based scope}: The evaluation is restricted to factual, document-grounded questions (e.g.\ "Who are the parties?", "What damages are claimed?"), deliberately excluding normative or predictive legal questions where correct answers are inherently ambiguous.
+    \item \textbf{Query type separation}: The dataset distinguishes factual from summary queries (see above). Completeness evaluation is restricted to factual queries, where a single reference answer is an objective ground truth. Summary queries are included in correctness and relevancy evaluation but not in completeness evaluation, preventing framing-based penalisation from inflating the apparent performance gap.
+    \item \textbf{Fact-based scope}: Even within factual queries, the evaluation focuses on document-grounded questions (e.g.\ ``Who are the parties?'', ``What damages are claimed?''), deliberately excluding normative or predictive legal questions where correct answers are inherently ambiguous.
     \item \textbf{Validatable content}: Questions are formulated so that their answers can be directly verified against the case documents, reducing the space for legitimate variation.
     \item \textbf{Minimal-requirement framing}: Expected answers are written as \emph{minimum} acceptable responses rather than exhaustive ideal answers, so a model response that covers the required facts is scored as correct even if it includes additional relevant information.
 \end{enumerate}
@@ -345,7 +439,23 @@ Two agent configurations are evaluated:
 A plain LLM baseline without document retrieval was considered but excluded from the evaluation for the reasons described in Section~\ref{sec:dataset-limitations}: the volume of case material immediately saturates provider rate limits, making repeated evaluation impossible.
 
 \textbf{Model Configuration:} \\
-Since the scope of the thesis is not to evaluate the models themselves, but rather the design and architecture of the agent, a selection of four models is used for comparison. These include both closed-source and open-source variants to ensure the agent's performance is consistent across different provider architectures.
+Since the scope of the thesis is not to evaluate the models themselves, but rather the design and architecture of the agent, a selection of four models is used for comparison. 
+These include both closed-source and open-source variants to ensure the agent's performance is consistent across different provider architectures.
+
+For open-source models, several were tested. Initial trials with smaller models, such as \texttt{Qwen3-Next-80B-A3B-Instruct} \cite{qwen3.5}, 
+demonstrated that they lacked the capacity to handle the complexity of the reasoning and extraction tasks, failing to produce coherent or useful outputs. 
+Consequently, the evaluation focused on two of the top-performing large-scale open-source models available at the time of writing: \texttt{Qwen 3.5} 
+from Alibaba and \texttt{GLM-5} from Zhipu AI. Both have a similar scale in terms of total parameters (approx. 400B), 
+but differ significantly in their Mixture-of-Experts (MoE) architecture. Qwen activates 17B parameters per forward pass, 
+whereas GLM-5 activates 40B, giving it a theoretical advantage in capacity that is later reflected in the results. 
+Inference for these models was run via the \texttt{together.ai} \cite{togetherai} API, which was chosen for its production-grade scalability, affordable pricing, and seamless compatibility with the existing LangChain and OpenAI SDKs.
+
+For closed-source models, Google's Gemini family was selected. \texttt{Gemini 2.5 Flash} provides a cost-effective and reliable baseline, 
+suitable for extensive testing without incurring prohibitive costs. \texttt{Gemini 2.5 Pro} serves as the high-capability "gold standard" against which 
+other models are measured. While other providers were considered and are supported by the system's architecture, 
+Google's offerings were particularly advantageous for this evaluation due to their generous rate limits (per second, minute, and day) and large context windows. 
+This was a critical practical consideration, as it minimised the risk of hitting API limits during the time-consuming data collection process, 
+which could otherwise halt evaluation runs despite the presence of retry logic.
 
 \begin{table}[h!]
     \centering
@@ -357,36 +467,57 @@ Since the scope of the thesis is not to evaluate the models themselves, but rath
         \hline
         Gemini 2.5 Pro & Closed & Unknown & Unknown & Google \\
         Gemini 2.5 Flash & Closed & Unknown & Unknown & Google \\
-        Qwen 3.5 \cite{yang2025qwen3technicalreport} & Open (MoE) & 397B & 17B & Alibaba  \\
+        Qwen 3.5 \cite{qwen3technicalreport} & Open (MoE) & 397B & 17B & Alibaba  \\
         GLM-5 \cite{glm5team2026glm5vibecodingagentic}  & Open (MoE) & 435.2B & 40B & Zhipu AI \\
         \hline
     \end{tabular}
 \end{table}
 
+Table~\ref{tab:model_config} lists the four models included in the evaluation, together with their parameter counts and providers.
+
 The evaluation will be conducted across all datasets using consistent model-agent pairings. To account for the inherent stochastic nature of LLM outputs, each evaluation set (model + agent configuration) will be executed 3 times to ensure statistical significance in the results.
 
 \subsection{Metrics}
-The evaluation will focus on several key metrics, measering both the quality of the agent's responses and its efficiency in terms of resource usage.
-Metrics that are to be evaluated are:
-\begin{itemize}
-    \item \textbf{Correctness, Relevancy, and Completeness}: These semantic metrics are evaluated using the DeepEval framework. The agent's output is compared against a "gold standard" reference created in collaboration with legal experts. Each metric is scored on a scale from 0 to 1.
-    \item \textbf{Self-consistency}: The degree to which the agent's output remains consistent across multiple queries and over time as the case evolves. \begin{equation}
+\label{sec:metrics}
+
+The evaluation focuses on two categories of metrics: quality metrics that assess the accuracy and completeness of the agent's responses, and resource metrics that assess the computational cost of producing those responses. Together they allow the main research question to be evaluated jointly --- whether any quality gains are proportionally offset by increased resource consumption.
+
+\paragraph{Correctness, Relevancy, and Completeness (DeepEval).}
+These three semantic quality metrics are evaluated using the \textbf{DeepEval} framework \cite{deepeval}, which uses a separate LLM as an automated judge to score agent outputs against gold-standard reference answers. The judge model used throughout this evaluation is \textbf{Gemini 2.5 Flash}: it is cost-efficient enough to run at the scale required (742 query-answer pairs $\times$ 3 runs $\times$ 3 metrics), well-documented, and widely used in the LLM evaluation literature, making its scoring behaviour relatively well understood. Each response is evaluated independently on a continuous scale from 0 to 1.
+
+\textbf{Correctness} measures whether the factual claims in the agent's response are accurate relative to the reference answer. It is the most diagnostic metric in this evaluation because it directly captures the architectural advantage under test: a structured factsheet provides the agent with pre-extracted, relational facts that vector retrieval alone may fail to surface from a large document corpus.
+
+\textbf{Relevancy} measures whether the response addresses the question asked, rather than drifting to adjacent or tangential content. It functions primarily as a sanity check: as long as an agent engages substantively with the question, the response tends to be on-topic regardless of the underlying architecture. Cases where relevancy fails are therefore informative precisely because they indicate a retrieval or engagement failure, not merely a factual gap.
+
+\textbf{Completeness} measures whether the response covers all facts required by the reference answer. It complements correctness by penalising omissions rather than factual errors: a response can be entirely accurate in what it states while still omitting important facts that the reference includes. Together, the three metrics span the accuracy--coverage--focus dimensions of answer quality.
+
+A response is classified as a \emph{pass} if its aggregate score meets or exceeds a predefined quality threshold; otherwise it is a \emph{fail}. The proportion of queries receiving a passing score is reported as the \textbf{Passrate} metric.
+
+\paragraph{BERTScore and Sentence-BERT Similarity.}
+BERTScore \cite{zhang2020bertscoreevaluatingtextgeneration} quantifies token-level semantic overlap between the agent's response and the reference answer using contextualised BERT embeddings. It computes \emph{precision} (the fraction of generated tokens that are semantically present in the reference), \emph{recall} (the fraction of reference tokens covered by the generated response), and an \emph{F1} score that balances the two. Unlike the LLM-judge metrics, BERTScore requires no separate inference call and is insensitive to judge-prompt phrasing or judge model choice, making it a useful cross-validation signal for ruling out judge artefacts.
+
+Sentence-BERT similarity complements BERTScore by capturing global embedding-level proximity between the two texts as a whole, rather than aligning individual tokens. The distinction matters because a response can score well on BERTScore --- meaning its surface vocabulary overlaps with the reference --- while omitting structured factual content that correctness and completeness evaluation would penalise. Including both metrics provides a more complete picture of semantic alignment and guards against the possibility that quality differences visible in the LLM-judge metrics are an artefact of embedding granularity.
+
+\paragraph{Self-consistency.}
+Self-consistency measures how semantically similar the agent's responses are when the same query is posed in different sessions. Because each agent run involves some inherent stochasticity (temperature sampling, retrieval variance, session-level context differences), the same query may receive different responses across runs even if the underlying case state is identical. A high self-consistency score indicates that the agent converges reliably on the same answer regardless of session context; a low score suggests sensitivity to retrieval noise or prompt variation. This metric captures a dimension of reliability that per-query quality scores cannot: not just whether the agent answers correctly, but whether it does so predictably.
+
+Self-consistency is computed as the mean pairwise cosine similarity of sentence embeddings across all runs of the same query:
+\begin{equation}
     \text{Self-Consistency} = \frac{2}{n(n-1)} \sum_{i=1}^{n-1} \sum_{j=i+1}^{n} \text{cos}(\mathbf{e}_i, \mathbf{e}_j)
 \end{equation}
-\noindent where $n$ is the number of generated outputs, $\mathbf{e}_i$ and $\mathbf{e}_j$ are the sentence embeddings of the $i$-th and $j$-th output, and the cosine similarity is defined as:
+\noindent where $n$ is the number of runs, $\mathbf{e}_i$ and $\mathbf{e}_j$ are the sentence embeddings of the $i$-th and $j$-th responses, and cosine similarity is defined as:
 \begin{equation}
     \text{cos}(\mathbf{e}_i, \mathbf{e}_j) = \frac{\mathbf{e}_i \cdot \mathbf{e}_j}{\|\mathbf{e}_i\| \|\mathbf{e}_j\|}
 \end{equation}
-    \item \textbf{BERTScore}: A metric that evaluates the similarity between the agent's output and a reference text using BERT embeddings \cite{zhang2020bertscoreevaluatingtextgeneration}.
-    \item \textbf{Passrate}: The percentage of queries for which the agent's output meets a predefined quality threshold.
-    \item \textbf{Efficiency Metrics}: \textbf{Token Usage} (total tokens consumed) and \textbf{Inference Time} (latency) are recorded to assess the practical viability of the system.
-\end{itemize}
-Correctness, relevancy, Completeness are all evaluated against the expected out (constructed in collaboration with legal experts) using DeepEval. 
-The framework rates each response on a scale from 0 to 1, with a certain threshold for what is considered a "pass" for the passrate metric.
 
-BERTScore is calculated based on the expected output. 
-Self-consistency is evaluated by comparing the agent's responses across multiple queries and sessions to assess whether it maintains a coherent understanding of the case over time.
-Token usage and inference time are recorded during the agent's operation.
+\paragraph{Resource Metrics.}
+Four resource metrics are recorded for each agent run: \textbf{inference duration} (wall-clock seconds from query submission to final response), \textbf{input token count}, \textbf{output token count}, and \textbf{LLM call count}. Input tokens directly drive API cost and context-window pressure; inference duration determines user-facing latency; LLM call count indicates how much internal orchestration each query requires. These metrics are analysed alongside quality scores to determine whether the custom agent's architectural overhead --- the structured factsheet context injected on each call --- imposes a measurable additional cost relative to the simpler baseline.
+
+Additionally, an estimated cost per run is computed using each provider's advertised per-token prices:
+\begin{equation*}
+    \text{cost} = \text{input\_tokens} \times p_{\text{in}} + \text{output\_tokens} \times p_{\text{out}}
+\end{equation*}
+where $p_{\text{in}}$ and $p_{\text{out}}$ are the input and output token prices respectively. Because absolute costs differ substantially between datasets (TOSL-2024 involves larger document volumes and longer sessions than THRD-2021), raw cost figures are normalised to within-dataset percentile ranks for cross-model comparison.
 
 
 \subsection{Research Question Operationalization}
@@ -530,4 +661,46 @@ Levene's test is applied rather than Bartlett's test because it is robust to dep
 from normality \cite{levene1960} --- a necessary property given the non-normal,
 left-skewed score distributions confirmed by Shapiro-Wilk ($p < 10^{-18}$ for every
 metric).
+
+% -------------------------------------------------------
+
+\section{Development Tooling and AI Assistance}
+
+This section documents the tools and practices used during the development of this thesis — both the software infrastructure supporting the project and the role of AI assistance in the process.
+
+\subsection{Version Control and Repository Structure}
+
+The entire project is maintained in a single Git monorepo hosted on GitHub. This encompasses the agent source code, auxiliary modules (\texttt{ui}, \texttt{evals}, \texttt{data-viewer}), the evaluation datasets, and the \LaTeX{} source for this thesis. Keeping all artefacts in one repository simplifies cross-referencing between the written thesis and the underlying implementation, and allows figures generated in the evaluation notebooks to be committed directly to the \texttt{thesis/figures/} directory — making figure updates a matter of running a notebook cell and committing the result. The only assets not stored in the repository are the datasets and case files, which are hosted in Google Cloud Storage due to their size and confidentiality.
+
+Git's branching model and worktree support were used throughout development. Feature branches isolated experimental work from the stable main branch, and Git worktrees allowed parallel development — for example, running an evaluation trial on one worktree while implementing new features in another — without disrupting the working state.
+
+\subsection{Dependency Management}
+
+Python dependencies are managed with \textbf{uv}, a fast, standards-compliant package manager. \texttt{uv}'s workspace feature allows all four Python packages (\texttt{agent}, \texttt{ui}, \texttt{evals}, \texttt{data-viewer}) to share a single lock file and virtual environment root while maintaining separate dependency declarations per package. This was a key practical consideration for a monorepo of this scope.
+
+\subsection{Report Authoring}
+
+The thesis is written in \LaTeX{} and compiled using \texttt{latexmk}, which automates the multi-pass build required for references, cross-references, and bibliography. The source is version-controlled alongside the codebase, enabling tight coupling between the report and the implementation: code snippets, figures, and table data are all traceable to specific commits.
+
+\subsection{Data Viewer}
+
+A lightweight \textbf{Streamlit} application (\texttt{data-viewer}) was developed to support dataset work and result inspection. It provides a browser-based interface for browsing and editing both training datasets and case files stored in GCS, displaying evaluation results, and inspecting analysis outputs. This reduced the overhead of dataset quality control and made it easier to identify issues during ground-truth annotation.
+
+\subsection{Use of AI Assistance}
+\label{sec:ai-use}
+
+AI tools were used during the development of this thesis in accordance with NMBU's guidelines for the use of artificial intelligence in academic work \cite{nmbu_ai_guidelines}. All use is disclosed here as required.
+
+The primary tool was \textbf{Claude Code} (Anthropic), a CLI-based AI assistant integrated into the IDE.
+
+\paragraph{Code.}
+Claude Code was used for code review, targeted refactoring, and implementation of cross-cutting infrastructure concerns — such as retry logic, rate-limit handling, and concurrency patterns — that are peripheral to the core research contribution. All architectural decisions, data model design, and system-level trade-offs were made independently by the author.
+
+\paragraph{Report writing.}
+AI assistance was used for reformulation and rewording of written content, improving clarity and maintaining a consistent academic register. It was also used to locate relevant background literature and identify applicable theoretical frameworks. All substantive content, arguments, and conclusions are the author's own, and all AI-assisted formulations have been critically reviewed and verified.
+
+\paragraph{Dataset construction.}
+For the THRD-2021 dataset, synthetic case materials (correspondence, internal notes, and supporting documents) were generated using an LLM, seeded from the authentic court record. This approach is discussed in Section~\ref{sec:dataset-limitations} as a methodological caveat: while the synthetic documents were constructed to be consistent with the factual matrix of the authentic record, there is an inherent risk of logical inconsistencies between the real and synthetic materials, and this constitutes a recognised limitation of that dataset.
+
+Ground-truth answers were reviewed and validated using AI-assisted quality control, in collaboration with legal experts at BAHR AS.
 
