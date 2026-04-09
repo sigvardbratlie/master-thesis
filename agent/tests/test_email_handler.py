@@ -16,6 +16,7 @@ from tests.fixtures.email_data import (
     get_mock_eml_gmail_thread,
     get_mock_write_email,
     get_mock_write_email_with_bcc,
+    get_mock_eml_with_sender_names,
 )
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -47,11 +48,7 @@ def _make_msg(msg_id: str, refs: str = None, date: str = "Mon, 15 Jan 2024 10:00
 
 @pytest.fixture
 def parser():
-    handler = EmailHandler()
-    # Alias private name to the renamed public method so that internal
-    # calls to self._extract_email_data() still resolve correctly.
-    handler._extract_email_data = handler.extract_email_data
-    return handler
+    return EmailHandler()
 
 
 # ============================================
@@ -211,6 +208,36 @@ def test_extract_email_data_threading_fields(parser):
     assert email_data.message_id == "<test-message-id-001@juridisk.no>"
     assert email_data.in_reply_to == "<original-message-id@example.com>"
     assert email_data.thread_topic == "Eiendomssak Fjellveien 42A"
+
+
+def test_extract_email_data_sender_name(parser):
+    """from_name and to_names should be extracted when display names are present."""
+    raw = get_mock_eml_with_sender_names()
+    msg = email.message_from_bytes(raw)
+    result = parser.extract_email_data(
+        msg, file_id="f-n01", query_id="q-n01", user_id="u-001", session_id="s-001"
+    )
+
+    email_data = result["email"]
+    assert email_data.from_name == "Advokat Hansen"
+    assert email_data.from_addr == "advokat@juridisk.no"
+    assert email_data.to_names is not None
+    assert "Klient Olsen" in email_data.to_names
+    assert "Partner Dahl" in email_data.to_names
+    assert email_data.cc_names is not None
+    assert "Sekretær Berg" in email_data.cc_names
+
+
+def test_extract_email_data_no_display_name(parser):
+    """from_name should be None when the From header contains only an email address."""
+    raw = get_mock_eml_plain_text()
+    msg = email.message_from_bytes(raw)
+    result = parser.extract_email_data(
+        msg, file_id="f-n02", query_id="q-n02", user_id="u-001", session_id="s-001"
+    )
+
+    email_data = result["email"]
+    assert email_data.from_name is None
 
 
 def test_extract_email_data_body_text(parser):
@@ -637,24 +664,25 @@ def test_thread_parser_normalize_date_empty_returns_none(thread_parser):
     assert thread_parser.normalize_date("") is None
 
 
-def test_thread_parser_decode_subject_plain(thread_parser):
-    """decode_subject returns the original string when not base64 encoded."""
-    result = thread_parser.decode_subject("Re: Eiendomssak")
+def test_thread_parser_decode_eml_string_plain(thread_parser):
+    """decode_eml_string returns the original string when not base64 encoded."""
+    result = thread_parser.decode_eml_string("Re: Eiendomssak")
     assert result == "Re: Eiendomssak"
 
 
-def test_thread_parser_decode_subject_base64(thread_parser):
-    """decode_subject decodes a ?B?...?= encoded subject."""
+def test_thread_parser_decode_eml_string_base64(thread_parser):
+    """decode_eml_string decodes a ?B?...?= encoded string."""
     import base64 as b64
     encoded_text = b64.b64encode("Testemne".encode("utf-8")).decode("ascii")
     subject = f"=?utf-8?B?{encoded_text}?="
-    result = thread_parser.decode_subject(subject)
+    result = thread_parser.decode_eml_string(subject)
     assert result == "Testemne"
 
 
-def test_thread_parser_decode_subject_none(thread_parser):
-    """decode_subject returns None for None input."""
-    assert thread_parser.decode_subject(None) is None
+def test_thread_parser_decode_eml_string_none(thread_parser):
+    """decode_eml_string returns None for None or empty input."""
+    assert thread_parser.decode_eml_string(None) is None
+    assert thread_parser.decode_eml_string("") is None
 
 
 def test_thread_parser_parse_text_part_no_header(thread_parser):

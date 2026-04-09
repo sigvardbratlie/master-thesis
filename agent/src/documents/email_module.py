@@ -17,14 +17,39 @@ import re
 from typing import Optional, List
 from pydantic import BaseModel, Field
 from email.utils import parseaddr, parsedate_to_datetime
+from email.header import decode_header, make_header
 from base64 import b64decode
 from email.message import Message
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+class EmailBaseClass(BaseHandler):
+    def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
+        super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
-class EmailHandler(BaseHandler):
+    def _clean_text(self, text: str) -> str:
+        text = re.sub(r"^>+", "", text, flags=re.MULTILINE)
+        return re.sub(r"<mailto:[^>]+>", "", text).strip()
+
+    def decode_eml_string(self, text: str | None) -> str | None:
+        if not text: return None
+        try:
+            decoded = str(make_header(decode_header(text))).strip()
+            return decoded if decoded else None
+        except:
+            return text.strip()
+
+    def _parse_address(self, raw: str) -> tuple[str, str]:
+        """Decode MIME-encoded words in an address field, then extract (name, email)."""
+        try:
+            decoded = str(make_header(decode_header(raw.strip())))
+        except Exception:
+            decoded = raw.strip()
+        return parseaddr(decoded)
+
+
+class EmailHandler(EmailBaseClass):
     def __init__(self,chunk_size : int = 1000, chunk_overlap : int = 200):
         super().__init__(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
@@ -41,42 +66,7 @@ class EmailHandler(BaseHandler):
         else:
             body_text = msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8")
             body_html = None
-        return {"html" : body_html, "text": body_text}
-
-    # def _extract_attachments(self, msg : Message) -> list:
-    #     allowed_types = ["application/pdf", 
-    #                      "application/msword", 
-    #                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    #                      "text/plain",
-    #                      "text/csv",
-    #                      "message/rfc822",
-
-    #                      ]
-    #     attachments = []
-    #     for part in msg.walk():
-    #         content_disposition = part.get("Content-Disposition")
-    #         if content_disposition and "attachment" in content_disposition:
-    #             filename = part.get_filename()
-    #             if filename:
-    #                 if part.get_content_type() in allowed_types:
-    #                     payload = part.get_payload(decode=True)
-    #                     try:
-    #                         content = payload.decode(part.get_content_charset() or "utf-8")
-    #                     except (UnicodeDecodeError, LookupError):
-    #                         content = base64.b64encode(payload).decode("ascii")
-    #                     attachments.append({
-    #                         "filename": filename,
-    #                         "file_type": part.get_content_type(),
-    #                         "size" : len(payload),
-    #                         "file_id": str(uuid.uuid4()),
-    #                         "content": content
-    #                     })
-    #                 else:
-    #                     logger.warning(f"⚠️  Skipping attachment '{filename}' — unsupported type '{part.get_content_type()}'")
-    #             else:
-    #                 logger.warning("⚠️  Attachment part found without filename — skipping")
-    #     return attachments
-
+        return {"html" : body_html, "text": self._clean_text(body_text)}
 
     def _resolve_content_type(self, part) -> str:
         EXTENSION_TYPE_MAP = {
@@ -162,10 +152,14 @@ class EmailHandler(BaseHandler):
                 query_id=query_id,
 
                 subject=msg.get("Subject", ""),
-                from_addr=msg.get("From", ""),
-                to=[addr.strip() for addr in msg.get("To", "").split(",")],
-                cc=[addr.strip() for addr in msg.get("Cc", "").split(",")] if msg.get("Cc") else None,
-                bcc=[addr.strip() for addr in msg.get("Bcc", "").split(",")] if msg.get("Bcc") else None,
+                from_addr=self._parse_address(msg.get("From", ""))[1],
+                from_name=self._parse_address(msg.get("From", ""))[0] or None,
+                to=[self._parse_address(addr)[1] for addr in msg.get("To", "").split(",")],
+                to_names=[n for addr in msg.get("To", "").split(",") if (n := self._parse_address(addr)[0])] or None,
+                cc=[self._parse_address(addr)[1] for addr in msg.get("Cc", "").split(",")] if msg.get("Cc") else None,
+                cc_names=[n for addr in msg.get("Cc", "").split(",") if (n := self._parse_address(addr)[0])] if msg.get("Cc") else None,
+                bcc=[self._parse_address(addr)[1] for addr in msg.get("Bcc", "").split(",")] if msg.get("Bcc") else None,
+                bcc_names=[n for addr in msg.get("Bcc", "").split(",") if (n := self._parse_address(addr)[0])] if msg.get("Bcc") else None,
                 date=email.utils.parsedate_to_datetime(msg.get("Date")) if msg.get("Date") else None,
 
                 message_id=msg.get("Message-ID"),
@@ -203,11 +197,11 @@ class EmailHandler(BaseHandler):
         except Exception as e:
             logger.exception(f"❌ EML parse failed")
             raise ValueError("Invalid EML content") from e
-        email_data = self._extract_email_data(msg, 
-                                              query_id=query_id, 
-                                              user_id=user_id, 
-                                              session_id=session_id, 
-                                              file_id=file_id)
+        email_data = self.extract_email_data(msg,
+                                             query_id=query_id,
+                                             user_id=user_id,
+                                             session_id=session_id,
+                                             file_id=file_id)
         return email_data
     
     def parse_eml(self, content: bytes, metadata: dict, force_metadata_model: bool = True) -> tuple[str, dict]:
@@ -262,7 +256,7 @@ class EmailPart(BaseModel):
     class Config:
         populate_by_name = True
 
-class EmailThreadParser:
+class EmailThreadParser(EmailBaseClass):
     def __init__(self):
         # BLOCK: Outlook-stil
         self.block_pattern = re.compile(
@@ -287,9 +281,20 @@ class EmailThreadParser:
             'nov': 11, 'november': 11, 'des': 12, 'desember': 12
         }
 
-    def _clean_text(self, text: str) -> str:
-        text = re.sub(r"^>+", "", text, flags=re.MULTILINE)
-        return re.sub(r"<mailto:[^>]+>", "", text).strip()
+    # def _clean_text(self, text: str) -> str:
+    #     text = re.sub(r"^>+", "", text, flags=re.MULTILINE)
+    #     return re.sub(r"<mailto:[^>]+>", "", text).strip()
+
+    # def decode_subject(self, subject: Optional[str]) -> Optional[str]:
+    #     if not subject: return None
+    #     if match := re.search(r'\?B\?([A-Za-z0-9+/=]+)\?=', subject):
+    #         subject = match.group(1).strip()
+    #         subject += '=' * ((4 - len(subject) % 4) % 4)
+    #         try:
+    #             return b64decode(subject).decode('utf-8', errors='replace')
+    #         except: pass
+    #     return subject.strip()
+
 
     def _extract_emails(self, text: Optional[str]) -> Optional[List[str]]:
         if not text: return None
@@ -323,15 +328,6 @@ class EmailThreadParser:
             return parsedate_to_datetime(date_str).isoformat()
         except: return date_str
 
-    def decode_subject(self, subject: Optional[str]) -> Optional[str]:
-        if not subject: return None
-        if match := re.search(r'\?B\?([A-Za-z0-9+/=]+)\?=', subject):
-            subject = match.group(1).strip()
-            subject += '=' * ((4 - len(subject) % 4) % 4)
-            try:
-                return b64decode(subject).decode('utf-8', errors='replace')
-            except: pass
-        return subject.strip()
 
     def parse_text_part(self, chunk: str) -> EmailPart:
         chunk = self._clean_text(chunk)
@@ -397,7 +393,7 @@ class EmailThreadParser:
         main_sender = parseaddr(msg.get("From"))[1] if msg.get("From") else None
         main_recipients = self._extract_emails(msg.get("To")) or []
         main_cc = self._extract_emails(msg.get("Cc")) or []
-        main_subject = self.decode_subject(msg.get("Subject"))
+        main_subject = self.decode_eml_string(msg.get("Subject"))
         
         main_sender_low = main_sender.lower() if main_sender else ""
         main_recipients_low = [r.lower() for r in main_recipients]

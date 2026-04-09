@@ -240,6 +240,18 @@ def get_mock_eml_metadata() -> dict:
     }
 
 
+def get_mock_eml_with_sender_names() -> bytes:
+    """EML with display names in From, To and Cc headers."""
+    msg = MIMEText("Hei, dette er en test-email angående eiendomssaken.", "plain", "utf-8")
+    msg["Subject"] = "Re: Eiendomssak Fjellveien 42A"
+    msg["From"] = "Advokat Hansen <advokat@juridisk.no>"
+    msg["To"] = "Klient Olsen <klient@example.com>, Partner Dahl <partner@juridisk.no>"
+    msg["Cc"] = "Sekretær Berg <sekretar@juridisk.no>"
+    msg["Date"] = "Mon, 15 Jan 2024 10:30:00 +0100"
+    msg["Message-ID"] = "<test-message-id-names-001@juridisk.no>"
+    return msg.as_bytes()
+
+
 def get_mock_eml_outlook_thread() -> bytes:
     """Email with an Outlook-style quoted thread block in the body."""
     body = (
