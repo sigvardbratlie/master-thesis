@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Case AI | The Editorial Authority</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700;800&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                "error-container": "#ffdad6",
+                "secondary-container": "#aacbff",
+                "tertiary": "#000000",
+                "on-secondary-container": "#335583",
+                "surface-container-highest": "#e5e2e0",
+                "surface": "#fcf9f7",
+                "on-primary-fixed-variant": "#374570",
+                "tertiary-fixed-dim": "#fabc4b",
+                "primary-fixed-dim": "#b7c5f8",
+                "on-primary": "#ffffff",
+                "background": "#fcf9f7",
+                "surface-container-high": "#eae8e6",
+                "secondary-fixed-dim": "#a7c8fc",
+                "on-surface": "#1b1c1b",
+                "secondary-fixed": "#d4e3ff",
+                "on-tertiary-container": "#ae7a01",
+                "surface-variant": "#e5e2e0",
+                "surface-container": "#f0edeb",
+                "surface-bright": "#fcf9f7",
+                "on-surface-variant": "#45464f",
+                "on-error-container": "#93000a",
+                "surface-dim": "#dcd9d8",
+                "on-tertiary-fixed": "#281900",
+                "on-primary-fixed": "#081942",
+                "inverse-surface": "#31302f",
+                "tertiary-fixed": "#ffdeac",
+                "outline-variant": "#c6c6d0",
+                "on-tertiary": "#ffffff",
+                "tertiary-container": "#281900",
+                "surface-container-lowest": "#ffffff",
+                "secondary": "#3e608e",
+                "on-primary-container": "#7482b2",
+                "inverse-on-surface": "#f3f0ee",
+                "primary-container": "#081942",
+                "on-secondary": "#ffffff",
+                "surface-tint": "#4f5d8a",
+                "error": "#ba1a1a",
+                "primary-fixed": "#dbe1ff",
+                "outline": "#757680",
+                "on-secondary-fixed": "#001c3a",
+                "on-background": "#1b1c1b",
+                "surface-container-low": "#f6f3f1",
+                "on-tertiary-fixed-variant": "#5f4100",
+                "on-secondary-fixed-variant": "#244874",
+                "inverse-primary": "#b7c5f8",
+                "primary": "#000000",
+                "on-error": "#ffffff"
+            },
+            "borderRadius": {
+                "DEFAULT": "0.125rem",
+                "lg": "0.25rem",
+                "xl": "0.5rem",
+                "full": "0.75rem"
+            },
+            "fontFamily": {
+                "headline": ["Public Sans"],
+                "body": ["Inter"],
+                "label": ["Inter"]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3, .brand-font { font-family: 'Public Sans', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #e5e2e0; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface selection:bg-secondary-container">
+<div class="flex h-screen overflow-hidden">
+<!-- Sidebar Navigation (Level 2 Shared Component) -->
+<aside class="flex flex-col h-full py-6 pl-4 bg-slate-100 dark:bg-slate-900 text-[#081942] dark:text-slate-100 font-inter text-sm docked h-screen left-0 w-64">
+<div class="px-4 mb-8">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-primary-container flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined" data-icon="balance">balance</span>
+</div>
+<div>
+<div class="text-lg font-bold font-public-sans text-[#081942]">Case AI</div>
+<div class="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Active Matter</div>
+</div>
+</div>
+</div>
+<button class="mx-4 mb-8 py-3 px-4 bg-primary text-on-primary font-semibold flex items-center justify-center gap-2 rounded-xl shadow-sm hover:opacity-90 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+                New Legal Query
+            </button>
+<nav class="flex-1 space-y-1">
+<!-- Dashboard -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:text-[#081942] hover:bg-slate-200 dark:hover:bg-slate-800 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span>Dashboard</span>
+</a>
+<!-- Intelligence (Active) -->
+<a class="flex items-center gap-3 px-4 py-3 bg-[#fcf9f7] dark:bg-slate-800 text-[#3e608e] dark:text-blue-300 font-bold rounded-l-lg transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="auto_awesome" data-weight="fill" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+<span>Intelligence</span>
+</a>
+<!-- Calendar -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:text-[#081942] hover:bg-slate-200 dark:hover:bg-slate-800 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="calendar_today">calendar_today</span>
+<span>Calendar</span>
+</a>
+<!-- Editor -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:text-[#081942] hover:bg-slate-200 dark:hover:bg-slate-800 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="edit_note">edit_note</span>
+<span>Editor</span>
+</a>
+<!-- Resources -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:text-[#081942] hover:bg-slate-200 dark:hover:bg-slate-800 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="folder_open">folder_open</span>
+<span>Resources</span>
+</a>
+</nav>
+<div class="mt-auto border-t border-slate-200/50 pt-4 pr-4">
+<a class="flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:text-[#081942] hover:bg-slate-200 dark:hover:bg-slate-800 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+<span>Help Center</span>
+</a>
+<div class="flex items-center gap-3 px-4 py-4 mt-2 bg-slate-200/40 rounded-xl">
+<img class="w-8 h-8 rounded-full bg-slate-300" data-alt="portrait of a senior legal partner in a professional suit with neutral lighting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDulgv-wqncapdVuL3EseRqRbEP7NnS60X-2joFz6CW7hhpZ7WgwMC9_ponbwBUJyI3YU1sF8DqJVvRaeONn2jCcVFAn_JMJQsfaQHFLFWC9iCxTKN1Xb-QR40fMegBynbx3V9-sIAjAIOOq2MTR-3LKD-pJEpfvSe6ZtRszZgffxr-1NJtLqOd-h7eys_o1k9WdaWABoXiD2sLpzbf6fxNOz2Vfv61i1WsjSLooxZVlCwFle1hIvbH_lv9JzOT8tO882KPNyFxlYLT"/>
+<div class="overflow-hidden">
+<p class="text-xs font-bold truncate">Julian Vane</p>
+<p class="text-[10px] text-slate-500 truncate">Senior Counsel</p>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content (Chat Interface) -->
+<main class="flex-1 flex flex-col min-w-0 bg-surface">
+<!-- Header Section -->
+<header class="flex justify-between items-center w-full px-8 py-4 bg-[#fcf9f7] dark:bg-slate-950 font-public-sans tracking-tight border-b border-surface-container">
+<div class="flex items-center gap-4">
+<h1 class="text-xl font-bold text-[#081942] dark:text-slate-50">Intelligence Chat</h1>
+<span class="px-2 py-0.5 bg-secondary-fixed text-on-secondary-fixed-variant text-[10px] font-bold rounded uppercase tracking-wider">Project: Alpha-102</span>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-slate-500 hover:text-[#3e608e] transition-colors">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="text-slate-500 hover:text-[#3e608e] transition-colors">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</div>
+</header>
+<!-- Chat Canvas -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Primary Chat Scroll Area -->
+<section class="flex-1 overflow-y-auto custom-scrollbar px-6 py-10 flex flex-col items-center">
+<div class="w-full max-w-3xl space-y-10">
+<!-- User Message -->
+<div class="flex flex-col items-end group">
+<div class="bg-surface-container-high p-5 rounded-2xl rounded-tr-none text-on-surface max-w-[85%] shadow-sm leading-relaxed">
+                                Please review the <span class="font-semibold text-secondary underline decoration-secondary/30">Merger Agreement</span> and identify any potential conflicts between Section 4.2 and our current <span class="font-semibold text-secondary underline decoration-secondary/30">Operating Bylaws</span>. Specifically focus on the board member appointment clause.
+                            </div>
+<span class="text-[10px] text-slate-400 mt-2 mr-1 font-medium">10:42 AM · Julian Vane</span>
+</div>
+<!-- AI Response -->
+<div class="flex flex-col items-start">
+<div class="flex items-center gap-3 mb-3">
+<div class="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center">
+<span class="material-symbols-outlined text-white text-sm" data-icon="auto_awesome">auto_awesome</span>
+</div>
+<span class="text-sm font-bold font-public-sans text-primary-container">Case AI</span>
+</div>
+<div class="bg-surface-container-lowest border border-surface-container-high p-6 rounded-2xl rounded-tl-none text-on-surface max-w-[95%] shadow-sm leading-relaxed">
+<p class="mb-4">I have analyzed the documents provided. There is a <strong>significant discrepancy</strong> found in the board appointment protocol.</p>
+<div class="space-y-4 mb-6">
+<div class="p-4 bg-surface rounded-xl border-l-4 border-secondary">
+<h4 class="text-xs font-bold uppercase tracking-wider text-secondary mb-2">Primary Conflict Identified</h4>
+<p class="text-sm">In [Event: Merger Agreement], Section 4.2 stipulates that <strong>Alpha Dynamics</strong> retains the right to appoint 3 permanent seats. However, your [Party: Alpha Dynamics] <span class="italic text-slate-600">Amended Bylaws (2023)</span> restrict external appointments to a maximum of 2 without a unanimous shareholder vote.</p>
+</div>
+</div>
+<h4 class="text-sm font-bold mb-2">Key Findings:</h4>
+<ul class="list-disc pl-5 space-y-2 text-sm text-on-surface-variant">
+<li><strong>Procedural Inconsistency:</strong> Section 4.2 (a) lacks the 'Force Majeure' trigger required by standard local regulation.</li>
+<li><strong>Voting Rights:</strong> The proposed structure in the agreement would dilute existing Tier-1 shareholders by approximately 12.5%.</li>
+<li><strong>Regulatory Gap:</strong> Does not explicitly cite the <em>2024 Corporate Transparency Act</em> guidelines.</li>
+</ul>
+<div class="mt-6 flex flex-wrap gap-2">
+<button class="flex items-center gap-2 px-3 py-1.5 bg-secondary-fixed text-on-secondary-fixed-variant text-xs font-semibold rounded-full hover:bg-secondary-container transition-colors">
+<span class="material-symbols-outlined text-base" data-icon="description">description</span>
+                                        Open Merger Agreement
+                                    </button>
+<button class="flex items-center gap-2 px-3 py-1.5 bg-surface-container-high text-on-surface-variant text-xs font-semibold rounded-full hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-base" data-icon="summarize">summarize</span>
+                                        Draft Memo
+                                    </button>
+</div>
+</div>
+<span class="text-[10px] text-slate-400 mt-2 ml-1 font-medium">10:43 AM · Generated via Case-4 LLM</span>
+</div>
+</div>
+</section>
+<!-- Right Sidebar: Contextual Assets -->
+<aside class="w-80 bg-surface-container-low border-l border-surface-container flex flex-col">
+<div class="p-6 border-b border-surface-container">
+<h3 class="text-xs font-bold uppercase tracking-[0.1em] text-slate-500">Contextual Assets</h3>
+</div>
+<div class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
+<!-- Referenced Document Card -->
+<div class="bg-surface-container-lowest p-4 rounded-xl border border-surface-container-high hover:shadow-md transition-shadow group cursor-pointer">
+<div class="flex items-start justify-between mb-3">
+<div class="w-10 h-10 rounded bg-secondary/10 flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined" data-icon="article">article</span>
+</div>
+<span class="material-symbols-outlined text-slate-300 group-hover:text-secondary" data-icon="open_in_new">open_in_new</span>
+</div>
+<h4 class="text-sm font-bold text-on-surface mb-1 truncate">Merger_Agreement_Draft_v4.pdf</h4>
+<p class="text-[10px] text-slate-500 mb-3">Modified 2 days ago · 4.2MB</p>
+<div class="flex items-center gap-2">
+<span class="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 font-bold rounded">Analyzed</span>
+<span class="text-[10px] px-2 py-0.5 bg-slate-100 text-slate-600 font-bold rounded">12 Citations</span>
+</div>
+</div>
+<!-- Extracted Entity Card -->
+<div class="bg-surface-container-lowest p-4 rounded-xl border border-surface-container-high hover:shadow-md transition-shadow cursor-pointer">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-sm text-tertiary-fixed-dim" data-icon="business_center">business_center</span>
+<span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Entity</span>
+</div>
+<h4 class="text-sm font-bold text-on-surface">Alpha Dynamics Corp.</h4>
+<p class="text-xs text-on-surface-variant mt-1">Lead acquirer in current transaction flow. Identified in 4 core exhibits.</p>
+</div>
+<!-- Extracted Entity Card -->
+<div class="bg-surface-container-lowest p-4 rounded-xl border border-surface-container-high hover:shadow-md transition-shadow cursor-pointer">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-sm text-secondary" data-icon="event_note">event_note</span>
+<span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Critical Date</span>
+</div>
+<h4 class="text-sm font-bold text-on-surface">Oct 24, 2024</h4>
+<p class="text-xs text-on-surface-variant mt-1">Closing deadline specified in Clause 9.1 of the agreement.</p>
+</div>
+</div>
+<div class="p-4 bg-surface-container">
+<button class="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-slate-300 rounded-xl text-slate-500 hover:bg-white transition-all text-xs font-bold">
+<span class="material-symbols-outlined text-sm" data-icon="upload_file">upload_file</span>
+                            Add Document Context
+                        </button>
+</div>
+</aside>
+</div>
+<!-- Interaction Bar -->
+<footer class="p-6 bg-surface">
+<div class="max-w-4xl mx-auto">
+<!-- Quick Actions Pills -->
+<div class="flex gap-2 mb-4 overflow-x-auto pb-2 no-scrollbar">
+<button class="whitespace-nowrap px-4 py-2 bg-surface-container-lowest border border-surface-container-high rounded-full text-xs font-semibold text-on-surface-variant hover:border-secondary hover:text-secondary transition-all">
+                            Analyze this document
+                        </button>
+<button class="whitespace-nowrap px-4 py-2 bg-surface-container-lowest border border-surface-container-high rounded-full text-xs font-semibold text-on-surface-variant hover:border-secondary hover:text-secondary transition-all">
+                            Extract deadlines
+                        </button>
+<button class="whitespace-nowrap px-4 py-2 bg-surface-container-lowest border border-surface-container-high rounded-full text-xs font-semibold text-on-surface-variant hover:border-secondary hover:text-secondary transition-all">
+                            Summarize case strategy
+                        </button>
+<button class="whitespace-nowrap px-4 py-2 bg-surface-container-lowest border border-surface-container-high rounded-full text-xs font-semibold text-on-surface-variant hover:border-secondary hover:text-secondary transition-all">
+                            Check for precedence
+                        </button>
+</div>
+<!-- Main Prompt Input -->
+<div class="relative group">
+<div class="absolute inset-0 bg-secondary/5 rounded-2xl blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity"></div>
+<div class="relative bg-surface-container-lowest border border-surface-container-high rounded-2xl shadow-lg focus-within:border-secondary transition-all overflow-hidden flex flex-col">
+<textarea class="w-full bg-transparent border-none focus:ring-0 p-5 text-sm min-h-[80px] resize-none" placeholder="Ask Case AI to analyze documents, draft clauses, or find conflicts..."></textarea>
+<div class="flex items-center justify-between px-4 pb-4">
+<div class="flex gap-1">
+<button class="p-2 text-slate-400 hover:text-secondary transition-colors">
+<span class="material-symbols-outlined text-xl" data-icon="attach_file">attach_file</span>
+</button>
+<button class="p-2 text-slate-400 hover:text-secondary transition-colors">
+<span class="material-symbols-outlined text-xl" data-icon="mic">mic</span>
+</button>
+<button class="p-2 text-slate-400 hover:text-secondary transition-colors">
+<span class="material-symbols-outlined text-xl" data-icon="data_usage">data_usage</span>
+</button>
+</div>
+<button class="flex items-center gap-2 px-6 py-2 bg-primary text-on-primary rounded-xl font-bold text-sm shadow-md hover:translate-y-[-1px] active:translate-y-[1px] transition-all">
+                                    Send
+                                    <span class="material-symbols-outlined text-sm" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+<p class="text-center text-[10px] text-slate-400 mt-3 font-medium">Case AI can make mistakes. Always verify legal citations and document references.</p>
+</div>
+</footer>
+</main>
+</div>
+</body></html>
