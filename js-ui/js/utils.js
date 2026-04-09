@@ -36,6 +36,38 @@ export function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+/** Map a filename extension to a backend-accepted MIME type (FileType enum). */
+const _EXT_MIME = {
+  pdf:  'application/pdf',
+  txt:  'text/plain',
+  csv:  'text/csv',
+  md:   'text/markdown',
+  eml:  'message/rfc822',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+};
+
+export function resolveFileType(file) {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  return _EXT_MIME[ext] ?? file.type ?? 'text/plain';
+}
+
+/**
+ * Convert an ArrayBuffer to a base64 string.
+ * Uses chunked processing to avoid "Maximum call stack size exceeded"
+ * when spreading large Uint8Arrays into String.fromCharCode.
+ */
+export function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary  = '';
+  const chunk = 8192;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 /** Generate a UUID v4 */
 export function uuid() {
   return crypto.randomUUID();

@@ -16,11 +16,19 @@ import {
   loadProjectAttachments,
   loadProjectEmails,
   loadEmailBody,
+  streamProjectUpdate,
+  insertProjectParty,
+  insertProjectDeadline,
+  insertProjectEvent,
+  insertProjectClaim,
+  insertProjectDamage,
 } from '../api.js';
 import { fetchFileAsObjectUrl, fetchTextFile } from '../storage.js';
-import { renderSidebar, bindSidebarEvents } from '../components/sidebar.js';
+import { renderProjectSidebar, bindProjectSidebarEvents } from '../components/sidebar_level2.js';
+import { renderPipelineModal, openPipelineModal }  from '../components/pipeline_modal.js';
 import { renderTopbar }                     from '../components/topbar.js';
-import { formatDate, skeleton, escHtml }    from '../utils.js';
+import { formatDate, skeleton, escHtml, uuid, toast, arrayBufferToBase64, resolveFileType } from '../utils.js';
+import { appState } from '../state.js';
 import { initPopovers, registerItems }      from '../components/popovers.js';
 import { marked }                           from 'marked';
 import { chatLog }                          from '../logger.js';
@@ -34,33 +42,29 @@ const _emailStore  = new Map(); // key: email_id → email object
 const _attachStore = new Map(); // key: file_id  → attachment object
 let   _viewerBound        = false; // prevents duplicate document listeners across navigations
 let   _projectEventsBound = false; // same guard for project-page listeners
+let   _activeProjectId    = null;  // current project, readable by modal handlers
 
 export async function renderProject(params) {
   const projectId = params.id;
+  _activeProjectId = projectId;
 
   // Clear stores so previous project's data doesn't linger
   _emailStore.clear();
   _attachStore.clear();
 
   document.getElementById('app').innerHTML = `
-    ${renderSidebar()}
+    ${renderProjectSidebar(projectId)}
     <div class="ml-64 min-h-screen bg-surface flex flex-col">
       ${renderTopbar({
         title: 'Loading...',
         breadcrumb: { label: 'Projects', href: '#/' },
-        actions: `
-          <a href="#/chat/${projectId}"
-             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant text-xs font-headline font-semibold hover:bg-primary hover:text-on-primary transition-all">
-            <span class="material-symbols-outlined text-[16px]" style="font-variation-settings:'FILL' 1">chat</span>
-            Open Chat
-          </a>`,
       })}
       <div id="project-body" class="flex-1 flex">
         <div class="flex-1 p-10 space-y-4">${skeleton(5)}</div>
       </div>
     </div>`;
 
-  bindSidebarEvents();
+  bindProjectSidebarEvents({ onUpdate: () => _openUpdateModal(projectId) });
 
   // Load meta first — needed for title + shell structure
   let meta;
@@ -158,39 +162,120 @@ function buildProjectShell(projectId, meta) {
 
   document.getElementById('project-body').innerHTML = `
     <div class="flex-1 overflow-y-auto min-w-0" id="factsheet-panel">
-      <div class="max-w-4xl mx-auto px-10 py-10">
+      <div class="max-w-7xl mx-auto px-10 py-10">
 
-        <!-- Case title -->
+        <!-- Title + background -->
         <div class="mb-8">
           <h1 class="font-headline font-black text-3xl text-primary tracking-tight leading-tight">${escHtml(title)}</h1>
-          <p class="text-xs text-on-surface-variant/50 font-mono mt-2">${projectId}</p>
+          <p class="text-xs text-on-surface-variant/40 font-mono mt-1.5">${projectId}</p>
+          ${meta.background ? `
+          <div class="mt-5 p-4 bg-surface-container-low/60 rounded-xl max-w-3xl">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="material-symbols-outlined text-sm text-secondary">info</span>
+              <h4 class="text-[10px] font-bold text-primary uppercase tracking-widest">Case Background</h4>
+            </div>
+            <p class="text-sm text-on-surface-variant leading-relaxed whitespace-pre-line">${escHtml(meta.background)}</p>
+          </div>` : ''}
         </div>
 
+        <!-- 2-column dashboard grid -->
+        <div class="grid grid-cols-12 gap-8 mb-8">
+
+          <!-- LEFT col (8): Timeline + Communication -->
+          <div class="col-span-8 space-y-8">
+
+            <!-- Case Timeline -->
+            <div class="bg-surface-container-low rounded-xl overflow-hidden">
+              <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant/5">
+                <div>
+                  <h3 class="font-headline font-bold text-base text-primary">Case Chronology</h3>
+                  <p class="text-[10px] text-on-surface-variant mt-0.5">Scroll horizontally · click dots to expand</p>
+                </div>
+                <button data-add-type="event"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-secondary ring-1 ring-secondary/20 hover:bg-secondary/5 transition-colors">
+                  <span class="material-symbols-outlined text-[14px]">add</span>Add Event
+                </button>
+              </div>
+              <div class="px-6 pb-6 pt-3">
+                <div id="sec-timeline">${sectionSkeleton}</div>
+              </div>
+            </div>
+
+            <!-- Communication & Assets -->
+            <div class="bg-surface-container-lowest rounded-xl overflow-hidden ring-1 ring-outline-variant/10">
+              <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant/5">
+                <h3 class="font-headline font-bold text-sm text-primary uppercase tracking-widest">Communication &amp; Assets</h3>
+                <button class="text-xs font-bold text-secondary hover:underline">View All</button>
+              </div>
+              <div class="px-6 pb-6 pt-3">
+                <div id="sec-documents">${sectionSkeleton}</div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- RIGHT col (4): Parties + Deadlines -->
+          <div class="col-span-4 space-y-8">
+
+            <!-- Parties -->
+            <div class="bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10 p-6">
+              <div class="flex items-center justify-between mb-5">
+                <h3 class="font-headline font-bold text-sm text-primary uppercase tracking-widest">Parties</h3>
+                <span class="material-symbols-outlined text-[20px] text-on-surface-variant/40 hover:text-secondary cursor-pointer transition-colors">search</span>
+              </div>
+              <div id="sec-parties" class="max-h-64 overflow-y-auto pr-1">${sectionSkeleton}</div>
+              <button data-add-type="party" class="w-full mt-5 py-2 border border-dashed border-outline-variant rounded-lg text-xs font-bold text-on-surface-variant/50 hover:text-secondary hover:border-secondary transition-all">
+                + Add Party
+              </button>
+            </div>
+
+            <!-- Deadlines -->
+            <div class="bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10 p-6">
+              <div class="flex items-center justify-between mb-5">
+                <h3 class="font-headline font-bold text-sm text-primary uppercase tracking-widest">Deadlines</h3>
+                <span class="material-symbols-outlined text-[20px] text-on-surface-variant/40 hover:text-secondary cursor-pointer transition-colors">event</span>
+              </div>
+              <div id="sec-deadlines" class="max-h-64 overflow-y-auto pr-1">${sectionSkeleton}</div>
+              <button data-add-type="deadline" class="w-full mt-5 py-2 border border-dashed border-outline-variant rounded-lg text-xs font-bold text-on-surface-variant/50 hover:text-secondary hover:border-secondary transition-all">
+                + Add Deadline
+              </button>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Full-width: Claims + Damages (collapsible) -->
         <div class="space-y-4">
-          ${sec('background', 'Background', null,
-            meta.background
-              ? `<p class="text-sm text-on-surface font-body leading-relaxed whitespace-pre-line">${escHtml(meta.background)}</p>`
-              : `<p class="text-sm text-on-surface-variant font-body italic">No background recorded.</p>`
-          )}
-
-          ${sec('timeline',  'Case Chronology', 'Scroll horizontally · key events always visible · click dots to expand', sectionSkeleton)}
-          ${sec('parties',   'Active Parties',  null, sectionSkeleton)}
-          ${sec('claims',    'Claims',          null, sectionSkeleton)}
-          ${sec('deadlines', 'Deadlines',       null, sectionSkeleton)}
-          ${sec('damages',   'Damages',         null, sectionSkeleton)}
-          ${sec('documents', 'Documents',       'Loading…', sectionSkeleton)}
+          ${sec('claims',  'Claims',  null, sectionSkeleton)}
+          ${sec('damages', 'Damages', null, sectionSkeleton)}
         </div>
 
-        <div class="mt-8 pt-4 border-t border-outline-variant/10 flex items-center justify-between text-[10px] text-on-surface-variant/30 font-body">
-          <span>Created ${formatDate(meta.created_at)}</span>
+        <div class="mt-8 pt-4 border-t border-outline-variant/10 text-[10px] text-on-surface-variant/30 font-body">
+          Created ${formatDate(meta.created_at)}
         </div>
       </div>
     </div>`;
 
-  // Append viewer modal only
+  // Append viewer modal + update modal
   const modal = document.createElement('div');
   modal.innerHTML = buildViewerModal();
   document.getElementById('app').appendChild(modal.firstElementChild);
+
+  const updateModalEl = document.createElement('div');
+  updateModalEl.innerHTML = renderPipelineModal({
+    id:          'update',
+    icon:        'sync',
+    title:       'Update Project',
+    description: 'Add new documents to analyse',
+    runLabel:    'Update Project',
+  });
+  document.getElementById('app').appendChild(updateModalEl.firstElementChild);
+
+  if (!document.getElementById('add-entity-modal')) {
+    const addModal = document.createElement('div');
+    addModal.innerHTML = buildAddModal();
+    document.getElementById('app').appendChild(addModal.firstElementChild);
+  }
 
   // Init entity popovers (idempotent)
   initPopovers();
@@ -528,7 +613,10 @@ function buildClaimsSection(claims) {
   return `
     <h3 class="font-headline font-bold text-lg text-primary mb-1">Claims</h3>
     <p class="text-on-surface-variant text-xs mb-5">Legal claims and requested relief</p>
-    <div class="space-y-3">${items}</div>`;
+    <div class="space-y-3">${items}</div>
+    <button data-add-type="claim" class="w-full mt-4 py-2 border border-dashed border-outline-variant rounded-lg text-xs font-bold text-on-surface-variant/50 hover:text-secondary hover:border-secondary transition-all">
+      + Add Claim
+    </button>`;
 }
 
 // ── Deadlines / Damages (individual sections) ─────────────────
@@ -552,7 +640,8 @@ function buildDeadlinesInner(deadlines) {
 }
 
 function buildDamagesInner(damages) {
-  if (!damages.length) return `<p class="text-on-surface-variant text-sm italic py-2">No damages recorded.</p>`;
+  const addBtn = `<button data-add-type="damage" class="w-full mt-4 py-2 border border-dashed border-outline-variant rounded-lg text-xs font-bold text-on-surface-variant/50 hover:text-secondary hover:border-secondary transition-all">+ Add Damage</button>`;
+  if (!damages.length) return `<p class="text-on-surface-variant text-sm italic py-2">No damages recorded.</p>${addBtn}`;
   registerItems('damage', damages, 'damage_id');
   return `<div class="space-y-2">
     ${damages.map(d => {
@@ -570,7 +659,7 @@ function buildDamagesInner(damages) {
           ${amount ? `<span class="text-sm font-bold text-secondary flex-shrink-0 ml-4 whitespace-nowrap">${amount}</span>` : ''}
         </div>`;
     }).join('')}
-  </div>`;
+  </div>${addBtn}`;
 }
 
 const TEXT_MIME_TYPES = new Set(['text/plain', 'text/markdown', 'text/csv', 'text/x-markdown']);
@@ -628,6 +717,244 @@ function buildAttachmentsList(attachments, emails) {
   }
 
   return `<div class="grid grid-cols-2 gap-2">${[...attItems, ...emailItems].join('')}</div>`;
+}
+
+// ── Add entity modal ──────────────────────────────────────────
+
+function buildAddModal() {
+  return `
+    <div id="add-entity-modal" class="hidden fixed inset-0 z-[250] flex items-center justify-center p-4">
+      <div id="add-entity-backdrop" class="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
+      <div class="relative bg-surface-container-lowest rounded-2xl shadow-[0_32px_80px_-16px_rgba(0,0,0,0.2)] w-full max-w-md ring-1 ring-outline-variant/10 overflow-hidden">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant/10">
+          <h2 id="add-modal-title" class="font-headline font-bold text-base text-primary"></h2>
+          <button id="add-modal-close" class="p-1.5 rounded-lg hover:bg-surface-container text-on-surface-variant transition-colors">
+            <span class="material-symbols-outlined text-[20px]">close</span>
+          </button>
+        </div>
+        <div class="p-6 space-y-4 overflow-y-auto max-h-[65vh]">
+          <div id="add-modal-fields" class="space-y-4"></div>
+          <div id="add-modal-error" class="hidden text-sm text-error bg-error-container/40 rounded-lg px-3.5 py-2.5"></div>
+        </div>
+        <div class="px-6 py-4 border-t border-outline-variant/10 flex gap-3">
+          <button id="add-modal-cancel"
+            class="flex-1 px-4 py-2.5 rounded-lg bg-surface-container text-on-surface font-headline font-semibold text-sm hover:bg-surface-container-high transition-colors">
+            Cancel
+          </button>
+          <button id="add-modal-submit"
+            class="flex-1 px-4 py-2.5 rounded-lg bg-gradient-to-b from-primary to-primary-container text-on-primary font-headline font-semibold text-sm hover:opacity-90 transition-opacity">
+            Add
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+const ADD_FIELDS = {
+  party: [
+    { id: 'legal_name',       label: 'Legal Name',               type: 'text',     required: true,  placeholder: 'e.g. Acme Corp AS' },
+    { id: 'role',             label: 'Role',                     type: 'text',     required: false, placeholder: 'e.g. Plaintiff, Defendant' },
+    { id: 'entity_type',      label: 'Entity Type',              type: 'select',   required: false, options: ['', 'Individual', 'Company', 'Government', 'Other'] },
+    { id: 'role_description', label: 'Description',              type: 'textarea', required: false, placeholder: 'Optional description…' },
+  ],
+  deadline: [
+    { id: 'title',         label: 'Title',         type: 'text',          required: true,  placeholder: 'e.g. Response deadline' },
+    { id: 'deadline_date', label: 'Deadline Date', type: 'datetime-local', required: true  },
+    { id: 'description',   label: 'Description',   type: 'textarea',      required: false, placeholder: 'Optional details…' },
+    { id: 'party_role',    label: 'Party Role',    type: 'text',          required: false, placeholder: 'e.g. Defendant' },
+  ],
+  event: [
+    { id: 'event_name',       label: 'Event Name',   type: 'text',          required: true,  placeholder: 'e.g. Contract signed' },
+    { id: 'event_start_date', label: 'Start Date',   type: 'datetime-local', required: true  },
+    { id: 'event_end_date',   label: 'End Date',     type: 'datetime-local', required: false },
+    { id: 'category',         label: 'Category',     type: 'text',          required: false, placeholder: 'e.g. Contract, Litigation' },
+    { id: 'description',      label: 'Description',  type: 'textarea',      required: false, placeholder: 'Optional description…' },
+    { id: 'disputed',         label: 'Disputed',     type: 'checkbox',      required: false },
+  ],
+  claim: [
+    { id: 'title',         label: 'Title',         type: 'text',     required: true,  placeholder: 'e.g. Breach of contract' },
+    { id: 'factual_basis', label: 'Factual Basis', type: 'textarea', required: false, placeholder: 'Facts supporting the claim…' },
+    { id: 'legal_basis',   label: 'Legal Basis',   type: 'text',     required: false, placeholder: 'e.g. §10-1 avtaleloven' },
+    { id: 'party_role',    label: 'Party Role',    type: 'text',     required: false, placeholder: 'e.g. Plaintiff' },
+    { id: 'relief_sought', label: 'Relief Sought', type: 'text',     required: false, placeholder: 'e.g. Damages, Injunction' },
+    { id: 'category',      label: 'Category',      type: 'text',     required: false, placeholder: 'e.g. Contractual, Tort' },
+  ],
+  damage: [
+    { id: 'title',      label: 'Title',        type: 'text',     required: true,  placeholder: 'e.g. Loss of revenue' },
+    { id: 'basis',      label: 'Basis',        type: 'textarea', required: false, placeholder: 'Describe the basis…' },
+    { id: 'amount',     label: 'Amount',       type: 'number',   required: false, placeholder: '0' },
+    { id: 'currency',   label: 'Currency',     type: 'text',     required: false, placeholder: 'e.g. NOK' },
+    { id: 'party_role', label: 'Party Role',   type: 'text',     required: false, placeholder: 'e.g. Claimant' },
+    { id: 'category',   label: 'Category',     type: 'text',     required: false, placeholder: 'e.g. Economic, Non-economic' },
+  ],
+};
+
+function _fieldHTML(f) {
+  const base = 'w-full bg-surface-container ring-1 ring-outline-variant/20 focus:ring-2 focus:ring-secondary rounded-lg px-3.5 py-2.5 text-sm font-body outline-none transition-all';
+  const label = `<label for="af-${f.id}" class="block text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-1.5">${f.label}${f.required ? ' <span class="text-error">*</span>' : ''}</label>`;
+  if (f.type === 'textarea')
+    return `<div>${label}<textarea id="af-${f.id}" rows="3" placeholder="${f.placeholder ?? ''}" class="${base} resize-none"></textarea></div>`;
+  if (f.type === 'select')
+    return `<div>${label}<select id="af-${f.id}" class="${base} cursor-pointer">${f.options.map(o => `<option value="${o}">${o || '— Select —'}</option>`).join('')}</select></div>`;
+  if (f.type === 'checkbox')
+    return `<div class="flex items-center gap-3"><input type="checkbox" id="af-${f.id}" class="accent-secondary w-4 h-4"><label for="af-${f.id}" class="text-sm font-semibold text-on-surface">${f.label}</label></div>`;
+  return `<div>${label}<input id="af-${f.id}" type="${f.type}" placeholder="${f.placeholder ?? ''}" class="${base}" ${f.required ? 'required' : ''}></div>`;
+}
+
+function openAddModal(type) {
+  const modal = document.getElementById('add-entity-modal');
+  if (!modal) return;
+  const fields = ADD_FIELDS[type];
+  if (!fields) return;
+
+  const titles = { party: 'Add Party', deadline: 'Add Deadline', event: 'Add Event', claim: 'Add Claim', damage: 'Add Damage' };
+  document.getElementById('add-modal-title').textContent   = titles[type] ?? 'Add';
+  document.getElementById('add-modal-fields').innerHTML    = fields.map(_fieldHTML).join('');
+  document.getElementById('add-modal-error').classList.add('hidden');
+
+  const btn = document.getElementById('add-modal-submit');
+  btn.disabled    = false;
+  btn.textContent = 'Add';
+
+  modal.classList.remove('hidden');
+  document.querySelector('#add-entity-modal input, #add-entity-modal textarea')?.focus();
+
+  // Close handlers
+  const close = () => modal.classList.add('hidden');
+  document.getElementById('add-modal-close')?.addEventListener('click', close, { once: true });
+  document.getElementById('add-modal-cancel')?.addEventListener('click', close, { once: true });
+  document.getElementById('add-entity-backdrop')?.addEventListener('click', close, { once: true });
+
+  // Submit
+  const newBtn = btn.cloneNode(true);
+  btn.parentNode.replaceChild(newBtn, btn);
+  newBtn.addEventListener('click', async () => {
+    const errorEl = document.getElementById('add-modal-error');
+    errorEl.classList.add('hidden');
+
+    // Collect field values
+    const data = {};
+    for (const f of fields) {
+      const el = document.getElementById(`af-${f.id}`);
+      if (!el) continue;
+      if (f.type === 'checkbox') {
+        data[f.id] = el.checked;
+      } else if (f.type === 'number') {
+        data[f.id] = el.value ? Number(el.value) : null;
+      } else {
+        data[f.id] = el.value.trim() || null;
+      }
+      if (f.required && !data[f.id] && f.type !== 'checkbox') {
+        errorEl.textContent = `${f.label} is required.`;
+        errorEl.classList.remove('hidden');
+        return;
+      }
+    }
+
+    newBtn.disabled    = true;
+    newBtn.textContent = 'Saving…';
+
+    try {
+      const userId = appState.user?.id;
+      const pid    = _activeProjectId;
+      const insertFns = {
+        party:    () => insertProjectParty(pid, userId, data),
+        deadline: () => insertProjectDeadline(pid, userId, data),
+        event:    () => insertProjectEvent(pid, userId, data),
+        claim:    () => insertProjectClaim(pid, userId, data),
+        damage:   () => insertProjectDamage(pid, userId, data),
+      };
+      await insertFns[type]();
+      toast(`${titles[type]} added`, 'success');
+      modal.classList.add('hidden');
+      await reloadEntitySection(type, pid);
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.classList.remove('hidden');
+      newBtn.disabled    = false;
+      newBtn.textContent = 'Add';
+    }
+  });
+}
+
+async function reloadEntitySection(type, projectId) {
+  if (type === 'event') {
+    const el = document.getElementById('sec-timeline');
+    if (!el) return;
+    try {
+      const [events, [attachments, emails]] = await Promise.all([
+        loadProjectEvents(projectId),
+        Promise.all([loadProjectAttachments(projectId), loadProjectEmails(projectId)]),
+      ]);
+      el.innerHTML = buildTimelineInner(events, attachments, emails);
+      initTimeline(el);
+    } catch (err) { toast(err.message, 'error'); }
+    return;
+  }
+  const cfg = {
+    party:    { id: 'parties',   fetch: () => loadProjectParties(projectId),   render: buildPartiesInner },
+    deadline: { id: 'deadlines', fetch: () => loadProjectDeadlines(projectId), render: buildDeadlinesInner },
+    claim:    { id: 'claims',    fetch: () => loadProjectClaims(projectId),    render: buildClaimsSection },
+    damage:   { id: 'damages',   fetch: () => loadProjectDamages(projectId),   render: buildDamagesInner },
+  }[type];
+  if (!cfg) return;
+  const el = document.getElementById(`sec-${cfg.id}`);
+  if (!el) return;
+  try {
+    const data = await cfg.fetch();
+    el.innerHTML = cfg.render(data);
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+// ── Update Project modal ──────────────────────────────────────
+
+function _openUpdateModal(projectId) {
+  openPipelineModal('update', {
+    onRun: async ({ files, question }, { logLine, setError, setDone, setAbort }) => {
+      const queryId = uuid();
+
+      let attachments;
+      try {
+        attachments = await Promise.all(files.map(async (file) => {
+          const bytes  = await file.arrayBuffer();
+          const b64    = arrayBufferToBase64(bytes);
+          const fileId = uuid();
+          return {
+            filename:  file.name,
+            file_id:   fileId,
+            content:   b64,
+            path:      `${appState.user.id}/${projectId}/${fileId}${file.name.slice(file.name.lastIndexOf('.'))}`,
+            file_type: resolveFileType(file),
+            size:      file.size,
+            query_id:  queryId,
+          };
+        }));
+      } catch (err) {
+        setError(`File read error: ${err.message}`);
+        return;
+      }
+
+      logLine(`Uploading ${attachments.length} file(s)…`);
+
+      const ctrl = streamProjectUpdate(
+        {
+          question:    question || 'Update project with new documents.',
+          attachments,
+          session_id:  uuid(),
+          llm_model:   'google_gemini-2.5-flash',
+          query_id:    queryId,
+          project_id:  projectId,
+        },
+        {
+          onToken:      (t) => logLine(t),
+          onToolResult: (r) => logLine(`✓ ${r.tool_name ?? 'tool'}`),
+          onDone:  ()       => { setDone('✅ Done — project updated.'); toast('Project updated', 'success'); },
+          onError: (err)    => setError(err.message),
+        },
+      );
+      setAbort(ctrl);
+    },
+  });
 }
 
 // ── Viewer modal ──────────────────────────────────────────────
@@ -894,6 +1221,20 @@ function bindProjectEvents(_projectId) {
   // Guard: only attach document listeners once across all navigations
   if (_projectEventsBound) return;
   _projectEventsBound = true;
+
+  // Add entity buttons (delegated — works for dynamically re-rendered sections)
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-add-type]');
+    if (!btn || e.target.closest('#add-entity-modal')) return;
+    openAddModal(btn.dataset.addType);
+  });
+
+  // Entity deleted via popover — reload the affected section
+  document.addEventListener('entity-deleted', async (e) => {
+    const { type, projectId } = e.detail;
+    if (!projectId || !document.getElementById('factsheet-panel')) return;
+    await reloadEntitySection(type, projectId);
+  });
 
   // Collapsible sections
   document.addEventListener('click', (e) => {

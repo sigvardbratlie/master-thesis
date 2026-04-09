@@ -3,28 +3,45 @@
 // Mirrors: ui/src/ui/ui_components/project_component.py
 // ============================================================
 
-import { loadProjects, createProject, deleteProject } from '../api.js';
-import { renderSidebar, bindSidebarEvents }            from '../components/sidebar.js';
+import { loadProjects, deleteProject, streamProjectInit } from '../api.js';
+import { renderMainSidebar, bindMainSidebarEvents }    from '../components/sidebar.js';
 import { renderTopbar }                                from '../components/topbar.js';
+import { renderPipelineModal, openPipelineModal }      from '../components/pipeline_modal.js';
 import { appState }                                    from '../state.js';
-import { formatDate, timeAgo, toast, skeleton, uuid }  from '../utils.js';
+import { formatDate, timeAgo, toast, skeleton, uuid, arrayBufferToBase64, resolveFileType } from '../utils.js';
 import { logger }                                      from '../logger.js';
 
 const log = logger.child({ module: 'portfolio' });
 
 export async function renderPortfolio() {
+  const newProjectBtn = `
+    <button id="btn-new-project"
+      class="flex items-center gap-2 px-4 py-2 rounded-xl
+             bg-gradient-to-b from-primary to-primary-container text-on-primary
+             font-headline font-semibold text-sm hover:opacity-90 active:scale-[0.98] transition-all shadow-sm">
+      <span class="material-symbols-outlined text-[16px]">add</span>
+      New Project
+    </button>`;
+
   const shell = `
-    ${renderSidebar()}
+    ${renderMainSidebar()}
     <div class="ml-64 min-h-screen bg-surface">
-      ${renderTopbar({ title: 'Projects' })}
+      ${renderTopbar({ title: 'Projects', actions: newProjectBtn })}
       <div id="portfolio-content" class="px-10 py-8">
         <div class="space-y-4">${skeleton(4)}</div>
       </div>
     </div>
-    ${renderNewProjectModal()}`;
+    ${renderPipelineModal({
+      id:              'init',
+      icon:            'rocket_launch',
+      title:           'New Project',
+      description:     'Upload documents to initialise the factsheet',
+      contextRequired: true,
+      runLabel:        'Initialize Project',
+    })}`;
 
   document.getElementById('app').innerHTML = shell;
-  bindSidebarEvents();
+  bindMainSidebarEvents();
   bindPortfolioEvents();
 
   await loadPortfolioContent();
@@ -62,51 +79,32 @@ async function loadPortfolioContent() {
 function buildPortfolioHTML(projects) {
   if (!projects?.length) return renderEmptyState();
 
-  // Upcoming deadlines timeline (from projects with deadlines — simplified)
   const timelineHtml = buildTimeline(projects);
   const gridHtml     = buildProjectGrid(projects);
 
   return `
-    <!-- Stats row -->
-    <div class="grid grid-cols-4 gap-5 mb-10">
-      ${statCard('folder_open',    'Active Cases',   projects.length,                   'text-secondary')}
-      ${statCard('event_upcoming', 'Upcoming',       projects.filter(p => p.status !== 'closed').length, 'text-tertiary-fixed-dim')}
-      ${statCard('check_circle',   'Closed',         projects.filter(p => p.status === 'closed').length, 'text-green-600')}
-      ${statCard('schedule',       'Last Updated',   timeAgo(projects[0]?.created_at),  'text-on-surface-variant')}
-    </div>
-
-    <!-- Timeline -->
-    ${timelineHtml}
-
-    <!-- Grid header -->
-    <div class="flex items-center justify-between mb-6 mt-12">
-      <h2 class="font-headline font-bold text-2xl text-primary">Active Projects</h2>
-      <div class="flex items-center gap-3">
-        <button id="btn-filter" class="flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-primary font-medium transition-colors">
-          <span class="material-symbols-outlined text-[18px]">filter_list</span>Filter
-        </button>
-        <button id="btn-sort" class="flex items-center gap-1.5 text-sm text-on-surface-variant hover:text-primary font-medium transition-colors">
-          <span class="material-symbols-outlined text-[18px]">sort</span>Sort
-        </button>
+    <!-- Search -->
+    <div class="mb-8">
+      <div class="relative max-w-lg">
+        <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant text-[20px]">search</span>
+        <input
+          id="portfolio-search"
+          type="text"
+          placeholder="Search projects..."
+          class="w-full bg-surface-container-lowest ring-1 ring-outline-variant/20 focus:ring-2 focus:ring-secondary rounded-xl py-3 pl-12 pr-4 text-sm font-body outline-none transition-all placeholder:text-on-surface-variant/50"
+        >
       </div>
     </div>
 
     <!-- Project cards grid -->
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-12">
       ${gridHtml}
-    </div>`;
+    </div>
+
+    <!-- Timeline -->
+    ${timelineHtml}`;
 }
 
-function statCard(icon, label, value, colorClass) {
-  return `
-    <div class="bg-surface-container-lowest rounded-xl p-5 ring-1 ring-outline-variant/10">
-      <div class="flex items-center gap-3 mb-3">
-        <span class="material-symbols-outlined text-[20px] ${colorClass}">${icon}</span>
-        <span class="text-xs font-bold uppercase tracking-wider text-on-surface-variant">${label}</span>
-      </div>
-      <p class="font-headline font-black text-2xl text-primary">${value}</p>
-    </div>`;
-}
 
 function buildTimeline(projects) {
   if (projects.length < 2) return '';
@@ -223,38 +221,6 @@ function renderEmptyState() {
     </div>`;
 }
 
-function renderNewProjectModal() {
-  return `
-    <div id="modal-new-project" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div class="absolute inset-0 bg-black/20 backdrop-blur-sm" id="modal-backdrop"></div>
-      <div class="relative bg-surface-container-lowest rounded-2xl shadow-[0_32px_80px_-16px_rgba(0,0,0,0.18)] w-full max-w-md p-8 ring-1 ring-outline-variant/10">
-        <h2 class="font-headline font-bold text-xl text-primary mb-1">New Project</h2>
-        <p class="text-on-surface-variant text-sm font-body mb-6">Give your legal case a descriptive name.</p>
-
-        <label class="block text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-1.5">Project Title</label>
-        <input
-          id="input-project-title"
-          type="text"
-          placeholder="e.g. Harrison v. Global Tech Solutions"
-          class="w-full bg-surface-container ring-1 ring-outline-variant/20 focus:ring-2 focus:ring-secondary rounded-lg px-3.5 py-2.5 text-sm font-body outline-none transition-all mb-6"
-        >
-
-        <div id="modal-error" class="hidden text-sm text-error bg-error-container/40 rounded-lg px-3.5 py-2.5 font-body mb-4"></div>
-
-        <div class="flex gap-3">
-          <button id="btn-modal-cancel"
-            class="flex-1 px-4 py-2.5 rounded-lg bg-surface-container text-on-surface font-headline font-semibold text-sm hover:bg-surface-container-high transition-colors">
-            Cancel
-          </button>
-          <button id="btn-modal-create"
-            class="flex-1 px-4 py-2.5 rounded-lg bg-gradient-to-b from-primary to-primary-container text-on-primary font-headline font-semibold text-sm hover:opacity-90 transition-opacity">
-            Create
-          </button>
-        </div>
-      </div>
-    </div>`;
-}
-
 // ── Context menu for project cards ──────────────────────────
 let _contextMenu = null;
 
@@ -327,60 +293,65 @@ function bindProjectCards() {
     });
   });
 
-  // Empty state new project
-  document.getElementById('btn-empty-new')?.addEventListener('click', () => {
-    document.getElementById('modal-new-project')?.classList.remove('hidden');
-    document.getElementById('input-project-title')?.focus();
+  // Empty state new project button
+  document.getElementById('btn-empty-new')?.addEventListener('click', openInitModal);
+}
+
+function openInitModal() {
+  openPipelineModal('init', {
+    contextRequired: true,
+    onRun: async ({ files, question }, { logLine, setError, setDone, setAbort }) => {
+      const queryId   = uuid();
+      const projectId = uuid();
+
+      let attachments;
+      try {
+        attachments = await Promise.all(files.map(async (file) => {
+          const bytes  = await file.arrayBuffer();
+          const b64    = arrayBufferToBase64(bytes);
+          const fileId = uuid();
+          return {
+            filename:  file.name,
+            file_id:   fileId,
+            content:   b64,
+            path:      `${appState.user.id}/${projectId}/${fileId}${file.name.slice(file.name.lastIndexOf('.'))}`,
+            file_type: resolveFileType(file),
+            size:      file.size,
+            query_id:  queryId,
+          };
+        }));
+      } catch (err) {
+        setError(`File read error: ${err.message}`);
+        return;
+      }
+
+      logLine(`Uploading ${attachments.length} file(s)…`);
+
+      const ctrl = streamProjectInit(
+        {
+          question,
+          attachments,
+          session_id:  uuid(),
+          llm_model:   'google_gemini-2.5-flash',
+          query_id:    queryId,
+          project_id:  projectId,
+        },
+        {
+          onToken:      (t) => logLine(t),
+          onToolResult: (r) => logLine(`✓ ${r.tool_name ?? 'tool'}`),
+          onDone: () => {
+            setDone('✅ Done — project initialized.');
+            toast('Project initialized', 'success');
+            setTimeout(() => { window.location.hash = `/project/${projectId}`; }, 800);
+          },
+          onError: (err) => setError(err.message),
+        },
+      );
+      setAbort(ctrl);
+    },
   });
 }
 
 function bindPortfolioEvents() {
-  // Modal cancel
-  document.addEventListener('click', (e) => {
-    if (e.target.id === 'modal-backdrop' || e.target.id === 'btn-modal-cancel') {
-      document.getElementById('modal-new-project')?.classList.add('hidden');
-    }
-  });
-
-  // Modal create
-  document.addEventListener('click', async (e) => {
-    if (e.target.id !== 'btn-modal-create') return;
-    const titleInput = document.getElementById('input-project-title');
-    const title      = titleInput?.value.trim();
-    const errorEl    = document.getElementById('modal-error');
-    errorEl?.classList.add('hidden');
-
-    if (!title) {
-      errorEl.textContent = 'Please enter a project title.';
-      errorEl.classList.remove('hidden');
-      return;
-    }
-
-    const btn = document.getElementById('btn-modal-create');
-    btn.disabled = true;
-    btn.textContent = 'Creating...';
-
-    try {
-      const project = await createProject(appState.user.id, title);
-      toast('Project created', 'success');
-      document.getElementById('modal-new-project')?.classList.add('hidden');
-      titleInput.value = '';
-      window.location.hash = `/project/${project.project_id}`;
-    } catch (err) {
-      errorEl.textContent = err.message;
-      errorEl.classList.remove('hidden');
-      btn.disabled = false;
-      btn.textContent = 'Create';
-    }
-  });
-
-  // Enter key in title input
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      document.getElementById('modal-new-project')?.classList.add('hidden');
-    }
-    if (e.key === 'Enter' && e.target.id === 'input-project-title') {
-      document.getElementById('btn-modal-create')?.click();
-    }
-  });
+  document.getElementById('btn-new-project')?.addEventListener('click', openInitModal);
 }

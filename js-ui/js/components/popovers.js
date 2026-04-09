@@ -17,6 +17,11 @@ import {
   updateProjectDeadline,
   updateProjectDamage,
   updateProjectParty,
+  deleteProjectEvent,
+  deleteProjectParty,
+  deleteProjectClaim,
+  deleteProjectDeadline,
+  deleteProjectDamage,
 } from '../api.js';
 
 // ── State ────────────────────────────────────────────────────
@@ -129,6 +134,9 @@ function _bindEvents() {
     if (e.target.closest('[data-enter-edit]'))          { _enterEditMode(); return; }
     if (e.target.closest('[data-cancel-edit]'))         { _exitEditMode(); return; }
     if (e.target.closest('[data-save-edit]'))           { await _handleSave(); return; }
+    if (e.target.closest('[data-delete-entity]'))       { _swapFooter(true); return; }
+    if (e.target.closest('[data-cancel-delete]'))       { _swapFooter(false); return; }
+    if (e.target.closest('[data-confirm-delete]'))      { await _handleDelete(); return; }
     const srcBtn = e.target.closest('[data-source-type]');
     if (srcBtn) {
       document.dispatchEvent(new CustomEvent('open-source', {
@@ -161,6 +169,49 @@ function _exitEditMode() {
   _editMode = false;
   document.getElementById('entity-popover-inner').innerHTML =
     _render(_currentType, _currentData);
+}
+
+// ── Delete handler ────────────────────────────────────────────
+
+function _swapFooter(confirmMode) {
+  const existing = document.getElementById('popover-footer');
+  if (!existing) return;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = confirmMode ? _deleteConfirmFooter() : _footer(_sourceLink(_currentData));
+  existing.replaceWith(tmp.firstElementChild);
+}
+
+async function _handleDelete() {
+  const idKey     = _idKey(_currentType);
+  const entityId  = _currentData[idKey];
+  const projectId = _currentData.project_id ?? null;
+
+  const btn = document.querySelector('[data-confirm-delete]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
+
+  try {
+    switch (_currentType) {
+      case 'event':    await deleteProjectEvent(entityId, projectId);    break;
+      case 'party':    await deleteProjectParty(entityId, projectId);    break;
+      case 'claim':    await deleteProjectClaim(entityId, projectId);    break;
+      case 'deadline': await deleteProjectDeadline(entityId, projectId); break;
+      case 'damage':   await deleteProjectDamage(entityId, projectId);   break;
+    }
+
+    _stores[_currentType]?.delete(entityId);
+    closePopover();
+
+    const label = _currentType.charAt(0).toUpperCase() + _currentType.slice(1);
+    toast(`${label} deleted`, 'success');
+
+    document.dispatchEvent(new CustomEvent('entity-deleted', {
+      detail: { type: _currentType, projectId },
+    }));
+  } catch (err) {
+    toast(err.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Delete'; }
+    _swapFooter(false);
+  }
 }
 
 // ── Save handler ─────────────────────────────────────────────
@@ -349,6 +400,11 @@ function _headerActions() {
               title="Edit">
         <span class="material-symbols-outlined text-[20px]">edit</span>
       </button>
+      <button data-delete-entity
+              class="p-2 hover:bg-error-container/30 rounded-lg transition-colors text-on-surface-variant/40 hover:text-error"
+              title="Delete">
+        <span class="material-symbols-outlined text-[20px]">delete</span>
+      </button>
       ${_closeBtn()}
     </div>`;
 }
@@ -371,13 +427,37 @@ function _sourceLink(data) {
 
 function _footer(source = '') {
   return `
-    <div class="px-8 py-5 border-t border-outline-variant/10 flex items-center justify-between gap-3 flex-shrink-0"
+    <div id="popover-footer" class="px-8 py-5 border-t border-outline-variant/10 flex items-center justify-between gap-3 flex-shrink-0"
          style="background:rgba(234,232,230,0.9);">
       <div>${source}</div>
       <button data-close-popover
               class="px-5 py-2 text-sm font-semibold text-on-surface-variant hover:text-on-surface transition-colors">
         Close
       </button>
+    </div>`;
+}
+
+function _deleteConfirmFooter() {
+  const label = _currentType
+    ? _currentType.charAt(0).toUpperCase() + _currentType.slice(1)
+    : 'item';
+  return `
+    <div id="popover-footer" class="px-8 py-4 border-t border-error/20 flex items-center justify-between gap-4 flex-shrink-0"
+         style="background:rgba(254,242,242,0.95);">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="material-symbols-outlined text-[16px] text-error flex-shrink-0">warning</span>
+        <span class="text-sm font-semibold text-error">Delete this ${label}? This cannot be undone.</span>
+      </div>
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <button data-cancel-delete
+                class="px-4 py-1.5 text-sm font-semibold text-on-surface-variant hover:text-on-surface transition-colors rounded-lg">
+          Cancel
+        </button>
+        <button data-confirm-delete
+                class="px-5 py-2 bg-error text-on-error rounded-lg text-sm font-bold hover:opacity-90 transition-opacity">
+          Delete
+        </button>
+      </div>
     </div>`;
 }
 

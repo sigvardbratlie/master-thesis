@@ -8,8 +8,10 @@ import { loadUserDetails }  from './api.js';
 import { appState }         from './state.js';
 import { renderLogin }      from './pages/login.js';
 import { renderPortfolio }  from './pages/portfolio.js';
+import { renderDashboard }  from './pages/dashboard.js';
 import { renderProject }    from './pages/project.js';
 import { renderChat }       from './pages/chat.js';
+import { renderCalendar }   from './pages/calendar.js';
 import { renderUser }       from './pages/user.js';
 import { renderCompany }    from './pages/company.js';
 
@@ -73,10 +75,12 @@ async function hydrateAppState(session) {
 
 function setupRouter() {
   router
+    .on('/dashboard',     ()       => renderDashboard())
     .on('/',              ()       => renderPortfolio())
     .on('/project/:id',  (params) => renderProject(params))
     .on('/chat',          ()       => renderChat({}))
     .on('/chat/:id',     (params) => renderChat(params))
+    .on('/calendar/:id',(params) => renderCalendar(params))
     .on('/user',          ()       => renderUser())
     .on('/company',       ()       => renderCompany())
     .on('/.*',            ()       => renderPortfolio());

@@ -472,7 +472,15 @@ function _streamProject(path, request, callbacks) {
           if (!raw) continue;
           let data;
           try { data = JSON.parse(raw); } catch { continue; }
-          callbacks.onChunk?.(data);
+          if (Array.isArray(data) && data.length === 1) data = data[0];
+          if (typeof data !== 'object') continue;
+          // Backend error envelope: { error: "..." }
+          if (data.error && !data.type)  { callbacks.onError?.(new Error(data.error)); continue; }
+          const type = data.type;
+          if (type === 'token')            callbacks.onToken?.(data.data, data.query_id);
+          else if (type === 'tool_result') callbacks.onToolResult?.(data);
+          else if (type === 'error')       callbacks.onError?.(new Error(data.data ?? data.error));
+          else                             callbacks.onChunk?.(data);
         }
       }
       callbacks.onDone?.();
@@ -548,4 +556,90 @@ export async function updateProjectParty(partyId, projectId, updates, userId) {
   if (error) throw error;
   if (projectId) cache.invalidate(`project-parties:${projectId}`);
   return data;
+}
+
+// ── Entity delete functions ──────────────────────────────────
+
+export async function deleteProjectEvent(eventId, projectId) {
+  const { error } = await authService.client.from('project_events').delete().eq('event_id', eventId);
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-events:${projectId}`);
+}
+
+export async function deleteProjectParty(partyId, projectId) {
+  // Remove representatives first to avoid FK violation
+  await authService.client.from('project_party_reps').delete().eq('party_id', partyId);
+  const { error } = await authService.client.from('project_parties').delete().eq('party_id', partyId);
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-parties:${projectId}`);
+}
+
+export async function deleteProjectClaim(claimId, projectId) {
+  const { error } = await authService.client.from('project_claims').delete().eq('claim_id', claimId);
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-claims:${projectId}`);
+}
+
+export async function deleteProjectDeadline(deadlineId, projectId) {
+  const { error } = await authService.client.from('project_deadlines').delete().eq('deadline_id', deadlineId);
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-deadlines:${projectId}`);
+}
+
+export async function deleteProjectDamage(damageId, projectId) {
+  const { error } = await authService.client.from('project_damages').delete().eq('damage_id', damageId);
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-damages:${projectId}`);
+}
+
+// ── Entity insert functions ──────────────────────────────────
+
+export async function insertProjectParty(projectId, userId, data) {
+  const { data: result, error } = await authService.client
+    .from('project_parties')
+    .insert({ project_id: projectId, created_by: userId, ...data })
+    .select('*').single();
+  if (error) throw error;
+  cache.invalidate(`project-parties:${projectId}`);
+  return result;
+}
+
+export async function insertProjectDeadline(projectId, userId, data) {
+  const { data: result, error } = await authService.client
+    .from('project_deadlines')
+    .insert({ project_id: projectId, created_by: userId, ...data })
+    .select('*').single();
+  if (error) throw error;
+  cache.invalidate(`project-deadlines:${projectId}`);
+  return result;
+}
+
+export async function insertProjectEvent(projectId, userId, data) {
+  const { data: result, error } = await authService.client
+    .from('project_events')
+    .insert({ project_id: projectId, created_by: userId, ...data })
+    .select('*').single();
+  if (error) throw error;
+  cache.invalidate(`project-events:${projectId}`);
+  return result;
+}
+
+export async function insertProjectClaim(projectId, userId, data) {
+  const { data: result, error } = await authService.client
+    .from('project_claims')
+    .insert({ project_id: projectId, created_by: userId, ...data })
+    .select('*').single();
+  if (error) throw error;
+  cache.invalidate(`project-claims:${projectId}`);
+  return result;
+}
+
+export async function insertProjectDamage(projectId, userId, data) {
+  const { data: result, error } = await authService.client
+    .from('project_damages')
+    .insert({ project_id: projectId, created_by: userId, ...data })
+    .select('*').single();
+  if (error) throw error;
+  cache.invalidate(`project-damages:${projectId}`);
+  return result;
 }

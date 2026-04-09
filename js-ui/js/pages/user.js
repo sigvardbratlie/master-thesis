@@ -6,14 +6,14 @@
 // ============================================================
 
 import { loadUserDetails, upsertUserDetails, loadAllCompanies } from '../api.js';
-import { renderSidebar, bindSidebarEvents } from '../components/sidebar.js';
+import { renderMainSidebar, bindMainSidebarEvents } from '../components/sidebar.js';
 import { renderTopbar }                     from '../components/topbar.js';
 import { appState }                         from '../state.js';
 import { toast, skeleton, initials }        from '../utils.js';
 
 export async function renderUser() {
   document.getElementById('app').innerHTML = `
-    ${renderSidebar()}
+    ${renderMainSidebar()}
     <div class="ml-64 min-h-screen bg-surface">
       ${renderTopbar({
         title: 'Profile & Settings',
@@ -24,7 +24,7 @@ export async function renderUser() {
       </div>
     </div>`;
 
-  bindSidebarEvents();
+  bindMainSidebarEvents();
 
   try {
     const [details, companies] = await Promise.all([
