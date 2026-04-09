@@ -910,7 +910,7 @@ async function reloadEntitySection(type, projectId) {
 
 function _openUpdateModal(projectId) {
   openPipelineModal('update', {
-    onRun: async ({ files, question }, { logLine, setError, setDone, setAbort }) => {
+    onRun: async ({ files, question }, { logLine, setError, setDone, setAbort, onChunk }) => {
       const queryId = uuid();
 
       let attachments;
@@ -934,8 +934,6 @@ function _openUpdateModal(projectId) {
         return;
       }
 
-      logLine(`Uploading ${attachments.length} file(s)…`);
-
       const ctrl = streamProjectUpdate(
         {
           question:    question || 'Update project with new documents.',
@@ -946,9 +944,17 @@ function _openUpdateModal(projectId) {
           project_id:  projectId,
         },
         {
-          onToken:      (t) => logLine(t),
-          onToolResult: (r) => logLine(`✓ ${r.tool_name ?? 'tool'}`),
-          onDone:  ()       => { setDone('✅ Done — project updated.'); toast('Project updated', 'success'); },
+          onChunk:      (e) => onChunk(e),
+          onToken:      (t) => console.log('onToken:', t),
+          onToolResult: (r) => console.log('onToolResult:', r),
+          onDone:  ()       => {
+            setDone('✅ Project updated! Reloading...');
+            toast('Project updated', 'success');
+            setTimeout(() => {
+              cache.clear();
+              renderProject(projectId);
+            }, 1200);
+          },
           onError: (err)    => setError(err.message),
         },
       );

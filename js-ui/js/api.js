@@ -473,14 +473,27 @@ function _streamProject(path, request, callbacks) {
           let data;
           try { data = JSON.parse(raw); } catch { continue; }
           if (Array.isArray(data) && data.length === 1) data = data[0];
-          if (typeof data !== 'object') continue;
+          if (typeof data !== 'object' || data === null) continue;
+
           // Backend error envelope: { error: "..." }
-          if (data.error && !data.type)  { callbacks.onError?.(new Error(data.error)); continue; }
+          if (data.error && !data.type) {
+            callbacks.onError?.(new Error(data.error));
+            continue;
+          }
+
           const type = data.type;
-          if (type === 'token')            callbacks.onToken?.(data.data, data.query_id);
-          else if (type === 'tool_result') callbacks.onToolResult?.(data);
-          else if (type === 'error')       callbacks.onError?.(new Error(data.data ?? data.error));
-          else                             callbacks.onChunk?.(data);
+          if (type === 'token') {
+            callbacks.onToken?.(data.data, data.query_id);
+          } else if (type === 'tool_result') {
+            callbacks.onToolResult?.(data);
+          } else if (type === 'error') {
+            callbacks.onError?.(new Error(data.data ?? data.error));
+          } else if (type === 'status') {
+            callbacks.onChunk?.(data);
+          } else {
+            // Pass through any other structured data
+            callbacks.onChunk?.(data);
+          }
         }
       }
       callbacks.onDone?.();

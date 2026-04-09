@@ -299,8 +299,9 @@ function bindProjectCards() {
 
 function openInitModal() {
   openPipelineModal('init', {
+    showTitleInput: true,
     contextRequired: true,
-    onRun: async ({ files, question }, { logLine, setError, setDone, setAbort }) => {
+    onRun: async ({ files, question, title }, { logLine, setError, setDone, setAbort, onChunk }) => {
       const queryId   = uuid();
       const projectId = uuid();
 
@@ -325,24 +326,24 @@ function openInitModal() {
         return;
       }
 
-      logLine(`Uploading ${attachments.length} file(s)…`);
-
       const ctrl = streamProjectInit(
         {
           question,
           attachments,
+          title,
           session_id:  uuid(),
           llm_model:   'google_gemini-2.5-flash',
           query_id:    queryId,
           project_id:  projectId,
         },
         {
-          onToken:      (t) => logLine(t),
-          onToolResult: (r) => logLine(`✓ ${r.tool_name ?? 'tool'}`),
+          onChunk:      (e) => onChunk(e),
+          onToken:      (t) => console.log('onToken:', t), // Tokens not expected here
+          onToolResult: (r) => console.log('onToolResult:', r), // Tools not expected here
           onDone: () => {
-            setDone('✅ Done — project initialized.');
+            setDone('✅ Project initialized! Redirecting...');
             toast('Project initialized', 'success');
-            setTimeout(() => { window.location.hash = `/project/${projectId}`; }, 800);
+            setTimeout(() => { window.location.hash = `/project/${projectId}`; }, 1200);
           },
           onError: (err) => setError(err.message),
         },

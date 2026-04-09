@@ -4,6 +4,8 @@
 // ============================================================
 
 import { escHtml } from '../utils.js';
+import { mapStatusEvent } from './status_mapper.js';
+import { showGlobalStatus, updateGlobalStatus, setGlobalStatusComplete, setGlobalStatusError, hideGlobalStatus } from './global_status.js';
 
 // ── Render ───────────────────────────────────────────────────
 
@@ -123,7 +125,7 @@ export function renderPipelineModal({ id, icon, title, description, showTitleInp
 const _state = {};
 
 function _getState(id) {
-  if (!_state[id]) _state[id] = { files: [], abort: null };
+  if (!_state[id]) _state[id] = { files: [], abort: null, isRunning: false };
   return _state[id];
 }
 
@@ -173,16 +175,18 @@ function _renderFileList(id) {
  * @param {object} opts
  * @param {boolean} opts.showTitleInput   - Whether the title field is present
  * @param {boolean} opts.contextRequired  - Whether the context textarea must be filled
- * @param {Function} opts.onRun           - async ({ files, question, title? }, { logLine, setError, setDone, setAbort }) => void
+ * @param {Function} opts.onRun           - async ({ files, question, title? }, { logLine, setError, setDone, setAbort, onChunk }) => void
  */
 export function openPipelineModal(id, { showTitleInput = false, contextRequired = false, onRun }) {
   const st    = _getState(id);
   st.files    = [];
   st.abort    = null;
+  st.isRunning = false;
   const modal = document.getElementById(`${id}-modal`);
   if (!modal) return;
 
   // Reset UI
+  hideGlobalStatus();
   document.getElementById(`${id}-file-list`).classList.add('hidden');
   document.getElementById(`${id}-file-list`).innerHTML = '';
   document.getElementById(`${id}-progress`).classList.add('hidden');
@@ -215,6 +219,7 @@ export function openPipelineModal(id, { showTitleInput = false, contextRequired 
   const onDrop = (e) => {
     e.preventDefault();
     dz.classList.remove('border-secondary');
+    if (st.isRunning) return;
     st.files = Array.from(e.dataTransfer.files);
     _renderFileList(id);
   };
@@ -224,7 +229,11 @@ export function openPipelineModal(id, { showTitleInput = false, contextRequired 
 
   // ── Close ───────────────────────────────────────────────────
   function closeModal() {
-    st.abort?.abort();
+    if (st.isRunning) {
+      showGlobalStatus();
+    } else {
+      st.abort?.abort();
+    }
     modal.classList.add('hidden');
     dz.removeEventListener('dragover',  onDragOver);
     dz.removeEventListener('dragleave', onDragLeave);
@@ -238,7 +247,7 @@ export function openPipelineModal(id, { showTitleInput = false, contextRequired 
   // Button is disabled programmatically once a run actually starts.
   const runBtn = document.getElementById(`${id}-run`);
   const onRunClick = async () => {
-    if (!st.files.length) return;
+    if (!st.files.length && contextRequired) return; // Allow running with no files if context is not required (e.g. update)
 
     const errEl = document.getElementById(`${id}-error`);
 
@@ -260,6 +269,7 @@ export function openPipelineModal(id, { showTitleInput = false, contextRequired 
     }
 
     // ── Commit to running ────────────────────────────────────
+    st.isRunning = true;
     runBtn.disabled = true;
     runBtn.removeEventListener('click', onRunClick);
     document.getElementById(`${id}-cancel`).textContent = 'Close';
@@ -270,22 +280,37 @@ export function openPipelineModal(id, { showTitleInput = false, contextRequired 
     const logEl = document.getElementById(`${id}-log`);
     logEl.innerHTML = '';
 
-    function logLine(text) {
+    function logLine(event) {
+      const { icon, message, details } = mapStatusEvent(event);
       const p = document.createElement('p');
-      p.textContent = text;
+      p.textContent = `${icon} ${message}`;
       logEl.appendChild(p);
+      if (details) {
+        const d = document.createElement('p');
+        d.textContent = details;
+        d.className = 'text-xs text-on-surface-variant/60 pl-6 -mt-1 mb-1';
+        logEl.appendChild(d);
+      }
       logEl.scrollTop = logEl.scrollHeight;
+      updateGlobalStatus(event);
     }
 
     function setError(msg) {
       document.getElementById(`${id}-spinner`)?.classList.add('hidden');
       errEl.textContent = msg;
       errEl.classList.remove('hidden');
+      setGlobalStatusError(msg);
+      st.isRunning = false;
     }
 
     function setDone(message = '✅ Done.') {
       document.getElementById(`${id}-spinner`)?.classList.add('hidden');
-      logLine(message);
+      const p = document.createElement('p');
+      p.textContent = message;
+      logEl.appendChild(p);
+      logEl.scrollTop = logEl.scrollHeight;
+      setGlobalStatusComplete(message);
+      st.isRunning = false;
     }
 
     function setAbort(ctrl) {
@@ -295,7 +320,7 @@ export function openPipelineModal(id, { showTitleInput = false, contextRequired 
     try {
       await onRun(
         { files: st.files, question, title: titleValue },
-        { logLine, setError, setDone, setAbort },
+        { logLine, setError, setDone, setAbort, onChunk: logLine },
       );
     } catch (err) {
       setError(err.message ?? String(err));
