@@ -151,7 +151,7 @@ class EmailHandler(EmailBaseClass):
                 path = f'{user_id}/{session_id}/{file_id}.eml',
                 query_id=query_id,
 
-                subject=msg.get("Subject", ""),
+                subject=self.decode_eml_string(msg.get("Subject", "")),
                 from_addr=self._parse_address(msg.get("From", ""))[1],
                 from_name=self._parse_address(msg.get("From", ""))[0] or None,
                 to=[self._parse_address(addr)[1] for addr in msg.get("To", "").split(",")],
