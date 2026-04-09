@@ -63,3 +63,5 @@ js-ui/js/config.js
 js-ui/.env
 js-ui/.env.local
 js-ui/.env.*.local
+
+**/0_insp/**
