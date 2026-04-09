@@ -7,6 +7,30 @@ import { escHtml } from '../utils.js';
 import { mapStatusEvent } from './status_mapper.js';
 import { showGlobalStatus, hideGlobalStatus, startGlobalStatusLog, addGlobalStatusLogLine, setGlobalStatusComplete, setGlobalStatusError } from './global_status.js';
 
+const MODEL_OPTIONS = [
+  { value: 'google_gemini-2.5-flash', label: 'Google — Gemini 2.5 Flash' },
+  { value: 'google_gemini-2.5-pro', label: 'Google — Gemini 2.5 Pro' },
+  { value: 'anthropic_claude-sonnet-4-6', label: 'Anthropic — Claude Sonnet 4.6' },
+  { value: 'anthropic_claude-haiku-4-5', label: 'Anthropic — Claude Haiku 4.5' },
+];
+
+const DEFAULT_MODEL = MODEL_OPTIONS[0]?.value ?? 'google_gemini-2.5-flash';
+
+function _formatModelLabel(value) {
+  const hit = MODEL_OPTIONS.find((m) => m.value === value);
+  if (hit) return hit.label;
+
+  const parts = String(value || '').split('_');
+  const provider = parts.shift() || 'Unknown';
+  const model = parts.join('_') || 'Unknown model';
+  return `${provider[0]?.toUpperCase() || provider}${provider.slice(1)} — ${model.replace(/_/g, ' ')}`;
+}
+
+function _renderModelOptions(selectedValue = DEFAULT_MODEL) {
+  return MODEL_OPTIONS.map((m) => `
+    <option value="${m.value}" ${m.value === selectedValue ? 'selected' : ''}>${m.label}</option>`).join('');
+}
+
 // ── Render ───────────────────────────────────────────────────
 
 /**
@@ -56,6 +80,14 @@ export function renderPipelineModal({ id, icon, title, description, showTitleInp
         <div class="p-6 overflow-y-auto flex-1">
 
           ${titleField}
+
+          <!-- Model -->
+          <label class="block text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-1.5">Model</label>
+          <select id="${id}-model"
+            class="w-full bg-surface-container ring-1 ring-outline-variant/20 focus:ring-2 focus:ring-secondary rounded-lg px-3.5 py-2.5 text-sm font-body outline-none transition-all">
+            ${_renderModelOptions(DEFAULT_MODEL)}
+          </select>
+          <p id="${id}-model-selected" class="text-[10px] text-on-surface-variant/60 mt-1 mb-5">Selected: ${_formatModelLabel(DEFAULT_MODEL)}</p>
 
           <!-- Context -->
           <label class="block text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-1.5">
@@ -125,7 +157,7 @@ export function renderPipelineModal({ id, icon, title, description, showTitleInp
 const _state = {};
 
 function _getState(id) {
-  if (!_state[id]) _state[id] = { files: [], abort: null, isRunning: false };
+  if (!_state[id]) _state[id] = { files: [], abort: null, isRunning: false, model: DEFAULT_MODEL };
   return _state[id];
 }
 
@@ -175,7 +207,7 @@ function _renderFileList(id) {
  * @param {object} opts
  * @param {boolean} opts.showTitleInput   - Whether the title field is present
  * @param {boolean} opts.contextRequired  - Whether the context textarea must be filled
- * @param {Function} opts.onRun           - async ({ files, question, title? }, { logLine, setError, setDone, setAbort, onChunk }) => void
+ * @param {Function} opts.onRun           - async ({ files, question, title?, model }, { logLine, setError, setDone, setAbort, onChunk }) => void
  */
 export function openPipelineModal(id, { showTitleInput = false, contextRequired = false, onRun }) {
   const st    = _getState(id);
@@ -197,6 +229,20 @@ export function openPipelineModal(id, { showTitleInput = false, contextRequired 
   document.getElementById(`${id}-question`).value = '';
   document.getElementById(`${id}-cancel`).textContent = 'Cancel';
   if (showTitleInput) document.getElementById(`${id}-modal-title`).value = '';
+
+  const modelSelect = document.getElementById(`${id}-model`);
+  const modelLabel  = document.getElementById(`${id}-model-selected`);
+  const updateModelLabel = (value) => {
+    if (modelLabel) modelLabel.textContent = `Selected: ${_formatModelLabel(value)}`;
+  };
+  if (modelSelect) {
+    modelSelect.value = st.model ?? DEFAULT_MODEL;
+    updateModelLabel(modelSelect.value);
+    modelSelect.onchange = () => {
+      st.model = modelSelect.value;
+      updateModelLabel(modelSelect.value);
+    };
+  }
 
   modal.classList.remove('hidden');
   (showTitleInput
@@ -268,6 +314,9 @@ export function openPipelineModal(id, { showTitleInput = false, contextRequired 
       return;
     }
 
+    const modelValue = document.getElementById(`${id}-model`)?.value ?? DEFAULT_MODEL;
+    st.model = modelValue;
+
     // ── Commit to running — close modal immediately, hand off to status panel ─
     st.isRunning = true;
     runBtn.disabled = true;
@@ -279,10 +328,11 @@ export function openPipelineModal(id, { showTitleInput = false, contextRequired 
     document.getElementById(`${id}-backdrop`)?.removeEventListener('click', closeModal);
 
     const runTitle = document.querySelector(`#${id}-modal h2`)?.textContent?.trim() || 'Processing…';
+    const modelLabelText = _formatModelLabel(modelValue);
     modal.classList.add('hidden');
     dz.removeEventListener('dragover',  onDragOver);
     dz.removeEventListener('dragleave', onDragLeave);
-    startGlobalStatusLog(runTitle);
+    startGlobalStatusLog(`${runTitle} · ${modelLabelText}`);
 
     function logLine(event) {
       addGlobalStatusLogLine(event);
@@ -304,7 +354,7 @@ export function openPipelineModal(id, { showTitleInput = false, contextRequired 
 
     try {
       await onRun(
-        { files: st.files, question, title: titleValue },
+        { files: st.files, question, title: titleValue, model: modelValue },
         { logLine, setError, setDone, setAbort, onChunk: logLine },
       );
     } catch (err) {

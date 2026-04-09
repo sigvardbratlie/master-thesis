@@ -304,7 +304,7 @@ function bindPortfolioEvents() {
 function _openNewProjectModal() {
   openPipelineModal('init', {
     contextRequired: true,
-    onRun: async ({ files, question }, { logLine, setError, setDone, setAbort, onChunk }) => {
+    onRun: async ({ files, question, model }, { logLine, setError, setDone, setAbort, onChunk }) => {
       const projectId = uuid();
       const queryId   = uuid();
 
@@ -334,7 +334,7 @@ function _openNewProjectModal() {
           question,
           attachments,
           session_id:  uuid(),
-          llm_model:   'google_gemini-2.5-flash',
+          llm_model:   model ?? 'google_gemini-2.5-flash',
           query_id:    queryId,
           project_id:  projectId,
         },

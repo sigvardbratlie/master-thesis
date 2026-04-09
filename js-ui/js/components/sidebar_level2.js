@@ -47,8 +47,15 @@ export function renderProjectSidebar(projectId) {
         ${link('event_repeat', 'Lovdata', `/tools/lovdata/${projectId}`)}
       </nav>
 
-      <!-- Update Project + footer -->
+      <!-- Project actions + footer -->
       <div class="mt-4 space-y-3">
+        <button id="btn-clean-project"
+          class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl
+                 bg-gradient-to-b from-primary to-primary-container text-on-primary
+                 font-headline font-semibold text-sm hover:opacity-90 active:scale-[0.98] transition-all shadow-sm">
+          <span class="material-symbols-outlined text-[18px]">cleaning_services</span>
+          Clean Project
+        </button>
         <button id="btn-update-project"
           class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl
                  bg-gradient-to-b from-primary to-primary-container text-on-primary
@@ -70,9 +77,12 @@ export function renderProjectSidebar(projectId) {
     </aside>`;
 }
 
-export function bindProjectSidebarEvents({ onUpdate } = {}) {
+export function bindProjectSidebarEvents({ onUpdate, onClean } = {}) {
   document.getElementById('btn-update-project')?.addEventListener('click', () => {
     onUpdate?.();
+  });
+  document.getElementById('btn-clean-project')?.addEventListener('click', () => {
+    onClean?.();
   });
   document.getElementById('btn-logout-proj')?.addEventListener('click', async () => {
     await authService.logout();

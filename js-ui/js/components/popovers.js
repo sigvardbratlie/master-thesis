@@ -17,6 +17,9 @@ import {
   updateProjectDeadline,
   updateProjectDamage,
   updateProjectParty,
+  insertProjectPartyRep,
+  updateProjectPartyRep,
+  deleteProjectPartyRep,
   deleteProjectEvent,
   deleteProjectParty,
   deleteProjectClaim,
@@ -36,6 +39,53 @@ const _stores = {
   deadline: new Map(),
   damage:   new Map(),
 };
+
+const PARTY_ROLE_OPTIONS = [
+  'plaintiff',
+  'defendant',
+  'appellant',
+  'respondent',
+  'prosecutor',
+  'defense_counsel',
+  'injured_party',
+  'injured_party_counsel',
+  'legal_rep_plaintiff',
+  'legal_rep_defendant',
+  'legal_rep_appellant',
+  'legal_rep_respondent',
+  'party_representative',
+  'guardian',
+  'estate_representative',
+  'judge',
+  'court_clerk',
+  'witness',
+  'expert',
+  'translator',
+  'third_party',
+  'intervener',
+  'insurer',
+  'employer',
+  'employee',
+  'contractor',
+  'subcontractor',
+  'tenant',
+  'landlord',
+  'property_manager',
+  'other',
+];
+
+const ENTITY_TYPE_OPTIONS = ['individual', 'company', 'government'];
+const SIGNIFICANCE_OPTIONS = ['high', 'medium', 'low'];
+const CLAIM_CATEGORY_OPTIONS = [
+  'principal_claim',
+  'counterclaim',
+  'objection',
+  'ancillary_claim',
+  'declaratory_claim',
+  'reimbursement_claim',
+  'procedural_claim',
+];
+const DAMAGE_CATEGORY_OPTIONS = ['direct_losses', 'interest', 'consequential', 'punitive'];
 
 // ── Public API ───────────────────────────────────────────────
 
@@ -134,6 +184,8 @@ function _bindEvents() {
     if (e.target.closest('[data-enter-edit]'))          { _enterEditMode(); return; }
     if (e.target.closest('[data-cancel-edit]'))         { _exitEditMode(); return; }
     if (e.target.closest('[data-save-edit]'))           { await _handleSave(); return; }
+    if (e.target.closest('[data-add-rep]'))             { _appendRepBlock(); return; }
+    if (e.target.closest('[data-remove-rep-block]'))     { await _handleRemoveRepBlock(e); return; }
     if (e.target.closest('[data-delete-entity]'))       { _swapFooter(true); return; }
     if (e.target.closest('[data-cancel-delete]'))       { _swapFooter(false); return; }
     if (e.target.closest('[data-confirm-delete]'))      { await _handleDelete(); return; }
@@ -230,6 +282,8 @@ async function _handleSave() {
     updates[k] = v === '' ? null : v;
   }
 
+  const repPayloads = _currentType === 'party' ? _collectRepPayloads(form) : [];
+
   // Type-specific coercions
   switch (_currentType) {
     case 'event':
@@ -237,6 +291,23 @@ async function _handleSave() {
       delete updates.disputed_checkbox; // guard
       if (updates.event_start_date) updates.event_start_date = new Date(updates.event_start_date + 'T00:00:00').toISOString();
       if (updates.event_end_date)   updates.event_end_date   = new Date(updates.event_end_date   + 'T00:00:00').toISOString();
+      if (updates.parties != null) {
+        const raw = String(updates.parties || '').trim();
+        if (!raw) {
+          updates.parties = null;
+        } else if (raw.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(raw);
+            updates.parties = Array.isArray(parsed)
+              ? parsed.map((p) => String(p).trim()).filter(Boolean)
+              : null;
+          } catch {
+            updates.parties = raw.split(/[\n,]+/).map((p) => p.trim()).filter(Boolean);
+          }
+        } else {
+          updates.parties = raw.split(/[\n,]+/).map((p) => p.trim()).filter(Boolean);
+        }
+      }
       break;
     case 'deadline':
       if (updates.deadline_date) updates.deadline_date = new Date(updates.deadline_date + 'T00:00:00').toISOString();
@@ -274,6 +345,34 @@ async function _handleSave() {
       case 'deadline': updated = await updateProjectDeadline(entityId, projectId, updates, userId); break;
       case 'damage':   updated = await updateProjectDamage(entityId,   projectId, updates, userId); break;
       case 'party':    updated = await updateProjectParty(entityId,    projectId, updates, userId); break;
+    }
+
+    if (_currentType === 'party' && repPayloads.length) {
+      const insertedReps = [];
+      const updatedReps = [];
+      const repErrors = [];
+      for (const rep of repPayloads) {
+        try {
+          if (rep.repId) {
+            const updatedRep = await updateProjectPartyRep(rep.repId, projectId, rep.payload, userId);
+            if (updatedRep) updatedReps.push(updatedRep);
+          } else {
+            const inserted = await insertProjectPartyRep(projectId, entityId, userId, rep.payload);
+            if (inserted) insertedReps.push(inserted);
+          }
+        } catch (err) {
+          repErrors.push(err);
+        }
+      }
+      if (updatedReps.length || insertedReps.length) {
+        const existing = Array.isArray(_currentData.project_party_reps) ? _currentData.project_party_reps : [];
+        const updatedMap = new Map(updatedReps.map((r) => [r.party_rep_id, r]));
+        const merged = existing.map((r) => updatedMap.get(r.party_rep_id) ?? r);
+        _currentData.project_party_reps = [...merged, ...insertedReps];
+      }
+      if (repErrors.length) {
+        toast('Party updated, but some representatives failed to save.', 'warning');
+      }
     }
 
     // Merge — preserve joined data (e.g. project_party_reps) not returned by plain update.
@@ -383,6 +482,165 @@ function _evidenceToText(evidence) {
     ? evidence
     : (typeof evidence === 'object' ? Object.values(evidence) : [evidence]);
   return arr.map(e => (typeof e === 'string' ? e : JSON.stringify(e))).join('\n');
+}
+
+function _normalizePartiesList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    const raw = value.trim();
+    if (!raw) return [];
+    if (raw.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return raw.split(/[\n,]+/).map((p) => p.trim()).filter(Boolean);
+      }
+    }
+    return raw.split(/[\n,]+/).map((p) => p.trim()).filter(Boolean);
+  }
+  if (typeof value === 'object') return Object.values(value);
+  return [];
+}
+
+function _normalizeLiteral(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+function _formatOptionLabel(value) {
+  return String(value ?? '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function _renderSelectOptions(options, selected, allowEmpty = true) {
+  const normalizedSelected = _normalizeLiteral(selected);
+  const parts = [];
+  if (allowEmpty) parts.push('<option value="">— not set —</option>');
+  options.forEach((opt) => {
+    const value = typeof opt === 'object' ? opt.value : opt;
+    const label = typeof opt === 'object' ? opt.label : _formatOptionLabel(opt);
+    const normalizedValue = _normalizeLiteral(value);
+    const isSelected = normalizedValue === normalizedSelected;
+    parts.push(`<option value="${value}" ${isSelected ? 'selected' : ''}>${label}</option>`);
+  });
+  return parts.join('');
+}
+
+function _selectField(name, current, options, allowEmpty = true, fallback = '') {
+  const normalized = _normalizeLiteral(current);
+  const normalizedOptions = options.map((o) => _normalizeLiteral(o));
+  const selected = normalizedOptions.includes(normalized)
+    ? normalized
+    : (allowEmpty ? '' : (fallback || normalizedOptions[0] || ''));
+  return `<select name="${name}" class="${E.select}">${_renderSelectOptions(options, selected, allowEmpty)}</select>`;
+}
+
+function _repBlockHTML(index, rep = null) {
+  const base = 'w-full bg-surface-container-low border border-outline-variant/20 rounded-lg px-3 py-2 text-sm text-on-surface placeholder-on-surface-variant/30 focus:outline-none focus:ring-2 focus:ring-secondary/30 focus:border-secondary/40 transition-colors';
+  const labelClass = 'text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60 mb-1.5 block';
+  const id = (field) => `edit-rep-${index}-${field}`;
+  const value = (field) => escHtml(rep?.[field] ?? '');
+  const input = (field, label, type = 'text', placeholder = '') => `
+    <div>
+      <label for="${id(field)}" class="${labelClass}">${label}</label>
+      <input id="${id(field)}" type="${type}" placeholder="${placeholder}" value="${value(field)}" class="${base}" data-rep-field="${field}">
+    </div>`;
+  const select = (field, label, options, selected = rep?.[field] ?? 'medium') => `
+    <div>
+      <label for="${id(field)}" class="${labelClass}">${label}</label>
+      <select id="${id(field)}" class="${base} cursor-pointer" data-rep-field="${field}">
+        ${_renderSelectOptions(options, selected, false)}
+      </select>
+    </div>`;
+  const textarea = (field, label, placeholder = '') => `
+    <div>
+      <label for="${id(field)}" class="${labelClass}">${label}</label>
+      <textarea id="${id(field)}" rows="3" placeholder="${placeholder}" class="${base} resize-none" data-rep-field="${field}">${value(field)}</textarea>
+    </div>`;
+
+  return `
+    <div class="p-4 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10 space-y-3" data-rep-block data-rep-id="${escHtml(rep?.party_rep_id ?? '')}">
+      <div class="flex items-center justify-between">
+        <p class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60">Representative</p>
+        <button type="button" data-remove-rep-block class="text-[10px] font-bold text-error uppercase tracking-widest hover:underline">
+          Remove
+        </button>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        ${input('first_name', 'First Name', 'text', 'e.g. Jane')}
+        ${input('last_name', 'Last Name', 'text', 'e.g. Doe')}
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        ${input('rep_role', 'Role', 'text', 'e.g. Counsel')}
+        ${input('email', 'Email', 'email', 'name@company.com')}
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        ${input('phone', 'Phone', 'text', '+47 000 00 000')}
+        ${input('city', 'City', 'text', 'Oslo')}
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        ${select('significance', 'Significance', SIGNIFICANCE_OPTIONS, rep?.significance ?? 'medium')}
+        ${input('postal_code', 'Postal Code', 'text', '0000')}
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        ${input('address', 'Address', 'text', 'Street address')}
+      </div>
+      ${textarea('rep_role_description', 'Role Description', 'Optional description…')}
+    </div>`;
+}
+
+function _appendRepBlock() {
+  const container = document.getElementById('party-rep-container');
+  if (!container) return;
+  const idx = Number(container.dataset.repIndex || 0);
+  container.dataset.repIndex = String(idx + 1);
+  if (container.querySelector('p')) {
+    container.querySelectorAll('p').forEach((p) => p.remove());
+  }
+  container.insertAdjacentHTML('beforeend', _repBlockHTML(idx));
+}
+
+function _collectRepPayloads(form) {
+  if (!form) return [];
+  const blocks = Array.from(form.querySelectorAll('[data-rep-block]'));
+  return blocks.map(block => {
+    const payload = {};
+    block.querySelectorAll('[data-rep-field]').forEach((input) => {
+      const key = input.dataset.repField;
+      const value = input.value?.trim();
+      if (value) payload[key] = value;
+    });
+    const hasNonSignificance = Object.entries(payload)
+      .some(([k, v]) => k !== 'significance' && v);
+    return {
+      repId: block.dataset.repId || null,
+      payload: hasNonSignificance ? payload : {},
+    };
+  }).filter(({ payload }) => Object.keys(payload).length > 0);
+}
+
+async function _handleRemoveRepBlock(event) {
+  if (_currentType !== 'party') return;
+  const block = event.target.closest('[data-rep-block]');
+  if (!block) return;
+  const repId = block.dataset.repId;
+  if (!repId) {
+    block.remove();
+    return;
+  }
+
+  try {
+    const projectId = _currentData.project_id ?? null;
+    await deleteProjectPartyRep(repId, projectId);
+    const existing = Array.isArray(_currentData.project_party_reps) ? _currentData.project_party_reps : [];
+    _currentData.project_party_reps = existing.filter((r) => r.party_rep_id !== repId);
+    block.remove();
+    toast('Representative removed', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
 }
 
 // ── View-mode UI primitives ──────────────────────────────────
@@ -726,7 +984,7 @@ function _renderEvent(ev) {
   const title   = ev.event_name ?? 'Event';
   const dateStr = ev.event_start_date ? formatDate(ev.event_start_date, { day: 'numeric', month: 'long', year: 'numeric' }) : '—';
   const endStr  = ev.event_end_date   ? ` – ${formatDate(ev.event_end_date, { day: 'numeric', month: 'long', year: 'numeric' })}` : '';
-  const parties = Array.isArray(ev.parties) ? ev.parties : [];
+  const parties = _normalizePartiesList(ev.parties);
 
   return `
     <div class="flex items-center justify-between px-7 py-5 border-b border-outline-variant/10 flex-shrink-0">
@@ -759,20 +1017,13 @@ function _renderEvent(ev) {
       ${parties.length ? `
       <div class="space-y-3">
         <h4 class="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">Involved Parties</h4>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="flex flex-wrap gap-2">
           ${parties.map(p => {
-            const name    = typeof p === 'string' ? p : (p.name ?? p.legal_name ?? String(p));
-            const role    = typeof p === 'object' ? (p.role ?? '') : '';
-            const initial = (name[0] ?? '?').toUpperCase();
+            const name = typeof p === 'string' ? p : (p.name ?? p.legal_name ?? String(p));
+            const role = typeof p === 'object' ? (p.role ?? '') : '';
             return `
-            <div class="flex items-center gap-3 p-3 bg-surface-container-lowest rounded-lg border border-outline-variant/10 shadow-sm">
-              <div class="w-9 h-9 rounded-full bg-secondary-fixed flex items-center justify-center flex-shrink-0">
-                <span class="text-on-secondary-fixed text-sm font-bold">${escHtml(initial)}</span>
-              </div>
-              <div class="min-w-0">
-                <p class="text-sm font-bold text-primary truncate">${escHtml(name)}</p>
-                ${role ? `<p class="text-[10px] font-semibold text-secondary uppercase tracking-wider truncate">${escHtml(role)}</p>` : ''}
-              </div>
+            <div class="px-3 py-1.5 rounded-full bg-surface-container-lowest border border-outline-variant/15 text-xs font-semibold text-on-surface">
+              ${escHtml(name)}${role ? ` <span class="text-on-surface-variant/60 font-normal">· ${escHtml(role)}</span>` : ''}
             </div>`;
           }).join('')}
         </div>
@@ -918,10 +1169,10 @@ function _renderEditDeadline(d) {
            style="background:rgba(246,243,241,0.5);">
         ${_fg('Title', `<input type="text" name="title" value="${escHtml(d.title ?? '')}" class="${E.input}" placeholder="Deadline title">`)}
         ${_fg('Deadline Date', `<input type="date" name="deadline_date" value="${_isoToDate(d.deadline_date)}" class="${E.input}">`)}
-        ${_fg('Responsible Party', `<input type="text" name="party_role" value="${escHtml(d.party_role ?? '')}" class="${E.input}" placeholder="Party role">`)}
+        ${_fg('Responsible Party', _selectField('party_role', d.party_role ?? '', PARTY_ROLE_OPTIONS, true))}
       </div>
       <div class="w-full md:w-[56%] p-8 space-y-5 overflow-y-auto">
-        ${_fg('Significance', _sigSelect(d.significance))}
+        ${_fg('Significance', _sigSelect(d.significance ?? 'medium'))}
         ${_fg('Description', `<textarea name="description" rows="6" class="${E.textarea}" placeholder="Describe this deadline…">${escHtml(d.description ?? '')}</textarea>`)}
       </div>
     </form>
@@ -939,12 +1190,12 @@ function _renderEditClaim(c) {
     <form id="entity-edit-form" class="flex-1 overflow-y-auto p-8 space-y-5 min-h-0">
       ${_fg('Title', `<input type="text" name="title" value="${escHtml(c.title ?? '')}" class="${E.input}" placeholder="Claim title">`)}
       <div class="grid grid-cols-2 gap-4">
-        ${_fg('Category', `<input type="text" name="category" value="${escHtml(c.category ?? '')}" class="${E.input}" placeholder="e.g. Intellectual Property">`)}
-        ${_fg('Significance', _sigSelect(c.significance))}
+        ${_fg('Category', _selectField('category', c.category ?? '', CLAIM_CATEGORY_OPTIONS, true))}
+        ${_fg('Significance', _sigSelect(c.significance ?? 'medium'))}
       </div>
       <div class="grid grid-cols-2 gap-4">
-        ${_fg('Party Role', `<input type="text" name="party_role" value="${escHtml(c.party_role ?? '')}" class="${E.input}" placeholder="e.g. Claimant">`)}
-        ${_fg('Strength Assessment', _strengthSelect(c.strength_assessment))}
+        ${_fg('Party Role', _selectField('party_role', c.party_role ?? 'other', PARTY_ROLE_OPTIONS, false, 'other'))}
+        ${_fg('Strength Assessment', _strengthSelect(c.strength_assessment ?? 'moderate'))}
       </div>
       ${_fg('Factual Basis', `<textarea name="factual_basis" rows="4" class="${E.textarea}" placeholder="Key facts supporting this claim…">${escHtml(c.factual_basis ?? '')}</textarea>`)}
       ${_fg('Legal Basis', `<textarea name="legal_basis" rows="3" class="${E.textarea}" placeholder="Relevant statutes, case law…">${escHtml(c.legal_basis ?? '')}</textarea>`)}
@@ -959,6 +1210,7 @@ function _renderEditEvent(ev) {
   const shortId  = (ev.event_id ?? '');
   const iconHtml = `<div class="w-10 h-10 bg-primary-container rounded-lg flex items-center justify-center flex-shrink-0">
     <span class="material-symbols-outlined text-xl text-on-primary">event</span></div>`;
+  const partiesText = _normalizePartiesList(ev.parties).join('\n');
 
   return `
     ${_editHeader(iconHtml, ev.event_name ?? 'Event', 'event_id', shortId)}
@@ -978,6 +1230,7 @@ function _renderEditEvent(ev) {
         <label for="edit-disputed" class="text-sm font-medium text-on-surface cursor-pointer select-none">Mark as disputed</label>
       </div>
       ${_fg('Description', `<textarea name="description" rows="5" class="${E.textarea}" placeholder="What happened, context, significance…">${escHtml(ev.description ?? '')}</textarea>`)}
+      ${_fg('Involved Parties', `<textarea name="parties" rows="4" class="${E.textarea}" placeholder="One role or party per line…">${escHtml(partiesText)}</textarea>`)}
     </form>
     ${_metaStrip(ev)}
     ${_editFooter()}`;
@@ -998,25 +1251,26 @@ function _renderEditParty(p) {
     <form id="entity-edit-form" class="flex-1 overflow-y-auto p-8 space-y-5 min-h-0">
       ${_fg('Legal Name', `<input type="text" name="legal_name" value="${escHtml(p.legal_name ?? '')}" class="${E.input}" placeholder="Full legal name">`)}
       <div class="grid grid-cols-2 gap-4">
-        ${_fg('Entity Type', `<input type="text" name="entity_type" value="${escHtml(p.entity_type ?? '')}" class="${E.input}" placeholder="e.g. Corporation, Individual">`)}
-        ${_fg('Role in Matter', `<input type="text" name="role" value="${escHtml(p.role ?? '')}" class="${E.input}" placeholder="e.g. Claimant, Defendant">`)}
+        ${_fg('Entity Type', _selectField('entity_type', p.entity_type ?? '', ENTITY_TYPE_OPTIONS, false, 'company'))}
+        ${_fg('Role in Matter', _selectField('role', p.role ?? 'other', PARTY_ROLE_OPTIONS, false, 'other'))}
       </div>
-      ${_fg('Significance', _sigSelect(p.significance))}
+      ${_fg('Significance', _sigSelect(p.significance ?? 'medium'))}
       ${_fg('Role Description', `<textarea name="role_description" rows="4" class="${E.textarea}" placeholder="Describe this party's involvement…">${escHtml(p.role_description ?? '')}</textarea>`)}
-      ${reps.length ? `
-      <div>
-        <label class="${E.label}">Representatives (${reps.length}) — read-only, managed by agent</label>
-        <div class="space-y-1.5">
-          ${reps.map(r => {
-            const repName = [r.first_name, r.last_name].filter(Boolean).join(' ') || 'Representative';
-            return `<div class="flex items-center gap-2 px-3 py-2 bg-surface-container rounded-lg text-xs text-on-surface-variant">
-              <span class="material-symbols-outlined text-[14px]">person</span>
-              <span class="font-semibold">${escHtml(repName)}</span>
-              ${r.rep_role ? `<span class="text-outline">·</span><span>${escHtml(r.rep_role)}</span>` : ''}
-            </div>`;
-          }).join('')}
+      <div class="space-y-3">
+        <div class="flex items-center justify-between">
+          <label class="${E.label}">Representatives</label>
+          <button type="button" data-add-rep
+                  class="text-[10px] font-bold text-secondary uppercase tracking-widest hover:underline">
+            Add representative
+          </button>
         </div>
-      </div>` : ''}
+        <div id="party-rep-container" data-rep-index="${reps.length}" class="space-y-3">
+          ${reps.length
+            ? reps.map((r, i) => _repBlockHTML(i, r)).join('')
+            : `<p class="text-[10px] text-on-surface-variant/40">No representatives yet.</p>`}
+        </div>
+        <p class="text-[10px] text-on-surface-variant/40">New representatives will be added when you save.</p>
+      </div>
     </form>
     ${_metaStrip(p)}
     ${_editFooter()}`;
@@ -1034,11 +1288,11 @@ function _renderEditDamage(d) {
       <div class="grid grid-cols-3 gap-4">
         ${_fg('Amount', `<input type="number" name="amount" value="${escHtml(d.amount != null ? String(d.amount) : '')}" class="${E.input}" placeholder="0" step="any" min="0">`)}
         ${_fg('Currency', `<input type="text" name="currency" value="${escHtml(d.currency ?? 'NOK')}" class="${E.input}" placeholder="NOK">`)}
-        ${_fg('Category', `<input type="text" name="category" value="${escHtml(d.category ?? '')}" class="${E.input}" placeholder="e.g. Lost Revenue">`)}
+        ${_fg('Category', _selectField('category', d.category ?? '', DAMAGE_CATEGORY_OPTIONS, true))}
       </div>
       <div class="grid grid-cols-2 gap-4">
-        ${_fg('Party Role', `<input type="text" name="party_role" value="${escHtml(d.party_role ?? '')}" class="${E.input}" placeholder="e.g. Claimant">`)}
-        ${_fg('Significance', _sigSelect(d.significance))}
+        ${_fg('Party Role', _selectField('party_role', d.party_role ?? 'other', PARTY_ROLE_OPTIONS, false, 'other'))}
+        ${_fg('Significance', _sigSelect(d.significance ?? 'medium'))}
       </div>
       ${_fg('Basis', `<textarea name="basis" rows="3" class="${E.textarea}" placeholder="Legal or factual basis for this damage claim…">${escHtml(d.basis ?? '')}</textarea>`)}
       ${_fg('Supporting Evidence', `<textarea name="supporting_evidence" rows="4" class="${E.textarea}"

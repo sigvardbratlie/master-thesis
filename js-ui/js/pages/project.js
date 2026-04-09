@@ -17,7 +17,10 @@ import {
   loadProjectEmails,
   loadEmailBody,
   streamProjectUpdate,
+  streamProjectCleanElements,
+  streamProjectCleanMetadata,
   insertProjectParty,
+  insertProjectPartyRep,
   insertProjectDeadline,
   insertProjectEvent,
   insertProjectClaim,
@@ -26,6 +29,7 @@ import {
 import { fetchFileAsObjectUrl, fetchTextFile } from '../storage.js';
 import { renderProjectSidebar, bindProjectSidebarEvents } from '../components/sidebar_level2.js';
 import { renderPipelineModal, openPipelineModal }  from '../components/pipeline_modal.js';
+import { startGlobalStatusLog, addGlobalStatusLogLine, setGlobalStatusComplete, setGlobalStatusError } from '../components/global_status.js';
 import { renderTopbar }                     from '../components/topbar.js';
 import { formatDate, skeleton, escHtml, uuid, toast, arrayBufferToBase64, resolveFileType } from '../utils.js';
 import { appState } from '../state.js';
@@ -64,7 +68,10 @@ export async function renderProject(params) {
       </div>
     </div>`;
 
-  bindProjectSidebarEvents({ onUpdate: () => _openUpdateModal(projectId) });
+  bindProjectSidebarEvents({
+    onUpdate: () => _openUpdateModal(projectId),
+    onClean:  () => _openCleanModal(projectId),
+  });
 
   // Load meta first — needed for title + shell structure
   let meta;
@@ -270,6 +277,12 @@ function buildProjectShell(projectId, meta) {
     runLabel:    'Update Project',
   });
   document.getElementById('app').appendChild(updateModalEl.firstElementChild);
+
+  if (!document.getElementById('clean-project-modal')) {
+    const cleanModalEl = document.createElement('div');
+    cleanModalEl.innerHTML = buildCleanModal();
+    document.getElementById('app').appendChild(cleanModalEl.firstElementChild);
+  }
 
   if (!document.getElementById('add-entity-modal')) {
     const addModal = document.createElement('div');
@@ -603,6 +616,15 @@ function buildPartiesInner(parties) {
       const initial = name[0].toUpperCase();
       const role    = p.role ?? p.party_role ?? '';
       const type    = p.entity_type ? ` · ${p.entity_type}` : '';
+      const reps    = Array.isArray(p.project_party_reps) ? p.project_party_reps : [];
+      const repNames = reps
+        .map(r => [r.first_name, r.last_name].filter(Boolean).join(' '))
+        .filter(Boolean);
+      const repLabel = reps.length
+        ? (repNames.length
+            ? `${repNames.slice(0, 2).join(', ')}${reps.length > 2 ? ` +${reps.length - 2}` : ''}`
+            : `${reps.length} representative${reps.length > 1 ? 's' : ''}`)
+        : '';
       return `
         <div class="flex items-center gap-3 p-3 bg-surface-container rounded-xl ring-1 ring-transparent
                     hover:ring-secondary/20 transition-all cursor-pointer popover-item"
@@ -613,6 +635,7 @@ function buildPartiesInner(parties) {
           <div class="min-w-0">
             <p class="text-sm font-bold text-on-surface truncate">${escHtml(name)}</p>
             <p class="text-[10px] font-bold text-secondary uppercase tracking-tight">${escHtml(role + type)}</p>
+            ${repLabel ? `<p class="text-[10px] text-on-surface-variant/70 mt-0.5 truncate">Reps: ${escHtml(repLabel)}</p>` : ''}
           </div>
         </div>`;
     }).join('')}
@@ -785,18 +808,160 @@ function buildAddModal() {
     </div>`;
 }
 
+function buildCleanModal() {
+  const elementOptions = CLEAN_ELEMENT_OPTIONS.map(opt => `
+    <label class="flex items-center gap-3 p-3 bg-surface-container rounded-xl ring-1 ring-outline-variant/10
+                  hover:ring-secondary/20 transition-all cursor-pointer">
+      <input type="checkbox" name="clean-elements" value="${opt.value}" class="accent-secondary w-4 h-4">
+      <span class="text-sm font-semibold text-on-surface">${opt.label}</span>
+    </label>`).join('');
+
+  return `
+    <div id="clean-project-modal" class="hidden fixed inset-0 z-[220] flex items-center justify-center p-4">
+      <div id="clean-project-backdrop" class="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
+      <div class="relative bg-surface-container-lowest rounded-2xl shadow-[0_32px_80px_-16px_rgba(0,0,0,0.2)] w-full max-w-lg ring-1 ring-outline-variant/10 overflow-hidden flex flex-col max-h-[90vh]">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant/10 flex-shrink-0">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-secondary-container flex items-center justify-center">
+              <span class="material-symbols-outlined text-on-secondary-container text-[16px]">cleaning_services</span>
+            </div>
+            <div>
+              <h2 class="font-headline font-bold text-base text-primary">Clean Project</h2>
+              <p class="text-[10px] text-on-surface-variant">Deduplicate and refresh factsheet elements</p>
+            </div>
+          </div>
+          <button id="clean-close" class="p-1.5 rounded-lg hover:bg-surface-container text-on-surface-variant transition-colors">
+            <span class="material-symbols-outlined text-[20px]">close</span>
+          </button>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6 overflow-y-auto flex-1 space-y-6">
+          <!-- Model -->
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-1.5">Model</label>
+            <select id="clean-model"
+              class="w-full bg-surface-container ring-1 ring-outline-variant/20 focus:ring-2 focus:ring-secondary rounded-lg px-3.5 py-2.5 text-sm font-body outline-none transition-all">
+              ${_renderCleanModelOptions(DEFAULT_CLEAN_MODEL)}
+            </select>
+            <p id="clean-model-selected" class="text-[10px] text-on-surface-variant/60 mt-1">Selected: ${_formatCleanModelLabel(DEFAULT_CLEAN_MODEL)}</p>
+          </div>
+
+          <!-- Relational elements -->
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-2">Relational elements</label>
+            <div class="grid grid-cols-2 gap-2">
+              ${elementOptions}
+            </div>
+          </div>
+
+          <!-- Metadata -->
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-1.5">Metadata</label>
+            <select id="clean-metadata"
+              class="w-full bg-surface-container ring-1 ring-outline-variant/20 focus:ring-2 focus:ring-secondary rounded-lg px-3.5 py-2.5 text-sm font-body outline-none transition-all">
+              <option value="">—</option>
+              <option value="all">Title &amp; Background</option>
+            </select>
+            <p class="text-[10px] text-on-surface-variant/50 mt-1">Cleans title and background together.</p>
+          </div>
+
+          <!-- Legal attributes -->
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-1.5">Legal attributes</label>
+            <select id="clean-legal" disabled
+              class="w-full bg-surface-container ring-1 ring-outline-variant/20 rounded-lg px-3.5 py-2.5 text-sm font-body outline-none transition-all opacity-70 cursor-not-allowed">
+              <option>Coming soon</option>
+            </select>
+            <p class="text-[10px] text-on-surface-variant/50 mt-1">Legal attribute cleanup is not available in the API yet.</p>
+          </div>
+
+          <!-- Error -->
+          <div id="clean-error" class="hidden p-3 bg-error-container/40 rounded-xl text-sm text-error font-body"></div>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-6 py-4 border-t border-outline-variant/10 flex gap-3 flex-shrink-0">
+          <button id="clean-cancel"
+            class="flex-1 px-4 py-2.5 rounded-lg bg-surface-container text-on-surface font-headline font-semibold text-sm hover:bg-surface-container-high transition-colors">
+            Cancel
+          </button>
+          <button id="clean-run"
+            class="flex-1 px-4 py-2.5 rounded-lg bg-secondary text-on-secondary font-headline font-semibold text-sm hover:opacity-90 active:scale-[0.98] transition-all">
+            <span class="material-symbols-outlined text-[16px] align-middle mr-1">cleaning_services</span>
+            Clean Selected
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+const PARTY_ROLE_OPTIONS = [
+  'plaintiff',
+  'defendant',
+  'appellant',
+  'respondent',
+  'prosecutor',
+  'defense_counsel',
+  'injured_party',
+  'injured_party_counsel',
+  'legal_rep_plaintiff',
+  'legal_rep_defendant',
+  'legal_rep_appellant',
+  'legal_rep_respondent',
+  'party_representative',
+  'guardian',
+  'estate_representative',
+  'judge',
+  'court_clerk',
+  'witness',
+  'expert',
+  'translator',
+  'third_party',
+  'intervener',
+  'insurer',
+  'employer',
+  'employee',
+  'contractor',
+  'subcontractor',
+  'tenant',
+  'landlord',
+  'property_manager',
+  'other',
+];
+
+const ENTITY_TYPE_OPTIONS = ['individual', 'company', 'government'];
+const SIGNIFICANCE_OPTIONS = ['high', 'medium', 'low'];
+const STRENGTH_OPTIONS = ['strong', 'moderate', 'weak'];
+
+const CLAIM_CATEGORY_OPTIONS = [
+  'principal_claim',
+  'counterclaim',
+  'objection',
+  'ancillary_claim',
+  'declaratory_claim',
+  'reimbursement_claim',
+  'procedural_claim',
+];
+
+const DAMAGE_CATEGORY_OPTIONS = ['direct_losses', 'interest', 'consequential', 'punitive'];
+
 const ADD_FIELDS = {
   party: [
     { id: 'legal_name',       label: 'Legal Name',               type: 'text',     required: true,  placeholder: 'e.g. Acme Corp AS' },
-    { id: 'role',             label: 'Role',                     type: 'text',     required: false, placeholder: 'e.g. Plaintiff, Defendant' },
-    { id: 'entity_type',      label: 'Entity Type',              type: 'select',   required: false, options: ['', 'Individual', 'Company', 'Government', 'Other'] },
+    { id: 'role',             label: 'Role',                     type: 'select',   required: true,  options: PARTY_ROLE_OPTIONS, default: 'other', allowEmpty: false },
+    { id: 'entity_type',      label: 'Entity Type',              type: 'select',   required: true,  options: ENTITY_TYPE_OPTIONS, default: '', allowEmpty: true },
+    { id: 'significance',     label: 'Significance',             type: 'select',   required: true,  options: SIGNIFICANCE_OPTIONS, default: 'medium', allowEmpty: false },
     { id: 'role_description', label: 'Description',              type: 'textarea', required: false, placeholder: 'Optional description…' },
   ],
   deadline: [
     { id: 'title',         label: 'Title',         type: 'text',          required: true,  placeholder: 'e.g. Response deadline' },
     { id: 'deadline_date', label: 'Deadline Date', type: 'datetime-local', required: true  },
     { id: 'description',   label: 'Description',   type: 'textarea',      required: false, placeholder: 'Optional details…' },
-    { id: 'party_role',    label: 'Party Role',    type: 'text',          required: false, placeholder: 'e.g. Defendant' },
+    { id: 'party_role',    label: 'Party Role',    type: 'select',        required: false, options: PARTY_ROLE_OPTIONS, default: '', allowEmpty: true },
+    { id: 'significance',  label: 'Significance',  type: 'select',        required: true,  options: SIGNIFICANCE_OPTIONS, default: 'medium', allowEmpty: false },
   ],
   event: [
     { id: 'event_name',       label: 'Event Name',   type: 'text',          required: true,  placeholder: 'e.g. Contract signed' },
@@ -804,36 +969,177 @@ const ADD_FIELDS = {
     { id: 'event_end_date',   label: 'End Date',     type: 'datetime-local', required: false },
     { id: 'category',         label: 'Category',     type: 'text',          required: false, placeholder: 'e.g. Contract, Litigation' },
     { id: 'description',      label: 'Description',  type: 'textarea',      required: false, placeholder: 'Optional description…' },
+    { id: 'significance',     label: 'Significance', type: 'select',        required: true,  options: SIGNIFICANCE_OPTIONS, default: 'medium', allowEmpty: false },
     { id: 'disputed',         label: 'Disputed',     type: 'checkbox',      required: false },
   ],
   claim: [
-    { id: 'title',         label: 'Title',         type: 'text',     required: true,  placeholder: 'e.g. Breach of contract' },
-    { id: 'factual_basis', label: 'Factual Basis', type: 'textarea', required: false, placeholder: 'Facts supporting the claim…' },
-    { id: 'legal_basis',   label: 'Legal Basis',   type: 'text',     required: false, placeholder: 'e.g. §10-1 avtaleloven' },
-    { id: 'party_role',    label: 'Party Role',    type: 'text',     required: false, placeholder: 'e.g. Plaintiff' },
-    { id: 'relief_sought', label: 'Relief Sought', type: 'text',     required: false, placeholder: 'e.g. Damages, Injunction' },
-    { id: 'category',      label: 'Category',      type: 'text',     required: false, placeholder: 'e.g. Contractual, Tort' },
+    { id: 'title',               label: 'Title',              type: 'text',   required: true,  placeholder: 'e.g. Breach of contract' },
+    { id: 'factual_basis',       label: 'Factual Basis',      type: 'textarea', required: false, placeholder: 'Facts supporting the claim…' },
+    { id: 'legal_basis',         label: 'Legal Basis',        type: 'text',   required: false, placeholder: 'e.g. §10-1 avtaleloven' },
+    { id: 'party_role',          label: 'Party Role',         type: 'select', required: true,  options: PARTY_ROLE_OPTIONS, default: 'other', allowEmpty: false },
+    { id: 'strength_assessment', label: 'Strength Assessment',type: 'select', required: true,  options: STRENGTH_OPTIONS, default: 'moderate', allowEmpty: false },
+    { id: 'relief_sought',       label: 'Relief Sought',      type: 'text',   required: false, placeholder: 'e.g. Damages, Injunction' },
+    { id: 'category',            label: 'Category',           type: 'select', required: false, options: CLAIM_CATEGORY_OPTIONS, default: '', allowEmpty: true },
+    { id: 'significance',        label: 'Significance',       type: 'select', required: true,  options: SIGNIFICANCE_OPTIONS, default: 'medium', allowEmpty: false },
   ],
   damage: [
-    { id: 'title',      label: 'Title',        type: 'text',     required: true,  placeholder: 'e.g. Loss of revenue' },
-    { id: 'basis',      label: 'Basis',        type: 'textarea', required: false, placeholder: 'Describe the basis…' },
-    { id: 'amount',     label: 'Amount',       type: 'number',   required: false, placeholder: '0' },
-    { id: 'currency',   label: 'Currency',     type: 'text',     required: false, placeholder: 'e.g. NOK' },
-    { id: 'party_role', label: 'Party Role',   type: 'text',     required: false, placeholder: 'e.g. Claimant' },
-    { id: 'category',   label: 'Category',     type: 'text',     required: false, placeholder: 'e.g. Economic, Non-economic' },
+    { id: 'title',        label: 'Title',        type: 'text',     required: true,  placeholder: 'e.g. Loss of revenue' },
+    { id: 'basis',        label: 'Basis',        type: 'textarea', required: false, placeholder: 'Describe the basis…' },
+    { id: 'amount',       label: 'Amount',       type: 'number',   required: false, placeholder: '0' },
+    { id: 'currency',     label: 'Currency',     type: 'text',     required: false, placeholder: 'e.g. NOK' },
+    { id: 'party_role',   label: 'Party Role',   type: 'select',   required: true,  options: PARTY_ROLE_OPTIONS, default: 'other', allowEmpty: false },
+    { id: 'category',     label: 'Category',     type: 'select',   required: false, options: DAMAGE_CATEGORY_OPTIONS, default: '', allowEmpty: true },
+    { id: 'significance', label: 'Significance', type: 'select',   required: true,  options: SIGNIFICANCE_OPTIONS, default: 'medium', allowEmpty: false },
   ],
 };
+
+const CLEAN_MODEL_OPTIONS = [
+  { value: 'google_gemini-2.5-flash', label: 'Google — Gemini 2.5 Flash' },
+  { value: 'google_gemini-2.5-pro', label: 'Google — Gemini 2.5 Pro' },
+  { value: 'anthropic_claude-sonnet-4-6', label: 'Anthropic — Claude Sonnet 4.6' },
+  { value: 'anthropic_claude-haiku-4-5', label: 'Anthropic — Claude Haiku 4.5' },
+];
+
+const DEFAULT_CLEAN_MODEL = CLEAN_MODEL_OPTIONS[0]?.value ?? 'google_gemini-2.5-flash';
+
+const CLEAN_ELEMENT_OPTIONS = [
+  { value: 'events', label: 'Events' },
+  { value: 'parties', label: 'Parties' },
+  { value: 'claims', label: 'Claims' },
+  { value: 'damages', label: 'Damages' },
+  { value: 'deadlines', label: 'Deadlines' },
+];
+
+function _formatCleanModelLabel(value) {
+  const hit = CLEAN_MODEL_OPTIONS.find((m) => m.value === value);
+  if (hit) return hit.label;
+
+  const parts = String(value || '').split('_');
+  const provider = parts.shift() || 'Unknown';
+  const model = parts.join('_') || 'Unknown model';
+  return `${provider[0]?.toUpperCase() || provider}${provider.slice(1)} — ${model.replace(/_/g, ' ')}`;
+}
+
+function _renderCleanModelOptions(selectedValue = DEFAULT_CLEAN_MODEL) {
+  return CLEAN_MODEL_OPTIONS.map((m) =>
+    `<option value="${m.value}" ${m.value === selectedValue ? 'selected' : ''}>${m.label}</option>`
+  ).join('');
+}
+
+function _normalizeLiteral(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, '_');
+}
+
+function _formatOptionLabel(value) {
+  return String(value ?? '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function _renderSelectOptions(options, selected, allowEmpty = true) {
+  const normalizedSelected = _normalizeLiteral(selected);
+  const parts = [];
+  if (allowEmpty) parts.push('<option value="">— Select —</option>');
+
+  options.forEach((opt) => {
+    const value = typeof opt === 'object' ? opt.value : opt;
+    const label = typeof opt === 'object' ? opt.label : _formatOptionLabel(opt);
+    const normalizedValue = _normalizeLiteral(value);
+    const isSelected = normalizedValue === normalizedSelected;
+    parts.push(`<option value="${value}" ${isSelected ? 'selected' : ''}>${label}</option>`);
+  });
+  return parts.join('');
+}
 
 function _fieldHTML(f) {
   const base = 'w-full bg-surface-container ring-1 ring-outline-variant/20 focus:ring-2 focus:ring-secondary rounded-lg px-3.5 py-2.5 text-sm font-body outline-none transition-all';
   const label = `<label for="af-${f.id}" class="block text-xs font-bold uppercase tracking-wider text-on-surface-variant mb-1.5">${f.label}${f.required ? ' <span class="text-error">*</span>' : ''}</label>`;
+  if (f.type === 'section') {
+    return `
+      <div class="pt-2">
+        <p class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60">${f.label}</p>
+        ${f.hint ? `<p class="text-[10px] text-on-surface-variant/40 mt-1">${f.hint}</p>` : ''}
+      </div>`;
+  }
   if (f.type === 'textarea')
     return `<div>${label}<textarea id="af-${f.id}" rows="3" placeholder="${f.placeholder ?? ''}" class="${base} resize-none"></textarea></div>`;
-  if (f.type === 'select')
-    return `<div>${label}<select id="af-${f.id}" class="${base} cursor-pointer">${f.options.map(o => `<option value="${o}">${o || '— Select —'}</option>`).join('')}</select></div>`;
+  if (f.type === 'select') {
+    const selected = f.default ?? '';
+    const allowEmpty = f.allowEmpty !== false;
+    return `<div>${label}<select id="af-${f.id}" class="${base} cursor-pointer" ${f.required ? 'required' : ''}>${_renderSelectOptions(f.options, selected, allowEmpty)}</select></div>`;
+  }
   if (f.type === 'checkbox')
     return `<div class="flex items-center gap-3"><input type="checkbox" id="af-${f.id}" class="accent-secondary w-4 h-4"><label for="af-${f.id}" class="text-sm font-semibold text-on-surface">${f.label}</label></div>`;
   return `<div>${label}<input id="af-${f.id}" type="${f.type}" placeholder="${f.placeholder ?? ''}" class="${base}" ${f.required ? 'required' : ''}></div>`;
+}
+
+function _repBlockHTML(index, prefix = 'add') {
+  const base = 'w-full bg-surface-container ring-1 ring-outline-variant/20 focus:ring-2 focus:ring-secondary rounded-lg px-3.5 py-2.5 text-sm font-body outline-none transition-all';
+  const labelClass = 'block text-[10px] font-bold uppercase tracking-wider text-on-surface-variant mb-1.5';
+  const id = (field) => `${prefix}-rep-${index}-${field}`;
+  const input = (field, label, type = 'text', placeholder = '') => `
+    <div>
+      <label for="${id(field)}" class="${labelClass}">${label}</label>
+      <input id="${id(field)}" type="${type}" placeholder="${placeholder}" class="${base}" data-rep-field="${field}">
+    </div>`;
+  const select = (field, label, options, selected = 'medium') => `
+    <div>
+      <label for="${id(field)}" class="${labelClass}">${label}</label>
+      <select id="${id(field)}" class="${base} cursor-pointer" data-rep-field="${field}">
+        ${_renderSelectOptions(options, selected, false)}
+      </select>
+    </div>`;
+  const textarea = (field, label, placeholder = '') => `
+    <div>
+      <label for="${id(field)}" class="${labelClass}">${label}</label>
+      <textarea id="${id(field)}" rows="3" placeholder="${placeholder}" class="${base} resize-none" data-rep-field="${field}"></textarea>
+    </div>`;
+
+  return `
+    <div class="p-4 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10 space-y-3" data-rep-block>
+      <div class="flex items-center justify-between">
+        <p class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60">Representative</p>
+        <button type="button" data-remove-rep-block class="text-[10px] font-bold text-error uppercase tracking-widest hover:underline">
+          Remove
+        </button>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        ${input('first_name', 'First Name', 'text', 'e.g. Jane')}
+        ${input('last_name', 'Last Name', 'text', 'e.g. Doe')}
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        ${input('rep_role', 'Role', 'text', 'e.g. Counsel')}
+        ${input('email', 'Email', 'email', 'name@company.com')}
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        ${input('phone', 'Phone', 'text', '+47 000 00 000')}
+        ${input('city', 'City', 'text', 'Oslo')}
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        ${select('significance', 'Significance', SIGNIFICANCE_OPTIONS, 'medium')}
+        ${input('postal_code', 'Postal Code', 'text', '0000')}
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        ${input('address', 'Address', 'text', 'Street address')}
+      </div>
+      ${textarea('rep_role_description', 'Role Description', 'Optional description…')}
+    </div>`;
+}
+
+function _collectRepPayloads(rootEl) {
+  if (!rootEl) return [];
+  const blocks = Array.from(rootEl.querySelectorAll('[data-rep-block]'));
+  return blocks.map(block => {
+    const payload = {};
+    block.querySelectorAll('[data-rep-field]').forEach((input) => {
+      const key = input.dataset.repField;
+      const value = input.value?.trim();
+      if (value) payload[key] = value;
+    });
+    const hasNonSignificance = Object.entries(payload)
+      .some(([k, v]) => k !== 'significance' && v);
+    return hasNonSignificance ? payload : null;
+  }).filter(Boolean);
 }
 
 function openAddModal(type) {
@@ -845,6 +1151,35 @@ function openAddModal(type) {
   const titles = { party: 'Add Party', deadline: 'Add Deadline', event: 'Add Event', claim: 'Add Claim', damage: 'Add Damage' };
   document.getElementById('add-modal-title').textContent   = titles[type] ?? 'Add';
   document.getElementById('add-modal-fields').innerHTML    = fields.map(_fieldHTML).join('');
+  if (type === 'party') {
+    const fieldsEl = document.getElementById('add-modal-fields');
+    fieldsEl.insertAdjacentHTML('beforeend', `
+      <div class="pt-3 border-t border-outline-variant/10">
+        <div class="flex items-center justify-between">
+          <p class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60">Representatives</p>
+          <button type="button" id="add-rep-btn" class="text-[10px] font-bold text-secondary uppercase tracking-widest hover:underline">
+            Add representative
+          </button>
+        </div>
+        <div id="add-rep-container" data-rep-index="0" class="space-y-3 mt-3"></div>
+        <p class="text-[10px] text-on-surface-variant/40 mt-2">Add one or more contacts for this party.</p>
+      </div>`);
+
+    const repContainer = document.getElementById('add-rep-container');
+    const addRepBtn = document.getElementById('add-rep-btn');
+    addRepBtn?.addEventListener('click', () => {
+      if (!repContainer) return;
+      const idx = Number(repContainer.dataset.repIndex || 0);
+      repContainer.dataset.repIndex = String(idx + 1);
+      repContainer.insertAdjacentHTML('beforeend', _repBlockHTML(idx, 'add'));
+    });
+    repContainer?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-remove-rep-block]');
+      if (!btn) return;
+      const block = btn.closest('[data-rep-block]');
+      block?.remove();
+    });
+  }
   document.getElementById('add-modal-error').classList.add('hidden');
 
   const btn = document.getElementById('add-modal-submit');
@@ -870,21 +1205,25 @@ function openAddModal(type) {
     // Collect field values
     const data = {};
     for (const f of fields) {
+      if (f.type === 'section') continue;
       const el = document.getElementById(`af-${f.id}`);
       if (!el) continue;
+      let value = null;
       if (f.type === 'checkbox') {
-        data[f.id] = el.checked;
+        value = el.checked;
       } else if (f.type === 'number') {
-        data[f.id] = el.value ? Number(el.value) : null;
+        value = el.value ? Number(el.value) : null;
       } else {
-        data[f.id] = el.value.trim() || null;
+        value = el.value.trim() || null;
       }
-      if (f.required && !data[f.id] && f.type !== 'checkbox') {
+      if (f.required && !value && f.type !== 'checkbox') {
         errorEl.textContent = `${f.label} is required.`;
         errorEl.classList.remove('hidden');
         return;
       }
+      data[f.id] = value;
     }
+    const repPayloads = type === 'party' ? _collectRepPayloads(modal) : [];
 
     newBtn.disabled    = true;
     newBtn.textContent = 'Saving…';
@@ -893,14 +1232,29 @@ function openAddModal(type) {
       const userId = appState.user?.id;
       const pid    = _activeProjectId;
       const insertFns = {
-        party:    () => insertProjectParty(pid, userId, data),
         deadline: () => insertProjectDeadline(pid, userId, data),
         event:    () => insertProjectEvent(pid, userId, data),
         claim:    () => insertProjectClaim(pid, userId, data),
         damage:   () => insertProjectDamage(pid, userId, data),
       };
-      await insertFns[type]();
-      toast(`${titles[type]} added`, 'success');
+      const repErrors = [];
+      if (type === 'party') {
+        const party = await insertProjectParty(pid, userId, data);
+        for (const rep of repPayloads) {
+          try {
+            await insertProjectPartyRep(pid, party.party_id, userId, rep);
+          } catch (err) {
+            repErrors.push(err);
+          }
+        }
+      } else {
+        await insertFns[type]();
+      }
+      if (repErrors.length) {
+        toast('Party added, but some representatives failed to save.', 'warning');
+      } else {
+        toast(`${titles[type]} added`, 'success');
+      }
       modal.classList.add('hidden');
       await reloadEntitySection(type, pid);
     } catch (err) {
@@ -941,11 +1295,125 @@ async function reloadEntitySection(type, projectId) {
   } catch (err) { toast(err.message, 'error'); }
 }
 
+// ── Clean Project modal ───────────────────────────────────────
+
+function _openCleanModal(projectId) {
+  const modal = document.getElementById('clean-project-modal');
+  if (!modal) return;
+
+  const errorEl = document.getElementById('clean-error');
+  errorEl?.classList.add('hidden');
+
+  modal.querySelectorAll('input[name="clean-elements"]').forEach((el) => {
+    el.checked = false;
+  });
+
+  const metadataSelect = document.getElementById('clean-metadata');
+  if (metadataSelect) metadataSelect.value = '';
+
+  const modelSelect = document.getElementById('clean-model');
+  const modelLabel = document.getElementById('clean-model-selected');
+  if (modelSelect) {
+    modelSelect.value = DEFAULT_CLEAN_MODEL;
+    if (modelLabel) modelLabel.textContent = `Selected: ${_formatCleanModelLabel(modelSelect.value)}`;
+    modelSelect.onchange = () => {
+      if (modelLabel) modelLabel.textContent = `Selected: ${_formatCleanModelLabel(modelSelect.value)}`;
+    };
+  }
+
+  modal.classList.remove('hidden');
+
+  const close = () => modal.classList.add('hidden');
+  document.getElementById('clean-close')?.addEventListener('click', close, { once: true });
+  document.getElementById('clean-cancel')?.addEventListener('click', close, { once: true });
+  document.getElementById('clean-project-backdrop')?.addEventListener('click', close, { once: true });
+
+  const runBtn = document.getElementById('clean-run');
+  const newBtn = runBtn.cloneNode(true);
+  runBtn.parentNode.replaceChild(newBtn, runBtn);
+
+  newBtn.addEventListener('click', async () => {
+    const selectedElements = Array.from(
+      modal.querySelectorAll('input[name="clean-elements"]:checked')
+    ).map((el) => el.value);
+    const metadataChoice = metadataSelect?.value ?? '';
+    const runMetadata = metadataChoice === 'all';
+
+    if (!selectedElements.length && !runMetadata) {
+      if (errorEl) {
+        errorEl.textContent = 'Select at least one element or metadata option to clean.';
+        errorEl.classList.remove('hidden');
+      }
+      return;
+    }
+
+    newBtn.disabled = true;
+    newBtn.textContent = 'Cleaning…';
+    modal.classList.add('hidden');
+
+    const modelValue = modelSelect?.value ?? DEFAULT_CLEAN_MODEL;
+    const modelLabelText = _formatCleanModelLabel(modelValue);
+    startGlobalStatusLog(`Cleaning project · ${modelLabelText}`);
+
+    const logSafe = (event) => {
+      if (!event || typeof event !== 'object') return;
+      addGlobalStatusLogLine(event);
+    };
+
+    const runStream = (request, streamFn) => new Promise((resolve, reject) => {
+      streamFn(request, {
+        onChunk: logSafe,
+        onError: (err) => {
+          const message = err?.message ?? String(err);
+          setGlobalStatusError(message);
+          reject(err);
+        },
+        onDone: resolve,
+      });
+    });
+
+    try {
+      if (selectedElements.length) {
+        await runStream({
+          question:   '',
+          attachments: [],
+          session_id: uuid(),
+          llm_model:  modelValue,
+          query_id:   uuid(),
+          project_id: projectId,
+          element_types: selectedElements,
+        }, streamProjectCleanElements);
+      }
+
+      if (runMetadata) {
+        await runStream({
+          question:   '',
+          attachments: [],
+          session_id: uuid(),
+          llm_model:  modelValue,
+          query_id:   uuid(),
+          project_id: projectId,
+        }, streamProjectCleanMetadata);
+      }
+
+      setGlobalStatusComplete('✅ Project cleaned! Reloading…');
+      toast('Project cleaned', 'success');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1200);
+    } catch (err) {
+      toast(err?.message ?? String(err), 'error');
+      newBtn.disabled = false;
+      newBtn.textContent = 'Clean Selected';
+    }
+  });
+}
+
 // ── Update Project modal ──────────────────────────────────────
 
 function _openUpdateModal(projectId) {
   openPipelineModal('update', {
-    onRun: async ({ files, question }, { logLine, setError, setDone, setAbort, onChunk }) => {
+    onRun: async ({ files, question, model }, { logLine, setError, setDone, setAbort, onChunk }) => {
       const queryId = uuid();
 
       let attachments;
@@ -974,7 +1442,7 @@ function _openUpdateModal(projectId) {
           question:    question || 'Update project with new documents.',
           attachments,
           session_id:  uuid(),
-          llm_model:   'google_gemini-2.5-flash',
+          llm_model:   model ?? 'google_gemini-2.5-flash',
           query_id:    queryId,
           project_id:  projectId,
         },

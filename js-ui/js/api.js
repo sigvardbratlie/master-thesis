@@ -437,6 +437,14 @@ export function streamProjectUpdate(request, callbacks = {}) {
   return _streamProject('/project/update-project', request, callbacks);
 }
 
+export function streamProjectCleanElements(request, callbacks = {}) {
+  return _streamProject('/project/clean-project-elements', request, callbacks);
+}
+
+export function streamProjectCleanMetadata(request, callbacks = {}) {
+  return _streamProject('/project/clean-metadata', request, callbacks);
+}
+
 function _streamProject(path, request, callbacks) {
   const controller = new AbortController();
 
@@ -615,6 +623,43 @@ export async function insertProjectParty(projectId, userId, data) {
   if (error) throw error;
   cache.invalidate(`project-parties:${projectId}`);
   return result;
+}
+
+export async function insertProjectPartyRep(projectId, partyId, userId, data) {
+  const { data: result, error } = await authService.client
+    .from('project_party_reps')
+    .insert({
+      project_id: projectId,
+      party_id: partyId,
+      created_by: userId,
+      ...data,
+    })
+    .select('*')
+    .single();
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-parties:${projectId}`);
+  return result;
+}
+
+export async function updateProjectPartyRep(repId, projectId, updates, userId) {
+  const { data: result, error } = await authService.client
+    .from('project_party_reps')
+    .update(_withAudit(updates, userId))
+    .eq('party_rep_id', repId)
+    .select('*')
+    .single();
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-parties:${projectId}`);
+  return result;
+}
+
+export async function deleteProjectPartyRep(repId, projectId) {
+  const { error } = await authService.client
+    .from('project_party_reps')
+    .delete()
+    .eq('party_rep_id', repId);
+  if (error) throw error;
+  if (projectId) cache.invalidate(`project-parties:${projectId}`);
 }
 
 export async function insertProjectDeadline(projectId, userId, data) {
