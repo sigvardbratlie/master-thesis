@@ -442,9 +442,13 @@ class ContextManager:
             email_data.update({
                 # Override with original email metadata
                 "to": input_email.to,
+                "to_names": input_email.to_names,
                 "from": input_email.from_addr,
+                "from_name": input_email.from_name,
                 "cc": input_email.cc,
+                "cc_names": input_email.cc_names,
                 "bcc": input_email.bcc,
+                "bcc_names": input_email.bcc_names,
                 "subject": input_email.subject,
                 "date": input_email.date,
                 "message-id": input_email.message_id or "",
