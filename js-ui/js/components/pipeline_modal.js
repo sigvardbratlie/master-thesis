@@ -5,7 +5,7 @@
 
 import { escHtml } from '../utils.js';
 import { mapStatusEvent } from './status_mapper.js';
-import { showGlobalStatus, updateGlobalStatus, setGlobalStatusComplete, setGlobalStatusError, hideGlobalStatus } from './global_status.js';
+import { showGlobalStatus, hideGlobalStatus, startGlobalStatusLog, addGlobalStatusLogLine, setGlobalStatusComplete, setGlobalStatusError } from './global_status.js';
 
 // ── Render ───────────────────────────────────────────────────
 
@@ -268,47 +268,32 @@ export function openPipelineModal(id, { showTitleInput = false, contextRequired 
       return;
     }
 
-    // ── Commit to running ────────────────────────────────────
+    // ── Commit to running — close modal immediately, hand off to status panel ─
     st.isRunning = true;
     runBtn.disabled = true;
     runBtn.removeEventListener('click', onRunClick);
-    document.getElementById(`${id}-cancel`).textContent = 'Close';
-    document.getElementById(`${id}-progress`).classList.remove('hidden');
-    errEl.classList.add('hidden');
-    document.getElementById(`${id}-spinner`).classList.remove('hidden');
 
-    const logEl = document.getElementById(`${id}-log`);
-    logEl.innerHTML = '';
+    // Remove stale close listeners so they don't fire on next modal open
+    document.getElementById(`${id}-close`)?.removeEventListener('click',    closeModal);
+    document.getElementById(`${id}-cancel`)?.removeEventListener('click',   closeModal);
+    document.getElementById(`${id}-backdrop`)?.removeEventListener('click', closeModal);
+
+    const runTitle = document.querySelector(`#${id}-modal h2`)?.textContent?.trim() || 'Processing…';
+    modal.classList.add('hidden');
+    dz.removeEventListener('dragover',  onDragOver);
+    dz.removeEventListener('dragleave', onDragLeave);
+    startGlobalStatusLog(runTitle);
 
     function logLine(event) {
-      const { icon, message, details } = mapStatusEvent(event);
-      const p = document.createElement('p');
-      p.textContent = `${icon} ${message}`;
-      logEl.appendChild(p);
-      if (details) {
-        const d = document.createElement('p');
-        d.textContent = details;
-        d.className = 'text-xs text-on-surface-variant/60 pl-6 -mt-1 mb-1';
-        logEl.appendChild(d);
-      }
-      logEl.scrollTop = logEl.scrollHeight;
-      updateGlobalStatus(event);
+      addGlobalStatusLogLine(event);
     }
 
     function setError(msg) {
-      document.getElementById(`${id}-spinner`)?.classList.add('hidden');
-      errEl.textContent = msg;
-      errEl.classList.remove('hidden');
       setGlobalStatusError(msg);
       st.isRunning = false;
     }
 
     function setDone(message = '✅ Done.') {
-      document.getElementById(`${id}-spinner`)?.classList.add('hidden');
-      const p = document.createElement('p');
-      p.textContent = message;
-      logEl.appendChild(p);
-      logEl.scrollTop = logEl.scrollHeight;
       setGlobalStatusComplete(message);
       st.isRunning = false;
     }

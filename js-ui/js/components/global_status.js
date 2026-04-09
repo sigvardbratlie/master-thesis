@@ -1,107 +1,148 @@
-// js-ui/js/components/global_status.js
+// ============================================================
+// GLOBAL STATUS PANEL — background pipeline progress log
+// ============================================================
 
 import { mapStatusEvent } from './status_mapper.js';
 
-const STATUS_ELEMENT_ID = 'global-pipeline-status';
-const TEXT_ELEMENT_ID = 'global-pipeline-status-text';
-const DETAILS_ELEMENT_ID = 'global-pipeline-status-details';
-const CLOSE_BUTTON_ID = 'global-pipeline-status-close';
+const PANEL_ID = 'global-pipeline-status';
 
 let _isVisible = false;
 
-function ensureStatusElement() {
-  if (document.getElementById(STATUS_ELEMENT_ID)) return;
+function _ensurePanel() {
+  if (document.getElementById(PANEL_ID)) return;
 
-  const element = document.createElement('div');
-  element.id = STATUS_ELEMENT_ID;
-  element.className = 'hidden fixed bottom-4 right-4 z-[1000] w-full max-w-sm';
-  element.innerHTML = `
-    <div class="bg-surface-container-high rounded-2xl shadow-2xl ring-1 ring-outline-variant/10 p-4">
-      <div class="flex items-start gap-3">
-        <div id="${TEXT_ELEMENT_ID}" class="flex-1 text-sm font-medium text-on-surface"></div>
-        <button id="${CLOSE_BUTTON_ID}" class="p-1 rounded-lg hover:bg-surface-container">
-          <span class="material-symbols-outlined text-base">close</span>
+  const el = document.createElement('div');
+  el.id = PANEL_ID;
+  el.className = 'hidden fixed bottom-4 right-4 z-[1000] w-full max-w-sm';
+  el.innerHTML = `
+    <div class="bg-surface-container-high rounded-2xl shadow-2xl ring-1 ring-outline-variant/10 overflow-hidden">
+      <!-- Header -->
+      <div class="flex items-center gap-2 px-4 py-3 border-b border-outline-variant/10">
+        <span id="gps-spinner" class="w-2.5 h-2.5 rounded-full bg-secondary animate-pulse flex-shrink-0"></span>
+        <span id="gps-title" class="flex-1 text-sm font-bold text-on-surface truncate">Processing…</span>
+        <button id="gps-close" class="p-1 rounded-lg hover:bg-surface-container transition-colors">
+          <span class="material-symbols-outlined text-[16px] text-on-surface-variant">close</span>
         </button>
       </div>
-      <div id="${DETAILS_ELEMENT_ID}" class="text-xs text-on-surface-variant mt-1"></div>
-    </div>
-  `;
-  document.body.appendChild(element);
-
-  document.getElementById(CLOSE_BUTTON_ID).addEventListener('click', hideGlobalStatus);
+      <!-- Hint -->
+      <div class="px-4 py-2 bg-secondary-container/20 border-b border-outline-variant/10">
+        <p class="text-[11px] text-on-surface-variant">
+          You can continue working — we'll notify you when done.
+        </p>
+      </div>
+      <!-- Log -->
+      <div id="gps-log"
+        class="px-4 py-3 space-y-0.5 max-h-52 overflow-y-auto text-xs font-mono text-on-surface-variant">
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+  document.getElementById('gps-close').addEventListener('click', hideGlobalStatus);
 }
 
+// ── Public API ───────────────────────────────────────────────
+
 /**
- * Shows the global status banner.
+ * Shows the panel (preserves existing log content).
  */
 export function showGlobalStatus() {
-  ensureStatusElement();
-  const el = document.getElementById(STATUS_ELEMENT_ID);
-  if (el) {
-    el.classList.remove('hidden');
-    _isVisible = true;
-  }
+  _ensurePanel();
+  document.getElementById(PANEL_ID)?.classList.remove('hidden');
+  _isVisible = true;
 }
 
 /**
- * Hides the global status banner.
+ * Hides the panel.
  */
 export function hideGlobalStatus() {
-  const el = document.getElementById(STATUS_ELEMENT_ID);
-  if (el) {
-    el.classList.add('hidden');
-    _isVisible = false;
-  }
+  document.getElementById(PANEL_ID)?.classList.add('hidden');
+  _isVisible = false;
 }
 
 /**
- * Updates the status banner with a new event.
+ * Opens the panel with a fresh log and a given title.
+ * @param {string} [title]
+ */
+export function startGlobalStatusLog(title = 'Processing…') {
+  _ensurePanel();
+  document.getElementById(PANEL_ID)?.classList.remove('hidden');
+  _isVisible = true;
+
+  const titleEl   = document.getElementById('gps-title');
+  const spinnerEl = document.getElementById('gps-spinner');
+  const logEl     = document.getElementById('gps-log');
+
+  if (titleEl)   titleEl.textContent = title;
+  if (spinnerEl) spinnerEl.className = 'w-2.5 h-2.5 rounded-full bg-secondary animate-pulse flex-shrink-0';
+  if (logEl)     logEl.innerHTML = '';
+}
+
+/**
+ * Appends a status event as a log line.
+ * @param {import('./status_mapper.js').StatusEvent} event
+ */
+export function addGlobalStatusLogLine(event) {
+  if (!_isVisible) return;
+  const { icon, message, details } = mapStatusEvent(event);
+  const logEl = document.getElementById('gps-log');
+  if (!logEl) return;
+
+  const p = document.createElement('p');
+  p.textContent = `${icon} ${message}`;
+  logEl.appendChild(p);
+
+  if (details) {
+    const d = document.createElement('p');
+    d.textContent = details;
+    d.className = 'text-[10px] text-on-surface-variant/60 pl-5 -mt-0.5 mb-0.5';
+    logEl.appendChild(d);
+  }
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+/**
+ * Kept for backwards compatibility — delegates to addGlobalStatusLogLine.
  * @param {import('./status_mapper.js').StatusEvent} event
  */
 export function updateGlobalStatus(event) {
-  if (!_isVisible) return;
-
-  const { icon, message, details } = mapStatusEvent(event);
-  const textEl = document.getElementById(TEXT_ELEMENT_ID);
-  const detailsEl = document.getElementById(DETAILS_ELEMENT_ID);
-
-  if (textEl) {
-    textEl.textContent = `${icon} ${message}`;
-  }
-  if (detailsEl) {
-    detailsEl.textContent = details || '';
-    detailsEl.classList.toggle('hidden', !details);
-  }
+  addGlobalStatusLogLine(event);
 }
 
 /**
- * Updates the banner to show a completion message.
- * @param {string} [message='✅ Process complete!']
+ * Updates the panel header to show completion.
+ * @param {string} [message]
  */
 export function setGlobalStatusComplete(message = '✅ Process complete!') {
-    if (!_isVisible) return;
-    const textEl = document.getElementById(TEXT_ELEMENT_ID);
-    const detailsEl = document.getElementById(DETAILS_ELEMENT_ID);
-    if (textEl) {
-        textEl.textContent = message;
-    }
-    if (detailsEl) {
-        detailsEl.classList.add('hidden');
-    }
+  const titleEl   = document.getElementById('gps-title');
+  const spinnerEl = document.getElementById('gps-spinner');
+  const logEl     = document.getElementById('gps-log');
+
+  if (titleEl)   titleEl.textContent = message;
+  if (spinnerEl) spinnerEl.className = 'w-2.5 h-2.5 rounded-full bg-secondary flex-shrink-0';
+  if (logEl) {
+    const p = document.createElement('p');
+    p.textContent = message;
+    p.className = 'font-semibold text-secondary mt-1';
+    logEl.appendChild(p);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
 }
 
 /**
- * Updates the banner to show an error message.
+ * Updates the panel header to show an error.
  * @param {string} errorMessage
  */
 export function setGlobalStatusError(errorMessage) {
-    if (!_isVisible) return;
-    const textEl = document.getElementById(TEXT_ELEMENT_ID);
-    const detailsEl = document.getElementById(DETAILS_ELEMENT_ID);
-    if (textEl) {
-        textEl.textContent = `❌ Error: ${errorMessage}`;
-    }
-    if (detailsEl) {
-        detailsEl.classList.add('hidden');
-    }
+  const titleEl   = document.getElementById('gps-title');
+  const spinnerEl = document.getElementById('gps-spinner');
+  const logEl     = document.getElementById('gps-log');
+
+  if (titleEl)   titleEl.textContent = '❌ Error';
+  if (spinnerEl) spinnerEl.className = 'w-2.5 h-2.5 rounded-full bg-error flex-shrink-0';
+  if (logEl) {
+    const p = document.createElement('p');
+    p.textContent = `❌ ${errorMessage}`;
+    p.className = 'text-error font-semibold mt-1';
+    logEl.appendChild(p);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
 }

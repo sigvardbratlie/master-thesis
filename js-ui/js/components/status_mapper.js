@@ -14,7 +14,6 @@
  */
 export function mapStatusEvent(event) {
   const { phase, status, data } = event;
-  const phaseName = phase?.[0] || 'unknown';
 
   const ICONS = {
     starting: '▶️',
@@ -26,33 +25,38 @@ export function mapStatusEvent(event) {
 
   const icon = ICONS[status] || '⚙️';
 
-  const MESSAGES = {
-    collapse_emails: 'Collapsing email threads',
-    extract_emails: 'Extracting email content',
+  const PHASE_MESSAGES = {
+    collapse_emails:  'Collapsing email threads',
+    extract_emails:   'Extracting email content',
     initialize_input: 'Analyzing case description',
-    storage: 'Saving files to secure storage',
-    parsing: 'Parsing and extracting text from documents',
-    embedding: 'Creating embeddings for semantic search',
-    analyze: 'Analyzing documents and emails for key facts',
-    update_metadata: 'Updating project summary',
-    save: 'Saving results to project',
-    qc_analysis: 'Running quality checks on analysis',
-    load_project_data: 'Loading existing project data',
+    storage:          'Saving files to secure storage',
+    parsing:          'Parsing and extracting text from documents',
+    parse_doc:        'Parsing document',
+    parse_documents:  'Parsing documents',
+    ocr:              'Running OCR on scanned pages',
+    ocr_doc:          'Running OCR on document',
+    embedding:        'Creating embeddings for semantic search',
+    analyze:          'Analyzing documents and emails for key facts',
+    analyze_docs:     'Analyzing documents',
+    analyze_emails:   'Analyzing emails',
+    update_metadata:  'Updating project summary',
+    save:             'Saving results to project',
+    qc_analysis:      'Running quality checks on analysis',
+    load_project_data:'Loading existing project data',
   };
 
-  let message = MESSAGES[phaseName] || `Unknown phase: ${phaseName}`;
+  const phaseNames = Array.isArray(phase) ? phase : [phase || 'unknown'];
+  const translatedPhases = phaseNames.map(p => PHASE_MESSAGES[p] || `Unknown phase: ${p}`);
+  let message = translatedPhases.join(' & ');
+
   let details = null;
 
-  if (phaseName === 'parsing' && status === 'processing' && data?.filename) {
+  if (phaseNames.includes('parsing') && status === 'processing' && data?.filename) {
     message = `Parsing: ${data.filename}`;
   }
 
-  if (phaseName === 'analyze' && status === 'processing' && data?.specs) {
+  if (phaseNames.includes('analyze') && status === 'processing' && data?.specs) {
     details = `Analyzing: ${data.specs}`;
-  }
-  
-  if (status === 'complete' && phaseName in MESSAGES) {
-    message = `${MESSAGES[phaseName]}`;
   }
 
   return { icon, message, details };

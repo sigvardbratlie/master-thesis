@@ -294,16 +294,19 @@ function bindProjectCards() {
   });
 
   // Empty state new project button
-  document.getElementById('btn-empty-new')?.addEventListener('click', openInitModal);
+  document.getElementById('btn-empty-new')?.addEventListener('click', _openNewProjectModal);
 }
 
-function openInitModal() {
+function bindPortfolioEvents() {
+  document.getElementById('btn-new-project')?.addEventListener('click', _openNewProjectModal);
+}
+
+function _openNewProjectModal() {
   openPipelineModal('init', {
-    showTitleInput: true,
     contextRequired: true,
-    onRun: async ({ files, question, title }, { logLine, setError, setDone, setAbort, onChunk }) => {
-      const queryId   = uuid();
+    onRun: async ({ files, question }, { logLine, setError, setDone, setAbort, onChunk }) => {
       const projectId = uuid();
+      const queryId   = uuid();
 
       let attachments;
       try {
@@ -330,29 +333,22 @@ function openInitModal() {
         {
           question,
           attachments,
-          title,
           session_id:  uuid(),
           llm_model:   'google_gemini-2.5-flash',
           query_id:    queryId,
           project_id:  projectId,
         },
         {
-          onChunk:      (e) => onChunk(e),
-          onToken:      (t) => console.log('onToken:', t), // Tokens not expected here
-          onToolResult: (r) => console.log('onToolResult:', r), // Tools not expected here
-          onDone: () => {
-            setDone('✅ Project initialized! Redirecting...');
-            toast('Project initialized', 'success');
+          onChunk:  (e)   => onChunk(e),
+          onDone:   ()    => {
+            setDone('✅ Project created! Opening...');
+            toast('Project created', 'success');
             setTimeout(() => { window.location.hash = `/project/${projectId}`; }, 1200);
           },
-          onError: (err) => setError(err.message),
+          onError:  (err) => setError(err.message),
         },
       );
       setAbort(ctrl);
     },
   });
-}
-
-function bindPortfolioEvents() {
-  document.getElementById('btn-new-project')?.addEventListener('click', openInitModal);
 }
