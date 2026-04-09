@@ -205,7 +205,7 @@ class Party(BaseModel):
     party_id : str | None = None
     role: PartyRole = Field(
         default="other",
-        description="Functional role of the party. Use 'legal_rep_*' roles ONLY for qualified legal counsel (lawyers/attorneys). For professional service providers (architects, consultants, engineers, etc.) use 'contractor' or 'party_representative'. Assign based on the party's actual function, not assumed litigation framing.")
+        description="Functional role of the party.")
     entity_type: EntityType
     party_reps : list[PartyRep] | None = Field(None, description="List of representatives for this party")
     role_description: str | None = Field(None, description="Additional details about the party's role or involvement in the case")
@@ -293,10 +293,7 @@ class Attachment(AttachmentExtracted):
 class EmailExtracted(BaseExtracted):
     """Email-specific extraction fields - what LLM extracts from email content"""
     key_points: list[str] | None = Field(None, description="Important points, decisions, or action items from the email")
-    # Legal metadata
-    #privilege_status: Literal["attorney-client", "work_product", "none"] | None = Field(
-    #     None, description="Privilege classification"
-    # )
+    
     email_id : str | None = None 
 
 class Email(EmailExtracted):
