@@ -284,6 +284,10 @@ async function _handleSave() {
     _editMode = false;
     document.getElementById('entity-popover-inner').innerHTML = _render(_currentType, _currentData);
     toast('Changes saved', 'success');
+
+    document.dispatchEvent(new CustomEvent('entity-updated', {
+      detail: { type: _currentType, projectId },
+    }));
   } catch (err) {
     toast(err.message, 'error');
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }

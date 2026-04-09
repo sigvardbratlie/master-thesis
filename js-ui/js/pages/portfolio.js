@@ -341,9 +341,12 @@ function _openNewProjectModal() {
         {
           onChunk:  (e)   => onChunk(e),
           onDone:   ()    => {
-            setDone('✅ Project created! Opening...');
+            setDone('✅ Project created! Reloading...');
             toast('Project created', 'success');
-            setTimeout(() => { window.location.hash = `/project/${projectId}`; }, 1200);
+            setTimeout(() => {
+              window.location.hash = `/project/${projectId}`;
+              window.location.reload();
+            }, 1200);
           },
           onError:  (err) => setError(err.message),
         },

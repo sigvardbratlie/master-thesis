@@ -335,6 +335,15 @@ function buildTimelineInner(events, attachments = [], emails = []) {
   const CONTAINER_H = 500;
   const AXIS_PCT    = 50; // axis at vertical midpoint
 
+  const HIGH_CARD_W_PX     = 210;
+  const HIGH_CARD_GAP_PX   = 18;
+  const HIGH_LANE_STEP_PX  = 70;
+  const highCardWidthPct   = (HIGH_CARD_W_PX / minWidth) * 100;
+  const highCardGapPct     = (HIGH_CARD_GAP_PX / minWidth) * 100;
+  const highCardHalfPct    = highCardWidthPct / 2;
+  const highLaneEndsAbove  = [];
+  const highLaneEndsBelow  = [];
+
   // Center of mass — average left% across all dated items (used for auto-scroll)
   const allLeftPcts = [
     ...events.map(e => toLeft(e.event_start_date)),
@@ -382,31 +391,42 @@ function buildTimelineInner(events, attachments = [], emails = []) {
       </div>`;
   });
 
+  const spanEventIds = new Set(spanEvents.map(ev => ev.event_id));
+  const highEventsForCards = highEvents.filter(ev => !spanEventIds.has(ev.event_id));
+  const lowEventsForDots   = lowEvents.filter(ev => !spanEventIds.has(ev.event_id));
+
   // ── High-significance events (full cards, alternating above/below axis)
-  highEvents.forEach((ev, i) => {
+  highEventsForCards.forEach((ev, i) => {
     const left = toLeft(ev.event_start_date);
     if (left === null) return;
     const above   = i % 2 === 0;
     const dateStr = ev.event_start_date ? formatDate(ev.event_start_date, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
     const endStr  = ev.event_end_date   ? ` – ${formatDate(ev.event_end_date, { day: 'numeric', month: 'short', year: 'numeric' })}` : '';
     const name    = escHtml(ev.event_name ?? ev.description ?? '');
-    const desc    = (ev.event_name && ev.description)
-      ? `<p class="text-[9px] text-on-surface-variant mt-1 leading-relaxed line-clamp-2">${escHtml(ev.description)}</p>` : '';
     const badges  = [
       ev.disputed ? `<span class="px-1 py-0.5 rounded bg-error-container text-error text-[8px] font-bold uppercase">Disputed</span>` : '',
       ev.category ? `<span class="px-1 py-0.5 rounded bg-surface-container text-on-surface-variant text-[8px] font-bold uppercase">${escHtml(ev.category)}</span>` : '',
     ].filter(Boolean).join('');
 
+    const laneEnds = above ? highLaneEndsAbove : highLaneEndsBelow;
+    const leftEdge = left - highCardHalfPct;
+    const rightEdge = left + highCardHalfPct;
+    let lane = 0;
+    while (lane < laneEnds.length && laneEnds[lane] > leftEdge) lane++;
+    if (lane === laneEnds.length) laneEnds.push(-Infinity);
+    laneEnds[lane] = rightEdge + highCardGapPct;
+    const laneOffset = lane * HIGH_LANE_STEP_PX;
+    const stemHeight = 40 + laneOffset;
+
     const card = `
-      <div class="w-48 p-3 bg-surface-container-lowest rounded-xl shadow-md border border-secondary/20
+      <div class="w-auto min-w-[150px] max-w-[210px] p-3 bg-surface-container-lowest rounded-xl shadow-md border border-secondary/20
                   cursor-pointer popover-item hover:shadow-lg hover:-translate-y-0.5 transition-all flex-shrink-0"
            data-popover-type="event" data-popover-id="${escHtml(ev.event_id)}">
         <p class="text-[9px] font-black text-secondary uppercase mb-0.5">${dateStr}${endStr}</p>
         <h4 class="text-[11px] font-bold text-on-surface leading-tight">${name}</h4>
-        ${desc}
         ${badges ? `<div class="flex flex-wrap gap-0.5 mt-1.5">${badges}</div>` : ''}
       </div>`;
-    const stem = `<div class="w-px flex-shrink-0 bg-gradient-to-b from-secondary/50 to-secondary/20" style="height:40px;"></div>`;
+    const stem = `<div class="w-px flex-shrink-0 bg-gradient-to-b from-secondary/50 to-secondary/20" style="height:${stemHeight}px;"></div>`;
     const dot  = `<div class="w-4 h-4 rounded-full bg-primary border-2 border-surface shadow-lg z-20 flex-shrink-0"></div>`;
 
     if (above) {
@@ -423,7 +443,7 @@ function buildTimelineInner(events, attachments = [], emails = []) {
   });
 
   // ── Low-significance events (dots on axis, click to expand card)
-  lowEvents.forEach((ev, i) => {
+  lowEventsForDots.forEach((ev, i) => {
     const left = toLeft(ev.event_start_date);
     if (left === null) return;
     const above   = i % 2 === 0;
@@ -443,12 +463,18 @@ function buildTimelineInner(events, attachments = [], emails = []) {
 
     if (above) {
       html += `
-        <div class="absolute tl-dot-wrap flex flex-col items-center" style="left:${left}%; bottom:${100 - AXIS_PCT}%; transform:translateX(-50%);">
+        <div class="absolute tl-dot-wrap flex flex-col items-center"
+             data-dot-type="event" data-left="${left}" data-axis="above" data-axis-pos="${100 - AXIS_PCT}"
+             data-event-id="${escHtml(ev.event_id)}" data-title="${name}" data-date="${escHtml(dateStr)}"
+             style="left:${left}%; bottom:${100 - AXIS_PCT}%; transform:translateX(-50%);">
           ${card}${gap}${dot}
         </div>`;
     } else {
       html += `
-        <div class="absolute tl-dot-wrap flex flex-col items-center" style="left:${left}%; top:${AXIS_PCT}%; transform:translateX(-50%);">
+        <div class="absolute tl-dot-wrap flex flex-col items-center"
+             data-dot-type="event" data-left="${left}" data-axis="below" data-axis-pos="${AXIS_PCT}"
+             data-event-id="${escHtml(ev.event_id)}" data-title="${name}" data-date="${escHtml(dateStr)}"
+             style="left:${left}%; top:${AXIS_PCT}%; transform:translateX(-50%);">
           ${dot}${gap}${card}
         </div>`;
     }
@@ -462,7 +488,10 @@ function buildTimelineInner(events, attachments = [], emails = []) {
     if (left === null) return;
 
     html += `
-      <div class="absolute tl-dot-wrap flex flex-col items-center" style="left:${left}%; bottom:${100 - AXIS_PCT + 3}%; transform:translateX(-50%);">
+       <div class="absolute tl-dot-wrap flex flex-col items-center"
+         data-dot-type="email" data-left="${left}" data-axis="above" data-axis-pos="${100 - AXIS_PCT + 3}"
+         data-email-id="${escHtml(id)}" data-title="${escHtml(e.subject ?? 'Email')}" data-date="${escHtml(formatDate(e.date))}"
+           style="left:${left}%; bottom:${100 - AXIS_PCT + 3}%; transform:translateX(-50%);">
         <div class="tl-dot-card hidden w-48 p-2.5 bg-green-50 rounded-xl shadow-lg border border-green-200 flex-shrink-0 att-item cursor-pointer"
              data-type="email" data-email-id="${escHtml(id)}">
           <div class="flex items-center gap-1.5 mb-0.5">
@@ -486,7 +515,13 @@ function buildTimelineInner(events, attachments = [], emails = []) {
     const isMd  = ext === '.md' || ext === '.markdown';
 
     html += `
-      <div class="absolute tl-dot-wrap flex flex-col items-center" style="left:${left}%; top:${AXIS_PCT + 3}%; transform:translateX(-50%);">
+      <div class="absolute tl-dot-wrap flex flex-col items-center"
+           data-dot-type="attachment" data-left="${left}" data-axis="below" data-axis-pos="${AXIS_PCT + 3}"
+           data-file-id="${escHtml(a.file_id ?? '')}" data-title="${escHtml(a.filename ?? 'Attachment')}"
+           data-date="${escHtml(formatDate(a.file_date ?? a.created_at))}" data-type="${vtype ?? ''}"
+           data-path="${escHtml(a.path ?? '')}" data-name="${escHtml(a.filename ?? '')}"
+           data-file-type="${escHtml(a.file_type ?? '')}" data-is-markdown="${isMd}"
+           style="left:${left}%; top:${AXIS_PCT + 3}%; transform:translateX(-50%);">
         <div class="w-3 h-3 rounded-full bg-blue-500 border-2 border-surface shadow tl-dot cursor-pointer hover:scale-125 transition-transform flex-shrink-0 z-20"></div>
         <div class="w-px flex-shrink-0 bg-blue-400/50" style="height:18px;"></div>
         <div class="tl-dot-card hidden w-48 p-2.5 bg-blue-50 rounded-xl shadow-lg border border-blue-200 flex-shrink-0
@@ -951,8 +986,7 @@ function _openUpdateModal(projectId) {
             setDone('✅ Project updated! Reloading...');
             toast('Project updated', 'success');
             setTimeout(() => {
-              cache.clear();
-              renderProject(projectId);
+              window.location.reload();
             }, 1200);
           },
           onError: (err)    => setError(err.message),
@@ -1242,6 +1276,13 @@ function bindProjectEvents(_projectId) {
     await reloadEntitySection(type, projectId);
   });
 
+  // Entity updated via popover — reload the affected section
+  document.addEventListener('entity-updated', async (e) => {
+    const { type, projectId } = e.detail;
+    if (!projectId || !document.getElementById('factsheet-panel')) return;
+    await reloadEntitySection(type, projectId);
+  });
+
   // Collapsible sections
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('.sec-toggle');
@@ -1353,6 +1394,132 @@ function initTimeline(secEl) {
     ruler.innerHTML = parts.join('');
   };
 
+  const CLUSTER_TYPES = {
+    email:      { dotClass: 'bg-green-600', label: 'emails' },
+    attachment: { dotClass: 'bg-blue-600',  label: 'attachments' },
+    event:      { dotClass: 'bg-outline-variant', label: 'events' },
+  };
+
+  const updateClusters = () => {
+    const innerWidth = innerEl.offsetWidth || baseWidth * zoom;
+    const thresholdPx = 18;
+
+    innerEl.querySelectorAll('.tl-cluster').forEach(el => el.remove());
+
+    const wraps = Array.from(innerEl.querySelectorAll('.tl-dot-wrap[data-dot-type]'));
+    wraps.forEach(wrap => {
+      wrap.classList.remove('hidden');
+      wrap.querySelector('.tl-dot-card')?.classList.add('hidden');
+    });
+
+    Object.entries(CLUSTER_TYPES).forEach(([type, cfg]) => {
+      const items = wraps
+        .filter(wrap => wrap.dataset.dotType === type)
+        .map(wrap => ({
+          el: wrap,
+          leftPct: parseFloat(wrap.dataset.left),
+          axis: wrap.dataset.axis,
+          axisPos: parseFloat(wrap.dataset.axisPos),
+        }))
+        .filter(item => !Number.isNaN(item.leftPct));
+
+      if (!items.length) return;
+
+      items.sort((a, b) => a.leftPct - b.leftPct);
+
+      const clusters = [];
+      let current = [items[0]];
+      let lastX = (items[0].leftPct / 100) * innerWidth;
+
+      for (let i = 1; i < items.length; i++) {
+        const x = (items[i].leftPct / 100) * innerWidth;
+        if (x - lastX <= thresholdPx) {
+          current.push(items[i]);
+        } else {
+          clusters.push(current);
+          current = [items[i]];
+        }
+        lastX = x;
+      }
+      clusters.push(current);
+
+      clusters.forEach((group) => {
+        if (group.length < 2) return;
+
+        const count = group.length;
+        const avgLeft = group.reduce((sum, item) => sum + item.leftPct, 0) / count;
+        const axis = group[0].axis;
+        const axisPos = Number.isNaN(group[0].axisPos) ? 50 : group[0].axisPos;
+
+        group.forEach(item => item.el.classList.add('hidden'));
+
+        const memberRows = group.map(item => {
+          const data = item.el.dataset;
+          if (type === 'email') {
+            const title = data.title || 'Email';
+            const date  = data.date || '';
+            const id    = data.emailId || '';
+            return `
+              <button class="tl-cluster-item att-item w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-container transition-colors"
+                      data-type="email" data-email-id="${escHtml(id)}">
+                <p class="text-[11px] font-semibold text-on-surface truncate">${escHtml(title)}</p>
+                ${date ? `<p class="text-[9px] text-on-surface-variant/60">${escHtml(date)}</p>` : ''}
+              </button>`;
+          }
+          if (type === 'attachment') {
+            const title = data.title || 'Attachment';
+            const date  = data.date || '';
+            return `
+              <button class="tl-cluster-item att-item w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-container transition-colors"
+                      data-type="${escHtml(data.type || '')}" data-path="${escHtml(data.path || '')}"
+                      data-name="${escHtml(data.name || '')}" data-file-type="${escHtml(data.fileType || '')}"
+                      data-is-markdown="${escHtml(data.isMarkdown || 'false')}">
+                <p class="text-[11px] font-semibold text-on-surface truncate">${escHtml(title)}</p>
+                ${date ? `<p class="text-[9px] text-on-surface-variant/60">${escHtml(date)}</p>` : ''}
+              </button>`;
+          }
+          const title = data.title || 'Event';
+          const date  = data.date || '';
+          const id    = data.eventId || '';
+          return `
+            <button class="tl-cluster-item popover-item w-full text-left px-2.5 py-2 rounded-lg hover:bg-surface-container transition-colors"
+                    data-popover-type="event" data-popover-id="${escHtml(id)}">
+              <p class="text-[11px] font-semibold text-on-surface truncate">${escHtml(title)}</p>
+              ${date ? `<p class="text-[9px] text-on-surface-variant/60">${escHtml(date)}</p>` : ''}
+            </button>`;
+        }).join('');
+
+        const cluster = document.createElement('div');
+        cluster.className = 'absolute tl-cluster flex flex-col items-center';
+        cluster.dataset.clusterType = type;
+        cluster.style.left = `${avgLeft}%`;
+        cluster.style.transform = 'translateX(-50%)';
+        if (axis === 'above') {
+          cluster.style.bottom = `${axisPos}%`;
+          cluster.style.flexDirection = 'column-reverse';
+        } else {
+          cluster.style.top = `${axisPos}%`;
+          cluster.style.flexDirection = 'column';
+        }
+        cluster.title = `${count} ${cfg.label}`;
+        cluster.innerHTML = `
+          <div class="w-6 h-6 rounded-full ${cfg.dotClass} border-2 border-surface shadow flex items-center justify-center text-[10px] font-bold text-white">
+            ${count}
+          </div>`;
+        cluster.innerHTML += `
+          <div class="tl-cluster-card hidden mt-2 w-56 rounded-xl border border-outline-variant/15 bg-surface-container-lowest shadow-lg overflow-hidden">
+            <div class="px-3 py-2 border-b border-outline-variant/10 text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/60">
+              ${count} ${cfg.label}
+            </div>
+            <div class="max-h-48 overflow-y-auto p-2 space-y-1">
+              ${memberRows}
+            </div>
+          </div>`;
+        innerEl.appendChild(cluster);
+      });
+    });
+  };
+
   const applyZoom = (z) => {
     zoom = Math.max(0.2, Math.min(4, z));
     innerEl.style.minWidth = Math.round(baseWidth * zoom) + 'px';
@@ -1361,7 +1528,27 @@ function initTimeline(secEl) {
     const label = secEl.querySelector('.tl-zoom-label');
     if (label) label.textContent = Math.round(zoom * 100) + '%';
     updateTicks();
+    updateClusters();
   };
+
+  secEl.addEventListener('click', (e) => {
+    const item = e.target.closest('.tl-cluster-item');
+    if (item) return;
+
+    const cluster = e.target.closest('.tl-cluster');
+    if (cluster) {
+      e.stopPropagation();
+      const card = cluster.querySelector('.tl-cluster-card');
+      if (!card) return;
+      document.querySelectorAll('.tl-cluster-card:not(.hidden)').forEach(c => {
+        if (c !== card) c.classList.add('hidden');
+      });
+      card.classList.toggle('hidden');
+      return;
+    }
+
+    document.querySelectorAll('.tl-cluster-card:not(.hidden)').forEach(c => c.classList.add('hidden'));
+  });
 
   // Default: fit to viewport
   const fitZoom = Math.max(0.2, Math.min(0.7, scrollEl.offsetWidth / baseWidth));
