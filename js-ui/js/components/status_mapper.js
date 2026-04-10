@@ -29,6 +29,7 @@ export function mapStatusEvent(event) {
     collapse_emails:  'Collapsing email threads',
     extract_emails:   'Extracting email content',
     initialize_input: 'Analyzing case description',
+    init_input:        'Analyzing case description',
     'loading-data':   'Loading project data',
     cleanup_elements: 'Cleaning factsheet elements',
     deduplication:    'Deduplicating factsheet elements',
