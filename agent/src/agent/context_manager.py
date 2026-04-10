@@ -681,32 +681,41 @@ class ContextManager:
             "background": response.background if hasattr(response, 'background') else str(response)
         }
     
-    async def update_initial_input(self, events : list[Event],existing_initial_input : InitialInput) -> InitialInput:
+    async def update_initial_input(self, context : str,
+                                   existing_initial_input : InitialInput,
+                                   
+                                   ) -> InitialInput:
         """Update the initial input string based on the cleaned title and background."""
-        view_events = "Current Events"
-        view_events += "\t* Format: event_start_date | event_name | file_id | description" + "(Disputed)"  + "\n"
-        if isinstance(events, list):
-            events.sort(key=lambda e: str(e.event_start_date))
-        else:
-            raise ValueError(f'Events should be of type list, but actual type is {type(events)}')
-        for e in events:
-            view_events += f"\t* {e.event_start_date} | {e.event_name} | {e.file_id or 'No file ID'} | {e.description or ''}"
-            if e.disputed:
-                view_events += " | Disputed"
-            view_events += "\n"
+        #view_events = "Current Events"
+        #view_events += "\t* Format: event_start_date | event_name | file_id | description" + "(Disputed)"  + "\n"
+        # if isinstance(events, list):
+        #     events.sort(key=lambda e: str(e.event_start_date))
+        # else:
+        #     raise ValueError(f'Events should be of type list, but actual type is {type(events)}')
+        # for e in events:
+        #     view_events += f"\t* {e.event_start_date} | {e.event_name} | {e.file_id or 'No file ID'} | {e.description or ''}"
+        #     if e.disputed:
+        #         view_events += " | Disputed"
+        #     view_events += "\n"
 
         view_existing_init_input = "Existing Initial Input:\n"
         view_existing_init_input += f"Title: {existing_initial_input.title}\n"
         view_existing_init_input += f"Background: {existing_initial_input.background}\n"
         for party in existing_initial_input.parties or []:
-            view_existing_init_input += f"Party: {party.legal_name} | {party.party_id} | Role: {party.role} | Description: {party.role_description or ''}\n"
+            view_existing_init_input += f"Party: {party.legal_name} | {party.party_id} | Role: {party.role} | Party representatives {party.party_reps or []} | Description: {party.role_description or ''}\n"
 
         prompt = (
             view_existing_init_input +
-            view_events +
-            f'Extract initial input (All parties and updated title and background) based on the project events'
-            f'**IMPORTANT**: Keep all party_ids for existing parties, and update the additional information if nececcary (i.e role, role_description, key_contact, etc)'
+            #view_events +
+            context + "\n\n" +
+            f'Extract initial input (all parties, updated title and background) based on the project context above.\n'
+            f'**IMPORTANT**:\n'
+            f'- Keep all party_ids for existing parties. Update role, role_description if needed.\n'
+            f'- Add any new parties (organisations or individuals acting independently) found in the context.\n'
+            f'- For each party, identify all named individuals mentioned in the email context and populate `party_reps` with their first_name, last_name, email, and rep_role (e.g. "project_manager", "lawyer", "CEO").\n'
+            f'- A person who appears as sender/recipient across many emails (e.g. sigvard@sibr.no = Sigvard Bratlie) is a key representative — do not omit them.'
         )
+        logger.info(f"\n ===== DEBUG PROMPT INPUT ====  \n\n {prompt}\n\n")
         structured_llm = self._structured(InitialInput)
         updated_input = await structured_llm.ainvoke(prompt)
         org_ids = set(p.party_id for p in existing_initial_input.parties or [] if p.party_id)
