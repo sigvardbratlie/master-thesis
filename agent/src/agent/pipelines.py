@@ -948,13 +948,17 @@ class ProjectPipeline:
             "timestamp": datetime.now().isoformat(),
             "query_id": state.query.query_id,
         })
-        parties = []
-        if state.emails:
-            for row in state.emails:
-                parties.extend(row.parties or [])
-        if state.attachments:
-            for row in state.attachments:
-                parties.extend(row.parties or [])
+        party_map: dict = {}
+        for row in (state.emails or []) + (state.attachments or []):
+            for p in (row.parties or []):
+                key = p.legal_name.lower().strip()
+                if key not in party_map:
+                    party_map[key] = p
+                else:
+                    if p.party_reps:
+                        existing = party_map[key]
+                        existing.party_reps = (existing.party_reps or []) + p.party_reps
+        parties = list(party_map.values())
 
         if parties:
             context = "**Additional info extracted from emails and documents:**\n"
@@ -981,5 +985,6 @@ class ProjectPipeline:
             "query_id": state.query.query_id,
         })
         logger.info(f'🏷️ Metadata update complete.')
+        logger.debug(f'Updated initial input after metadata update: {initial_input.model_dump(mode="json")}')
         return {"input_": initial_input}
 

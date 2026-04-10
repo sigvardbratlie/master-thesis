@@ -24,3 +24,6 @@ def get_vectorstore(request : Request):
 
 def get_conversation_manager(request : Request):
     return request.app.state.conversation_manager
+
+def get_gcs(request: Request):
+    return request.app.state.gcs

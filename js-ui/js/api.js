@@ -221,6 +221,30 @@ export async function createProject(userId, title) {
 }
 
 export async function deleteProject(projectId, userId) {
+  // Fetch file_ids before deleting from Supabase (cascade will remove them)
+  const { data: attachments } = await authService.client
+    .from('project_attachments')
+    .select('file_id')
+    .eq('project_id', projectId);
+  const { data: emails } = await authService.client
+    .from('project_emails')
+    .select('email_id')
+    .eq('project_id', projectId);
+
+  const fileIds = [
+    ...(attachments ?? []).map(a => a.file_id),
+    ...(emails ?? []).map(e => e.email_id),
+  ];
+
+  // Clean up GCS storage and vectorstore in parallel (best-effort, don't block on failure)
+  await Promise.allSettled([
+    fileIds.length > 0
+      ? apiFetch('/storage/delete-files', { method: 'DELETE', body: JSON.stringify({ file_ids: fileIds }) })
+      : Promise.resolve(),
+    apiFetch(`/vectorstore/delete-project/${projectId}`, { method: 'DELETE' }),
+  ]);
+
+  // Delete from Supabase (cascades to all child tables)
   const { error } = await authService.client
     .from('projects')
     .delete()

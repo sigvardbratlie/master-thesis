@@ -16,7 +16,7 @@ from psycopg_pool import AsyncConnectionPool
 from auth import SupabaseAuth
 from utils.config_utils import AppConfig
 from utils.logging_utils import setup_logging
-from database import BQVectorStore
+from database import BQVectorStore, GCSManager
 from agent import ProjectPipeline, ProjectClean
 
 load_dotenv()
@@ -99,6 +99,7 @@ async def lifespan(app: FastAPI):
     app.state.auth = SupabaseAuth()
     app.state.conversation_manager = SupabaseManager()
     app.state.vectorstore = BQVectorStore(embedding_model=config.vectorstore.bigquery.embedding_model)
+    app.state.gcs = GCSManager(config=config)
 
     silence_loggers()
 

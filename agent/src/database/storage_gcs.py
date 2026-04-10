@@ -128,4 +128,7 @@ class GCSManager(BaseStorageManager):
             blob.delete()
             logger.info(f"✅ Deleted from GCS: {delete_path}")
         except Exception as e:
-            logger.error(f"❌ GCS delete failed for {delete_path}: {e}")
+            if "404" in str(e) or "No such object" in str(e):
+                logger.warning(f"⚠️ GCS object not found (skipping): {delete_path}")
+            else:
+                logger.error(f"❌ GCS delete failed for {delete_path}: {e}")
