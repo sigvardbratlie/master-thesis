@@ -73,11 +73,30 @@ class SupabaseManager:
             self.supabase = create_client(self.url, self.key)
             return fn()
 
+    def match_party_reps(self, project_party_reps, project_parties) -> None:
+        party_ids = set(party["party_id"] for party in project_parties)
+        party_ids_from_reps = set(rep["party_id"] for rep in project_party_reps)
+        if not party_ids_from_reps.issubset(party_ids):
+            missing_parties = party_ids_from_reps - party_ids
+            raise ValueError(f"Fant reps for ukjente parter: {missing_parties}")
+        reps = {}
+        for rep in project_party_reps:
+            if rep["party_id"] not in reps:
+                reps[rep["party_id"]] = [rep]
+            else:
+                reps[rep["party_id"]].append(rep)
+
+        for party in project_parties:
+            if party["party_id"] not in reps:
+                party["party_reps"] = []
+            else:
+                party["party_reps"] = reps[party["party_id"]]
+
     def load_factsheet(self, project_id: str,
-                       tables: list[Literal["events", "parties", "deadlines", "damages", "claims", ]] = None
+                       tables: list[Literal["events", "parties", "party_reps", "deadlines", "damages", "claims", ]] = None
                        ) -> FactSheet:
         if tables is None:
-            tables = ["events", "parties", "deadlines", "damages", "claims", ]
+            tables = ["events", "parties", "party_reps", "deadlines", "damages", "claims", ]
         
         select = ""
         for table in tables:
@@ -104,9 +123,12 @@ class SupabaseManager:
         # Pop ut nested arrays (Supabase returnerer dem som lister)
         project_events    = data.pop("project_events",    [])
         project_parties   = data.pop("project_parties",   [])
+        project_party_reps = data.pop("project_party_reps", [])
         project_deadlines = data.pop("project_deadlines", [])
         project_damages   = data.pop("project_damages",   [])
         project_claims    = data.pop("project_claims",    [])
+
+        self.match_party_reps(project_party_reps, project_parties)
 
         # Bygg FactSheet-objektet
         factsheet = FactSheet(
@@ -120,36 +142,49 @@ class SupabaseManager:
         return factsheet
     
     def load_project(self, project_id: str, 
-                     tables: list[Literal["attachments", "events", "parties", "deadlines", "damages", "claims", "emails"]] = None) -> ProjectData:
+                     tables: list[Literal["attachments", "events", "parties", "party_reps", "deadlines", "damages", "claims", "emails"]] = None) -> ProjectData:
         if tables is None:
-            tables = ["attachments", "events", "parties", "deadlines", "damages", "claims", "emails"]
+            tables = ["events", "parties", "party_reps", "deadlines", "damages", "claims", ]
+            attach_email_tables = ["attachments", "emails"]
+        else:
+            attach_email_tables = [table for table in tables if table in ["attachments", "emails"]]
+            tables = [table for table in tables if table not in ["attachments", "emails"]]
 
-        select = ""
-        for table in tables:
-            select += f"project_{table}(*),\n"
+        # select = ""
+        # for table in tables:
+        #     select += f"project_{table}(*),\n"
 
-        select_query = f"""
-                *,
-                {select.rstrip(',\n')}
-            """
-        project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
+        # select_query = f"""
+        #         *,
+        #         {select.rstrip(',\n')}
+        #     """
+        # project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
 
-        # Extract nested data from single query
-        data = project.data
-        attachments = data.pop("project_attachments", [])
-        project_events = data.pop("project_events", [])
-        project_parties = data.pop("project_parties", [])
-        project_deadlines = data.pop("project_deadlines", [])
-        project_damages = data.pop("project_damages", [])
-        project_claims = data.pop("project_claims", [])
-        project_emails = data.pop("project_emails", [])
+        # # Extract nested data from single query
+        # data = project.data
+        # attachments = data.pop("project_attachments", [])
+        # project_events = data.pop("project_events", [])
+        # project_parties = data.pop("project_parties", [])
+        # project_party_reps = data.pop("project_party_reps", [])
+        # project_deadlines = data.pop("project_deadlines", [])
+        # project_damages = data.pop("project_damages", [])
+        # project_claims = data.pop("project_claims", [])
+        # project_emails = data.pop("project_emails", [])
 
-        factsheet = FactSheet(**data,
-                              parties=project_parties,
-                              events=project_events,
-                              deadlines=project_deadlines,
-                              damages=project_damages,
-                              claims=project_claims)
+        # self.match_party_reps(project_party_reps, project_parties)
+
+        # factsheet = FactSheet(**data,
+                            #   parties=project_parties,
+                            #   events=project_events,
+                            #   deadlines=project_deadlines,
+                            #   damages=project_damages,
+                            #   claims=project_claims)
+
+        
+        attach_emails = self.load_attachments(project_id, attach_email_tables,)
+        attachments = attach_emails.get("attachments", [])
+        project_emails = attach_emails.get("emails", [])
+        factsheet = self.load_factsheet(project_id, tables)
         attachments_models = [Attachment(**attachment) for attachment in attachments]
         emails_models = [Email(**email) for email in project_emails]
         return ProjectData(
@@ -644,3 +679,33 @@ class SupabaseManager:
         except Exception:
             logger.exception(f"Error reading base project info for project_id {project_id} from Supabase")
             return {}
+        
+    def get_party_context(self, project_id : str) -> list[dict]:
+        """Get email context (sender, recipient, subject) for all emails in a project from Supabase"""
+        context = ""
+        email_cols = ["party_roles", "from_addr", "from_name", "to", "to_names", "cc", "cc_names", "title", "description"]
+        docs_cols = ["party_roles", "title", "description"]
+        
+        try:
+            response_email = self.supabase.table("project_emails").select(", ".join(email_cols)).eq("project_id", project_id).execute()
+        except Exception:
+            logger.exception(f"Error reading email party context for project_id {project_id} from Supabase")
+        
+        try:
+            response_docs = self.supabase.table("project_attachments").select(", ".join(docs_cols)).eq("project_id", project_id).execute()
+        except Exception:
+            logger.exception(f"Error reading document party context for project_id {project_id} from Supabase")
+
+        if response_email.data:
+            context = "**Party info from Emails** : " + "\n" #+  " | ".join(email_cols) + "\n"
+            for row in response_email.data:
+                if row.get("party_roles"):
+                    context += " | ".join([str(row[col]) for col in email_cols]) + "\n"
+        if response_docs.data:
+            context += "\n**Party info from Documents** : " + "\n"  #+ " | ".join(docs_cols) + "\n"
+            for row in response_docs.data:
+                if row.get("party_roles"):
+                    context += " | ".join([str(row[col]) for col in docs_cols]) + "\n"
+        if not context:
+            context = "No email or document context available."
+        return context
