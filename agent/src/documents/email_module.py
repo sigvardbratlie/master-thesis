@@ -115,8 +115,14 @@ class EmailHandler(EmailBaseClass):
                     logger.warning("⚠️  Attachment part found without filename — skipping")
         return attachments
  
-    def extract_email_data(self, msg : Message, file_id : str, query_id : str, user_id: str , session_id : str) -> dict:
-        #file_id = str(uuid.uuid4())
+    def extract_email_data(self, msg : Message, file_id : str, query_id : str, user_id: str, path: str) -> dict:
+        """Extract email data and nested attachments from a parsed email message.
+
+        Args:
+            path: Full GCS path for this email (e.g. '{user_id}/{project_id}/{file_id}.eml').
+                  Nested attachment paths are derived using the same directory prefix.
+        """
+        base_dir = os.path.dirname(path)
         attachments_list = self._extract_attachments(msg)
         attachments = []
         att_ids = []
@@ -131,7 +137,7 @@ class EmailHandler(EmailBaseClass):
                     content=att["content"],
                     query_id=query_id,
                     event_id=None,
-                    path = f'{user_id}/{session_id}/{att.get("file_id")}{ext}',
+                    path=f'{base_dir}/{att.get("file_id")}{ext}',
                 )
                 attachments.append(attachment_model)
                 att_ids.append(att["file_id"])
@@ -144,7 +150,7 @@ class EmailHandler(EmailBaseClass):
         parsed_bcc = [parseaddr(addr) for addr in msg.get("Bcc", "").split(",")] if msg.get("Bcc") else []
         email_data = EmailModel(
                 file_id=file_id,
-                path = f'{user_id}/{session_id}/{file_id}.eml',
+                path = path,
                 query_id=query_id,
 
                 subject=self.decode_eml_string(msg.get("Subject", "")),
@@ -175,14 +181,14 @@ class EmailHandler(EmailBaseClass):
 
         return {"email" : email_data, "attachments" : attachments if attachments else []}
 
-    def parse_eml_to_obj(self, content: bytes, user_id, query_id, session_id, file_id) -> dict:
+    def parse_eml_to_obj(self, content: bytes, user_id, query_id, path, file_id) -> dict:
         '''Process EML content and extract email data and attachments
 
         Args:
             content (bytes): The raw EML content.
             user_id (str): The ID of the user associated with the email.
             query_id (str): The ID of the query associated with the email.
-            session_id (str): The ID of the session associated with the email.
+            path (str): Full GCS path for this email (e.g. '{user_id}/{project_id}/{file_id}.eml').
             file_id (str): The ID of the file associated with the email.
         Returns:
             dict: A dictionary containing the extracted email data and attachments.
@@ -196,7 +202,7 @@ class EmailHandler(EmailBaseClass):
         email_data = self.extract_email_data(msg,
                                              query_id=query_id,
                                              user_id=user_id,
-                                             session_id=session_id,
+                                             path=path,
                                              file_id=file_id)
         return email_data
     

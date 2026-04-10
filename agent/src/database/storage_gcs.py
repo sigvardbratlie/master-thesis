@@ -123,12 +123,7 @@ class GCSManager(BaseStorageManager):
 
     def delete_attachment(self, path: str) -> None:
         delete_path = self.prefix + path
-        try:
-            blob = self.bucket.blob(delete_path)
-            blob.delete()
-            logger.info(f"✅ Deleted from GCS: {delete_path}")
-        except Exception as e:
-            if "404" in str(e) or "No such object" in str(e):
-                logger.warning(f"⚠️ GCS object not found (skipping): {delete_path}")
-            else:
-                logger.error(f"❌ GCS delete failed for {delete_path}: {e}")
+        blob = self.bucket.blob(delete_path)
+        blob.delete()
+        logger.info(f"✅ Deleted from GCS: {delete_path}")
+            
