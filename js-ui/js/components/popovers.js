@@ -9,7 +9,7 @@
 //   openPopover('event', someEventId);
 // ============================================================
 
-import { escHtml, formatDate, formatCurrency, toast } from '../utils.js';
+import { escHtml, formatDate, formatDateTime, formatCurrency, toast } from '../utils.js';
 import { authService } from '../auth.js';
 import {
   updateProjectEvent,
@@ -744,12 +744,12 @@ function _metaStrip(data) {
   const parts = [];
   if (data.created_by || data.created_at) {
     const by   = data.created_by ? escHtml(data.created_by) : '';
-    const when = data.created_at ? escHtml(formatDate(data.created_at)) : '';
+    const when = data.created_at ? escHtml(formatDateTime(data.created_at)) : '';
     parts.push(`Created${by ? ` by ${by}` : ''}${when ? ` · ${when}` : ''}`);
   }
   if (data.updated_by || data.updated_at) {
     const by   = data.updated_by ? escHtml(data.updated_by) : '';
-    const when = data.updated_at ? escHtml(formatDate(data.updated_at)) : '';
+    const when = data.updated_at ? escHtml(formatDateTime(data.updated_at)) : '';
     parts.push(`Updated${by ? ` by ${by}` : ''}${when ? ` · ${when}` : ''}`);
   }
   if (!parts.length) return '';

@@ -8,6 +8,12 @@ export function formatDate(iso, opts = { day: 'numeric', month: 'short', year: '
   return new Date(iso).toLocaleDateString('no-NO', opts);
 }
 
+/** Format ISO date string to readable date + time (e.g. "10. apr. 2026, 14:32") */
+export function formatDateTime(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('no-NO', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
 /** Format ISO date to relative time (e.g. "2 timer siden") */
 export function timeAgo(iso) {
   if (!iso) return '—';

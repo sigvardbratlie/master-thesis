@@ -31,7 +31,7 @@ import { renderProjectSidebar, bindProjectSidebarEvents } from '../components/si
 import { renderPipelineModal, openPipelineModal }  from '../components/pipeline_modal.js';
 import { startGlobalStatusLog, addGlobalStatusLogLine, setGlobalStatusComplete, setGlobalStatusError } from '../components/global_status.js';
 import { renderTopbar }                     from '../components/topbar.js';
-import { formatDate, skeleton, escHtml, uuid, toast, arrayBufferToBase64, resolveFileType } from '../utils.js';
+import { formatDate, formatDateTime, skeleton, escHtml, uuid, toast, arrayBufferToBase64, resolveFileType } from '../utils.js';
 import { appState } from '../state.js';
 import { initPopovers, registerItems }      from '../components/popovers.js';
 import { marked }                           from 'marked';
@@ -262,7 +262,7 @@ function buildProjectShell(projectId, meta) {
         </div>
 
         <div class="mt-8 pt-4 border-t border-outline-variant/10 text-[10px] text-on-surface-variant/30 font-body">
-          Created ${formatDate(meta.created_at)}
+          Created ${formatDateTime(meta.created_at)}
         </div>
       </div>
     </div>`;
