@@ -348,13 +348,17 @@ class ContextManager:
         
         # Clearer prompt showing the expected structure
         prompt = init_prompt + f'''Analyze the following {len(emails)} emails.
-        
+
                                 For EACH email, return an EmailAnalysisResult object containing:
                                 1. email: EmailExtracted - metadata from that email (MUST set email_id to the file_id shown for each email)
                                 2. events: list[Event] or null - timeline events mentioned in that email
 
                                 IMPORTANT: Return exactly {len(emails)} EmailAnalysisResult objects in the emails array.
                                 CRITICAL: Set email_id in EmailExtracted to match the file_id from the input email.
+                                For email.parties:
+                                - List only ORGANIZATIONS or independently-acting entities as parties, NOT named individuals.
+                                - Named individuals (senders/recipients) belong under party_reps of their organization — infer affiliation from email domain (e.g. borghildur@redearkitekter.no → rep for Rede arkitekter as).
+                                - If a person has no clear org affiliation, list them as a party with no reps.
 
                                 Emails to analyze:
                                 {emails_formatted}'''
@@ -701,19 +705,25 @@ class ContextManager:
         view_existing_init_input = "Existing Initial Input:\n"
         view_existing_init_input += f"Title: {existing_initial_input.title}\n"
         view_existing_init_input += f"Background: {existing_initial_input.background}\n"
+        view_existing_init_input += f'Existing Parties ({len(existing_initial_input.parties or [])}):\n'
         for party in existing_initial_input.parties or []:
-            view_existing_init_input += f"Party: {party.legal_name} | {party.party_id} | Role: {party.role} | Party representatives {party.party_reps or []} | Description: {party.role_description or ''}\n"
+            reps_str = "; ".join(
+                f"{r.first_name} {r.last_name} (email={r.email or ''}, role={r.rep_role or ''}, id={r.party_rep_id})"
+                for r in (party.party_reps or [])
+            ) or "none"
+            view_existing_init_input += f"Party: {party.legal_name} | {party.party_id} | Role: {party.role} | Reps: {reps_str} | Description: {party.role_description or ''}\n"
 
         prompt = (
             view_existing_init_input +
-            #view_events +
-            context + "\n\n" +
+            "\n\n" + context + "\n\n" +
             f'Extract initial input (all parties, updated title and background) based on the project context above.\n'
             f'**IMPORTANT**:\n'
             f'- Keep all party_ids for existing parties. Update role, role_description if needed.\n'
+            f'- CRITICAL: Do NOT remove existing party_reps from existing parties. Re-use their id and preserve all fields — but update any missing or incorrect fields (e.g. email, phone, rep_role) if better information is found in the context. Add new reps if new individuals are found.\n'
+            f'- Do not translate any legal names, but keep them as they are (e.g "Plan & Byggningsetaten" should not be translated to "The Norwegian Building Authority").\n'
             f'- Add any new parties (organisations or individuals acting independently) found in the context.\n'
             f'- For each party, identify all named individuals mentioned in the email context and populate `party_reps` with their first_name, last_name, email, and rep_role (e.g. "project_manager", "lawyer", "CEO").\n'
-            f'- A person who appears as sender/recipient across many emails (e.g. sigvard@sibr.no = Sigvard Bratlie) is a key representative — do not omit them.'
+            f'- A person who appears as sender/recipient across many sources (e.g. john@email.no, John Doe) is a key representative — do not omit them.'
         )
         logger.info(f"\n ===== DEBUG PROMPT INPUT ====  \n\n {prompt}\n\n")
         structured_llm = self._structured(InitialInput)

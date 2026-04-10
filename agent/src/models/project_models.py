@@ -248,6 +248,17 @@ class InitialInput(BaseModel):
     def coerce_start_date(cls, v):
         return _coerce_partial_date(v)
 
+class PartyRepHint(BaseModel):
+    first_name: str
+    last_name: str
+    email: str | None = None
+    rep_role: str | None = Field(None, description="Role within the organization, e.g. 'architect', 'lawyer', 'contractor', 'CEO'")
+
+class PartyHint(BaseModel):
+    legal_name: str = Field(description="Name of the organization or independently-acting entity. Do NOT list named individuals as parties if they clearly represent an organization — put them under party_reps instead.")
+    role: str = Field(description="Functional role in the project, e.g. 'contractor', 'project_manager', 'architect', 'plaintiff', 'defendant'")
+    party_reps: list[PartyRepHint] | None = Field(None, description="Named individuals who represent this organization. Infer org affiliation from email domain (e.g. borghildur@redearkitekter.no → rep for Rede arkitekter as). Include all senders/recipients whose domain matches this org.")
+
 class BaseExtracted(BaseModel):
     """Common extraction fields for all document types and emails"""
     title : str = Field(description="Concise title of the content (MAX 10 words)")
@@ -257,6 +268,7 @@ class BaseExtracted(BaseModel):
     deadlines: list[Deadline] | None = Field(None, description="Relevant deadlines if any")
     damages: list[Damage] | None = Field(None, description="Damage information if applicable")
     claims: list[Claim] | None = Field(None, description="Claim information if applicable")
+    parties : list[PartyHint] | None = Field(None, description="Parties mentioned in the content with their roles and representatives if applicable")
 
 class AttachmentExtracted(BaseExtracted):
     """Document-specific extraction fields"""
@@ -288,6 +300,7 @@ class Attachment(AttachmentExtracted):
     size: int #system generated
     #events: list[str] | None = Field(None, description="event IDs mentioned in the document")
     email_id: str | None = Field(None, description="If this attachment was extracted from an email, reference the email_id here")
+
 
 
 class EmailExtracted(BaseExtracted):

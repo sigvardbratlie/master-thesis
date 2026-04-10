@@ -781,7 +781,7 @@ class ProjectPipeline:
                 })
                 await asyncio.to_thread(
                     self.conversation_manager.insert_project_element,
-                    data=[element.model_dump(mode="json", exclude={"claims", "damages", "deadlines", "events"}) for element in elements],
+                    data= elements, # [element.model_dump(mode="json", exclude={"claims", "damages", "deadlines", "events"}) for element in elements],
                     project_id=query.project_id,
                     table_name=table_name,
                     llm_model=query.llm_model,
@@ -854,7 +854,7 @@ class ProjectPipeline:
                 else:
                     await asyncio.to_thread(
                         self.conversation_manager.insert_project_element,
-                        data=[item.model_dump(mode="json") for item in items],
+                        data= items, # [item.model_dump(mode="json") for item in items],
                         project_id=query.project_id,
                         table_name=table_name,
                         llm_model=query.llm_model,
@@ -928,12 +928,10 @@ class ProjectPipeline:
         writer = get_stream_writer()
         
         project_data = state.input_
-        existing_events = []
         existing_init_input = InitialInput()
 
         if isinstance(project_data, ProjectData) and project_data.factsheet:
             logger.debug(f"Loaded project data with factsheet containing {len(project_data.factsheet.events or [])} events")
-            existing_events = project_data.factsheet.events or []
             existing_init_input = InitialInput(
                 parties=project_data.factsheet.parties,
                 title=project_data.factsheet.title,
@@ -941,9 +939,6 @@ class ProjectPipeline:
             )
         elif isinstance(project_data, InitialInput):
             existing_init_input = project_data
-
-        events = existing_events + (state.events or [])
-        events = [e for e in events if e.significance in ["high", "medium"]]  # filter out events missing description or date
 
         writer({
             "type": "status",
@@ -953,10 +948,27 @@ class ProjectPipeline:
             "timestamp": datetime.now().isoformat(),
             "query_id": state.query.query_id,
         })
+        parties = []
+        if state.emails:
+            for row in state.emails:
+                parties.extend(row.parties or [])
+        if state.attachments:
+            for row in state.attachments:
+                parties.extend(row.parties or [])
 
-        additional_context = self.conversation_manager.get_party_context(project_id=state.query.project_id) if state.query.project_id else None
-        initial_input = await self.context_manager.update_initial_input( #events=events, 
-                                                                        context=additional_context, 
+        if parties:
+            context = "**Additional info extracted from emails and documents:**\n"
+            for p in parties:
+                rep_str = "; ".join(
+                    f"{r.first_name} {r.last_name} ({r.email or 'no email'}, {r.rep_role or 'unknown role'})"
+                    for r in (p.party_reps or [])
+                ) or "no reps identified"
+                context += f"- {p.legal_name or 'unknown'} | role: {p.role or 'unknown'} | reps: {rep_str}\n"
+        else:
+            context = "No email or document context available."
+
+        initial_input = await self.context_manager.update_initial_input(
+                                                                        context=context,
                                                                         existing_initial_input=existing_init_input,
                                                                         )
         logger.debug(f'\n\nUpdated metadata {initial_input.model_dump(mode="json")}\n\n')

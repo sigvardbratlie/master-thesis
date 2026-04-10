@@ -37,10 +37,9 @@ _TABLE_ID_FIELDS = {
     "project_claims": "claim_id",
     "project_damages": "damage_id",
     "project_deadlines": "deadline_id",
+    "project_attachments": "file_id",
+    "project_emails": "email_id",
 }
-
-
-
 
 _STALE_CONNECTION_ERRORS = (httpx.ReadError, httpx.RemoteProtocolError, httpx.WriteError)
 
@@ -150,37 +149,6 @@ class SupabaseManager:
             attach_email_tables = [table for table in tables if table in ["attachments", "emails"]]
             tables = [table for table in tables if table not in ["attachments", "emails"]]
 
-        # select = ""
-        # for table in tables:
-        #     select += f"project_{table}(*),\n"
-
-        # select_query = f"""
-        #         *,
-        #         {select.rstrip(',\n')}
-        #     """
-        # project = self.supabase.table("projects").select(select_query).eq("project_id", project_id).single().execute()
-
-        # # Extract nested data from single query
-        # data = project.data
-        # attachments = data.pop("project_attachments", [])
-        # project_events = data.pop("project_events", [])
-        # project_parties = data.pop("project_parties", [])
-        # project_party_reps = data.pop("project_party_reps", [])
-        # project_deadlines = data.pop("project_deadlines", [])
-        # project_damages = data.pop("project_damages", [])
-        # project_claims = data.pop("project_claims", [])
-        # project_emails = data.pop("project_emails", [])
-
-        # self.match_party_reps(project_party_reps, project_parties)
-
-        # factsheet = FactSheet(**data,
-                            #   parties=project_parties,
-                            #   events=project_events,
-                            #   deadlines=project_deadlines,
-                            #   damages=project_damages,
-                            #   claims=project_claims)
-
-        
         attach_emails = self.load_attachments(project_id, attach_email_tables,)
         attachments = attach_emails.get("attachments", [])
         project_emails = attach_emails.get("emails", [])
@@ -250,12 +218,12 @@ class SupabaseManager:
                        emails : list[Email] = [],
                        llm_model: str = "",
                        ):
-                
+        exclude_fields = {"events","claims","damages","deadlines","parties"}
         attachment_dicts = []
         email_dicts = []
         if attachments:
             for attachment in attachments:
-                attachment_dict = attachment.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
+                attachment_dict = attachment.model_dump(mode='json', exclude=exclude_fields)
                 attachment_dict["project_id"] = project_id
                 attachment_dict["created_by"] = llm_model
                 attachment_dicts.append(attachment_dict)
@@ -264,7 +232,7 @@ class SupabaseManager:
         if emails:
             seen_email_ids = set()
             for email in emails:
-                email_dict = email.model_dump(mode='json', exclude={"events","claims","damages","deadlines"})
+                email_dict = email.model_dump(mode='json', exclude=exclude_fields)
                 email_dict["project_id"] = project_id
                 email_dict["created_by"] = llm_model
                 if email_dict["email_id"] not in seen_email_ids:
@@ -397,7 +365,7 @@ class SupabaseManager:
         logger.debug(f'Completed save_project for project {project_id}. Parties: {len(parties) if parties else 0}, Events: {len(events) if events else 0}, Deadlines: {len(deadlines) if deadlines else 0}, Damages: {len(damages) if damages else 0}, Claims: {len(claims) if claims else 0}')
 
     @_with_reconnect
-    def insert_project_element(self,data : list[dict],
+    def insert_project_element(self,data : list[BaseModel],
                     project_id : str,
                     table_name: Literal[*_TABLE_ID_FIELDS],
                     llm_model: str = ""):
@@ -406,6 +374,7 @@ class SupabaseManager:
             return
         if not isinstance(data, list):
             raise ValueError("Data must be a list of BaseModel or dict instances.")
+        data = [d.model_dump(mode= "json", exclude={"events","claims","damages","deadlines","parties"}) if hasattr(d, 'model_dump') else d for d in data]
 
         now = datetime.now().isoformat()
         for item in data:
@@ -509,31 +478,6 @@ class SupabaseManager:
             logger.debug(f'Upsert-replaced {len(data)} items for project {project_id} in Supabase table {table_name}.')
         except Exception as e:
             logger.exception(f'Error upsert-replacing items for project {project_id} in Supabase table {table_name}: {e}')
-
-    @_with_reconnect
-    def upsert_project_custom(self,
-                    data : dict | str,
-                    element_type : str,
-                    project_id : str,
-                    table_name = "project_legal",
-                    llm_model: str = ""):
-        if not data:
-            logger.warning(f"No custom field data provided to replace for project {project_id}. Skipping replace.")
-            return
-        if not isinstance(data, dict):
-            data = {element_type: data}
-
-        existing = self.supabase.table(table_name).select("created_by").eq("project_id", project_id).execute()
-        data["project_id"] = project_id
-        data["created_by"] = existing.data[0].get("created_by") if existing.data else llm_model
-        data["updated_by"] = llm_model
-        data["updated_at"] = datetime.now().isoformat()
-
-        try:
-            self._execute(lambda: self.supabase.table(table_name).upsert(data).execute())
-            logger.debug(f'Replaced custom fields for project {project_id} in Supabase table {table_name}.')
-        except Exception as e:
-            logger.exception(f'Error replacing custom fields for project {project_id} in Supabase: {e}')
 
     @_with_reconnect
     def upsert_project(self,
