@@ -413,14 +413,14 @@ class ProjectPipeline:
                 msg=messages[0],
                 user_id=user_id,
                 query_id=query.query_id,
-                session_id=query.session_id,
+                path=f"{user_id}/{query.project_id}/{id_}.eml",
                 file_id=id_,
             )
             email = data.get("email")
             if not email:
                 logger.warning(f"⚠️ No email extracted for id {id_}, skipping.")
                 continue
-            email.reference_paths = [f"{user_id}/{query.session_id}/{e_id}.eml" for e_id in messages[1]] if messages[1] else None
+            email.reference_paths = [f"{user_id}/{query.project_id}/{e_id}.eml" for e_id in messages[1]] if messages[1] else None
             output_emails.append(email)
             current_email_attachments = data.get("attachments", [])
             if current_email_attachments:
@@ -429,10 +429,10 @@ class ProjectPipeline:
                     if att.file_type != "message/rfc822":
                         query.attachments.append(att)
                     else:
-                        data = eml.extract_email_data(msg = python_email.message_from_bytes(att.content), 
-                                                      user_id=user_id, 
-                                                      query_id=query.query_id, 
-                                                      session_id=query.session_id, 
+                        data = eml.extract_email_data(msg = python_email.message_from_bytes(att.content),
+                                                      user_id=user_id,
+                                                      query_id=query.query_id,
+                                                      path=f"{user_id}/{query.project_id}/{att.file_id}.eml",
                                                       file_id=att.file_id)
                         nested_email = data.get("email")
                         nested_attachments = data.get("attachments", [])
@@ -825,10 +825,6 @@ class ProjectPipeline:
             "project_claims": claims,
             "project_deadlines": deadlines,
         }
-        to_replace = {
-            "project_parties": parties or [],
-            "project_party_reps" : party_reps,
-        }
 
         async def insert_data_table(table_name, items, replace=False):
             if not items or (not replace and not hasattr(items[0], "model_dump")):
@@ -854,7 +850,7 @@ class ProjectPipeline:
                 else:
                     await asyncio.to_thread(
                         self.conversation_manager.insert_project_element,
-                        data= items, # [item.model_dump(mode="json") for item in items],
+                        data=items,
                         project_id=query.project_id,
                         table_name=table_name,
                         llm_model=query.llm_model,
@@ -868,9 +864,11 @@ class ProjectPipeline:
                     "query_id": query.query_id,
                 })
 
+        # project_party_reps has FK to project_parties — parties must be committed first
+        await insert_data_table("project_parties", parties or [], replace=True)
         await asyncio.gather(
+            insert_data_table("project_party_reps", party_reps, replace=True),
             *[insert_data_table(t, items) for t, items in to_insert.items()],
-            *[insert_data_table(t, items, replace=True) for t, items in to_replace.items()],
             asyncio.to_thread(
                 self.conversation_manager.upsert_project,
                 data={"background": init_input.background, "title": init_input.title},
@@ -985,6 +983,6 @@ class ProjectPipeline:
             "query_id": state.query.query_id,
         })
         logger.info(f'🏷️ Metadata update complete.')
-        logger.debug(f'Updated initial input after metadata update: {initial_input.model_dump(mode="json")}')
+        #logger.info(f'Updated initial input after metadata update: {initial_input.model_dump(mode="json")}')
         return {"input_": initial_input}
 

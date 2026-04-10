@@ -710,25 +710,26 @@ class ContextManager:
             reps_str = "; ".join(
                 f"{r.first_name} {r.last_name} (email={r.email or ''}, role={r.rep_role or ''}, id={r.party_rep_id})"
                 for r in (party.party_reps or [])
-            ) or "none"
-            view_existing_init_input += f"Party: {party.legal_name} | {party.party_id} | Role: {party.role} | Reps: {reps_str} | Description: {party.role_description or ''}\n"
+            )
+            reps_part = f" | Reps: {reps_str}" if reps_str else ""
+            view_existing_init_input += f"Party: {party.legal_name} | {party.party_id} | Role: {party.role}{reps_part} | Description: {party.role_description or ''}\n"
 
+        
         prompt = (
             view_existing_init_input +
             "\n\n" + context + "\n\n" +
             f'Extract initial input (all parties, updated title and background) based on the project context above.\n'
             f'**IMPORTANT**:\n'
             f'- Keep all party_ids for existing parties. Update role, role_description if needed.\n'
-            f'- CRITICAL: Do NOT remove existing party_reps from existing parties. Re-use their id and preserve all fields — but update any missing or incorrect fields (e.g. email, phone, rep_role) if better information is found in the context. Add new reps if new individuals are found.\n'
+            f'- For existing parties that already have reps: preserve them (re-use their id), update any missing fields if better info is found.\n'
+            f'- For parties listed in **Additional info** above: copy their reps directly into the matching party\'s party_reps. Do not skip this step.\n'
             f'- Do not translate any legal names, but keep them as they are (e.g "Plan & Byggningsetaten" should not be translated to "The Norwegian Building Authority").\n'
             f'- Add any new parties (organisations or individuals acting independently) found in the context.\n'
-            f'- For each party, identify all named individuals mentioned in the email context and populate `party_reps` with their first_name, last_name, email, and rep_role (e.g. "project_manager", "lawyer", "CEO").\n'
             f'- A person who appears as sender/recipient across many sources (e.g. john@email.no, John Doe) is a key representative — do not omit them.'
         )
         logger.info(f"\n ===== DEBUG PROMPT INPUT ====  \n\n {prompt}\n\n")
-        structured_llm = self._structured(InitialInput)
+        structured_llm = apply_retry(self._llm.with_structured_output(InitialInput, method="json_mode"), self.config)
         updated_input = await structured_llm.ainvoke(prompt)
-        org_ids = set(p.party_id for p in existing_initial_input.parties or [] if p.party_id)
 
         for party in updated_input.parties:
             if not party.party_id or not self.is_valid_uuid(party.party_id):
@@ -738,21 +739,50 @@ class ContextManager:
                 if not rep.party_rep_id or not self.is_valid_uuid(rep.party_rep_id):
                     rep.party_rep_id = str(uuid.uuid4())
 
-        seen = set()
-        deduped = []
+        org_ids = set(p.party_id for p in existing_initial_input.parties or [] if p.party_id)
+        org_rep_ids = {
+            p.party_id: set(r.party_rep_id for r in p.party_reps or [] if r.party_rep_id)
+            for p in existing_initial_input.parties or []
+        }
+
+        seen_parties = set()
+        deduped_parties = []
+
+        # De-duplicate the LLM output
         for party in updated_input.parties:
-            if party.party_id not in seen:
-                deduped.append(party)
-                seen.add(party.party_id)
+            if party.party_id not in seen_parties:
+                deduped_parties.append(party)
+                seen_parties.add(party.party_id)
+
+        # Re-add any existing party the LLM dropped entirely
         for party_id in org_ids:
-            if party_id not in seen:
+            if party_id not in seen_parties:
                 original_party = next((p for p in existing_initial_input.parties if p.party_id == party_id), None)
                 if original_party:
-                    deduped.append(original_party)
-                    seen.add(party_id)
+                    deduped_parties.append(original_party)
+                    seen_parties.add(party_id)
 
-        logger.info(f'✅ Updated Parties: {len(existing_initial_input.parties)} → {len(updated_input.parties)} (LLM) → {len(deduped)} (deduplicated)')
-        updated_input.parties = deduped
+        # Restore any existing rep the LLM dropped from a party it kept
+        for party in deduped_parties:
+            org_reps = org_rep_ids.get(party.party_id, set())
+            new_reps = set(r.party_rep_id for r in party.party_reps or [] if r.party_rep_id)
+            missing_rep_ids = org_reps - new_reps
+            if missing_rep_ids:
+                logger.warning(f'⚠️ Party {party.legal_name} ({party.party_id}) is missing reps: {missing_rep_ids}')
+                for rep_id in missing_rep_ids:
+                    original_rep = next(
+                        (rep for p in (existing_initial_input.parties or []) if p.party_id == party.party_id
+                         for rep in (p.party_reps or []) if rep.party_rep_id == rep_id),
+                        None,
+                    )
+                    if original_rep:
+                        if party.party_reps is None:
+                            party.party_reps = []
+                        party.party_reps.append(original_rep)
+                        logger.info(f'✅ Restored missing rep {original_rep.first_name} {original_rep.last_name} (id={original_rep.party_rep_id}) to {party.legal_name}')
+
+        logger.info(f'✅ Updated Parties: {len(existing_initial_input.parties)} → {len(updated_input.parties)} (LLM) → {len(deduped_parties)} (deduplicated)')
+        updated_input.parties = deduped_parties
         
         return updated_input
     

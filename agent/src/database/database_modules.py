@@ -33,6 +33,7 @@ def _strip_null_bytes(obj: Any) -> Any:
 
 _TABLE_ID_FIELDS = {
     "project_parties": "party_id",
+    "project_party_reps": "party_rep_id",
     "project_events": "event_id",
     "project_claims": "claim_id",
     "project_damages": "damage_id",
