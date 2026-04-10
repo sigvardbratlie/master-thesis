@@ -194,7 +194,7 @@ class PartyRep(BaseModel):
     first_name: str
     last_name: str
     party_id : str | None = None
-    rep_role : str | None = Field(None, description="Role of the representative, e.g., 'lawyer', 'project manager', etc.")
+    rep_role : str | None = Field(None, description="Role of the representative, e.g., 'lawyer', 'project manager', etc.",)
     project_id: str | None = None
     phone : str | None = None
     email: str | None = None
@@ -203,9 +203,9 @@ class PartyRep(BaseModel):
 class Party(BaseModel):
     legal_name: str
     party_id : str | None = None
-    role: PartyRole = Field(
+    role: str = Field(
         default="other",
-        description="Functional role of the party.")
+        description="Functional role of the party. E.g., plaintiff, defendant, legal_rep_plaintiff, legal_rep_defendant, witness, expert, project_manager etc.")
     entity_type: EntityType
     party_reps : list[PartyRep] | None = Field(None, description="List of representatives for this party")
     role_description: str | None = Field(None, description="Additional details about the party's role or involvement in the case")
