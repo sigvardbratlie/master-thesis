@@ -8,7 +8,7 @@ import { renderMainSidebar, bindMainSidebarEvents }    from '../components/sideb
 import { renderTopbar }                                from '../components/topbar.js';
 import { renderPipelineModal, openPipelineModal }      from '../components/pipeline_modal.js';
 import { appState }                                    from '../state.js';
-import { formatDate, timeAgo, toast, skeleton, uuid, arrayBufferToBase64, resolveFileType } from '../utils.js';
+import { formatDate, timeAgo, toast, skeleton, uuid, arrayBufferToBase64, resolveFileType, escHtml } from '../utils.js';
 import { logger }                                      from '../logger.js';
 
 const log = logger.child({ module: 'portfolio' });
@@ -70,6 +70,7 @@ async function loadPortfolioContent() {
 
     container.innerHTML = buildPortfolioHTML(projects);
     bindProjectCards(projects);
+    bindPortfolioSearch();
   } catch (err) {
     log.error({ err: err.message }, 'loadPortfolioContent feilet');
     container.innerHTML = `<p class="text-error text-sm font-body p-4">Feil: ${err.message}</p>`;
@@ -162,10 +163,14 @@ function projectCard(p) {
     ? `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-surface-container text-on-surface-variant">Closed</span>`
     : `<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-secondary-container/30 text-on-secondary-container">Active</span>`;
 
+  const partyNames  = (p.project_parties ?? []).map(pp => pp.legal_name ?? '').join(' ');
+  const searchName  = [p.title ?? '', p.background ?? '', partyNames].join(' ').toLowerCase();
+
   return `
     <div class="group bg-surface-container-lowest hover:bg-white rounded-xl p-6 ring-1 ring-outline-variant/10
                 hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.07)] transition-all cursor-pointer project-card"
-         data-project-id="${p.project_id}">
+         data-project-id="${p.project_id}"
+         data-search-name="${escHtml(searchName)}">
 
       <!-- Header row -->
       <div class="flex justify-between items-start mb-5">
@@ -263,6 +268,24 @@ function showContextMenu(x, y, projectId, title) {
 function removeContextMenu() {
   _contextMenu?.remove();
   _contextMenu = null;
+}
+
+// ── Search ───────────────────────────────────────────────────
+
+function bindPortfolioSearch() {
+  const input    = document.getElementById('portfolio-search');
+  const timeline = document.querySelector('section.mb-4');
+  if (!input) return;
+
+  input.addEventListener('input', () => {
+    const q = input.value.toLowerCase().trim();
+    document.querySelectorAll('.project-card').forEach(card => {
+      const hit = !q || (card.dataset.searchName ?? '').includes(q);
+      card.style.display = hit ? '' : 'none';
+    });
+    // Hide portfolio timeline while searching — it only shows top-5 and can't be filtered easily
+    if (timeline) timeline.style.display = q ? 'none' : '';
+  });
 }
 
 // ── Event bindings ───────────────────────────────────────────

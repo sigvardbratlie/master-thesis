@@ -212,7 +212,10 @@ function buildProjectShell(projectId, meta) {
             <div class="bg-surface-container-lowest rounded-xl overflow-hidden ring-1 ring-outline-variant/10">
               <div class="flex items-center justify-between px-6 py-4 border-b border-outline-variant/5">
                 <h3 class="font-headline font-bold text-sm text-primary uppercase tracking-widest">Communication &amp; Assets</h3>
-                <button class="text-xs font-bold text-secondary hover:underline">View All</button>
+                <button data-add-type="attachments"
+                  class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-secondary ring-1 ring-secondary/20 hover:bg-secondary/5 transition-colors">
+                  <span class="material-symbols-outlined text-[13px]">upload_file</span>Add Attachments
+                </button>
               </div>
               <div class="px-6 pb-6 pt-3">
                 <div id="sec-documents">${sectionSkeleton}</div>
@@ -226,9 +229,10 @@ function buildProjectShell(projectId, meta) {
 
             <!-- Parties -->
             <div class="bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10 p-6">
-              <div class="flex items-center justify-between mb-5">
+              <div class="space-y-3 mb-5">
                 <h3 class="font-headline font-bold text-sm text-primary uppercase tracking-widest">Parties</h3>
-                <span class="material-symbols-outlined text-[20px] text-on-surface-variant/40 hover:text-secondary cursor-pointer transition-colors">search</span>
+                <input type="search" placeholder="Search parties…" data-search-target="parties"
+                  class="w-full bg-surface-container ring-1 ring-outline-variant/20 focus:ring-2 focus:ring-secondary rounded-lg px-3 py-1.5 text-xs font-body outline-none transition-all placeholder:text-on-surface-variant/40" />
               </div>
               <div id="sec-parties" class="max-h-64 overflow-y-auto pr-1">${sectionSkeleton}</div>
               <button data-add-type="party" class="w-full mt-5 py-2 border border-dashed border-outline-variant rounded-lg text-xs font-bold text-on-surface-variant/50 hover:text-secondary hover:border-secondary transition-all">
@@ -625,9 +629,11 @@ function buildPartiesInner(parties) {
             ? `${repNames.slice(0, 2).join(', ')}${reps.length > 2 ? ` +${reps.length - 2}` : ''}`
             : `${reps.length} representative${reps.length > 1 ? 's' : ''}`)
         : '';
+      const searchName = [name, role, p.role_description ?? '', ...repNames].join(' ').toLowerCase();
       return `
         <div class="flex items-center gap-3 p-3 bg-surface-container rounded-xl ring-1 ring-transparent
                     hover:ring-secondary/20 transition-all cursor-pointer popover-item"
+             data-search-name="${escHtml(searchName)}"
              data-popover-type="party" data-popover-id="${escHtml(p.party_id)}">
           <div class="w-9 h-9 rounded-lg bg-primary-container flex items-center justify-center flex-shrink-0">
             <span class="text-on-primary text-sm font-bold">${escHtml(initial)}</span>
@@ -733,7 +739,7 @@ function fileViewType(filename, mimeType) {
 function buildAttachmentsList(attachments, emails) {
   attachments.forEach(a => { if (a.file_id) _attachStore.set(a.file_id, a); });
 
-  const attItems = attachments.map(a => {
+  const attItemsHTML = attachments.map(a => {
     const vtype = fileViewType(a.filename ?? '', a.file_type ?? '');
     const isPdf = vtype === 'pdf';
     const isText = vtype === 'text';
@@ -741,40 +747,69 @@ function buildAttachmentsList(attachments, emails) {
     const icon = isPdf ? 'picture_as_pdf' : isText ? 'article' : 'description';
     const ext = (a.filename ?? '').slice((a.filename ?? '').lastIndexOf('.')).toLowerCase();
     const isMarkdown = ext === '.md' || ext === '.markdown';
+    const name = a.filename ?? '';
     return `
-    <div class="flex items-center gap-3 p-3 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10
+    <div class="flex items-center gap-2.5 p-2.5 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10
                 hover:ring-secondary/20 transition-all group ${canOpen ? 'cursor-pointer att-item' : 'opacity-60'}"
-         data-type="${vtype ?? 'pdf'}" data-path="${escHtml(a.path ?? '')}" data-name="${escHtml(a.filename ?? '')}" data-file-type="${escHtml(a.file_type ?? 'application/pdf')}" data-is-markdown="${isMarkdown}">
-      <span class="material-symbols-outlined text-[20px] text-secondary">${icon}</span>
+         data-search-name="${escHtml(name.toLowerCase())}"
+         data-type="${vtype ?? 'pdf'}" data-path="${escHtml(a.path ?? '')}" data-name="${escHtml(name)}"
+         data-file-type="${escHtml(a.file_type ?? 'application/pdf')}" data-is-markdown="${isMarkdown}">
+      <span class="material-symbols-outlined text-[18px] text-secondary flex-shrink-0">${icon}</span>
       <div class="flex-1 min-w-0">
-        <p class="text-xs font-semibold text-on-surface truncate">${escHtml(a.filename ?? '')}</p>
+        <p class="text-xs font-semibold text-on-surface truncate">${escHtml(name)}</p>
         <p class="text-[10px] text-on-surface-variant">${formatDate(a.file_date ?? a.created_at)}</p>
       </div>
-      ${canOpen ? `<span class="material-symbols-outlined text-[16px] text-on-surface-variant/30 group-hover:text-secondary transition-colors">open_in_new</span>` : ''}
+      ${canOpen ? `<span class="material-symbols-outlined text-[14px] text-on-surface-variant/30 group-hover:text-secondary transition-colors flex-shrink-0">open_in_new</span>` : ''}
     </div>`;
-  });
+  }).join('');
 
-  const emailItems = emails.map(e => {
+  const emailItemsHTML = emails.map(e => {
     const id = e.email_id ?? e.message_id ?? String(Math.random());
     _emailStore.set(id, e);
+    const subject = e.subject ?? 'No subject';
+    const from    = e.from_addr ?? '';
+    const toStr   = Array.isArray(e.to) ? e.to.join(' ') : (e.to ?? '');
+    const ccStr   = Array.isArray(e.cc) ? e.cc.join(' ') : (e.cc ?? '');
+    const emailSearchName = [subject, from, toStr, ccStr, e.description ?? '', e.title ?? ''].join(' ').toLowerCase();
     return `
-    <div class="flex items-center gap-3 p-3 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10
+    <div class="flex items-center gap-2.5 p-2.5 bg-surface-container-lowest rounded-xl ring-1 ring-outline-variant/10
                 hover:ring-secondary/20 transition-all group cursor-pointer att-item"
+         data-search-name="${escHtml(emailSearchName)}"
          data-type="email" data-email-id="${escHtml(id)}">
-      <span class="material-symbols-outlined text-[20px] text-secondary">mail</span>
+      <span class="material-symbols-outlined text-[18px] text-secondary flex-shrink-0">mail</span>
       <div class="flex-1 min-w-0">
-        <p class="text-xs font-semibold text-on-surface truncate">${escHtml(e.subject ?? 'No subject')}</p>
-        <p class="text-[10px] text-on-surface-variant">${escHtml(e.from_addr ?? '')} · ${formatDate(e.date)}</p>
+        <p class="text-xs font-semibold text-on-surface truncate">${escHtml(subject)}</p>
+        <p class="text-[10px] text-on-surface-variant truncate">${escHtml(from)} · ${formatDate(e.date)}</p>
       </div>
-      <span class="material-symbols-outlined text-[16px] text-on-surface-variant/30 group-hover:text-secondary transition-colors">open_in_new</span>
+      <span class="material-symbols-outlined text-[14px] text-on-surface-variant/30 group-hover:text-secondary transition-colors flex-shrink-0">open_in_new</span>
     </div>`;
-  });
+  }).join('');
 
-  if (!attItems.length && !emailItems.length) {
-    return `<p class="text-on-surface-variant text-sm font-body py-2">No documents attached.</p>`;
-  }
+  const inputCls = 'w-full bg-surface-container ring-1 ring-outline-variant/20 focus:ring-2 focus:ring-secondary rounded-lg px-3 py-2 text-xs font-body outline-none transition-all placeholder:text-on-surface-variant/40';
 
-  return `<div class="grid grid-cols-2 gap-2">${[...attItems, ...emailItems].join('')}</div>`;
+  return `
+    <div class="grid grid-cols-2 gap-6">
+      <!-- Documents column -->
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center justify-between">
+          <p class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60">Documents (${attachments.length})</p>
+        </div>
+        <input type="search" placeholder="Search documents…" class="${inputCls}" data-search-target="docs" />
+        <div id="docs-list" class="space-y-1.5 max-h-72 overflow-y-auto pr-0.5">
+          ${attItemsHTML || '<p class="text-on-surface-variant text-xs italic py-2">No documents attached.</p>'}
+        </div>
+      </div>
+      <!-- Emails column -->
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center justify-between">
+          <p class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60">Emails (${emails.length})</p>
+        </div>
+        <input type="search" placeholder="Search emails…" class="${inputCls}" data-search-target="emails" />
+        <div id="emails-list" class="space-y-1.5 max-h-72 overflow-y-auto pr-0.5">
+          ${emailItemsHTML || '<p class="text-on-surface-variant text-xs italic py-2">No emails.</p>'}
+        </div>
+      </div>
+    </div>`;
 }
 
 // ── Add entity modal ──────────────────────────────────────────
@@ -951,7 +986,7 @@ const DAMAGE_CATEGORY_OPTIONS = ['direct_losses', 'interest', 'consequential', '
 const ADD_FIELDS = {
   party: [
     { id: 'legal_name',       label: 'Legal Name',               type: 'text',     required: true,  placeholder: 'e.g. Acme Corp AS' },
-    { id: 'role',             label: 'Role',                     type: 'select',   required: true,  options: PARTY_ROLE_OPTIONS, default: 'other', allowEmpty: false },
+    { id: 'role',             label: 'Role',                     type: 'select-other', required: true, options: PARTY_ROLE_OPTIONS, default: 'other', allowEmpty: false, customPlaceholder: 'e.g. Project manager' },
     { id: 'entity_type',      label: 'Entity Type',              type: 'select',   required: true,  options: ENTITY_TYPE_OPTIONS, default: '', allowEmpty: true },
     { id: 'significance',     label: 'Significance',             type: 'select',   required: true,  options: SIGNIFICANCE_OPTIONS, default: 'medium', allowEmpty: false },
     { id: 'role_description', label: 'Description',              type: 'textarea', required: false, placeholder: 'Optional description…' },
@@ -1068,6 +1103,20 @@ function _fieldHTML(f) {
     const allowEmpty = f.allowEmpty !== false;
     return `<div>${label}<select id="af-${f.id}" class="${base} cursor-pointer" ${f.required ? 'required' : ''}>${_renderSelectOptions(f.options, selected, allowEmpty)}</select></div>`;
   }
+  if (f.type === 'select-other') {
+    const selected = f.default ?? '';
+    const allowEmpty = f.allowEmpty !== false;
+    const showInput = selected === 'other';
+    return `<div>
+      ${label}
+      <select id="af-${f.id}" class="${base} cursor-pointer" data-other-reveal="af-${f.id}-custom">
+        ${_renderSelectOptions(f.options, selected, allowEmpty)}
+      </select>
+      <input id="af-${f.id}-custom" type="text"
+             placeholder="${f.customPlaceholder ?? 'Describe the role…'}"
+             class="${base} mt-2${showInput ? '' : ' hidden'}" />
+    </div>`;
+  }
   if (f.type === 'checkbox')
     return `<div class="flex items-center gap-3"><input type="checkbox" id="af-${f.id}" class="accent-secondary w-4 h-4"><label for="af-${f.id}" class="text-sm font-semibold text-on-surface">${f.label}</label></div>`;
   return `<div>${label}<input id="af-${f.id}" type="${f.type}" placeholder="${f.placeholder ?? ''}" class="${base}" ${f.required ? 'required' : ''}></div>`;
@@ -1180,6 +1229,104 @@ function openAddModal(type) {
       block?.remove();
     });
   }
+
+  // Source picker — for entity types that support file_id / email_id
+  if (['event', 'deadline', 'claim', 'damage'].includes(type)) {
+    const fieldsEl = document.getElementById('add-modal-fields');
+    const inputCls = 'w-full bg-surface-container ring-1 ring-outline-variant/20 focus:ring-2 focus:ring-secondary rounded-lg px-3 py-2 text-xs font-body outline-none transition-all placeholder:text-on-surface-variant/40';
+
+    const emailPickerItems = [..._emailStore.values()].map(e => {
+      const id      = e.email_id ?? e.message_id ?? '';
+      const subject = e.subject ?? 'No subject';
+      const from    = e.from_addr ?? '';
+      const date    = e.date ? formatDate(e.date) : '';
+      return `
+        <label class="flex items-center gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-surface-container transition-colors"
+               data-search-name="${escHtml((subject + ' ' + from).toLowerCase())}">
+          <input type="radio" name="source-item" value="${escHtml(id)}" data-source-kind="email" class="accent-secondary flex-shrink-0">
+          <div class="min-w-0">
+            <p class="text-xs font-semibold text-on-surface truncate">${escHtml(subject)}</p>
+            <p class="text-[10px] text-on-surface-variant truncate">${escHtml(from)} · ${escHtml(date)}</p>
+          </div>
+        </label>`;
+    }).join('');
+
+    const docPickerItems = [..._attachStore.values()].map(a => {
+      const id   = a.file_id ?? '';
+      const name = a.filename ?? 'Unnamed';
+      const date = formatDate(a.file_date ?? a.created_at);
+      return `
+        <label class="flex items-center gap-2.5 p-2 rounded-lg cursor-pointer hover:bg-surface-container transition-colors"
+               data-search-name="${escHtml(name.toLowerCase())}">
+          <input type="radio" name="source-item" value="${escHtml(id)}" data-source-kind="file" class="accent-secondary flex-shrink-0">
+          <div class="min-w-0">
+            <p class="text-xs font-semibold text-on-surface truncate">${escHtml(name)}</p>
+            <p class="text-[10px] text-on-surface-variant">${escHtml(date)}</p>
+          </div>
+        </label>`;
+    }).join('');
+
+    fieldsEl.insertAdjacentHTML('beforeend', `
+      <div class="pt-3 border-t border-outline-variant/10" id="source-picker-section">
+        <p class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant/60 mb-2">
+          Link to Source
+          <span class="font-normal normal-case tracking-normal text-on-surface-variant/40 ml-1">(optional)</span>
+        </p>
+        <div class="flex gap-1.5 mb-3">
+          <button type="button" data-source-toggle="" class="source-toggle-btn px-2.5 py-1 rounded-lg text-[11px] font-bold bg-secondary text-on-secondary">None</button>
+          <button type="button" data-source-toggle="email" class="source-toggle-btn px-2.5 py-1 rounded-lg text-[11px] font-bold bg-surface-container text-on-surface-variant hover:bg-surface-container-high transition-colors">Email</button>
+          <button type="button" data-source-toggle="doc" class="source-toggle-btn px-2.5 py-1 rounded-lg text-[11px] font-bold bg-surface-container text-on-surface-variant hover:bg-surface-container-high transition-colors">Document</button>
+        </div>
+        <div id="source-email-picker" class="hidden space-y-1">
+          <input type="search" id="source-email-search" placeholder="Search emails…" class="${inputCls}" />
+          <div id="source-email-list" class="space-y-0.5 max-h-44 overflow-y-auto pr-0.5 mt-1">
+            ${emailPickerItems || '<p class="text-xs text-on-surface-variant/50 italic py-1">No emails available.</p>'}
+          </div>
+        </div>
+        <div id="source-doc-picker" class="hidden space-y-1">
+          <input type="search" id="source-doc-search" placeholder="Search documents…" class="${inputCls}" />
+          <div id="source-doc-list" class="space-y-0.5 max-h-44 overflow-y-auto pr-0.5 mt-1">
+            ${docPickerItems || '<p class="text-xs text-on-surface-variant/50 italic py-1">No documents available.</p>'}
+          </div>
+        </div>
+      </div>`);
+
+    // Toggle buttons
+    const toggleBtns = fieldsEl.querySelectorAll('.source-toggle-btn');
+    const emailPicker = document.getElementById('source-email-picker');
+    const docPicker   = document.getElementById('source-doc-picker');
+    toggleBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const kind = btn.dataset.sourceToggle;
+        toggleBtns.forEach(b => {
+          const active = b.dataset.sourceToggle === kind;
+          b.classList.toggle('bg-secondary', active);
+          b.classList.toggle('text-on-secondary', active);
+          b.classList.toggle('bg-surface-container', !active);
+          b.classList.toggle('text-on-surface-variant', !active);
+        });
+        emailPicker?.classList.toggle('hidden', kind !== 'email');
+        docPicker?.classList.toggle('hidden', kind !== 'doc');
+        // Clear radio selection when switching
+        fieldsEl.querySelectorAll('input[name="source-item"]').forEach(r => { r.checked = false; });
+      });
+    });
+
+    // Search filtering inside picker lists
+    document.getElementById('source-email-search')?.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      document.querySelectorAll('#source-email-list [data-search-name]').forEach(el => {
+        el.style.display = el.dataset.searchName.includes(q) ? '' : 'none';
+      });
+    });
+    document.getElementById('source-doc-search')?.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      document.querySelectorAll('#source-doc-list [data-search-name]').forEach(el => {
+        el.style.display = el.dataset.searchName.includes(q) ? '' : 'none';
+      });
+    });
+  }
+
   document.getElementById('add-modal-error').classList.add('hidden');
 
   const btn = document.getElementById('add-modal-submit');
@@ -1213,6 +1360,13 @@ function openAddModal(type) {
         value = el.checked;
       } else if (f.type === 'number') {
         value = el.value ? Number(el.value) : null;
+      } else if (f.type === 'select-other') {
+        value = el.value.trim() || null;
+        if (value === 'other') {
+          const customEl = document.getElementById(`af-${f.id}-custom`);
+          const custom = customEl?.value?.trim();
+          if (custom) value = _normalizeLiteral(custom);
+        }
       } else {
         value = el.value.trim() || null;
       }
@@ -1223,6 +1377,18 @@ function openAddModal(type) {
       }
       data[f.id] = value;
     }
+    // Extract source reference from picker (event/deadline/claim/damage only)
+    if (['event', 'deadline', 'claim', 'damage'].includes(type)) {
+      const selectedSource = modal.querySelector('input[name="source-item"]:checked');
+      if (selectedSource?.value) {
+        if (selectedSource.dataset.sourceKind === 'email') {
+          data.email_id = selectedSource.value;
+        } else {
+          data.file_id = selectedSource.value;
+        }
+      }
+    }
+
     const repPayloads = type === 'party' ? _collectRepPayloads(modal) : [];
 
     newBtn.disabled    = true;
@@ -1734,7 +1900,35 @@ function bindProjectEvents(_projectId) {
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-add-type]');
     if (!btn || e.target.closest('#add-entity-modal')) return;
-    openAddModal(btn.dataset.addType);
+    const type = btn.dataset.addType;
+    if (!ADD_FIELDS[type]) {
+      _openUpdateModal(_activeProjectId);
+      return;
+    }
+    openAddModal(type);
+  });
+
+  // "Other" role reveal — show/hide free-text input when select changes
+  document.addEventListener('change', (e) => {
+    const sel = e.target.closest('[data-other-reveal]');
+    if (!sel) return;
+    const input = document.getElementById(sel.dataset.otherReveal);
+    if (!input) return;
+    input.classList.toggle('hidden', sel.value !== 'other');
+    if (sel.value !== 'other') input.value = '';
+  });
+
+  // Search filtering for docs / emails lists in Communication section
+  document.addEventListener('input', (e) => {
+    const input = e.target.closest('[data-search-target]');
+    if (!input) return;
+    const target = input.dataset.searchTarget;
+    const listId = target === 'docs' ? 'docs-list' : target === 'emails' ? 'emails-list' : target === 'parties' ? 'sec-parties' : null;
+    if (!listId) return;
+    const q = input.value.toLowerCase();
+    document.querySelectorAll(`#${listId} [data-search-name]`).forEach(el => {
+      el.style.display = el.dataset.searchName.includes(q) ? '' : 'none';
+    });
   });
 
   // Entity deleted via popover — reload the affected section

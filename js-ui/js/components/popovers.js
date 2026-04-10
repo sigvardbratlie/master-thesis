@@ -201,6 +201,15 @@ function _bindEvents() {
     if (item) openPopover(item.dataset.popoverType, item.dataset.popoverId);
   });
 
+  document.addEventListener('change', (e) => {
+    const sel = e.target.closest('[data-other-reveal]');
+    if (!sel) return;
+    const input = document.getElementById(sel.dataset.otherReveal);
+    if (!input) return;
+    input.classList.toggle('hidden', sel.value !== 'other');
+    if (sel.value !== 'other') input.value = '';
+  });
+
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (_editMode) _exitEditMode();
@@ -286,6 +295,14 @@ async function _handleSave() {
 
   // Type-specific coercions
   switch (_currentType) {
+    case 'party':
+      // If role is 'other', use the free-text input (normalized to snake_case)
+      if (updates.role === 'other') {
+        const custom = (raw.role_custom ?? '').trim();
+        if (custom) updates.role = _normalizeLiteral(custom);
+      }
+      delete updates.role_custom;
+      break;
     case 'event':
       updates.disputed = form.querySelector('#edit-disputed')?.checked ?? false;
       delete updates.disputed_checkbox; // guard
@@ -1236,6 +1253,25 @@ function _renderEditEvent(ev) {
     ${_editFooter()}`;
 }
 
+function _roleSelectField(name, current) {
+  const isKnown  = PARTY_ROLE_OPTIONS.includes(current);
+  const isOther  = current === 'other' || !isKnown;
+  const selectVal = isOther ? 'other' : current;
+  // If stored value is a custom string (not in list), show prettified in the text input
+  const customVal = (!isKnown && current !== 'other') ? current.replace(/_/g, ' ') : '';
+  const showInput = isOther;
+  return `
+    <div class="space-y-2">
+      <select name="${name}" class="${E.select}" data-other-reveal="role-custom-input">
+        ${_renderSelectOptions(PARTY_ROLE_OPTIONS, selectVal, false)}
+      </select>
+      <input id="role-custom-input" type="text" name="role_custom"
+             value="${escHtml(customVal)}"
+             placeholder="e.g. Project manager"
+             class="${E.input}${showInput ? '' : ' hidden'}" />
+    </div>`;
+}
+
 function _renderEditParty(p) {
   const name     = p.legal_name ?? 'Unknown Party';
   const initial  = (name[0] ?? '?').toUpperCase();
@@ -1252,7 +1288,7 @@ function _renderEditParty(p) {
       ${_fg('Legal Name', `<input type="text" name="legal_name" value="${escHtml(p.legal_name ?? '')}" class="${E.input}" placeholder="Full legal name">`)}
       <div class="grid grid-cols-2 gap-4">
         ${_fg('Entity Type', _selectField('entity_type', p.entity_type ?? '', ENTITY_TYPE_OPTIONS, false, 'company'))}
-        ${_fg('Role in Matter', _selectField('role', p.role ?? 'other', PARTY_ROLE_OPTIONS, false, 'other'))}
+        ${_fg('Role in Matter', _roleSelectField('role', p.role ?? 'other'))}
       </div>
       ${_fg('Significance', _sigSelect(p.significance ?? 'medium'))}
       ${_fg('Role Description', `<textarea name="role_description" rows="4" class="${E.textarea}" placeholder="Describe this party's involvement…">${escHtml(p.role_description ?? '')}</textarea>`)}

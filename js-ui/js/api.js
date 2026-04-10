@@ -50,7 +50,7 @@ export async function loadProjects(userId) {
 
   const { data, error, status, statusText } = await authService.client
     .from('projects')
-    .select('project_id, title, created_at')
+    .select('project_id, title, background, created_at, project_parties(legal_name, role)')
     .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
