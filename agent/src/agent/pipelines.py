@@ -954,7 +954,11 @@ class ProjectPipeline:
             "query_id": state.query.query_id,
         })
 
-        initial_input = await self.context_manager.update_initial_input(events=events, existing_initial_input=existing_init_input)
+        additional_context = self.conversation_manager.get_party_context(project_id=state.query.project_id) if state.query.project_id else None
+        initial_input = await self.context_manager.update_initial_input( #events=events, 
+                                                                        context=additional_context, 
+                                                                        existing_initial_input=existing_init_input,
+                                                                        )
         logger.debug(f'\n\nUpdated metadata {initial_input.model_dump(mode="json")}\n\n')
         writer({
             "type": "status",
