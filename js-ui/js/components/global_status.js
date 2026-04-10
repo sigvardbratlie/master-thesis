@@ -82,19 +82,37 @@ export function startGlobalStatusLog(title = 'Processing…') {
  */
 export function addGlobalStatusLogLine(event) {
   if (!_isVisible) return;
-  const { icon, message, details } = mapStatusEvent(event);
+  const { icon, message, details, key } = mapStatusEvent(event);
   const logEl = document.getElementById('gps-log');
   if (!logEl) return;
 
-  const p = document.createElement('p');
-  p.textContent = `${icon} ${message}`;
-  logEl.appendChild(p);
+  // Replace existing line with the same key, otherwise append.
+  const existing = key && logEl.querySelector(`[data-key="${CSS.escape(key)}"]`);
+  if (existing) {
+    existing.textContent = `${icon} ${message}`;
+    if (details) {
+      let d = existing.nextElementSibling;
+      if (!d || !d.dataset.keyDetail) {
+        d = document.createElement('p');
+        d.dataset.keyDetail = key;
+        d.className = 'text-[10px] text-on-surface-variant/60 pl-5 -mt-0.5 mb-0.5';
+        existing.insertAdjacentElement('afterend', d);
+      }
+      d.textContent = details;
+    }
+  } else {
+    const p = document.createElement('p');
+    p.textContent = `${icon} ${message}`;
+    if (key) p.dataset.key = key;
+    logEl.appendChild(p);
 
-  if (details) {
-    const d = document.createElement('p');
-    d.textContent = details;
-    d.className = 'text-[10px] text-on-surface-variant/60 pl-5 -mt-0.5 mb-0.5';
-    logEl.appendChild(d);
+    if (details) {
+      const d = document.createElement('p');
+      d.textContent = details;
+      d.dataset.keyDetail = key;
+      d.className = 'text-[10px] text-on-surface-variant/60 pl-5 -mt-0.5 mb-0.5';
+      logEl.appendChild(d);
+    }
   }
   logEl.scrollTop = logEl.scrollHeight;
 }

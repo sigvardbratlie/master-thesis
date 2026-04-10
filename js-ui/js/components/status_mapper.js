@@ -56,13 +56,23 @@ export function mapStatusEvent(event) {
 
   let details = null;
 
-  if (phaseNames.includes('parsing') && status === 'processing' && data?.filename) {
-    message = `Parsing: ${data.filename}`;
+  // Stable key used to update an existing log line in-place.
+  // Items with a per-file/email identifier get a unique key; others key by phase.
+  let key = phaseNames.join(',');
+
+  if (phaseNames.includes('parse_doc') && data?.filename) {
+    message = `${PHASE_MESSAGES['parse_doc']}: ${data.filename}`;
+    key = `parse_doc:${data.filename}`;
+  }
+
+  if (phaseNames.includes('extract_emails') && status === 'processing' && data?.current) {
+    message = `${PHASE_MESSAGES['extract_emails']}: ${data.current}`;
+    key = `extract_emails:${data.current}`;
   }
 
   if (phaseNames.includes('analyze') && status === 'processing' && data?.specs) {
     details = `Analyzing: ${data.specs}`;
   }
 
-  return { icon, message, details };
+  return { icon, message, details, key };
 }
