@@ -252,6 +252,7 @@ class PartyRepHint(BaseModel):
     first_name: str
     last_name: str
     email: str | None = None
+    mobile: str | None = None
     rep_role: str | None = Field(None, description="Role within the organization, e.g. 'architect', 'lawyer', 'contractor', 'CEO'")
 
 class PartyHint(BaseModel):
