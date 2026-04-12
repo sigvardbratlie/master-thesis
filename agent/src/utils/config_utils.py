@@ -113,8 +113,8 @@ class AppConfig(BaseSettings):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     project : ProjectConfig = Field(default_factory=ProjectConfig)
-    vectorstore : VectorstoreConfig = Field(default_factory=VectorstoreConfig)
-    storage : StorageConfig = Field(default_factory=StorageConfig)
+    vectorstore : VectorstoreConfig | None =  None #Field(default_factory=VectorstoreConfig)
+    storage : StorageConfig | None =  None #Field(default_factory=StorageConfig)
 
 
     @classmethod
