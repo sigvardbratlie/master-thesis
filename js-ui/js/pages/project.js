@@ -301,6 +301,159 @@ function buildProjectShell(projectId, meta) {
   bindViewerEvents();
 }
 
+// ── Email thread parsing (mirrors email_module.py EmailThreadParser) ─────────
+
+const _NO_MONTHS = { jan:1, januar:1, feb:2, februar:2, mar:3, mars:3, apr:4, april:4, mai:5, jun:6, juni:6, jul:7, juli:7, aug:8, august:8, sep:9, september:9, okt:10, oktober:10, nov:11, november:11, des:12, desember:12 };
+const _EN_MONTHS = { jan:1, january:1, feb:2, february:2, mar:3, march:3, apr:4, april:4, may:5, jun:6, june:6, jul:7, july:7, aug:8, august:8, sep:9, september:9, oct:10, october:10, nov:11, november:11, dec:12, december:12 };
+
+function normalizeEmailDate(dateStr) {
+  if (!dateStr) return null;
+  dateStr = dateStr.replace(/\*/g, '').trim();
+
+  // Norwegian: "3. mars 2026 kl. 10:24"
+  const noM = dateStr.match(/(?:\w+,\s*)?(\d{1,2})\.\s*(\w+)\.?\s*(\d{4})\s*(?:kl\.)?\s*(\d{2}):(\d{2})/i);
+  if (noM) {
+    const mNum = _NO_MONTHS[noM[2].toLowerCase()] ?? _NO_MONTHS[noM[2].toLowerCase().slice(0, 3)];
+    if (mNum) {
+      const d = new Date(+noM[3], mNum - 1, +noM[1], +noM[4], +noM[5]);
+      if (!isNaN(d)) return d.toISOString();
+    }
+  }
+
+  // English: "Mar 2, 2026 at 10:39 AM"
+  const enM = dateStr.match(/(\w+)\s+(\d{1,2}),\s+(\d{4})\s+at\s+(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (enM) {
+    const mNum = _EN_MONTHS[enM[1].toLowerCase()] ?? _EN_MONTHS[enM[1].toLowerCase().slice(0, 3)];
+    let hour = +enM[4];
+    if (enM[6].toUpperCase() === 'PM' && hour !== 12) hour += 12;
+    else if (enM[6].toUpperCase() === 'AM' && hour === 12) hour = 0;
+    if (mNum) {
+      const d = new Date(+enM[3], mNum - 1, +enM[2], hour, +enM[5]);
+      if (!isNaN(d)) return d.toISOString();
+    }
+  }
+
+  const d = new Date(dateStr);
+  return isNaN(d) ? dateStr : d.toISOString();
+}
+
+function _extractEmailAddrs(text) {
+  if (!text) return null;
+  const results = [];
+  text.split(/[;,]/).forEach(p => {
+    p = p.trim();
+    const m = p.match(/<(.+?)>/);
+    if (m) results.push(m[1].trim().toLowerCase());
+    else if (p.includes('@')) results.push(p.replace(/\s+/g, '').toLowerCase());
+  });
+  return results.length ? results : null;
+}
+
+// Strip HTML tags from a string, preserving block-element line breaks.
+// Only activates when the content actually looks like HTML (has real tag names
+// like <div>, <b>, <br> etc.) — so plain-text angle-bracket addresses like
+// <email@domain> or <tel:...> are left untouched.
+function stripHtml(html) {
+  if (!html || !/<[a-zA-Z]+[\s\/>]/i.test(html)) return html;
+  let text = html.replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, '');
+  text = text.replace(/<(?:br|p|div|tr|li|hr|blockquote)(?:\s[^>]*)?\/?>/gi, '\n');
+  text = text.replace(/<[^>]+>/g, '');
+  text = text.replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  return text.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Patterns to detect metadata header at the start of a thread part.
+// _BLOCK_RE      — Outlook order:         Fra/From, Sendt/Sent/Dato/Date, Til/To, Kopi/Cc, Emne/Subject
+// _BLOCK_FWDED_RE — Yahoo/forward order:  Fra/From, Til/To, Kopi/Cc, Sendt/Sent/Dato/Date, Emne/Subject
+const _BLOCK_RE = /\*?(?:Fra|From)\s*\*?:\s*\*?(?<from>.*?)\s*\*?(?:Sendt|Sent|Dato|Date)\s*\*?:\s*\*?(?<date>.*?)\s*\*?(?:Til|To)\s*\*?:\s*\*?(?<to>.*?)\s*(?:\*?(?:Kopi|Cc)\s*\*?:\s*\*?(?<cc>.*?)\s*)?\*?(?:Emne|Subject)\s*\*?:\s*\*?(?<subject>.*?)(?=\r|\n|$)/i;
+const _BLOCK_FWDED_RE = /\*?(?:Fra|From)\s*\*?:\s*\*?(?<from>.*?)\s*\*?(?:Til|To)\s*\*?:\s*\*?(?<to>.*?)\s*(?:\*?(?:Kopi|Cc)\s*\*?:\s*\*?(?<cc>.*?)\s*)?\*?(?:Sendt|Sent|Dato|Date)\s*\*?:\s*\*?(?<date>.*?)\s*\*?(?:Emne|Subject)\s*\*?:\s*\*?(?<subject>.*?)(?=\r|\n|$)/i;
+const _INLINE_RE = /(?<date>\d{1,2}\.\s+\w+\.?\s+\d{4}\s+kl\.\s+\d{2}:\d{2}(?::\d{2})?(?:\s+\w+)?)\s+skrev\s+(?<from>.*?):/i;
+const _GMAIL_EN_RE = /On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+(?<date>\w+\s+\d{1,2},\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM))\s+(?<from>.*?)\s+wrote:/i;
+
+function _parseTextPart(chunk) {
+  chunk = chunk.replace(/<\n\s*/g, '<').replace(/<https?:\/\/[^>]+>/g, '');
+  chunk = chunk.replace(/^>+/gm, '').replace(/<mailto:[^>]+>/g, '').trim();
+  const m = chunk.match(_BLOCK_RE) ?? chunk.match(_BLOCK_FWDED_RE) ?? chunk.match(_INLINE_RE) ?? chunk.match(_GMAIL_EN_RE);
+  const meta = m?.groups ?? {};
+  const body = m ? chunk.slice(m.index + m[0].length).trim() : chunk;
+  const senders = _extractEmailAddrs(meta.from);
+  return {
+    sender:    senders?.[0] ?? null,
+    recipient: _extractEmailAddrs(meta.to),
+    cc:        _extractEmailAddrs(meta.cc),
+    date:      normalizeEmailDate(meta.date),
+    subject:   meta.subject?.trim() ?? null,
+    body,
+  };
+}
+
+// Split patterns — detect thread boundaries.
+// Pattern 2a: Outlook order — Fra: ... (next line) Sendt/Sent/Dato/Date:
+// Pattern 2b: Yahoo/forward order — Fra: ... (next line) Til:
+const _THREAD_SPLIT_RE = new RegExp(
+  '(' + [
+    String.raw`\d{1,2}\.\s+\w+\.?\s+\d{4}\s+kl\.\s+\d{2}:\d{2}(?::\d{2})?(?:\s+\w+)?\s+skrev\s+[^:\n]*:`,
+    String.raw`\*?(?:Fra|From)\s*\*?:\s*[^\n]*\n\s*\*?(?:Sendt|Sent|Dato|Date)\s*\*?:`,
+    String.raw`\*?(?:Fra|From)\s*\*?:\s*[^\n]*\n\s*\*?(?:Til|To)\s*\*?:`,
+    String.raw`[ \t]*On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+\w+\s+\d{1,2},\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)\s+[^:\n]*wrote:`,
+  ].join('|') + ')',
+  'gi'
+);
+
+/**
+ * Expand an email body into individual thread parts.
+ * Mirrors Python's EmailThreadParser.expand_email() backfill logic.
+ * @param {string} bodyText - plain text email body
+ * @param {object} topMeta  - email row from Supabase (from_addr, to, cc, date, subject)
+ * @returns {Array<{sender, recipient, cc, date, subject, body}>}
+ */
+function expandEmailThread(bodyText, topMeta) {
+  const text = stripHtml(bodyText || '')
+    .replace(/^>+/gm, '')
+    .replace(/<mailto:[^>]+>/g, '')
+    .replace(/<\n\s*/g, '<')
+    .replace(/<https?:\/\/[^>]+>/g, '');
+
+  // Split into [before, sep1, after1, sep2, after2, ...]
+  const chunks = text.split(_THREAD_SPLIT_RE);
+  const parts = chunks.length <= 1
+    ? [_parseTextPart(text)]
+    : [_parseTextPart(chunks[0]), ...Array.from({ length: Math.floor((chunks.length - 1) / 2) }, (_, i) => _parseTextPart(chunks[1 + i * 2] + (chunks[2 + i * 2] ?? '')))];
+
+  if (!parts.length) return [];
+
+  // Backfill metadata from the top-level email header
+  const mainSender = (topMeta.from_addr ?? '').toLowerCase();
+  const mainRecipients = (Array.isArray(topMeta.to) ? topMeta.to : [topMeta.to]).filter(Boolean).map(r => r.toLowerCase());
+  const mainCc = Array.isArray(topMeta.cc) ? topMeta.cc : (topMeta.cc ? [topMeta.cc] : []);
+
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (i === 0) p.sender = p.sender ?? topMeta.from_addr ?? null;
+
+    const currSender = (p.sender ?? '').toLowerCase();
+    const isFirst = i === 0;
+    const isMainSender = currSender === mainSender;
+    const isMainRecipient = mainRecipients.includes(currSender);
+
+    if (isFirst || isMainSender || isMainRecipient) {
+      p.date    = p.date    ?? topMeta.date    ?? null;
+      p.subject = p.subject ?? topMeta.subject ?? null;
+      p.cc      = p.cc      ?? (mainCc.length ? mainCc : null);
+      if (isFirst || isMainSender) {
+        p.recipient = p.recipient ?? (mainRecipients.length ? mainRecipients : null);
+      } else {
+        p.recipient = p.recipient ?? (topMeta.from_addr ? [topMeta.from_addr] : null);
+      }
+    }
+
+    p.recipient = p.recipient ?? null;
+    p.cc        = p.cc        ?? null;
+  }
+
+  return parts;
+}
+
 // ── Timeline (horizontal, scrollable) ────────────────────────
 
 function buildTimelineInner(events, attachments = [], emails = []) {
@@ -317,11 +470,26 @@ function buildTimelineInner(events, attachments = [], emails = []) {
     return `<p class="text-on-surface-variant text-sm font-body py-4">No events recorded yet.</p>`;
   }
 
+  // Expand each email into individual thread parts so each part gets its own timeline dot
+  const emailParts = emails.flatMap(e => {
+    const parts = expandEmailThread(e.body ?? '', e);
+    return parts
+      .map((p, idx) => ({
+        emailId:   e.email_id ?? e.message_id,
+        subject:   e.subject ?? p.subject ?? 'Email',
+        date:      p.date ?? e.date,
+        sender:    p.sender ?? e.from_addr,
+        partIndex: idx,
+        partCount: parts.length,
+      }))
+      .filter(p => p.date);
+  });
+
   // Determine date range across all item types
   const allTs = [
     ...events.map(e => e.event_start_date),
     ...attachments.map(a => a.file_date ?? a.created_at),
-    ...emails.map(e => e.date),
+    ...emailParts.map(p => p.date),
   ].filter(Boolean).map(d => +new Date(d)).filter(ts => !isNaN(ts));
 
   if (!allTs.length) {
@@ -365,7 +533,7 @@ function buildTimelineInner(events, attachments = [], emails = []) {
   const allLeftPcts = [
     ...events.map(e => toLeft(e.event_start_date)),
     ...attachments.map(a => toLeft(a.file_date ?? a.created_at)),
-    ...emails.map(e => toLeft(e.date)),
+    ...emailParts.map(p => toLeft(p.date)),
   ].filter(v => v !== null);
   const centerPct = allLeftPcts.length
     ? allLeftPcts.reduce((s, v) => s + v, 0) / allLeftPcts.length
@@ -497,26 +665,25 @@ function buildTimelineInner(events, attachments = [], emails = []) {
     }
   });
 
-  // ── Email dots (green, above axis, click to expand then opens viewer)
-  emails.forEach((e) => {
-    const id   = e.email_id ?? e.message_id;
-    if (!id) return;
-    const left = toLeft(e.date);
+  // ── Email dots — one dot per thread part, each with its own date (green, above axis)
+  emailParts.forEach((p) => {
+    const left = toLeft(p.date);
     if (left === null) return;
+    const threadLabel = p.partCount > 1 ? ` (${p.partIndex + 1}/${p.partCount})` : '';
 
     html += `
        <div class="absolute tl-dot-wrap flex flex-col items-center"
          data-dot-type="email" data-left="${left}" data-axis="above" data-axis-pos="${100 - AXIS_PCT + 3}"
-         data-email-id="${escHtml(id)}" data-title="${escHtml(e.subject ?? 'Email')}" data-date="${escHtml(formatDate(e.date))}"
+         data-email-id="${escHtml(p.emailId)}" data-title="${escHtml(p.subject ?? 'Email')}" data-date="${escHtml(formatDate(p.date))}"
            style="left:${left}%; bottom:${100 - AXIS_PCT + 3}%; transform:translateX(-50%);">
-        <div class="tl-dot-card hidden w-48 p-2.5 bg-green-50 rounded-xl shadow-lg border border-green-200 flex-shrink-0 att-item cursor-pointer"
-             data-type="email" data-email-id="${escHtml(id)}">
+        <div class="tl-dot-card hidden w-52 p-2.5 bg-green-50 rounded-xl shadow-lg border border-green-200 flex-shrink-0 att-item cursor-pointer"
+             data-type="email" data-email-id="${escHtml(p.emailId)}">
           <div class="flex items-center gap-1.5 mb-0.5">
             <span class="material-symbols-outlined text-green-500" style="font-size:13px;">mail</span>
-            <span class="text-[10px] font-bold text-green-700 truncate">${escHtml(e.subject ?? 'Email')}</span>
+            <span class="text-[10px] font-bold text-green-700 truncate">${escHtml(p.subject ?? 'Email')}${escHtml(threadLabel)}</span>
           </div>
-          <p class="text-[9px] text-green-600">${formatDate(e.date)}</p>
-          ${e.from_addr ? `<p class="text-[9px] text-green-500/80 truncate mt-0.5">${escHtml(e.from_addr)}</p>` : ''}
+          <p class="text-[9px] text-green-600">${formatDate(p.date)}</p>
+          ${p.sender ? `<p class="text-[9px] text-green-500/80 truncate mt-0.5">${escHtml(p.sender)}</p>` : ''}
         </div>
         <div class="w-px flex-shrink-0 bg-green-400/50" style="height:18px;"></div>
         <div class="w-3 h-3 rounded-full bg-green-500 border-2 border-surface shadow tl-dot cursor-pointer hover:scale-125 transition-transform flex-shrink-0 z-20"></div>
@@ -1677,10 +1844,10 @@ function buildViewerModal() {
             title="Document viewer">
           </iframe>
 
-          <!-- Email body — Outlook-style -->
+          <!-- Email body — thread view with collapsible blocks -->
           <div id="viewer-email" class="hidden h-full overflow-y-auto flex flex-col">
             <div id="viewer-email-headers" class="flex-shrink-0 bg-surface-container-low"></div>
-            <div id="viewer-email-body" class="flex-1 px-8 py-6 overflow-y-auto"></div>
+            <div id="viewer-email-body" class="flex-1 overflow-y-auto divide-y divide-outline-variant/10"></div>
           </div>
 
           <!-- Text / Markdown viewer -->
@@ -1716,6 +1883,19 @@ function bindViewerEvents() {
     _viewerBound = true;
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeViewer(); });
     document.addEventListener('click', async (e) => {
+      // Toggle email thread blocks
+      const header = e.target.closest('.email-thread-header');
+      if (header) {
+        const expanded = header.dataset.expanded === 'true';
+        const block = header.closest('.email-thread-block');
+        const body  = block?.querySelector('.email-thread-body');
+        const chevron = header.querySelector('.thread-chevron');
+        if (body) body.classList.toggle('hidden', expanded);
+        if (chevron) chevron.textContent = expanded ? 'expand_more' : 'expand_less';
+        header.dataset.expanded = String(!expanded);
+        return;
+      }
+
       const item = e.target.closest('.att-item');
       if (!item) return;
       const type = item.dataset.type;
@@ -1826,57 +2006,67 @@ async function openEmailViewer(emailId) {
     return;
   }
 
-  const subject = e.subject   ?? '(no subject)';
+  const subject = e.subject ?? '(no subject)';
   const from    = parseEmailAddr(e.from_addr ?? '');
-  const to      = Array.isArray(e.to) ? e.to.join(', ') : (e.to ?? '');
-  const cc      = Array.isArray(e.cc) ? e.cc.join(', ') : (e.cc ?? '');
-  const date    = e.date ?? '';
 
   openViewer(subject, from.email || from.name, 'mail');
 
   try {
-    chatLog.info({ emailId }, 'Fetching email body on-demand');
-    const body = await loadEmailBody(emailId);
+    // Use body from store (now included in initial load); fall back to on-demand fetch
+    const body = e.body != null ? e.body : await loadEmailBody(emailId);
 
-    // Initials avatar from sender name or email
-    const displayName = from.name || from.email;
-    const initials    = displayName.split(/[\s@<>]+/).filter(Boolean).map(p => p[0]).join('').toUpperCase().slice(0, 2) || '?';
-    const dateStr     = date ? new Date(date).toLocaleString('no-NO', { dateStyle: 'long', timeStyle: 'short' }) : '';
+    const parts = expandEmailThread(body, e);
+    chatLog.info({ emailId, parts: parts.length }, 'Email thread expanded');
 
-    // "To: A, B · Cc: C" compact recipient line
-    const recipientLine = [
-      to ? `Til: ${escHtml(to)}` : '',
-      cc ? `Cc: ${escHtml(cc)}`  : '',
-    ].filter(Boolean).join(' &nbsp;·&nbsp; ');
-
+    // Subject header
     document.getElementById('viewer-email-headers').innerHTML = `
-      <!-- Subject -->
-      <h2 class="font-headline font-bold text-xl text-on-surface mb-4 px-8 pt-6">${escHtml(subject)}</h2>
+      <h2 class="font-headline font-bold text-xl text-on-surface px-8 pt-6 pb-4 border-b border-outline-variant/10">${escHtml(subject)}</h2>`;
 
-      <!-- Sender row — Outlook style -->
-      <div class="flex items-start gap-4 px-8 pb-5 border-b border-outline-variant/10">
-        <div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center flex-shrink-0 mt-0.5">
-          <span class="text-on-primary text-sm font-bold">${escHtml(initials)}</span>
-        </div>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-start justify-between gap-6">
-            <div class="min-w-0">
-              <p class="text-sm font-semibold text-on-surface leading-snug">
-                ${escHtml(from.name || from.email)}
-                ${from.name ? `<span class="font-normal text-on-surface-variant text-xs">&lt;${escHtml(from.email)}&gt;</span>` : ''}
-              </p>
-              ${recipientLine ? `<p class="text-xs text-on-surface-variant mt-0.5">${recipientLine}</p>` : ''}
+    // Render each thread part as a collapsible block
+    const blocksHtml = parts.map((p, idx) => {
+      const pFrom  = parseEmailAddr(p.sender ?? '');
+      const dispName = pFrom.name || pFrom.email || p.sender || '?';
+      const inits  = dispName.split(/[\s@<>]+/).filter(Boolean).map(c => c[0]).join('').toUpperCase().slice(0, 2) || '?';
+      const dateStr = p.date ? new Date(p.date).toLocaleString('no-NO', { dateStyle: 'long', timeStyle: 'short' }) : '';
+      const toLine  = Array.isArray(p.recipient) ? p.recipient.join(', ') : (p.recipient ?? '');
+      const ccLine  = Array.isArray(p.cc)        ? p.cc.join(', ')        : (p.cc ?? '');
+      const recipientLine = [
+        toLine ? `Til: ${escHtml(toLine)}` : '',
+        ccLine ? `Cc: ${escHtml(ccLine)}`  : '',
+      ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+
+      const isFirst   = idx === 0;
+      const bodyHtml  = escHtml(stripHtml(p.body) || '(no body)');
+
+      return `
+        <div class="email-thread-block border-b border-outline-variant/10 last:border-0">
+          <button class="email-thread-header w-full flex items-center gap-4 px-8 py-4 hover:bg-surface-container-low/50 transition-colors text-left"
+                  data-expanded="${isFirst}">
+            <div class="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center flex-shrink-0">
+              <span class="text-on-primary text-sm font-bold">${escHtml(inits)}</span>
             </div>
-            <p class="text-[11px] text-on-surface-variant flex-shrink-0 mt-0.5">${escHtml(dateStr)}</p>
-          </div>
-        </div>
-      </div>`;
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-semibold text-on-surface leading-snug">
+                ${escHtml(dispName)}
+                ${pFrom.name && pFrom.email ? `<span class="font-normal text-on-surface-variant text-xs">&lt;${escHtml(pFrom.email)}&gt;</span>` : ''}
+              </p>
+              ${recipientLine ? `<p class="text-xs text-on-surface-variant mt-0.5 truncate">${recipientLine}</p>` : ''}
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              ${dateStr ? `<p class="text-[11px] text-on-surface-variant">${escHtml(dateStr)}</p>` : ''}
+              <span class="material-symbols-outlined text-on-surface-variant thread-chevron transition-transform" style="font-size:18px;">${isFirst ? 'expand_less' : 'expand_more'}</span>
+            </div>
+          </button>
+          <div class="email-thread-body px-8 pb-6 text-sm leading-relaxed text-on-surface font-body ${isFirst ? '' : 'hidden'}"
+               style="white-space:pre-wrap;">${bodyHtml}</div>
+        </div>`;
+    }).join('');
 
     const bodyEl = document.getElementById('viewer-email-body');
-    bodyEl.style.whiteSpace = 'pre-wrap';
-    bodyEl.style.fontSize   = '0.875rem';
-    bodyEl.style.lineHeight = '1.6';
-    bodyEl.textContent = body || '(no body)';
+    bodyEl.style.whiteSpace = '';
+    bodyEl.style.fontSize   = '';
+    bodyEl.style.lineHeight = '';
+    bodyEl.innerHTML = blocksHtml || '<p class="px-8 py-6 text-sm text-on-surface-variant">(no body)</p>';
 
     document.getElementById('viewer-loading').classList.add('hidden');
     document.getElementById('viewer-email').classList.remove('hidden');

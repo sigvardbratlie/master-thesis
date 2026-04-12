@@ -180,10 +180,9 @@ export async function loadProjectEmails(projectId) {
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
-  // Intentionally excludes `body` — fetched on-demand via loadEmailBody
   const { data, error } = await authService.client
     .from('project_emails')
-    .select('email_id, from_addr, to, cc, subject, date, message_id, significance')
+    .select('email_id, from_addr, to, cc, subject, date, message_id, significance, body')
     .eq('project_id', projectId)
     .order('date', { ascending: false });
 
