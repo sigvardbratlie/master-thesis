@@ -3,6 +3,7 @@ import logging
 import base64
 import uuid
 import re
+import html as html_lib
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -32,6 +33,19 @@ class EmailBaseClass(BaseHandler):
         text = re.sub(r"^>+", "", text, flags=re.MULTILINE)
         return re.sub(r"<mailto:[^>]+>", "", text).strip()
 
+    def _strip_html(self, html_text: str) -> str:
+        # Remove <style> and <script> blocks including their content
+        text = re.sub(r"<(style|script)[^>]*>.*?</\1>", "", html_text, flags=re.IGNORECASE | re.DOTALL)
+        # Replace block-level tags with newlines to preserve paragraph structure
+        text = re.sub(r"<(?:br|p|div|tr|li|hr|blockquote)(?:\s[^>]*)?>", "\n", text, flags=re.IGNORECASE)
+        # Strip all remaining tags
+        text = re.sub(r"<[^>]+>", "", text)
+        # Decode HTML entities (&nbsp; &lt; &amp; etc.)
+        text = html_lib.unescape(text)
+        # Collapse multiple blank lines into one
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text.strip()
+
     def decode_eml_string(self, text: str | None) -> str | None:
         if not text: return None
         try:
@@ -56,9 +70,19 @@ class EmailHandler(EmailBaseClass):
                 elif content_type == "text/html":
                     body_html = part.get_payload(decode=True).decode(part.get_content_charset() or "utf-8")
         else:
-            body_text = msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8")
-            body_html = None
-        return {"html" : body_html, "text": self._clean_text(body_text)}
+            content_type = msg.get_content_type()
+            if content_type == "text/html":
+                body_html = msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8")
+                body_text = ""
+            else:
+                body_text = msg.get_payload(decode=True).decode(msg.get_content_charset() or "utf-8")
+                body_html = None
+
+        # Fallback: derive plain text from HTML when text/plain is absent
+        if not body_text.strip() and body_html:
+            body_text = self._strip_html(body_html)
+
+        return {"html": body_html, "text": self._clean_text(body_text)}
 
     def _resolve_content_type(self, part) -> str:
         EXTENSION_TYPE_MAP = {
@@ -270,9 +294,15 @@ class EmailThreadParser(EmailBaseClass):
             re.IGNORECASE
         )
         
-        # INLINE: Gmail/Mobil-stil
+        # INLINE: Gmail/Mobil/Yahoo norsk-stil ("3. mars 2026 kl. 10:24" eller "kl. 10:24:00 CET")
         self.inline_pattern = re.compile(
-            r"(?P<date>\d{1,2}\.\s+\w+\.?\s+\d{4}\s+kl\.\s+\d{2}:\d{2})\s+skrev\s+(?P<from>.*?):",
+            r"(?P<date>\d{1,2}\.\s+\w+\.?\s+\d{4}\s+kl\.\s+\d{2}:\d{2}(?::\d{2})?(?:\s+\w+)?)\s+skrev\s+(?P<from>.*?):",
+            re.IGNORECASE
+        )
+
+        # INLINE: Gmail/Yahoo/AOL engelsk-stil
+        self.gmail_en_pattern = re.compile(
+            r"On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+(?P<date>\w+\s+\d{1,2},\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM))\s+(?P<from>.*?)\s+wrote:",
             re.IGNORECASE
         )
 
@@ -283,22 +313,14 @@ class EmailThreadParser(EmailBaseClass):
             'nov': 11, 'november': 11, 'des': 12, 'desember': 12
         }
 
-    # def _clean_text(self, text: str) -> str:
-    #     text = re.sub(r"^>+", "", text, flags=re.MULTILINE)
-    #     return re.sub(r"<mailto:[^>]+>", "", text).strip()
+        self.english_months = {
+            'jan': 1, 'january': 1, 'feb': 2, 'february': 2, 'mar': 3, 'march': 3,
+            'apr': 4, 'april': 4, 'may': 5, 'jun': 6, 'june': 6, 'jul': 7, 'july': 7,
+            'aug': 8, 'august': 8, 'sep': 9, 'september': 9, 'oct': 10, 'october': 10,
+            'nov': 11, 'november': 11, 'dec': 12, 'december': 12
+        }
 
-    # def decode_subject(self, subject: Optional[str]) -> Optional[str]:
-    #     if not subject: return None
-    #     if match := re.search(r'\?B\?([A-Za-z0-9+/=]+)\?=', subject):
-    #         subject = match.group(1).strip()
-    #         subject += '=' * ((4 - len(subject) % 4) % 4)
-    #         try:
-    #             return b64decode(subject).decode('utf-8', errors='replace')
-    #         except: pass
-    #     return subject.strip()
-
-
-    def _extract_emails(self, text: Optional[str]) -> Optional[List[str]]:
+    def _extract_emails(self, text: str | None) -> Optional[List[str]]:
         if not text: return None
         emails = []
         for p in re.split(r'[;,]', text.replace('\n', ' ')):
@@ -313,19 +335,38 @@ class EmailThreadParser(EmailBaseClass):
         if not date_str: return None
         date_str = date_str.replace('*', '').strip()
         
-        pattern = re.compile(
-            r"(?:[a-zæøå]+,\s*)?(?P<day>\d{1,2})\.\s*(?P<month>[a-zæøå]+)\.?\s*(?P<year>\d{4})\s*(?:kl\.)?\s*(?P<hour>\d{2}):(?P<minute>\d{2})", 
+        # Norwegian format: "3. mars 2026 kl. 10:24"
+        no_pattern = re.compile(
+            r"(?:[a-zæøå]+,\s*)?(?P<day>\d{1,2})\.\s*(?P<month>[a-zæøå]+)\.?\s*(?P<year>\d{4})\s*(?:kl\.)?\s*(?P<hour>\d{2}):(?P<minute>\d{2})",
             re.IGNORECASE
         )
-        
-        if match := pattern.search(date_str):
+        if match := no_pattern.search(date_str):
             m_str = match.group('month').lower()
             m_num = self.norwegian_months.get(m_str, self.norwegian_months.get(m_str[:3], 1))
             try:
-                return datetime(int(match.group('year')), m_num, int(match.group('day')), 
+                return datetime(int(match.group('year')), m_num, int(match.group('day')),
                                 int(match.group('hour')), int(match.group('minute'))).isoformat()
             except: pass
-        
+
+        # English format: "Mar 2, 2026 at 10:39 AM"
+        en_pattern = re.compile(
+            r"(?P<month>[a-z]+)\s+(?P<day>\d{1,2}),\s+(?P<year>\d{4})\s+at\s+(?P<hour>\d{1,2}):(?P<minute>\d{2})\s*(?P<ampm>AM|PM)",
+            re.IGNORECASE
+        )
+        if match := en_pattern.search(date_str):
+            m_str = match.group('month').lower()
+            m_num = self.english_months.get(m_str, self.english_months.get(m_str[:3], 1))
+            hour = int(match.group('hour'))
+            ampm = match.group('ampm').upper()
+            if ampm == 'PM' and hour != 12:
+                hour += 12
+            elif ampm == 'AM' and hour == 12:
+                hour = 0
+            try:
+                return datetime(int(match.group('year')), m_num, int(match.group('day')),
+                                hour, int(match.group('minute'))).isoformat()
+            except: pass
+
         try:
             return parsedate_to_datetime(date_str).isoformat()
         except: return date_str
@@ -338,6 +379,9 @@ class EmailThreadParser(EmailBaseClass):
             meta = match.groupdict()
             body = chunk[match.end():].strip()
         elif match := self.inline_pattern.search(chunk):
+            meta = match.groupdict()
+            body = chunk[match.end():].strip()
+        elif match := self.gmail_en_pattern.search(chunk):
             meta = match.groupdict()
             body = chunk[match.end():].strip()
         else:
@@ -355,15 +399,20 @@ class EmailThreadParser(EmailBaseClass):
             body=body
         )
 
-    def get_email_thread(self, part) -> List[EmailPart]:
+    def get_raw_text(self, part: Message) -> str:
         payload = part.get_payload(decode=True)
         if not payload: return []
         
         raw_text = payload.decode(part.get_content_charset() or "utf-8", errors="ignore")
+        return raw_text
+
+    def get_email_thread(self, raw_text : str ) -> List[EmailPart]:
+        
         
         PATTERNS = [
-            r"\d{1,2}\.\s+\w+\.?\s+\d{4}\s+kl\.\s+\d{2}:\d{2}\s+skrev\s+.*?:",
-            r"\*?(?:Fra|From)\s*\*?:\s*.*?\s*\*?(?:Sendt|Dato|Date)\s*\*?:"
+            r"\d{1,2}\.\s+\w+\.?\s+\d{4}\s+kl\.\s+\d{2}:\d{2}(?::\d{2})?(?:\s+\w+)?\s+skrev\s+.*?:",
+            r"\*?(?:Fra|From)\s*\*?:\s*.*?\s*\*?(?:Sendt|Dato|Date)\s*\*?:",
+            r"[ \t]*On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+\w+\s+\d{1,2},\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)\s+.*?wrote:",
         ]
         
         parts = re.split(f"({'|'.join(PATTERNS)})", raw_text, flags=re.IGNORECASE)
@@ -380,9 +429,23 @@ class EmailThreadParser(EmailBaseClass):
     def expand_email(self, msg: Message) -> List[EmailPart]:
         # 1. Hent ut alle tråd-deler
         results = []
-        for part in msg.walk():
-            if part.get_content_type() == "text/plain":
-                results.extend(self.get_email_thread(part))
+        if msg.is_multipart():
+            for part in msg.walk():
+                if part.get_content_type() == "text/plain":
+                    raw_text = self.get_raw_text(part)
+                elif part.get_content_type() == "text/html":
+                    raw_text = self._strip_html(self.get_raw_text(part))
+                else:
+                    continue
+                results.extend(self.get_email_thread(raw_text=raw_text))
+        else:
+            if msg.get_content_type() == "text/plain":
+                raw_text = self.get_raw_text(msg)
+            elif msg.get_content_type() == "text/html":
+                raw_text = self._strip_html(self.get_raw_text(msg))
+            else:
+                return []
+            results.extend(self.get_email_thread(raw_text=raw_text))
                 
         if not results:
             return []
@@ -463,3 +526,5 @@ class EmailThreadParser(EmailBaseClass):
             result[root_uuid] = (root_email, child_uuids)
             
         return result
+    
+    
