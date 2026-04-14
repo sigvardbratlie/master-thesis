@@ -580,7 +580,7 @@ which could otherwise halt evaluation runs despite the presence of retry logic.
         \textbf{Model Name} & \textbf{Type} & \textbf{Total Params} & \textbf{Active Params} & \textbf{Provider} \\
         \hline
         Gemini 2.5 Pro \cite{geminiteam2025geminifamilyhighlycapable} & Closed & Unknown & Unknown & Google \\
-        Gemini 2.5 Flash \cite{geminiteam2025geminifamilycosteffective} & Closed & Unknown & Unknown & Google \\
+        Gemini 2.5 Flash \cite{geminiteam2025geminifamilyhighlycapable} & Closed & Unknown & Unknown & Google \\
         Qwen 3.5 \cite{qwen3technicalreport} & Open (MoE) & 397B & 17B & Alibaba  \\
         GLM-5 \cite{glm5team2026glm5vibecodingagentic}  & Open (MoE) & 435.2B & 40B & Zhipu AI \\
         \hline
@@ -711,7 +711,7 @@ capacity.
 
 \subsection{Normality Testing}
 
-Before selecting hypothesis tests, the distributional properties of the metric scores were assessed using the \textbf{Shapiro-Wilk test} for normality. The Shapiro-Wilk test evaluates whether a sample could plausibly have been drawn from a normal distribution; a significant result ($p < 0.05$) rejects normality. Applied to each metric across both agent configurations, the test returned $p < 10^{-18}$ in every case, providing overwhelming evidence against normality. Visual inspection confirmed the cause: all metrics exhibit pronounced left-skew with heavy concentration near 1.0 and a long lower tail (see Figure~\ref{fig:correctness-dist}). This rules out parametric tests that assume normally distributed residuals.
+Before selecting hypothesis tests, the distributional properties of the metric scores were assessed using the \textbf{Shapiro-Wilk test} for normality. The Shapiro-Wilk test evaluates whether a sample could plausibly have been drawn from a normal distribution; a significant result ($p < 0.05$) rejects normality. Applied to each metric across both agent configurations, the test returned $p < 10^{-18}$ in every case, providing overwhelming evidence against normality. Visual inspection confirmed the cause: all metrics exhibit pronounced left-skew with heavy concentration near 1.0 and a long lower tail (see Figure~\ref{fig:deepeval-dist}). This rules out parametric tests that assume normally distributed residuals.
 
 \subsection{One-sided Hypothesis Tests}
 
@@ -736,9 +736,9 @@ All tests are one-tailed / one-sided.
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.65\textwidth]{figures/correctness_distribution.png}
-    \caption{Distribution of correctness scores across all queries and sessions. The pronounced left-skew and heavy concentration near 1.0 violate the normality assumption, motivating the use of non-parametric Mann-Whitney U tests.}
-    \label{fig:correctness-dist}
+    \includegraphics[width=0.95\textwidth]{figures/deepeval_distribution.png}
+    \caption{Distribution of DeepEval metric scores across all queries, agents, and sessions. The pronounced left-skew and heavy concentration near 1.0 violate the normality assumption, motivating the use of non-parametric Mann-Whitney U tests for all comparisons.}
+    \label{fig:deepeval-dist}
 \end{figure}
 
 \subsection{Levene's Test for Equality of Variance}
