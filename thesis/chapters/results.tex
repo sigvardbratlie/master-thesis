@@ -51,11 +51,12 @@ Session-level trajectories tell the same story longitudinally (Figure~\ref{fig:d
 \end{figure}
 
 Both agents broadly track each other through the session progression, but the custom
-agent remains consistently above the baseline throughout. Crucially, the variance of
-the custom agent's trajectory is substantially lower: where the baseline exhibits
-wider swings between sessions, the custom agent maintains a more stable performance
-profile. This session-level consistency reinforces the pairplot finding that the
-quality advantage is broad and reliable rather than driven by occasional strong queries.
+agent remains consistently above the baseline throughout. The shaded bands represent
+95\% confidence intervals across the three repeated runs; the narrower bands on the
+custom agent's trajectory reflect a tighter spread across runs, consistent with the
+lower score variance reported in the statistical analysis. This session-level
+consistency reinforces the pairplot finding that the quality advantage is broad and
+reliable rather than driven by occasional strong queries.
 
 \bigbreak
 
@@ -69,9 +70,9 @@ reveals that the performance gap is not uniform across cases.
     \label{fig:lineplot-correctness-by-dataset}
 \end{figure}
 
-On TOSL-2024 --- the fully authentic case with the larger document volume and greater
+On TOSL-2024-125319 --- the fully authentic case with the larger document volume and greater
 factual complexity --- the custom agent's advantage grows more noticeably as sessions
-accumulate. On THRD-2021, the custom agent also leads, but the gap is smaller and more
+accumulate. On THRD-2021-163881, the custom agent also leads, but the gap is smaller and more
 stable. This pattern is consistent with the architectural hypothesis: the factsheet and
 structured retrieval tools confer the greatest benefit precisely when the case is large
 and complex, where naive RAG retrieval is most prone to missing relevant facts dispersed
@@ -144,23 +145,26 @@ differences, and Table~\ref{tab:diff_variance} reports the variance of that gap 
 \begin{table}[htbp]
 \centering
 \caption{Mean completeness, correctness, and relevancy by dataset, model, and agent
-         configuration (baseline\_rag and custom).}
+         configuration (Baseline+RAG vs.\ Custom).}
 \label{tab:results}
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{llrrrrrr}
 \toprule
-\textbf{Dataset} & \textbf{Model} & \textbf{Comp.\ base} & \textbf{Comp.\ cust} & \textbf{Corr.\ base} & \textbf{Corr.\ cust} & \textbf{Rel.\ base} & \textbf{Rel.\ cust} \\
+ & & \multicolumn{2}{c}{\textbf{Completeness}} & \multicolumn{2}{c}{\textbf{Correctness}} & \multicolumn{2}{c}{\textbf{Relevancy}} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}
+\textbf{Dataset} & \textbf{Model} & \textbf{Base} & \textbf{Cust} & \textbf{Base} & \textbf{Cust} & \textbf{Base} & \textbf{Cust} \\
 \midrule
-THRD-2021 & GLM-5             & 0.880 & 0.921 & 0.890 & 0.928 & 0.992 & 1.000 \\
-THRD-2021 & Qwen3.5-397B      & 0.937 & 0.947 & 0.927 & 0.944 & 0.996 & 1.000 \\
-THRD-2021 & gemini-2.5-flash  & 0.740 & 0.853 & 0.665 & 0.831 & 0.996 & 0.979 \\
-THRD-2021 & gemini-2.5-pro    & 0.903 & 0.870 & 0.894 & 0.871 & 1.000 & 1.000 \\
+THRD-2021-163881 & GLM-5            & 0.880 & 0.921 & 0.890 & 0.928 & 0.992 & 1.000 \\
+THRD-2021-163881 & Qwen3.5-397B     & 0.937 & 0.947 & 0.927 & 0.944 & 0.996 & 1.000 \\
+THRD-2021-163881 & Gemini 2.5 Flash & 0.740 & 0.853 & 0.665 & 0.831 & 0.996 & 0.979 \\
+THRD-2021-163881 & Gemini 2.5 Pro   & 0.903 & 0.870 & 0.894 & 0.871 & 1.000 & 1.000 \\
 \midrule
-TOSL-2024 & GLM-5             & 0.992 & 0.982 & 0.971 & 0.956 & 1.000 & 1.000 \\
-TOSL-2024 & Qwen3.5-397B      & 0.700 & 0.926 & 0.727 & 0.927 & 0.733 & 1.000 \\
-TOSL-2024 & gemini-2.5-flash  & 0.822 & 0.911 & 0.718 & 0.889 & 0.967 & 0.980 \\
-TOSL-2024 & gemini-2.5-pro    & 0.956 & 0.956 & 0.911 & 0.924 & 0.998 & 1.000 \\
+TOSL-2024-125319 & GLM-5            & 0.992 & 0.982 & 0.971 & 0.956 & 1.000 & 1.000 \\
+TOSL-2024-125319 & Qwen3.5-397B     & 0.700 & 0.926 & 0.727 & 0.927 & 0.733 & 1.000 \\
+TOSL-2024-125319 & Gemini 2.5 Flash & 0.822 & 0.911 & 0.718 & 0.889 & 0.967 & 0.980 \\
+TOSL-2024-125319 & Gemini 2.5 Pro   & 0.956 & 0.956 & 0.911 & 0.924 & 0.998 & 1.000 \\
 \bottomrule
-\end{tabular}
+\end{tabular}}
 \end{table}
 
 \begin{table}[htbp]
@@ -178,7 +182,7 @@ TOSL-2024-125319-MIN & $+7.60$\% & $+9.24$\% & $+7.06$\% \\
 \end{tabular}
 \end{table}
 
-\begin{table}[htbp]
+\begin{table}[H]
 \centering
 \caption{Variance of the per-model custom$-$baseline difference per dataset, expressed
          as a percentage ($\times 100$). Higher variance indicates less uniform gains
@@ -195,25 +199,82 @@ TOSL-2024-125319-MIN & $1.20$\% & $1.18$\% & $1.71$\% \\
 \end{table}
 
 The dataset-level breakdown reveals a consistent asymmetry: the custom agent's advantage
-is substantially larger on TOSL-2024 than on THRD-2021 across all three quality
-dimensions. On THRD-2021, the mean correctness gain is $+4.96$ percentage points; on
-TOSL-2024 it more than doubles to $+9.24$ pp. Completeness follows the same pattern
-($+3.27$ vs.\ $+7.60$ pp), while relevancy is effectively neutral on THRD-2021 ($-0.10$
-pp) but shows a clear positive gain on TOSL-2024 ($+7.06$ pp).
+is substantially larger on TOSL-2024-125319 than on THRD-2021-163881 across all three quality
+dimensions. On THRD-2021-163881, the mean correctness gain is $+4.96$ percentage points; on
+TOSL-2024-125319 it more than doubles to $+9.24$ pp. Completeness follows the same pattern
+($+3.27$ vs.\ $+7.60$ pp), while relevancy is effectively neutral on THRD-2021-163881 ($-0.10$
+pp) but shows a clear positive gain on TOSL-2024-125319 ($+7.06$ pp).
 
-This asymmetry is consistent with the architectural hypothesis. TOSL-2024 is the fully
+This asymmetry is consistent with the architectural hypothesis. TOSL-2024-125319 is the fully
 authentic dataset with a larger and more heterogeneous document set; queries on this case
 require cross-document synthesis that naive RAG is most prone to fail. The factsheet's
 structured representation provides the greatest marginal benefit precisely where
 retrieval-only approaches are most likely to miss facts dispersed across many documents.
 
 The variance table reinforces this interpretation. The variance of the per-model gap is
-uniformly higher on TOSL-2024 than on THRD-2021 across all metrics. This indicates that
+uniformly higher on TOSL-2024-125319 than on THRD-2021-163881 across all metrics. This indicates that
 the advantage is less uniform across LLMs on the more complex dataset: some models
 benefit more from the structured context than others, and this interaction is amplified
-when the case is harder. The notable exception is gemini-2.5-pro on TOSL-2024, where the
+when the case is harder. The notable exception is gemini-2.5-pro on TOSL-2024-125319, where the
 baseline already achieves high scores, leaving less headroom for improvement.
 
+
+% -------------------------------------------------------
+\subsection{Query-Type Breakdown}
+\label{sec:qtype-results}
+% -------------------------------------------------------
+
+A breakdown of quality metrics by query type provides the most direct empirical
+evidence for RQ1. As defined in Section~\ref{sec:dataset-limitations}, queries are
+classified as either \emph{factual} (specific, enumerable facts with a bounded correct
+answer) or \emph{summary} (cross-document synthesis requiring a narrative overview).
+Summary queries, by their nature, require the agent to synthesise information across
+multiple documents and sessions --- precisely the capability that naive RAG struggles
+with most.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/deep_eval_barplot_qtype.png}
+    \caption{DeepEval quality metrics broken down by query type (factual vs.\ summary).
+             The custom agent's advantage is substantially larger on summary queries,
+             which require cross-document synthesis, than on factual queries.}
+    \label{fig:deepeval-barplot-qtype}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Mean correctness, relevancy, and completeness by query type and agent
+         configuration. Completeness is not evaluated on summary queries
+         (see Section~\ref{sec:dataset-limitations}).}
+\label{tab:qtype-results}
+\resizebox{0.85\textwidth}{!}{%
+\begin{tabular}{llrrr}
+\toprule
+\textbf{Query Type} & \textbf{Configuration} & \textbf{Correctness} & \textbf{Relevancy} & \textbf{Completeness} \\
+\midrule
+Factual & Baseline+RAG & 0.882 & 0.996 & 0.910 \\
+Factual & Custom       & 0.901 & 0.993 & 0.924 \\
+\midrule
+Summary & Baseline+RAG & 0.775 & 0.912 & --- \\
+Summary & Custom       & 0.919 & 0.999 & --- \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+The pattern is striking. On factual queries, the custom agent leads by 1.9 percentage
+points in correctness --- a modest but consistent margin. On summary queries, the gap
+widens to 14.4 percentage points ($0.919$ vs.\ $0.775$). The same asymmetry holds for
+relevancy: the baseline's relevancy on summary queries ($0.912$) is substantially below
+its factual query relevancy ($0.996$), reflecting cases where retrieval fails to surface
+the distributed context required for a coherent synthesis and the agent produces an
+incomplete or unfocused response. The custom agent's relevancy on summary queries
+($0.999$) is effectively at ceiling.
+
+Mann-Whitney U tests confirm that the custom agent's advantage on summary queries is
+statistically significant: correctness ($U = 12{,}813$, $p = 9.3 \times 10^{-3}$) and
+relevancy ($U = 12{,}542$, $p = 2.9 \times 10^{-5}$). Since summary queries require
+cross-document synthesis by definition --- they cannot be answered from a single
+retrieved chunk --- this constitutes direct empirical support for RQ1.
 
 % -------------------------------------------------------
 \subsection{BERTScore}
@@ -266,24 +327,21 @@ Resource metrics (defined in Section~\ref{sec:metrics}) are analysed alongside q
     \centering
     \includegraphics[width=\textwidth]{figures/resource_pairplot.png}
     \caption{Pairplot of resource metrics (duration in seconds, input tokens, output tokens,
-             total tokens, and LLM call count). The custom agent exhibits higher input
-             token usage reflecting factsheet growth, while inference duration is more
-             tightly bounded than the baseline.}
+             total tokens, and LLM call count). Duration and token distributions overlap
+             substantially between configurations; the main visible difference is a
+             more right-skewed LLM call count for the custom agent.}
     \label{fig:resource-pairplot}
 \end{figure}
 
-The most notable pattern in Figure~\ref{fig:resource-pairplot} is in input token usage.
-The custom agent spans a wider range, with some queries consuming upwards of
-200{,}000 input tokens --- consistent with the factsheet growing denser as the case
-accumulates material and vector retrieval returning richer chunks. The baseline clusters
-at lower input token counts, reflecting its simpler retrieval strategy, though it too
-exhibits high-token outliers for sessions with large document sets.
-Output tokens are similarly distributed, with the custom agent showing a slightly wider
-tail toward higher values, in line with the expectation that richer context enables more
-detailed answers. Inference duration is generally lower and more tightly concentrated
-for the custom agent; the baseline exhibits heavier tails at high latency, likely due
-to its unbounded document ingestion strategy. LLM call counts are comparable between
-configurations, typically in the range of 1--3 calls per query.
+Figure~\ref{fig:resource-pairplot} shows that the two configurations are broadly
+similar across duration, input tokens, output tokens, and total tokens --- the
+distributions overlap substantially with no visually clear separation. The most
+notable difference is in LLM call count: the custom agent's distribution is more
+right-skewed, reflecting occasional queries that require additional tool calls to
+surface structured case facts, while the baseline is more tightly peaked in the
+lower range (approximately 2--5 calls per query). This is consistent with the custom
+agent's richer tool set, which can trigger extra retrieval steps when the factsheet
+and vector store are both consulted within a single query.
 
 \begin{figure}[H]
     \centering
@@ -294,14 +352,20 @@ configurations, typically in the range of 1--3 calls per query.
     \label{fig:resource-lineplot}
 \end{figure}
 
-Figure~\ref{fig:duration-vs-correctness} plots inference duration against correctness score for individual queries, illustrating that higher latency does not correspond to higher quality.
+Figure~\ref{fig:duration-vs-correctness} plots inference duration against correctness
+score for individual queries. The custom agent's responses cluster more tightly ---
+higher correctness with less spread in duration --- while the baseline is more
+dispersed. The pattern confirms that longer inference time does not produce higher
+quality: both configurations occupy similar latency ranges, yet the custom agent
+achieves consistently higher scores within that range.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{figures/duration_vs_correctness.png}
     \caption{Scatter plot of inference duration (seconds) against correctness score per query.
-             No positive correlation is observed, indicating that longer inference time does not
-             reliably produce higher-quality responses.}
+             The custom agent's responses are more tightly concentrated at higher correctness
+             scores. No positive correlation between latency and quality is observed for
+             either configuration.}
     \label{fig:duration-vs-correctness}
 \end{figure}
 
@@ -317,7 +381,7 @@ proportionally.
 
 \paragraph{Cost analysis.}
 Absolute token counts are not directly comparable across datasets with different document
-volumes and session lengths. The total cost for TOSL-2024 is substantially higher than for THRD-2021, making direct comparison of absolute costs misleading. 
+volumes and session lengths. The total cost for TOSL-2024-125319 is substantially higher than for THRD-2021-163881, making direct comparison of absolute costs misleading. 
 To enable model-level cost comparisons, each run's estimated cost (input tokens $\times$ price-per-token $+$ output tokens $\times$ price-per-token)
 is normalised to a percentile rank within its dataset:
 %
@@ -408,7 +472,7 @@ A further nuance emerges when examining the relationship between advertised inpu
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{figures/actual_input_cost.png}
-    \caption{Actual input cost (ranked) vs. advertised input price per token. The relationship is non-linear, indicating that more capable models can be more token-efficient.}
+    \caption{Actual input cost (ranked) vs. advertised input price per token. The diagonal reference line represents perfect proportionality — if advertised price fully predicted actual cost, all points would lie on this line. The non-linear deviation indicates that more capable models can be more token-efficient.}
     \label{fig:actual-input-cost}
 \end{figure}
 
@@ -447,21 +511,26 @@ Completeness & 27{,}278.50 & $1.06 \times 10^{-1}$ & Not significant \\
 \end{tabular}
 \end{table}
 
-The relevancy result warrants a cautious interpretation. Relevancy is almost universally
-high for both agents whenever a response is attempted: as long as the agent engages with
-the question, the answer tends to be on-topic regardless of architecture. The significant
-difference is primarily driven by cases where the baseline fails to retrieve any relevant
-documents and consequently produces no substantive answer, incurring a near-zero
-relevancy score. \textbf{Correctness is the most diagnostic quality metric}: it is
-hardest to satisfy and most sensitive to the architectural differences under evaluation,
-and the significant result ($p = 1.03 \times 10^{-2}$) carries the most interpretive
-weight.
+\textbf{Correctness is the most diagnostic quality metric}: it is hardest to satisfy,
+most sensitive to the architectural differences under evaluation, and its significant
+result ($p = 1.03 \times 10^{-2}$) carries the most interpretive weight.
 
-The absence of a significant completeness result has a structural explanation that goes beyond chance. The evaluation dataset distinguishes between \emph{factual} and \emph{summary} query types, and completeness is only evaluated on factual queries --- those whose reference answers enumerate a finite, verifiable set of required facts (e.g.\ ``Who are the parties?'', ``What damages are claimed?''). Summary queries are deliberately excluded from completeness evaluation for two reasons. First, the concept of a ``complete'' answer is not well-defined for summary questions: any sufficiently informative response covering the key points could be considered complete, making the metric uninterpretable. Second, and more importantly, reference-based completeness evaluation would \emph{unfairly penalise} correct responses that frame the summary differently from the reference. A practitioner who organises the same facts in a different order, uses a different level of abstraction, or emphasises different aspects of the case may produce a response that is professionally equivalent to --- or better than --- the reference, yet would be scored as incomplete by an automated judge comparing against one specific framing. Including summary queries in completeness evaluation would therefore systematically understate both agents' actual performance and introduce noise that obscures genuine architectural differences. This design decision is methodologically correct but has a direct consequence for statistical power: the effective sample size for completeness is substantially smaller than for correctness and relevancy, which are computed across all query types.
+Relevancy warrants a more cautious reading. It is almost universally high for both
+agents whenever a response is attempted; the significant difference is primarily driven
+by cases where the baseline fails to retrieve any relevant documents and produces no
+substantive answer.
 
-The difference in sample size is visible in the U-statistics. The completeness U-statistic (27{,}278) is approximately 36\% of the correctness U-statistic (74{,}780). Since the maximum possible U is $n_1 \times n_2$, this ratio implies that the completeness dataset contains roughly 60\% as many observations as the correctness dataset. A smaller $n$ directly reduces the statistical power of the test: the same underlying effect requires a larger sample to clear the significance threshold.
-
-Two factors therefore combine to produce $p = 0.106$. First, the reduced sample size lowers power. Second, the observed mean difference for completeness (5.4 percentage points) is modestly smaller than for correctness (7.1 percentage points), reflecting that both agents tend to cover the required facts at least partially on factual queries, leaving less room for differentiation. Neither factor constitutes evidence that the custom agent does not improve completeness --- the directional trend is identical to correctness, and Levene's test does find a statistically significant reduction in completeness variance ($p = 0.006$), confirming that the distribution difference is real. The most accurate interpretation is that the current evaluation lacks the statistical power to confirm the completeness mean shift, not that the shift is absent.
+The absence of a significant completeness result ($p = 0.106$) is explained by reduced
+statistical power rather than an absent effect. As described in
+Section~\ref{sec:dataset-limitations}, completeness is evaluated only on factual
+queries, which reduces the effective sample to roughly 60\% of that available for
+correctness. The directional trend and mean difference are consistent with correctness
+--- both point in the same direction --- but the smaller sample is insufficient to clear
+the significance threshold. Importantly, Levene's test finds a significant reduction in
+completeness \emph{variance} ($p = 0.006$), confirming that the distribution shapes
+genuinely differ between architectures. The most accurate interpretation is that the
+evaluation lacks the power to confirm the completeness mean shift at this sample size,
+not that the shift is absent.
 
 \paragraph{Resource metrics.}
 Neither input token usage ($U = 71{,}961$, $p = 0.859$) nor inference duration
@@ -563,13 +632,13 @@ Table~\ref{tab:rq-summary} summarises the empirical evidence for each research q
 Main & Custom agent improves factual accuracy without significant cost increase &
   Correctness significant ($p{=}1.03{\times}10^{-2}$); token usage and latency
   statistically equivalent \\[6pt]
-RQ1 & Evidence is directionally consistent but inconclusive; a larger gap on the more
-  complex dataset is suggestive but rests on few sessions and does not hold uniformly &
-  Wider gap on TOSL-2024 sessions 3--4 only; THRD-2021 shows no clear difference \\[6pt]
-RQ2 & Custom agent maintains stable or improving quality across sessions; baseline
-  performance is more variable and lower throughout &
-  Session trajectory plots; narrower confidence intervals and higher median for custom
-  agent at later sessions \\[6pt]
+RQ1 & Custom agent significantly outperforms baseline on summary (cross-document) queries;
+  factual query gap is smaller but consistent &
+  Correctness gap $+14.4$pp on summary queries ($p{=}9.3{\times}10^{-3}$);
+  relevancy gap $+8.7$pp ($p{=}2.9{\times}10^{-5}$) \\[6pt]
+RQ2 & Indicative evidence from TOSL-2024-125319: gap widens in later sessions; not
+  conclusive with current sample &
+  Session trajectories; wider gap in sessions 3--4 on authentic case only \\[6pt]
 RQ3 & Structured context amplifies smaller model performance; the gap between custom
   and baseline agents narrows as model capability increases &
   LLM barplot: gap is widest for smaller models, negligible for the most capable model \\
@@ -584,14 +653,14 @@ consuming a statistically equivalent number of tokens and producing responses wi
 same latency envelope. The quality gain is not purchased at a proportional resource cost.
 
 \paragraph{RQ1.}
-The evidence for RQ1 is directionally consistent with the hypothesis but not strong
-enough to support a firm conclusion. THRD-2021 shows no clear performance gap between
-configurations. TOSL-2024 shows a somewhat wider gap in sessions 3--4, but this rests
-on a small number of sessions and does not hold uniformly across all metrics. The data
-is too thin to isolate whether the effect is driven by cross-document synthesis demands
-specifically or by other case-level differences in complexity and document type. RQ1
-remains open and would require a targeted benchmark of explicitly synthesis-demanding
-queries to resolve conclusively.
+The query-type breakdown (Section~\ref{sec:qtype-results}) provides direct empirical
+support for RQ1. The custom agent's correctness advantage on summary queries ---
+which require cross-document synthesis by definition --- is $+14.4$ percentage points
+and statistically significant ($p = 9.3 \times 10^{-3}$). On factual queries, where
+a single retrieved chunk can often supply the answer, the gap narrows to $+1.9$pp.
+The concentration of the advantage in precisely the query type that stresses naive
+RAG most directly answers RQ1 affirmatively: structured extraction mitigates the
+cross-document retrieval limitations of chunk-based RAG.
 
 \paragraph{RQ2.}
 Session-level trajectories show that the custom agent maintains quality across all

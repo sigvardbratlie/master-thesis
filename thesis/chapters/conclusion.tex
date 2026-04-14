@@ -22,16 +22,18 @@ between the two architectures, confirming that the quality gain is not purchased
 proportional resource cost. The main research question is answered affirmatively.
 
 \paragraph{RQ1.}
-The evidence for RQ1 is directionally consistent with the hypothesis but insufficient
-for a firm conclusion. THRD-2021 shows no clear performance gap between configurations.
-TOSL-2024 shows a somewhat wider advantage for the custom agent in the later sessions,
-but this rests on few sessions and does not hold uniformly across all metrics. A further
-theoretical nuance applies: naive RAG is not straightforwardly volume-sensitive, since
-retrieval always returns a fixed top-$K$ regardless of corpus size. The genuine
-limitation is query-type specific --- synthesis queries whose answers are distributed
-across multiple chunks --- and the evaluation did not explicitly control for this
-dimension. RQ1 therefore remains open; confirming it would require a dedicated benchmark
-of synthesis-demanding queries across a larger number of sessions and cases.
+The query-type breakdown provides direct empirical support for RQ1. Summary queries ---
+which require synthesising information across multiple documents --- show a $+14.4$
+percentage-point correctness advantage for the custom agent ($p = 9.3 \times 10^{-3}$),
+whereas factual queries, where a single retrieved chunk can often supply the complete
+answer, show only a $+1.9$pp gap. This asymmetry is the expected signature of an
+architecture that specifically addresses cross-document synthesis: it provides the greatest
+marginal benefit precisely where naive chunk retrieval is most likely to fail. A theoretical
+nuance applies: naive RAG is not straightforwardly volume-sensitive, since retrieval always
+returns a fixed top-$K$ regardless of corpus size. The genuine limitation is
+query-type specific --- synthesis queries whose answers are distributed across multiple
+chunks --- and the query-type analysis directly targets this limitation. RQ1 is answered
+affirmatively.
 
 \paragraph{RQ2.}
 Session-level trajectories show that the custom agent maintains stable quality with
@@ -39,7 +41,11 @@ narrow variance across all sessions as document volume grows. The baseline, by c
 exhibits wider fluctuations throughout case progression. The structured representation
 scales gracefully with document volume because new information is absorbed incrementally
 into the factsheet at each session boundary rather than added to an ever-larger
-unstructured retrieval pool. RQ2 is answered affirmatively.
+unstructured retrieval pool. This pattern is consistent with the design hypothesis, but
+with only two datasets it is difficult to isolate the effect of document volume from
+other case-specific characteristics. RQ2 is indicative but not conclusively confirmed;
+a larger benchmark spanning more cases and varying document volumes would be required
+for a firm answer.
 
 \paragraph{RQ3.}
 The model-level breakdown reveals that the performance gap between the custom and
@@ -99,13 +105,14 @@ This thesis makes three contributions:
 \end{enumerate}
 
 \section{Limitations and Future Work}
+\label{sec:future-work}
 
 The evaluation in this thesis has several limitations that point toward avenues for future research.
 
 \paragraph{Dataset and Generalisability.}
 The evaluation rests on two datasets, which limits the generalisability of the findings. A larger benchmark spanning more cases and document volumes would provide stronger evidence for the scaling behaviour observed here, and would better distinguish the effect of document volume from other case-specific characteristics. A potential weakness is that the datasets were developed in conjunction with this thesis, which introduces a risk that their design was implicitly influenced by the research questions, potentially limiting their independence as a neutral benchmark.
 
-A more fundamental limitation, however, is the scarcity of publicly available, high-quality datasets suitable for benchmarking legal agents in realistic, long-duration scenarios. The datasets used, while adequate for the research questions posed, represent a simplified proxy for the complexity of a genuine legal case that unfolds over months or years. The evaluation was necessarily limited to a sequence of sessions within a static, pre-existing document corpus. A crucial direction for future work is therefore the development of high-quality, publicly available datasets designed specifically for full-scale, real-world scenario testing. Such benchmarks are essential for the field to move beyond simple, short-form question-answering formats and begin to test agent capabilities in a manner that mirrors actual legal practice. These datasets should be designed to test agents across time, presenting new information and evolving case dynamics in a structured way that challenges an agent's ability to maintain a coherent, long-term understanding of a case. Creating such a benchmark is a substantial research project in its own right, arguably the subject of a separate thesis. It would require careful curation of case materials, the design of a longitudinal evaluation protocol, and the definition of tasks that probe for deep synthesis and long-range reasoning rather than simple fact retrieval.
+A more fundamental limitation, however, is the scarcity of publicly available, high-quality datasets suitable for benchmarking legal agents in realistic, long-duration scenarios. The datasets used, while adequate for the research questions posed, represent a simplified proxy for the complexity of a genuine legal case that contains hundreds of sessions with thousands of individual queries. The evaluation was necessarily limited to a sequence of sessions within a static, pre-existing document corpus. A crucial direction for future work is therefore the development of high-quality, publicly available datasets designed specifically for full-scale, real-world scenario testing. Such benchmarks are essential for the field to move beyond simple, short-form question-answering formats and begin to test agent capabilities in a manner that mirrors actual legal practice. These datasets should be designed to test agents across time, presenting new information and evolving case dynamics in a structured way that challenges an agent's ability to maintain a coherent, long-term understanding of a case. Creating such a benchmark is a substantial research project in its own right, arguably the subject of a separate thesis. It would require careful curation of case materials, the design of a longitudinal evaluation protocol, and the definition of tasks that probe for deep synthesis and long-range reasoning rather than simple fact retrieval. Making such datasets publicly available would additionally enable other researchers to benchmark alternative architectures under comparable conditions, accelerating progress across the field rather than limiting reproducibility to groups with access to proprietary case files.
 
 \paragraph{Scope of Legal Reasoning.}
 The evaluation queries were deliberately restricted to factual, document-grounded questions to enable objective grading. This scope is appropriate for establishing a controlled baseline but does not cover the full range of legal reasoning tasks --- in particular, normative and predictive questions where the benefit of structured extraction may differ. Extending the evaluation to cover multi-step legal reasoning, conflicting evidence reconciliation, and temporal argument construction is a natural next step.
@@ -118,8 +125,10 @@ The evaluation in this thesis measures downstream output quality --- whether the
 
 A dedicated extraction evaluation would require expert-annotated ground truth factsheets for each case, against which extracted elements could be assessed for precision, recall, and source attribution accuracy. Evaluation should cover the full range of entity types --- parties, events, claims, damages, deadlines --- and account for partial matches, scope errors (where the correct entity type is identified but the extracted value is incomplete), and hallucinations with no grounding in the source documents. It would also be valuable to study how extraction quality varies by document type: contracts, email correspondence, and financial reports present different linguistic registers and information densities, and the extraction pipeline may perform unevenly across them. Establishing this link between extraction quality and downstream answer quality would clarify how much of the observed performance gap is attributable to the structured representation itself versus the precision with which it is populated.
 
-\paragraph{Cost-Quality Optimisation.}
-The RQ3 result points toward a practically relevant optimization problem: given a target quality level and a budget constraint, what is the optimal combination of model size and extraction investment? The evidence suggests this trade-off exists and is exploitable, but characterising it precisely requires a more systematic sweep over model and architecture configurations than was feasible within the scope of this thesis.
+\paragraph{Cost-Quality Optimisation and Model Combination.}
+The RQ3 result points toward a practically relevant optimisation problem: given a target quality level and a budget constraint, what is the optimal combination of model size and extraction investment? The evidence suggests this trade-off exists and is exploitable, but characterising it precisely requires a more systematic sweep over model and architecture configurations than was feasible within the scope of this thesis.
+
+A natural extension is to decouple the model used for extraction from the model used for inference. In the current system, the same model handles both pipeline extraction and query-time reasoning. An alternative configuration would use a more capable model for the extraction pipeline --- where high-quality structured output matters most and cost is amortised over many queries --- while using a smaller, cheaper model at query time where volume is high. This combination is practically attractive and directly testable with data already collected in this thesis: since the factsheets have been extracted and stored, inference-only runs on those projects can be executed without re-running the extraction pipeline, making the marginal cost of the additional comparison low.
 
 \paragraph{Reliability as a First-Class Research Question.}
 The variance reduction observed across all five metrics is a post-hoc finding and was not designed into the evaluation. A natural follow-up study would treat reliability as a first-class research question: formally hypothesising that structured extraction reduces output variance, designing the evaluation around variance-sensitive query sets (particularly retrieval-failure-prone queries), and testing across a broader range of cases and document volumes. Given the practical significance of predictability in legal settings, this direction warrants dedicated investigation.
@@ -131,6 +140,16 @@ Of course this persumes that the underlaying data is of sufficient quality, whic
 
 \paragraph{Agentic Reasoning and Task Queuing.}
 The current agent executes a single reasoning pass per query. Adding a task queue that allows the agent to decompose complex queries into ordered sub-tasks --- each potentially using a specialised node, toolset, and system prompt --- would support multi-step legal reasoning that the current flat architecture cannot perform. This is analogous to chain-of-thought planning at the agent level: rather than producing an answer in one shot, the agent could plan, retrieve, verify, and synthesise across multiple coordinated steps.
+
+\paragraph{Active Context Monitoring.}
+The current implementation does not actively monitor context utilisation at runtime.
+Systems such as MemGPT \cite{packer2024memgptllmsoperatingsystems} demonstrate that
+tool-mediated relief --- notifying the model when its context budget is near exhaustion
+and providing tools to archive or compact in-context content --- can substantially extend
+coherent long-horizon behaviour. Implementing equivalent monitoring within the LangGraph
+agent, with automatic compaction of conversation history and selective eviction of
+lower-priority factsheet elements, would be a direct extension of the current
+architecture.
 
 \paragraph{Background and Asynchronous Tooling.}
 The pipeline already runs offline, but the agent itself is purely reactive: it only acts when a query arrives. A natural extension is a set of background tools that run during idle periods --- monitoring connected document repositories and inboxes for new material, triggering incremental factsheet updates on arrival, or proactively flagging newly detected deadlines and conflicts to the practitioner. This would move the system from reactive assistant to proactive case monitor.
