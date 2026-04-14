@@ -34,6 +34,9 @@ class EmailBaseClass(BaseHandler):
         return re.sub(r"<mailto:[^>]+>", "", text).strip()
 
     def _strip_html(self, html_text: str) -> str:
+        if not isinstance(html_text, str):
+            logger.warning(f"⚠️  Expected string for HTML content but got {type(html_text).__name__} — returning unprocessed content")
+            return html_text
         # Remove <style> and <script> blocks including their content
         text = re.sub(r"<(style|script)[^>]*>.*?</\1>", "", html_text, flags=re.IGNORECASE | re.DOTALL)
         # Replace block-level tags with newlines to preserve paragraph structure
@@ -284,14 +287,14 @@ class EmailPart(BaseModel):
 
 class EmailThreadParser(EmailBaseClass):
     def __init__(self):
-        # BLOCK: Outlook-stil
+        # BLOCK: Outlook-stil (re.DOTALL so .*? bridges newlines between header fields)
         self.block_pattern = re.compile(
             r"\*?(?:Fra|From)\s*\*?:\s*\*?(?P<from>.*?)\s*"
             r"\*?(?:Sendt|Dato|Date)\s*\*?:\s*\*?(?P<date>.*?)\s*"
             r"\*?(?:Til|To)\s*\*?:\s*\*?(?P<to>.*?)\s*"
             r"(?:\*?(?:Kopi|Cc)\s*\*?:\s*\*?(?P<cc>.*?)\s*)?"
-            r"\*?(?:Emne|Subject)\s*\*?:\s*\*?(?P<subject>.*?)(?=\r|\n|$)", 
-            re.IGNORECASE
+            r"\*?(?:Emne|Subject)\s*\*?:\s*\*?(?P<subject>.*?)(?=\r|\n|$)",
+            re.IGNORECASE | re.DOTALL
         )
         
         # INLINE: Gmail/Mobil/Yahoo norsk-stil ("3. mars 2026 kl. 10:24" eller "kl. 10:24:00 CET")
@@ -303,6 +306,16 @@ class EmailThreadParser(EmailBaseClass):
         # INLINE: Gmail/Yahoo/AOL engelsk-stil
         self.gmail_en_pattern = re.compile(
             r"On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+(?P<date>\w+\s+\d{1,2},\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM))\s+(?P<from>.*?)\s+wrote:",
+            re.IGNORECASE
+        )
+
+        # FORWARDED: Gmail/Thunderbird "---------- Forwarded message ---------"
+        self.forwarded_pattern = re.compile(
+            r"-{3,}[ \t]*(?:Forwarded message|Videresendt melding)[ \t]*-{3,}[ \t]*\n"
+            r"From:\s*(?P<from>.*?)\s*\n"
+            r"Date:\s*(?P<date>.*?)\s*\n"
+            r"Subject:\s*(?P<subject>.*?)\s*\n"
+            r"To:\s*(?P<to>.*?)(?=\r|\n|$)",
             re.IGNORECASE
         )
 
@@ -373,8 +386,11 @@ class EmailThreadParser(EmailBaseClass):
 
 
     def parse_text_part(self, chunk: str) -> EmailPart:
+        # Join wrapped addresses like "< \n addr>" → "<addr>" and strip angle-bracket URLs
+        chunk = re.sub(r'<\r?\n[ \t]*', '<', chunk)
+        chunk = re.sub(r'<https?://[^>]+>', '', chunk)
         chunk = self._clean_text(chunk)
-        
+
         if match := self.block_pattern.search(chunk):
             meta = match.groupdict()
             body = chunk[match.end():].strip()
@@ -382,6 +398,9 @@ class EmailThreadParser(EmailBaseClass):
             meta = match.groupdict()
             body = chunk[match.end():].strip()
         elif match := self.gmail_en_pattern.search(chunk):
+            meta = match.groupdict()
+            body = chunk[match.end():].strip()
+        elif match := self.forwarded_pattern.search(chunk):
             meta = match.groupdict()
             body = chunk[match.end():].strip()
         else:
@@ -401,20 +420,38 @@ class EmailThreadParser(EmailBaseClass):
 
     def get_raw_text(self, part: Message) -> str:
         payload = part.get_payload(decode=True)
-        if not payload: return []
+        if not payload: return ''
         
         raw_text = payload.decode(part.get_content_charset() or "utf-8", errors="ignore")
         return raw_text
 
-    def get_email_thread(self, raw_text : str ) -> List[EmailPart]:
-        
-        
+    def _strip_noise(self, text: str) -> str:
+        """Remove display noise that can't be rendered and adds no information."""
+        # Inline image placeholders: [cid:abc123...]
+        text = re.sub(r'\[cid:[^\]]+\]', '', text)
+        # IT security / external-source warning banners (whole paragraph)
+        text = re.sub(
+            r'(?:^|\n)[ \t]*(?:CAUTION|WARNING)\s*:.*?(?=\n\n|\Z)',
+            '', text, flags=re.IGNORECASE | re.DOTALL
+        )
+        # Collapse any extra blank lines left behind
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        return text.strip()
+
+    def get_email_thread(self, raw_text: str) -> List[EmailPart]:
+        # Remove unrenderable noise before any further processing
+        raw_text = self._strip_noise(raw_text)
+        # Join wrapped addresses ("< \n addr>") before splitting so patterns match correctly
+        raw_text = re.sub(r'<\r?\n[ \t]*', '<', raw_text)
+
         PATTERNS = [
             r"\d{1,2}\.\s+\w+\.?\s+\d{4}\s+kl\.\s+\d{2}:\d{2}(?::\d{2})?(?:\s+\w+)?\s+skrev\s+.*?:",
-            r"\*?(?:Fra|From)\s*\*?:\s*.*?\s*\*?(?:Sendt|Dato|Date)\s*\*?:",
+            # [\s\S]*? instead of .*? so Fra: and Dato: can be on separate lines
+            r"\*?(?:Fra|From)\s*\*?:\s*[\s\S]*?\s*\*?(?:Sendt|Dato|Date)\s*\*?:",
             r"[ \t]*On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+\w+\s+\d{1,2},\s+\d{4}\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)\s+.*?wrote:",
+            r"-{3,}[ \t]*(?:Forwarded message|Videresendt melding)[ \t]*-{3,}[ \t]*\nFrom:.*?\nDate:.*?\nSubject:.*?\nTo:.*?(?=\r|\n|$)",
         ]
-        
+
         parts = re.split(f"({'|'.join(PATTERNS)})", raw_text, flags=re.IGNORECASE)
         
         if len(parts) <= 1:
@@ -493,6 +530,51 @@ class EmailThreadParser(EmailBaseClass):
 
         return results
     
+    def expand_email_from_db(self,
+                             body_text: str,
+                             from_addr: Optional[str] = None,
+                             to: Optional[List[str]] = None,
+                             cc: Optional[List[str]] = None,
+                             date: Optional[str] = None,
+                             subject: Optional[str] = None,
+                             ) -> List[EmailPart]:
+        """Parse an email thread using pre-extracted DB fields instead of raw EML bytes.
+
+        Avoids a GCS roundtrip — all data comes directly from Supabase columns.
+        """
+        results = self.get_email_thread(body_text or "")
+        if not results:
+            return []
+
+        main_sender = from_addr or ""
+        main_recipients = to or []
+        main_cc = cc or []
+        main_sender_low = main_sender.lower()
+        main_recipients_low = [r.lower() for r in main_recipients]
+
+        for i, part in enumerate(results):
+            if i == 0:
+                part.sender = part.sender or main_sender or None
+
+            curr_sender = part.sender.lower() if part.sender else ""
+            is_first = (i == 0)
+            is_main_sender = (curr_sender == main_sender_low)
+            is_main_recipient = (curr_sender in main_recipients_low)
+
+            if is_first or is_main_sender or is_main_recipient:
+                part.date = part.date or date
+                part.subject = part.subject or subject
+                part.cc = part.cc or (main_cc if main_cc else None)
+                if is_first or is_main_sender:
+                    part.recipient = part.recipient or (main_recipients if main_recipients else None)
+                elif is_main_recipient:
+                    part.recipient = part.recipient or ([main_sender] if main_sender else None)
+
+            part.recipient = part.recipient or None
+            part.cc = part.cc or None
+
+        return results
+
     def collapse_threads(self, emails: dict[str, Message]) -> dict[str, tuple[Message, set[str]]]:
         """Extracts the root email from a thread and lists all related file_uuids.
         
