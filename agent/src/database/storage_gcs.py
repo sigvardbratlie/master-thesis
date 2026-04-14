@@ -105,6 +105,16 @@ class GCSManager(BaseStorageManager):
 
     def read_attachments(self, paths: list[str]) -> dict[str, bytes | None]:
         """Batch read by listing all blobs under the prefix, then downloading matches."""
+        if not paths:
+            logger.warning("⚠️ No paths provided for batch read_attachments")
+            return {}
+        if not isinstance(paths, list):
+            if isinstance(paths, str):
+                paths = [paths]
+            else:
+                logger.error(f"❌ Invalid input for read_attachments: expected list of paths, got {type(paths)}")
+                return {}
+        
         read_paths = {self.prefix + path: path for path in paths}
         results: dict[str, bytes | None] = {path: None for path in paths}
 

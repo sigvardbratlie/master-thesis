@@ -180,10 +180,9 @@ export async function loadProjectEmails(projectId) {
   const cached = cache.get(cacheKey);
   if (cached) return cached;
 
-  // Intentionally excludes `body` — fetched on-demand via loadEmailBody
   const { data, error } = await authService.client
     .from('project_emails')
-    .select('email_id, from_addr, to, cc, subject, date, message_id, significance')
+    .select('email_id, from_addr, to, cc, subject, date, message_id, significance, body')
     .eq('project_id', projectId)
     .order('date', { ascending: false });
 
@@ -192,21 +191,12 @@ export async function loadProjectEmails(projectId) {
   return data ?? [];
 }
 
-export async function loadEmailBody(emailId) {
-  const cacheKey = `email-body:${emailId}`;
-  const cached = cache.get(cacheKey);
-  if (cached) return cached;
-
-  const { data, error } = await authService.client
-    .from('project_emails')
-    .select('body')
-    .eq('email_id', emailId)
-    .maybeSingle();
-
-  if (error) throw error;
-  const body = data?.body ?? '';
-  cache.set(cacheKey, body, TTL.emailBody);
-  return body;
+export async function expandEmailsViaApi(emailIds) {
+  const res = await apiFetch('/document/expand-email', {
+    method: 'POST',
+    body: JSON.stringify(emailIds),
+  });
+  return res.json();
 }
 
 export async function createProject(userId, title) {

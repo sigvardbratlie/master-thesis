@@ -27,3 +27,6 @@ def get_conversation_manager(request : Request):
 
 def get_gcs(request: Request):
     return request.app.state.gcs
+
+def get_email_parser(request: Request):
+    return request.app.state.email_parser

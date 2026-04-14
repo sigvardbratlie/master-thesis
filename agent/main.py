@@ -18,6 +18,7 @@ from utils.config_utils import AppConfig
 from utils.logging_utils import setup_logging
 from database import BQVectorStore, GCSManager
 from agent import ProjectPipeline, ProjectClean
+from documents import EmailThreadParser
 
 load_dotenv()
 
@@ -100,6 +101,7 @@ async def lifespan(app: FastAPI):
     app.state.conversation_manager = SupabaseManager()
     app.state.vectorstore = BQVectorStore(embedding_model=config.vectorstore.bigquery.embedding_model)
     app.state.gcs = GCSManager(config=config)
+    app.state.email_parser = EmailThreadParser()
 
     silence_loggers()
 
@@ -133,12 +135,13 @@ def setup_app():
 
 app = setup_app()
 def include_routers(app: FastAPI):
-    from api.routers import agent, clean, project, vectorstore, storage
+    from api.routers import agent, clean, project, vectorstore, storage, document
     app.include_router(agent.router)
     app.include_router(clean.router)
     app.include_router(vectorstore.router)
     app.include_router(project.router)
     app.include_router(storage.router)
+    app.include_router(document.router)
     return app
 
 app = include_routers(app)

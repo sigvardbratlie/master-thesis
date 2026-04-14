@@ -15,7 +15,7 @@ import {
   loadProjectDamages,
   loadProjectAttachments,
   loadProjectEmails,
-  loadEmailBody,
+  expandEmailsViaApi,
   streamProjectUpdate,
   streamProjectCleanElements,
   streamProjectCleanMetadata,
@@ -104,10 +104,12 @@ export async function renderProject(params) {
 
   // Fire all sections in parallel
   Promise.all([loadProjectEvents(projectId), docsPromise])
-    .then(([events, [attachments, emails]]) => {
+    .then(async ([events, [attachments, emails]]) => {
       const el = document.getElementById('sec-timeline');
       if (el) {
-        el.innerHTML = buildTimelineInner(events, attachments, emails);
+        const emailIds = emails.map(e => e.email_id ?? e.message_id).filter(Boolean);
+        const emailThreads = emailIds.length ? await expandEmailsViaApi(emailIds).catch(() => ({})) : {};
+        el.innerHTML = buildTimelineInner(events, attachments, emails, emailThreads);
         initTimeline(el);
       }
     })
@@ -301,9 +303,26 @@ function buildProjectShell(projectId, meta) {
   bindViewerEvents();
 }
 
+// Collapse excessive blank lines / trailing line-whitespace in any plain text
+function normalizeWhitespace(text) {
+  if (!text) return '';
+  return text.split('\n').map(l => l.trimEnd()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Inline-only markdown: preserves whitespace/newlines (pre-wrap), just styles *em*, **bold**, `code`
+function mdInline(text) {
+  if (!text) return '';
+  let s = escHtml(text);
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*([^*\n]+)\*/g,     '<em>$1</em>');
+  s = s.replace(/_([^_\n]+)_/g,       '<em>$1</em>');
+  s = s.replace(/`([^`\n]+)`/g,       '<code class="text-xs bg-surface-container px-1 rounded">$1</code>');
+  return s;
+}
+
 // ── Timeline (horizontal, scrollable) ────────────────────────
 
-function buildTimelineInner(events, attachments = [], emails = []) {
+function buildTimelineInner(events, attachments = [], emails = [], emailThreads = {}) {
   // Register attachments and emails in stores so the viewer can open them
   attachments.forEach(a => { if (a.file_id) _attachStore.set(a.file_id, a); });
   emails.forEach(e => {
@@ -317,11 +336,36 @@ function buildTimelineInner(events, attachments = [], emails = []) {
     return `<p class="text-on-surface-variant text-sm font-body py-4">No events recorded yet.</p>`;
   }
 
+  // One dot per thread part per day; fall back to a single top-level dot if no parsed parts
+  const emailParts = emails.flatMap(e => {
+    const id    = e.email_id ?? e.message_id;
+    const parts = emailThreads[id]?.length
+      ? emailThreads[id]
+      : [{ date: e.date, sender: e.from_addr, subject: e.subject }];
+    const seenDays = new Set();
+    return parts
+      .map((p, idx) => ({
+        emailId:   id,
+        subject:   e.subject ?? p.subject ?? 'Email',
+        date:      p.date ?? e.date,
+        sender:    p.sender ?? e.from_addr,
+        partIndex: idx,
+        partCount: parts.length,
+      }))
+      .filter(p => {
+        if (!p.date) return false;
+        const day = p.date.slice(0, 10);
+        if (seenDays.has(day)) return false;
+        seenDays.add(day);
+        return true;
+      });
+  });
+
   // Determine date range across all item types
   const allTs = [
     ...events.map(e => e.event_start_date),
     ...attachments.map(a => a.file_date ?? a.created_at),
-    ...emails.map(e => e.date),
+    ...emailParts.map(p => p.date),
   ].filter(Boolean).map(d => +new Date(d)).filter(ts => !isNaN(ts));
 
   if (!allTs.length) {
@@ -365,7 +409,7 @@ function buildTimelineInner(events, attachments = [], emails = []) {
   const allLeftPcts = [
     ...events.map(e => toLeft(e.event_start_date)),
     ...attachments.map(a => toLeft(a.file_date ?? a.created_at)),
-    ...emails.map(e => toLeft(e.date)),
+    ...emailParts.map(p => toLeft(p.date)),
   ].filter(v => v !== null);
   const centerPct = allLeftPcts.length
     ? allLeftPcts.reduce((s, v) => s + v, 0) / allLeftPcts.length
@@ -474,7 +518,6 @@ function buildTimelineInner(events, attachments = [], emails = []) {
         <p class="text-[9px] font-black text-on-surface-variant/70 uppercase mb-0.5">${dateStr}</p>
         <p class="text-[10px] font-bold text-on-surface leading-tight">${name}</p>
       </div>`;
-    const gap = `<div class="w-px flex-shrink-0 bg-outline-variant/30" style="height:14px;"></div>`;
     const dot = `<div class="w-2.5 h-2.5 rounded-full bg-outline-variant border border-surface cursor-pointer tl-dot
                              hover:bg-secondary hover:scale-150 transition-all flex-shrink-0 z-20"></div>`;
 
@@ -484,7 +527,7 @@ function buildTimelineInner(events, attachments = [], emails = []) {
              data-dot-type="event" data-left="${left}" data-axis="above" data-axis-pos="${100 - AXIS_PCT}"
              data-event-id="${escHtml(ev.event_id)}" data-title="${name}" data-date="${escHtml(dateStr)}"
              style="left:${left}%; bottom:${100 - AXIS_PCT}%; transform:translateX(-50%);">
-          ${card}${gap}${dot}
+          ${card}${dot}
         </div>`;
     } else {
       html += `
@@ -492,33 +535,31 @@ function buildTimelineInner(events, attachments = [], emails = []) {
              data-dot-type="event" data-left="${left}" data-axis="below" data-axis-pos="${AXIS_PCT}"
              data-event-id="${escHtml(ev.event_id)}" data-title="${name}" data-date="${escHtml(dateStr)}"
              style="left:${left}%; top:${AXIS_PCT}%; transform:translateX(-50%);">
-          ${dot}${gap}${card}
+          ${dot}${card}
         </div>`;
     }
   });
 
-  // ── Email dots (green, above axis, click to expand then opens viewer)
-  emails.forEach((e) => {
-    const id   = e.email_id ?? e.message_id;
-    if (!id) return;
-    const left = toLeft(e.date);
+  // ── Email dots — one dot per thread part, each with its own date (green, above axis)
+  emailParts.forEach((p) => {
+    const left = toLeft(p.date);
     if (left === null) return;
+    const threadLabel = p.partCount > 1 ? ` (${p.partIndex + 1}/${p.partCount})` : '';
 
     html += `
        <div class="absolute tl-dot-wrap flex flex-col items-center"
          data-dot-type="email" data-left="${left}" data-axis="above" data-axis-pos="${100 - AXIS_PCT + 3}"
-         data-email-id="${escHtml(id)}" data-title="${escHtml(e.subject ?? 'Email')}" data-date="${escHtml(formatDate(e.date))}"
+         data-email-id="${escHtml(p.emailId)}" data-title="${escHtml(p.subject ?? 'Email')}" data-date="${escHtml(formatDate(p.date))}"
            style="left:${left}%; bottom:${100 - AXIS_PCT + 3}%; transform:translateX(-50%);">
-        <div class="tl-dot-card hidden w-48 p-2.5 bg-green-50 rounded-xl shadow-lg border border-green-200 flex-shrink-0 att-item cursor-pointer"
-             data-type="email" data-email-id="${escHtml(id)}">
+        <div class="tl-dot-card hidden w-52 p-2.5 bg-green-50 rounded-xl shadow-lg border border-green-200 flex-shrink-0 att-item cursor-pointer"
+             data-type="email" data-email-id="${escHtml(p.emailId)}">
           <div class="flex items-center gap-1.5 mb-0.5">
             <span class="material-symbols-outlined text-green-500" style="font-size:13px;">mail</span>
-            <span class="text-[10px] font-bold text-green-700 truncate">${escHtml(e.subject ?? 'Email')}</span>
+            <span class="text-[10px] font-bold text-green-700 truncate">${escHtml(p.subject ?? 'Email')}${escHtml(threadLabel)}</span>
           </div>
-          <p class="text-[9px] text-green-600">${formatDate(e.date)}</p>
-          ${e.from_addr ? `<p class="text-[9px] text-green-500/80 truncate mt-0.5">${escHtml(e.from_addr)}</p>` : ''}
+          <p class="text-[9px] text-green-600">${formatDate(p.date)}</p>
+          ${p.sender ? `<p class="text-[9px] text-green-500/80 truncate mt-0.5">${escHtml(p.sender)}</p>` : ''}
         </div>
-        <div class="w-px flex-shrink-0 bg-green-400/50" style="height:18px;"></div>
         <div class="w-3 h-3 rounded-full bg-green-500 border-2 border-surface shadow tl-dot cursor-pointer hover:scale-125 transition-transform flex-shrink-0 z-20"></div>
       </div>`;
   });
@@ -533,14 +574,13 @@ function buildTimelineInner(events, attachments = [], emails = []) {
 
     html += `
       <div class="absolute tl-dot-wrap flex flex-col items-center"
-           data-dot-type="attachment" data-left="${left}" data-axis="below" data-axis-pos="${AXIS_PCT + 3}"
+           data-dot-type="attachment" data-left="${left}" data-axis="below" data-axis-pos="${AXIS_PCT}"
            data-file-id="${escHtml(a.file_id ?? '')}" data-title="${escHtml(a.filename ?? 'Attachment')}"
            data-date="${escHtml(formatDate(a.file_date ?? a.created_at))}" data-type="${vtype ?? ''}"
            data-path="${escHtml(a.path ?? '')}" data-name="${escHtml(a.filename ?? '')}"
            data-file-type="${escHtml(a.file_type ?? '')}" data-is-markdown="${isMd}"
-           style="left:${left}%; top:${AXIS_PCT + 3}%; transform:translateX(-50%);">
+           style="left:${left}%; top:${AXIS_PCT}%; transform:translateX(-50%);">
         <div class="w-3 h-3 rounded-full bg-blue-500 border-2 border-surface shadow tl-dot cursor-pointer hover:scale-125 transition-transform flex-shrink-0 z-20"></div>
-        <div class="w-px flex-shrink-0 bg-blue-400/50" style="height:18px;"></div>
         <div class="tl-dot-card hidden w-48 p-2.5 bg-blue-50 rounded-xl shadow-lg border border-blue-200 flex-shrink-0
                     ${vtype ? 'att-item cursor-pointer' : 'opacity-70'}"
              data-type="${vtype ?? ''}" data-path="${escHtml(a.path ?? '')}"
@@ -1441,7 +1481,9 @@ async function reloadEntitySection(type, projectId) {
         loadProjectEvents(projectId),
         Promise.all([loadProjectAttachments(projectId), loadProjectEmails(projectId)]),
       ]);
-      el.innerHTML = buildTimelineInner(events, attachments, emails);
+      const emailIds = emails.map(e => e.email_id ?? e.message_id).filter(Boolean);
+      const emailThreads = emailIds.length ? await expandEmailsViaApi(emailIds).catch(() => ({})) : {};
+      el.innerHTML = buildTimelineInner(events, attachments, emails, emailThreads);
       initTimeline(el);
     } catch (err) { toast(err.message, 'error'); }
     return;
@@ -1677,10 +1719,10 @@ function buildViewerModal() {
             title="Document viewer">
           </iframe>
 
-          <!-- Email body — Outlook-style -->
+          <!-- Email body — thread view with collapsible blocks -->
           <div id="viewer-email" class="hidden h-full overflow-y-auto flex flex-col">
             <div id="viewer-email-headers" class="flex-shrink-0 bg-surface-container-low"></div>
-            <div id="viewer-email-body" class="flex-1 px-8 py-6 overflow-y-auto"></div>
+            <div id="viewer-email-body" class="flex-1 overflow-y-auto divide-y divide-outline-variant/10"></div>
           </div>
 
           <!-- Text / Markdown viewer -->
@@ -1716,6 +1758,19 @@ function bindViewerEvents() {
     _viewerBound = true;
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeViewer(); });
     document.addEventListener('click', async (e) => {
+      // Toggle email thread blocks
+      const header = e.target.closest('.email-thread-header');
+      if (header) {
+        const expanded = header.dataset.expanded === 'true';
+        const block = header.closest('.email-thread-block');
+        const body  = block?.querySelector('.email-thread-body');
+        const chevron = header.querySelector('.thread-chevron');
+        if (body) body.classList.toggle('hidden', expanded);
+        if (chevron) chevron.textContent = expanded ? 'expand_more' : 'expand_less';
+        header.dataset.expanded = String(!expanded);
+        return;
+      }
+
       const item = e.target.closest('.att-item');
       if (!item) return;
       const type = item.dataset.type;
@@ -1826,57 +1881,79 @@ async function openEmailViewer(emailId) {
     return;
   }
 
-  const subject = e.subject   ?? '(no subject)';
+  const subject = e.subject ?? '(no subject)';
   const from    = parseEmailAddr(e.from_addr ?? '');
-  const to      = Array.isArray(e.to) ? e.to.join(', ') : (e.to ?? '');
-  const cc      = Array.isArray(e.cc) ? e.cc.join(', ') : (e.cc ?? '');
-  const date    = e.date ?? '';
 
   openViewer(subject, from.email || from.name, 'mail');
 
   try {
-    chatLog.info({ emailId }, 'Fetching email body on-demand');
-    const body = await loadEmailBody(emailId);
+    let parts = [];
+    try {
+      const result = await expandEmailsViaApi([emailId]);
+      parts = result[emailId] ?? [];
+    } catch (apiErr) {
+      chatLog.warn({ emailId, err: apiErr.message }, 'expand-email API failed, using Supabase fallback');
+      parts = [{
+        sender:    e.from_addr ?? null,
+        recipient: Array.isArray(e.to) ? e.to : (e.to ? [e.to] : null),
+        cc:        Array.isArray(e.cc) ? e.cc : (e.cc ? [e.cc] : null),
+        date:      e.date ?? null,
+        subject:   e.subject ?? null,
+        body:      e.body ?? '',
+      }];
+    }
+    chatLog.info({ emailId, parts: parts.length }, 'Email thread expanded');
 
-    // Initials avatar from sender name or email
-    const displayName = from.name || from.email;
-    const initials    = displayName.split(/[\s@<>]+/).filter(Boolean).map(p => p[0]).join('').toUpperCase().slice(0, 2) || '?';
-    const dateStr     = date ? new Date(date).toLocaleString('no-NO', { dateStyle: 'long', timeStyle: 'short' }) : '';
-
-    // "To: A, B · Cc: C" compact recipient line
-    const recipientLine = [
-      to ? `Til: ${escHtml(to)}` : '',
-      cc ? `Cc: ${escHtml(cc)}`  : '',
-    ].filter(Boolean).join(' &nbsp;·&nbsp; ');
-
+    // Subject header
     document.getElementById('viewer-email-headers').innerHTML = `
-      <!-- Subject -->
-      <h2 class="font-headline font-bold text-xl text-on-surface mb-4 px-8 pt-6">${escHtml(subject)}</h2>
+      <h2 class="font-headline font-bold text-xl text-on-surface px-8 pt-6 pb-4 border-b border-outline-variant/10">${escHtml(subject)}</h2>`;
 
-      <!-- Sender row — Outlook style -->
-      <div class="flex items-start gap-4 px-8 pb-5 border-b border-outline-variant/10">
-        <div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center flex-shrink-0 mt-0.5">
-          <span class="text-on-primary text-sm font-bold">${escHtml(initials)}</span>
-        </div>
-        <div class="flex-1 min-w-0">
-          <div class="flex items-start justify-between gap-6">
-            <div class="min-w-0">
-              <p class="text-sm font-semibold text-on-surface leading-snug">
-                ${escHtml(from.name || from.email)}
-                ${from.name ? `<span class="font-normal text-on-surface-variant text-xs">&lt;${escHtml(from.email)}&gt;</span>` : ''}
-              </p>
-              ${recipientLine ? `<p class="text-xs text-on-surface-variant mt-0.5">${recipientLine}</p>` : ''}
+    // Render each thread part as a collapsible block
+    const blocksHtml = parts.map((p, idx) => {
+      const pFrom  = parseEmailAddr(p.sender ?? '');
+      const dispName = pFrom.name || pFrom.email || p.sender || '?';
+      const inits  = dispName.split(/[\s@<>]+/).filter(Boolean).map(c => c[0]).join('').toUpperCase().slice(0, 2) || '?';
+      const dateStr = p.date ? new Date(p.date).toLocaleString('no-NO', { dateStyle: 'long', timeStyle: 'short' }) : '';
+      const toLine  = Array.isArray(p.recipient) ? p.recipient.join(', ') : (p.recipient ?? '');
+      const ccLine  = Array.isArray(p.cc)        ? p.cc.join(', ')        : (p.cc ?? '');
+      const recipientLine = [
+        toLine ? `Til: ${escHtml(toLine)}` : '',
+        ccLine ? `Cc: ${escHtml(ccLine)}`  : '',
+      ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+
+      const isFirst   = idx === 0;
+      const bodyHtml  = mdInline(normalizeWhitespace(p.body) || '(no body)');
+
+      return `
+        <div class="email-thread-block border-b border-outline-variant/10 last:border-0">
+          <button class="email-thread-header w-full flex items-center gap-4 px-8 py-4 hover:bg-surface-container-low/50 transition-colors text-left"
+                  data-expanded="${isFirst}">
+            <div class="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center flex-shrink-0">
+              <span class="text-on-primary text-sm font-bold">${escHtml(inits)}</span>
             </div>
-            <p class="text-[11px] text-on-surface-variant flex-shrink-0 mt-0.5">${escHtml(dateStr)}</p>
-          </div>
-        </div>
-      </div>`;
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-semibold text-on-surface leading-snug">
+                ${escHtml(dispName)}
+                ${pFrom.name && pFrom.email ? `<span class="font-normal text-on-surface-variant text-xs">&lt;${escHtml(pFrom.email)}&gt;</span>` : ''}
+              </p>
+              ${recipientLine ? `<p class="text-xs text-on-surface-variant mt-0.5 truncate">${recipientLine}</p>` : ''}
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              ${dateStr ? `<p class="text-[11px] text-on-surface-variant">${escHtml(dateStr)}</p>` : ''}
+              <span class="material-symbols-outlined text-on-surface-variant thread-chevron transition-transform" style="font-size:18px;">${isFirst ? 'expand_less' : 'expand_more'}</span>
+            </div>
+          </button>
+          <div class="email-thread-body px-8 pb-6 text-sm leading-relaxed text-on-surface font-body ${isFirst ? '' : 'hidden'}"
+               style="white-space:pre-wrap;">${bodyHtml}</div>
+        </div>`;
+    }).join('');
 
     const bodyEl = document.getElementById('viewer-email-body');
-    bodyEl.style.whiteSpace = 'pre-wrap';
-    bodyEl.style.fontSize   = '0.875rem';
-    bodyEl.style.lineHeight = '1.6';
-    bodyEl.textContent = body || '(no body)';
+    bodyEl.style.whiteSpace = '';
+    bodyEl.style.fontSize   = '';
+    bodyEl.style.lineHeight = '';
+    bodyEl.innerHTML = (blocksHtml || '<p class="px-8 py-6 text-sm text-on-surface-variant">(no body)</p>')
+      + `<p class="px-8 pb-3 text-right text-[10px] font-mono text-on-surface-variant/40 select-all">${escHtml(emailId)}</p>`;
 
     document.getElementById('viewer-loading').classList.add('hidden');
     document.getElementById('viewer-email').classList.remove('hidden');
