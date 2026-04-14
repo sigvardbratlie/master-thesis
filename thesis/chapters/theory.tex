@@ -1,15 +1,16 @@
 \chapter{Theory}
 
 This chapter builds the theoretical case for the approach taken in this thesis.
-The argument unfolds in three movements: first, why large language models alone are
-insufficient for multi-document legal case analysis; second, why retrieval-augmented
+The argument unfolds in two movements: first, why large language models alone are
+insufficient for multi-document legal case analysis; and second, why retrieval-augmented
 generation --- the standard remedy --- carries fundamental limitations that make it
-inadequate for cross-document reasoning; and third, what the literature suggests as
-more capable alternatives, which together motivate the structured extraction approach
-evaluated in this thesis.
+inadequate for cross-document reasoning. These limitations motivate the structured
+extraction approach evaluated in this thesis. Section~\ref{sec:related-work} then
+surveys prior work and alternative architectures that contextualise the design choices.
 
 % -------------------------------------------------------
 \section{Large Language Models and Context Windows}
+\label{sec:llm-context}
 % -------------------------------------------------------
 
 Modern LLMs are built on the transformer architecture \cite{vaswani2023attentionneed},
@@ -76,7 +77,7 @@ retrieved but how it combines in context.
 \subsection{Cross-Document and Multi-Hop Reasoning}
 
 The more fundamental limitation is that the answer to a legal query often does not
-reside in one or two isolated chunks, but is distributed across multiple documents.
+reside in a few isolated chunks, but is distributed across multiple documents.
 Existing naive RAG systems are inadequate for queries that require retrieval and
 reasoning over multiple pieces of supporting evidence across documents
 \cite{tang2024multihoprag}. In multi-document settings, relevant information is spread
@@ -88,7 +89,11 @@ legal and domain-specific QA where multi-hop reasoning is critical
 This limitation is structural, not a matter of tuning. A chunk embedding represents a
 local fragment of a single document. No similarity threshold or retrieval hyperparameter
 can make a chunk-based retriever produce a coherent synthesis of facts distributed across
-an entire case file.
+an entire case file. The apparent alternative --- injecting the full document corpus into
+context --- was ruled out in Section~\ref{sec:llm-context}: effective utilisation degrades
+well before the nominal context limit is reached, cost and latency scale prohibitively with
+document volume, and the design principle established there requires minimising rather than
+maximising the information loaded at query time.
 
 \subsection{Unstructured Retrieval and Missing Information}
 
@@ -109,38 +114,20 @@ approaches that move beyond isolated chunk retrieval toward structured, relation
 representations of case knowledge.
 
 % -------------------------------------------------------
-\section{Graph-Based and Multi-Hop Retrieval}
-% -------------------------------------------------------
-
-One line of work addresses RAG's limitations by enriching retrieval with relational
-structure. GraphRAG \cite{edge2025localglobalgraphrag} builds a knowledge graph over
-the document corpus, enabling community-level summarization and structured traversal of
-entity relationships rather than relying on chunk similarity alone. HopRAG
-\cite{liu2025hoprag} extends this with explicit multi-hop reasoning, constructing
-logical chains across documents to answer queries that require synthesizing evidence
-from multiple sources.
-
-These approaches directly target the cross-document reasoning failure described above.
-Rather than asking whether a chunk is similar to a query, they ask how entities and
-facts across the corpus are related. The factsheet approach implemented in this thesis
-can be understood as a lightweight, domain-specific variant of this idea: rather than
-constructing a general-purpose knowledge graph, it extracts and organizes precisely the
-information most relevant to legal case management --- parties, claims, events, damages,
-and governing law --- into a structured, queryable representation that supplements RAG
-for case-level queries.
-
-% -------------------------------------------------------
 \section{Agentic Context Management}
 % -------------------------------------------------------
 
-The final theoretical component concerns how structured knowledge is maintained over
-the lifecycle of a multi-turn conversation. Rolling summarization --- periodically
-condensing conversation history into a compact summary --- is a practical strategy for
-preventing context overflow in long sessions \cite{microsoft2024semantickernelpython}.
-Stateful agent frameworks such as LangGraph enable persistent state management through
-checkpointing, allowing an agent to maintain structured representations that accumulate
-case knowledge across turns without requiring the full document history to remain in
-context \cite{langgraph}.
+The final theoretical component concerns how structured knowledge is maintained across
+sessions in a stateless architecture. As noted in the introduction, LLM inference
+endpoints carry no state between calls: context must be reconstructed at every query.
+Stateful agent frameworks such as LangGraph address this through checkpointing ---
+persisting structured agent state to a database and reinjecting it at query time
+\cite{langgraph}. For the conversational history specifically, rolling summarization
+--- periodically condensing prior turns into a compact summary --- is a practical
+strategy for preventing context overflow \cite{microsoft2024semantickernelpython}.
+It is worth noting that rolling summarization applies to the chat inference pipeline
+only; the document ingestion pipeline operates as a stateless batch process and does
+not maintain rolling conversational context.
 
 In the system developed in this thesis, the factsheet is the primary persistent state
 artifact. It is initialized during document ingestion and updated incrementally as new
@@ -154,6 +141,7 @@ system design and how their combined effect is evaluated empirically.
 
 % -------------------------------------------------------
 \section{Related Work}
+\label{sec:related-work}
 % -------------------------------------------------------
 
 This section surveys prior work on the core problems this thesis addresses: overcoming RAG limitations in large multi-document corpora, structured information extraction for complex QA, and agentic LLM systems for professional knowledge work. The legal domain is the application context, but the architectural challenges --- handling large, heterogeneous document collections with distributed factual content --- are not unique to law. Related problems appear in financial due diligence, medical records analysis, and other high-stakes professional domains where information is voluminous, structured, and spread across many sources.
@@ -162,21 +150,32 @@ It is worth noting that most prior work on LLMs in legal settings concerns legal
 
 \subsection{Retrieval-Augmented Generation for Legal QA}
 
-RAG has emerged as the standard architecture for domain-specific document QA, and its application to legal settings has been explored in several directions. Louis et al.\ \cite{louis2024interpretable} demonstrate that RAG-augmented LLMs achieve competitive performance on long-form legal question answering while producing interpretable, citation-grounded responses. Their system retrieves relevant statutory passages and case law and incorporates them as context at inference time --- the same basic mechanism used by the baseline agent in this thesis. Their work highlights both the strengths of RAG (traceable sourcing, factual grounding) and its limitations when queries require synthesising evidence from across a large corpus.
+RAG has emerged as the standard architecture for domain-specific document QA, and its application to legal settings has been explored in several directions. 
+% Louis et al.\ \cite{louis2023interpretablelongformlegalquestion} demonstrate that RAG-augmented LLMs achieve competitive performance on long-form 
+% legal question answering while producing interpretable, citation-grounded responses. Their system retrieves relevant statutory passages and case law and incorporates 
+% them as context at inference time --- the same basic mechanism used by the baseline agent in this thesis. Their work highlights both the strengths of RAG (traceable sourcing, factual grounding) 
+% and its limitations when queries require synthesising evidence from across a large corpus.
+
+Louis et al.\ \cite{louis2023interpretablelongformlegalquestion} demonstrate that a RAG-augmented LLM pipeline can generate long-form answers to statutory 
+law questions with promising automatic metric scores, while incorporating extractive rationales for improved interpretability and citation grounding. 
+Their system retrieves relevant statutory passages (but not case law) and incorporates them as context at inference time 
+--- the same basic mechanism used by the baseline agent in this thesis. 
+Their work highlights both the strengths of RAG (traceable sourcing, factual grounding) and its limitations when queries require 
+synthesising evidence from across a large corpus or when hallucinations persist despite relevant retrieval.
 
 The fundamental tension identified in RAG-based legal systems is that legal questions rarely decompose into a single, retrievable passage. Multi-hop reasoning over distributed evidence is common: establishing liability may require linking a party's obligation (in a contract), its breach (in correspondence), and the resulting damage (in a financial report), none of which are co-located in the document corpus. MultiHopRAG \cite{tang2024multihoprag} and HopRAG \cite{liu2025hoprag} address this limitation in general QA settings by explicitly chaining retrieval steps, constructing logical paths across sources. This thesis takes a complementary approach: rather than chaining retrievals reactively at query time, it extracts and pre-structures the key relational facts during document ingestion, making them available as a persistent case state without requiring multi-hop retrieval.
 
 \subsection{Structured Extraction and Knowledge Organisation}
 
-Extracting structured information from unstructured legal documents --- parties, obligations, events, claims, and temporal relationships --- has been studied as an information extraction problem long before the LLM era. Recent work has revisited this problem with LLMs: Jiang et al.\ \cite{Jiang_2025} propose Retrieval and Structuring Augmented Generation (RSAG), which combines retrieval with LLM-driven structuring of retrieved content before generation. Their results show that structuring retrieved passages into typed entities before injecting them into the generation context consistently outperforms naive RAG on complex reasoning tasks. This provides independent empirical support for the core design hypothesis of this thesis: that structured, relational case state is more useful to an LLM than raw retrieved chunks.
+Extracting structured information from unstructured legal documents --- parties, events, claims, and temporal relationships --- has been studied as an information extraction problem long before the LLM era. Recent work has revisited this problem with LLMs: Jiang et al.\ \cite{Jiang_2025} propose Retrieval and Structuring Augmented Generation (RSAG), which combines retrieval with LLM-driven structuring of retrieved content before generation. Their results show that structuring retrieved passages into typed entities before injecting them into the generation context consistently outperforms naive RAG on complex reasoning tasks. This provides independent empirical support for the core design hypothesis of this thesis: that structured, relational case state is more useful to an LLM than raw retrieved chunks.
 
-GraphRAG \cite{edge2025localglobalgraphrag} extends this idea to the full document corpus, building a knowledge graph over entities and their relationships to enable community-level summarization and structured traversal. The factsheet implemented in this thesis can be understood as a lightweight, domain-specific instance of the same principle: rather than constructing a general-purpose property graph, it organises only the entities most relevant to legal case management into a typed, relational structure. The practical trade-off is that a domain-specific schema can be designed to match exactly the queries a legal practitioner asks, at the cost of being less general than a full knowledge graph.
+GraphRAG \cite{edge2025localglobalgraphrag} extends this idea to the full document corpus, building a knowledge graph over entities and their relationships to enable community-level summarization and structured traversal. HopRAG \cite{liu2025hoprag} adds explicit multi-hop reasoning, constructing logical chains across documents rather than relying on chunk similarity alone. The factsheet implemented in this thesis can be understood as a lightweight, domain-specific instance of the same principle: rather than constructing a general-purpose property graph, it organises only the entities most relevant to legal case management into a typed, relational structure. The reduced generality is an acknowledged trade-off --- the system covers only what a legal practitioner is likely to ask rather than supporting arbitrary queries over the full document space. The practical advantages of this choice, in terms of query-time cost, schema precision, and interpretability, are examined in the evaluation and discussion.
 
 \subsection{Agentic Memory Management}
 
 A structural constraint shared by all retrieval-based approaches is that the LLM context window is finite. MemGPT \cite{packer2024memgptllmsoperatingsystems} addresses this directly by treating the context window as a fixed-capacity ``main context'' --- analogous to RAM --- and introducing a tiered memory architecture in which an explicit memory manager decides what information to page in from external storage and what to evict. Rather than relying on a single retrieval query, the system supports fine-grained memory operations: appending new facts to context, archiving stale content to external storage, and selectively restoring it on demand. The result is an agent that can maintain coherent state across long interactions without ever exceeding the physical context limit.
 
-Several of these mechanisms inform the design of the system in this thesis. The factsheet functions as a domain-specific persistent memory: it is initialised during document ingestion and injected directly into context at query time, bypassing the need for vector retrieval of case-level facts. Rolling summarisation of conversation history serves the eviction function, preventing the accumulated dialogue from consuming the context budget. What the factsheet approach does not yet implement --- and what MemGPT handles explicitly --- is active monitoring of context utilisation with tool-mediated relief: notifying the model when capacity is near and providing tools to archive or compact in-context content. This remains a natural direction for future work.
+Several of these mechanisms inform the design of the system in this thesis. The factsheet functions as a domain-specific persistent memory: it is initialised during document ingestion and injected directly into context at query time, bypassing the need for vector retrieval of case-level facts. In the chat inference pipeline, rolling summarisation of conversation history serves an analogous eviction function, preventing accumulated dialogue from consuming the context budget; the document ingestion pipeline, being a stateless batch process, does not require this mechanism.
 
 A complementary diagnostic perspective is offered by Yuan et al.\ \cite{yuan2026diagnosingretrievalvsutilization}, who decompose agent memory failures into two distinct bottlenecks: \emph{retrieval failures}, in which the correct information is not surfaced from storage, and \emph{utilisation failures}, in which the correct information is retrieved but not correctly used by the model. Their empirical analysis shows that improving retrieval quality consistently yields larger performance gains than increasing the sophistication of the write-time encoding process. This finding supports the design priority in this thesis: the factsheet eliminates retrieval entirely for case-level facts by placing them directly in context, targeting the retrieval bottleneck rather than investing in more elaborate embedding strategies.
 
@@ -186,7 +185,7 @@ RAPTOR \cite{sarthi2024raptorrecursiveabstractiveprocessing} takes a different a
 
 RAPTOR directly addresses the cross-document reasoning failure identified in Section~\ref{sec:rag-limitations}: because higher-level nodes aggregate content from many source segments, a single retrieval step can surface information that would otherwise require multiple hops across the corpus. In practice, however, the approach carries significant costs. Constructing the hierarchy requires summarising every cluster at every level, which is computationally expensive and heavily dependent on the quality of the summarisation model. Weak summarisation propagates errors upward through the tree, and the cost scales with both corpus size and model capability. Furthermore, the summaries produced by RAPTOR are consumed solely as retrieval targets: they improve the chances that a relevant passage is found, but they are not themselves injected as structured context.
 
-The factsheet approach taken in this thesis can be understood as a more targeted variant of the same intuition. Rather than abstracting the entire corpus into a general-purpose hierarchy, it extracts only the entities most relevant to legal case management --- parties, claims, damages, obligations, and key events --- and organises them into a typed, relational structure. This structure serves a dual purpose: it both enables structured retrieval of specific case facts and is injected directly as context, giving the model a coherent case overview without any retrieval step. The trade-off is scope: the factsheet covers only what a legal practitioner is likely to ask, rather than supporting arbitrary queries over the full document space.
+The factsheet approach taken in this thesis can be understood as a more targeted variant of the same intuition. Rather than abstracting the entire corpus into a general-purpose hierarchy, it extracts only the entities most relevant to legal case management --- parties, claims, damages, key events, deadlines, etc --- and organises them into a typed, relational structure. This structure serves a dual purpose: it both enables structured retrieval of specific case facts and is injected directly as context, giving the model a coherent case overview without any retrieval step. The trade-off is scope: the factsheet covers only what a legal practitioner is likely to ask, rather than supporting arbitrary queries over the full document space.
 
 \subsection{Research Gap}
 \label{sec:research-gap}

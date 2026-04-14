@@ -9,6 +9,17 @@ documents shifts. The central challenge for an LLM-based legal assistant is not 
 reading these documents --- it is maintaining a coherent, accurate understanding of the
 case as a whole, across all its documents and all its turns of development.
 
+A foundational constraint of current LLM architectures makes this challenge particularly
+acute: inference endpoints are stateless. Each call to the model is an independent,
+context-free computation --- the model retains no knowledge of prior interactions,
+prior documents, or prior reasoning once a response is returned. Whatever the agent
+``knows'' about a case must be reconstructed and injected anew at every query, from
+conversation history, retrieved chunks, or some other persistent external representation.
+For a legal assistant that must maintain a coherent picture of a case across days,
+sessions, and an evolving document set, statelessness means that memory is not a default
+capability --- it is a design problem. The system must explicitly decide what to remember,
+where to store it, and how to surface it efficiently at query time.
+
 The standard approach to this problem is retrieval-augmented generation (RAG): rather
 than loading all documents into context, the system retrieves the chunks most
 semantically similar to the user's query. This is a practical solution to the context
@@ -18,8 +29,7 @@ documents --- a party's identity established in one contract, a disputed event d
 in correspondence, a damages figure appearing in an expert report. Chunk-based retrieval
 cannot produce this synthesis: it operates on isolated local fragments, and high
 semantic similarity to a query does not guarantee that the retrieved chunks contain the
-relational context needed to answer it correctly. The consequence is that naive RAG
-agents perform well on direct factual lookups but poorly on case-level reasoning.
+relational context needed to answer it correctly. 
 
 An alternative --- injecting all documents directly into a large context window --- does
 not solve the problem either. Even as model context windows have grown to one million
@@ -30,8 +40,8 @@ impractical and costly. The goal should instead be to provide the minimum amount
 information that maximizes relevance to the query at hand.
 
 This thesis proposes and evaluates a third approach: \textit{structured extraction}. As
-case documents are ingested, key facts --- parties, claims, events, damages, governing
-law --- are extracted and organized into a structured \textit{FactSheet}: a persistent,
+case documents are ingested, key facts --- parties, claims, events, damages, deadlines, etc. 
+--- are extracted and organized into a structured \textit{FactSheet}: a persistent,
 machine-readable summary of the case. The FactSheet supplements chunk-based RAG for
 queries that require a case-level overview, providing relational context that retrieval
 alone cannot assemble. It is initialized at project creation and updated incrementally

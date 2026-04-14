@@ -2,6 +2,7 @@
 
 % Language setting
 % Replace `english' with e.g. `spanish' to change the document language
+\usepackage[T1]{fontenc}
 \usepackage[english]{babel}
 
 % Set page size and margins
@@ -13,7 +14,22 @@
 \usepackage{graphicx}
 \usepackage{float}
 \usepackage{booktabs}
+\usepackage{enumitem}
 \usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\usepackage{fancyvrb}
+\usepackage[most]{tcolorbox}
+
+\tcbset{
+  examplebox/.style={
+    colback=gray!6,
+    colframe=gray!40,
+    fonttitle=\small\bfseries,
+    left=6pt, right=6pt, top=4pt, bottom=4pt,
+    boxrule=0.4pt,
+    arc=3pt,
+  }
+}
+
 
 \title{Persistent Case State for Agentic Legal Analysis: A Structured Approach to Complex Queries}
 \author{Sigvard Bratlie}

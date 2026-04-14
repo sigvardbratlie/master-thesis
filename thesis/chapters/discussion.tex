@@ -21,7 +21,17 @@ receives a filtered, abbreviated representation tailored to the query context. T
 combined picture is that schema-driven extraction improves factual accuracy at no
 measurable additional cost per query.
 
-The non-significant completeness result ($p = 0.106$) should not be read as a negative finding. Completeness is evaluated only on \emph{factual} query types --- those with enumerable, verifiable required facts --- because applying the metric to summary queries would be both uninterpretable and methodologically unsound. For summary questions, there is no single correct framing: a response that organises the same facts differently, or emphasises different aspects of the case, may be equally or more useful to a practitioner yet would be penalised as incomplete by an automated judge comparing against one specific reference. Excluding summary queries from completeness evaluation therefore prevents framing-based penalisation from contaminating the results, but it reduces the effective completeness sample to roughly 60\,\% of what is available for correctness, directly lowering statistical power. The mean difference for completeness is also modestly smaller (5.4 percentage points vs.\ 7.1 for correctness), reflecting that both agents tend to cover required facts at least partially on straightforward factual queries. However, Levene's test finds a statistically significant difference in completeness \emph{variance} ($p = 0.006$): the baseline exhibits a wider spread and heavier low-completeness tail, confirming that the distribution shapes genuinely differ between architectures. The evidence therefore points to a real architectural effect on completeness that the current sample size is insufficient to confirm at the mean level. Expanding the evaluation to include more factual queries --- particularly those requiring cross-document synthesis, where omissions are most likely --- would be expected to bring completeness in line with the correctness result.
+The non-significant completeness result ($p = 0.106$) should not be read as a negative
+finding. As described in Section~\ref{sec:dataset-limitations}, completeness is only
+evaluated on factual queries, which reduces the effective sample to roughly 60\% of
+that available for correctness, directly lowering statistical power. The directional
+trend and mean difference mirror the correctness result; the smaller sample is
+insufficient to clear the significance threshold. The significant variance reduction
+in completeness ($p = 0.006$) confirms that the distribution shapes do differ between
+architectures, and the most accurate interpretation is that the evaluation lacks the
+power to confirm the mean shift at this sample size. Expanding the evaluation to include
+more factual queries --- particularly those requiring cross-document synthesis ---
+would be expected to bring completeness in line with the correctness result.
 
 Beyond the mean improvement, the variance reduction is arguably the most consistent
 finding in the evaluation. Levene's test for equality of variance is significant across
@@ -39,8 +49,8 @@ steadily.
 
 \paragraph{RQ1: mitigation of cross-document retrieval limitations.}
 The evidence for RQ1 is suggestive but not conclusive, and the conclusion should be
-stated carefully. THRD-2021 shows no clear performance gap between the two
-architectures. TOSL-2024, the larger and more complex authentic case, shows a
+stated carefully. THRD-2021-163881 shows no clear performance gap between the two
+architectures. TOSL-2024-125319, the larger and more complex authentic case, shows a
 somewhat more pronounced advantage for the custom agent in the later sessions
 (sessions 3--4), but this pattern rests on a small number of sessions and does not
 hold uniformly across all metrics. With only two datasets and relatively few sessions
@@ -55,7 +65,7 @@ not mechanically degrade retrieval quality. What RAG genuinely struggles with is
 chunks that cannot all fit within a single top-$K$ result. This is a query-type
 limitation, not a volume limitation. The evaluation did not explicitly control for
 the proportion of synthesis queries across sessions and datasets, making it difficult
-to attribute the observed TOSL-2024 pattern specifically to cross-document retrieval
+to attribute the observed TOSL-2024-125319 pattern specifically to cross-document retrieval
 failure rather than to other case-specific factors.
 
 In summary, the results are directionally consistent with the hypothesis that
@@ -92,8 +102,8 @@ production deployments.
 \section{Value Beyond Performance Metrics}
 % -------------------------------------------------------
 
-The evaluation results demonstrate a performance advantage for the custom architecture
-as case volume grows, but the headline metrics alone understate the practical value of
+The evaluation results demonstrate a performance advantage and a higher reliability for the custom architecture, 
+but the headline metrics alone understate the practical value of
 the design. Even in a hypothetical scenario where correctness and completeness scores
 were identical across configurations, the custom architecture would remain preferable in
 a production legal setting for reasons that no automatic metric captures.
@@ -104,7 +114,7 @@ persistent structured representation of the case behind. The custom agent, by co
 produces and continuously maintains a structured factsheet as a natural side-effect of
 normal operation. This factsheet—comprising parties, events, claims, damages, deadlines,
 and document metadata—is a machine-readable, queryable representation of the case that
-can be consumed directly by frontend systems without any additional LLM inference.
+can be consumed directly by any frontend systems without any additional LLM inference.
 Concrete applications include timeline visualisations, party graphs, claims dashboards,
 and deadline trackers, all of which can be rendered from the factsheet with no extra
 cost.
@@ -114,7 +124,7 @@ The structured state enables a qualitatively different relationship between the 
 and the system. Rather than trusting a black-box text response, a practitioner can
 inspect the factsheet directly, verify individual entries against source documents, and
 correct errors at the element level. If the agent produces an incorrect answer, the
-source of the error can often be traced to a specific factsheet entry—a mis-extracted
+source of the error can often be traced to a specific entity entry—a mis-extracted
 event date or an omitted party—and corrected there, improving all subsequent responses.
 This kind of targeted, human-in-the-loop correction is not possible with a stateless RAG
 agent, where errors are buried in the implicit context and must be addressed by
@@ -156,7 +166,7 @@ The evaluation results support the conclusion that the custom agent outperforms 
 The evaluation queries were designed to be factual and document-grounded, but the level of specificity varies considerably across sessions. Some questions have unambiguous single-document answers, while others require synthesising information across multiple documents and timelines. Harder queries amplify the architectural advantage of the custom agent — the factsheet and structured retrieval tools are most useful precisely when the answer requires cross-document reasoning — while easier queries may show little to no difference between architectures. The observed aggregate performance gap therefore depends on the composition of the query set: a test set dominated by simple lookups would understate the custom agent's advantage, while one focused on complex synthesis would overstate it. The current evaluation mix likely sits somewhere in between.
 
 \paragraph{Dataset size and complexity.}
-Only two datasets are used in the evaluation, and their characteristics differ substantially. The results from TOSL-2024, the larger and more complex real case, show a more pronounced advantage for the custom agent than those from THRD-2021. This is consistent with the design hypothesis: the factsheet-based architecture is most beneficial when the document set is large and the case is complex, because those are the conditions under which naive retrieval is most likely to fail. With only two datasets, however, it is difficult to disentangle the effect of document volume from other case-specific characteristics. A larger benchmark spanning more cases and varying document volumes would provide stronger evidence for the scaling behaviour observed here.
+Only two datasets are used in the evaluation, and their characteristics differ substantially. The results from TOSL-2024-125319, the larger and more complex real case, show a more pronounced advantage for the custom agent than those from THRD-2021-163881. This is consistent with the design hypothesis: the factsheet-based architecture is most beneficial when the document set is large and the case is complex, because those are the conditions under which naive retrieval is most likely to fail. With only two datasets, however, it is difficult to disentangle the effect of document volume from other case-specific characteristics. A larger benchmark spanning more cases and varying document volumes would provide stronger evidence for the scaling behaviour observed here.
 
 \paragraph{Underlying language model capability.}
 Figure~\ref{fig:deepeval-barplot-llms} shows that the performance gap between the custom and baseline agents narrows as the underlying LLM becomes more capable: for the most advanced model tested (Gemini 2.5 Pro), the two configurations are nearly indistinguishable. This suggests two non-exclusive interpretations. First, a sufficiently capable model may compensate for the structural disadvantage of the baseline by inferring missing context or tolerating retrieval noise more robustly. Second, the evaluation queries and datasets may not be sufficiently demanding to expose the limits of a powerful model: the questions can largely be answered from the retrieved chunks even without the accumulated factsheet context. Conversely, the performance gap is most pronounced for the smaller models, for which structured, pre-digested context provides the greatest marginal benefit. This implies that the value of the custom architecture is not fixed but model-dependent: it acts as a capability amplifier that matters most when the underlying model has limited reasoning capacity or context-handling ability.
