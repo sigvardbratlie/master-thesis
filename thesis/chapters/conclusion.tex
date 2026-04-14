@@ -22,16 +22,18 @@ between the two architectures, confirming that the quality gain is not purchased
 proportional resource cost. The main research question is answered affirmatively.
 
 \paragraph{RQ1.}
-The evidence for RQ1 is directionally consistent with the hypothesis but insufficient
-for a firm conclusion. THRD-2021-163881 shows no clear performance gap between configurations.
-TOSL-2024-125319 shows a somewhat wider advantage for the custom agent in the later sessions,
-but this rests on few sessions and does not hold uniformly across all metrics. A further
-theoretical nuance applies: naive RAG is not straightforwardly volume-sensitive, since
-retrieval always returns a fixed top-$K$ regardless of corpus size. The genuine
-limitation is query-type specific --- synthesis queries whose answers are distributed
-across multiple chunks --- and the evaluation did not explicitly control for this
-dimension. RQ1 therefore remains open; confirming it would require a dedicated benchmark
-of synthesis-demanding queries across a larger number of sessions and cases.
+The query-type breakdown provides direct empirical support for RQ1. Summary queries ---
+which require synthesising information across multiple documents --- show a $+14.4$
+percentage-point correctness advantage for the custom agent ($p = 9.3 \times 10^{-3}$),
+whereas factual queries, where a single retrieved chunk can often supply the complete
+answer, show only a $+1.9$pp gap. This asymmetry is the expected signature of an
+architecture that specifically addresses cross-document synthesis: it provides the greatest
+marginal benefit precisely where naive chunk retrieval is most likely to fail. A theoretical
+nuance applies: naive RAG is not straightforwardly volume-sensitive, since retrieval always
+returns a fixed top-$K$ regardless of corpus size. The genuine limitation is
+query-type specific --- synthesis queries whose answers are distributed across multiple
+chunks --- and the query-type analysis directly targets this limitation. RQ1 is answered
+affirmatively.
 
 \paragraph{RQ2.}
 Session-level trajectories show that the custom agent maintains stable quality with
@@ -39,7 +41,11 @@ narrow variance across all sessions as document volume grows. The baseline, by c
 exhibits wider fluctuations throughout case progression. The structured representation
 scales gracefully with document volume because new information is absorbed incrementally
 into the factsheet at each session boundary rather than added to an ever-larger
-unstructured retrieval pool. RQ2 is answered affirmatively.
+unstructured retrieval pool. This pattern is consistent with the design hypothesis, but
+with only two datasets it is difficult to isolate the effect of document volume from
+other case-specific characteristics. RQ2 is indicative but not conclusively confirmed;
+a larger benchmark spanning more cases and varying document volumes would be required
+for a firm answer.
 
 \paragraph{RQ3.}
 The model-level breakdown reveals that the performance gap between the custom and

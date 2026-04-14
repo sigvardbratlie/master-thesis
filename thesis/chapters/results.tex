@@ -220,6 +220,63 @@ baseline already achieves high scores, leaving less headroom for improvement.
 
 
 % -------------------------------------------------------
+\subsection{Query-Type Breakdown}
+\label{sec:qtype-results}
+% -------------------------------------------------------
+
+A breakdown of quality metrics by query type provides the most direct empirical
+evidence for RQ1. As defined in Section~\ref{sec:dataset-limitations}, queries are
+classified as either \emph{factual} (specific, enumerable facts with a bounded correct
+answer) or \emph{summary} (cross-document synthesis requiring a narrative overview).
+Summary queries, by their nature, require the agent to synthesise information across
+multiple documents and sessions --- precisely the capability that naive RAG struggles
+with most.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/deep_eval_barplot_qtype.png}
+    \caption{DeepEval quality metrics broken down by query type (factual vs.\ summary).
+             The custom agent's advantage is substantially larger on summary queries,
+             which require cross-document synthesis, than on factual queries.}
+    \label{fig:deepeval-barplot-qtype}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Mean correctness, relevancy, and completeness by query type and agent
+         configuration. Completeness is not evaluated on summary queries
+         (see Section~\ref{sec:dataset-limitations}).}
+\label{tab:qtype-results}
+\resizebox{0.85\textwidth}{!}{%
+\begin{tabular}{llrrr}
+\toprule
+\textbf{Query Type} & \textbf{Configuration} & \textbf{Correctness} & \textbf{Relevancy} & \textbf{Completeness} \\
+\midrule
+Factual & Baseline+RAG & 0.882 & 0.996 & 0.910 \\
+Factual & Custom       & 0.901 & 0.993 & 0.924 \\
+\midrule
+Summary & Baseline+RAG & 0.775 & 0.912 & --- \\
+Summary & Custom       & 0.919 & 0.999 & --- \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+The pattern is striking. On factual queries, the custom agent leads by 1.9 percentage
+points in correctness --- a modest but consistent margin. On summary queries, the gap
+widens to 14.4 percentage points ($0.919$ vs.\ $0.775$). The same asymmetry holds for
+relevancy: the baseline's relevancy on summary queries ($0.912$) is substantially below
+its factual query relevancy ($0.996$), reflecting cases where retrieval fails to surface
+the distributed context required for a coherent synthesis and the agent produces an
+incomplete or unfocused response. The custom agent's relevancy on summary queries
+($0.999$) is effectively at ceiling.
+
+Mann-Whitney U tests confirm that the custom agent's advantage on summary queries is
+statistically significant: correctness ($U = 12{,}813$, $p = 9.3 \times 10^{-3}$) and
+relevancy ($U = 12{,}542$, $p = 2.9 \times 10^{-5}$). Since summary queries require
+cross-document synthesis by definition --- they cannot be answered from a single
+retrieved chunk --- this constitutes direct empirical support for RQ1.
+
+% -------------------------------------------------------
 \subsection{BERTScore}
 % -------------------------------------------------------
 
@@ -295,14 +352,20 @@ and vector store are both consulted within a single query.
     \label{fig:resource-lineplot}
 \end{figure}
 
-Figure~\ref{fig:duration-vs-correctness} plots inference duration against correctness score for individual queries, illustrating that higher latency does not correspond to higher quality.
+Figure~\ref{fig:duration-vs-correctness} plots inference duration against correctness
+score for individual queries. The custom agent's responses cluster more tightly ---
+higher correctness with less spread in duration --- while the baseline is more
+dispersed. The pattern confirms that longer inference time does not produce higher
+quality: both configurations occupy similar latency ranges, yet the custom agent
+achieves consistently higher scores within that range.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{figures/duration_vs_correctness.png}
     \caption{Scatter plot of inference duration (seconds) against correctness score per query.
-             No positive correlation is observed, indicating that longer inference time does not
-             reliably produce higher-quality responses.}
+             The custom agent's responses are more tightly concentrated at higher correctness
+             scores. No positive correlation between latency and quality is observed for
+             either configuration.}
     \label{fig:duration-vs-correctness}
 \end{figure}
 
@@ -569,13 +632,13 @@ Table~\ref{tab:rq-summary} summarises the empirical evidence for each research q
 Main & Custom agent improves factual accuracy without significant cost increase &
   Correctness significant ($p{=}1.03{\times}10^{-2}$); token usage and latency
   statistically equivalent \\[6pt]
-RQ1 & Evidence is directionally consistent but inconclusive; a larger gap on the more
-  complex dataset is suggestive but rests on few sessions and does not hold uniformly &
-  Wider gap on TOSL-2024-125319 sessions 3--4 only; THRD-2021-163881 shows no clear difference \\[6pt]
-RQ2 & Custom agent maintains stable or improving quality across sessions; baseline
-  performance is more variable and lower throughout &
-  Session trajectory plots; narrower confidence intervals and higher median for custom
-  agent at later sessions \\[6pt]
+RQ1 & Custom agent significantly outperforms baseline on summary (cross-document) queries;
+  factual query gap is smaller but consistent &
+  Correctness gap $+14.4$pp on summary queries ($p{=}9.3{\times}10^{-3}$);
+  relevancy gap $+8.7$pp ($p{=}2.9{\times}10^{-5}$) \\[6pt]
+RQ2 & Indicative evidence from TOSL-2024-125319: gap widens in later sessions; not
+  conclusive with current sample &
+  Session trajectories; wider gap in sessions 3--4 on authentic case only \\[6pt]
 RQ3 & Structured context amplifies smaller model performance; the gap between custom
   and baseline agents narrows as model capability increases &
   LLM barplot: gap is widest for smaller models, negligible for the most capable model \\
@@ -590,14 +653,14 @@ consuming a statistically equivalent number of tokens and producing responses wi
 same latency envelope. The quality gain is not purchased at a proportional resource cost.
 
 \paragraph{RQ1.}
-The evidence for RQ1 is directionally consistent with the hypothesis but not strong
-enough to support a firm conclusion. THRD-2021-163881 shows no clear performance gap between
-configurations. TOSL-2024-125319 shows a somewhat wider gap in sessions 3--4, but this rests
-on a small number of sessions and does not hold uniformly across all metrics. The data
-is too thin to isolate whether the effect is driven by cross-document synthesis demands
-specifically or by other case-level differences in complexity and document type. RQ1
-remains open and would require a targeted benchmark of explicitly synthesis-demanding
-queries to resolve conclusively.
+The query-type breakdown (Section~\ref{sec:qtype-results}) provides direct empirical
+support for RQ1. The custom agent's correctness advantage on summary queries ---
+which require cross-document synthesis by definition --- is $+14.4$ percentage points
+and statistically significant ($p = 9.3 \times 10^{-3}$). On factual queries, where
+a single retrieved chunk can often supply the answer, the gap narrows to $+1.9$pp.
+The concentration of the advantage in precisely the query type that stresses naive
+RAG most directly answers RQ1 affirmatively: structured extraction mitigates the
+cross-document retrieval limitations of chunk-based RAG.
 
 \paragraph{RQ2.}
 Session-level trajectories show that the custom agent maintains quality across all

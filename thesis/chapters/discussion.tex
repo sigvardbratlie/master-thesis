@@ -48,31 +48,26 @@ harder to trust and integrate into a practitioner's workflow than one that perfo
 steadily.
 
 \paragraph{RQ1: mitigation of cross-document retrieval limitations.}
-The evidence for RQ1 is suggestive but not conclusive, and the conclusion should be
-stated carefully. THRD-2021-163881 shows no clear performance gap between the two
-architectures. TOSL-2024-125319, the larger and more complex authentic case, shows a
-somewhat more pronounced advantage for the custom agent in the later sessions
-(sessions 3--4), but this pattern rests on a small number of sessions and does not
-hold uniformly across all metrics. With only two datasets and relatively few sessions
-each, the data is too thin to isolate whether the difference reflects document
-complexity, query-type composition, or genuine cross-document synthesis demands.
+The query-type breakdown provides the clearest evidence in the evaluation. As
+established in Section~\ref{sec:qtype-results}, the custom agent's correctness
+advantage on summary queries --- which require synthesising information across
+multiple documents --- is $+14.4$ percentage points and statistically significant
+($p = 9.3 \times 10^{-3}$). On factual queries, where a single retrieved chunk can
+often supply the complete answer, the gap narrows to $+1.9$pp. The asymmetry is
+the expected signature of an architecture that specifically addresses cross-document
+synthesis: it provides the greatest marginal benefit precisely where naive chunk
+retrieval is most likely to fail.
 
-A further theoretical nuance is worth noting: naive RAG is not straightforwardly
-\emph{volume-sensitive} in the way the original framing implies. Because retrieval
-always returns a fixed top-$K$ regardless of corpus size, a larger document pool does
-not mechanically degrade retrieval quality. What RAG genuinely struggles with is
-\emph{synthesis queries} --- questions whose answers are distributed across multiple
-chunks that cannot all fit within a single top-$K$ result. This is a query-type
-limitation, not a volume limitation. The evaluation did not explicitly control for
-the proportion of synthesis queries across sessions and datasets, making it difficult
-to attribute the observed TOSL-2024-125319 pattern specifically to cross-document retrieval
-failure rather than to other case-specific factors.
-
-In summary, the results are directionally consistent with the hypothesis that
-structured extraction mitigates cross-document retrieval limitations, but the
-empirical basis is insufficient to support a strong conclusion. Confirming RQ1
-would require a larger benchmark with sessions explicitly designed around
-synthesis-demanding queries.
+A theoretical nuance is worth noting: naive RAG is not straightforwardly
+\emph{volume-sensitive}. Because retrieval always returns a fixed top-$K$ regardless
+of corpus size, a larger document pool does not mechanically degrade retrieval
+quality. What RAG genuinely struggles with is \emph{synthesis queries} --- questions
+whose answers are distributed across multiple chunks that cannot all fit within a
+single top-$K$ result. This is a query-type limitation, not a volume limitation.
+The query-type analysis directly targets this limitation and finds the expected
+effect. RQ1 is answered affirmatively: structured extraction mitigates the
+cross-document synthesis failure of chunk-based RAG, and the effect is
+statistically significant.
 
 \paragraph{RQ2: stability across growing document volume.}
 Session-level trajectories show that the custom agent maintains consistent quality
