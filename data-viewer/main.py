@@ -1040,6 +1040,12 @@ _MODEL_RENAMES = {
 }
 _MODELS_TO_KEEP = ["Qwen3.5-397B", "GLM-5", "gemini-2.5-flash", "gemini-2.5-pro"]
 _AGENT_COLORS = {"baseline_rag": "#1f77b4", "custom": "#ff7f0e"}
+_COST_TABLE = {
+    "Qwen3.5-397B": {"in": 0.60, "out": 3.60},
+    "GLM-5": {"in": 1.00, "out": 3.20},
+    "gemini-2.5-flash": {"in": 0.30, "out": 2.50},
+    "gemini-2.5-pro": {"in": 1.25, "out": 10.00},
+}
 
 
 @st.cache_resource
@@ -1067,6 +1073,9 @@ def _prepare_df(raw: pd.DataFrame) -> pd.DataFrame:
     df = df[df["llm_model"].isin(_MODELS_TO_KEEP)]
     df = df[~df["eval_run_id"].isin(_RUNS_TO_REMOVE)]
     df = df[df["duration_seconds"] < 600].reset_index(drop=True)
+    df["q_type"] = df["completeness"].apply(
+        lambda x: "factual" if pd.notna(x) and x else "summary"
+    )
     return df
 
 
@@ -1110,20 +1119,65 @@ def _line_session(plot_df, y, title="", facet=None):
     ).update_layout(margin=dict(t=40, b=20))
 
 
+@st.cache_data(show_spinner=False)
+def _compute_self_consistency(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute pairwise cosine self-consistency per (llm_model, query_id, agent_type).
+    Cached on the full prepared dataframe so filter interactions stay fast.
+    """
+    def _pairwise_cosine(embeddings):
+        embs = [ast.literal_eval(e) if isinstance(e, str) else e for e in embeddings]
+        arr = np.array(embs, dtype=float)
+        norms = np.linalg.norm(arr, axis=1, keepdims=True)
+        normed = arr / np.where(norms == 0, 1, norms)
+        sim = normed @ normed.T
+        idx = np.triu_indices_from(sim, k=1)
+        return float(sim[idx].mean()) if len(idx[0]) > 0 else 1.0
+
+    emb_df = (
+        df.groupby(["llm_model", "query_id", "agent_type"])["embedded_actual_output"]
+        .apply(list)
+        .reset_index()
+    )
+    emb_df["self_consistency"] = emb_df["embedded_actual_output"].apply(
+        lambda x: _pairwise_cosine(x) if len(x) >= 2 else 1.0
+    )
+    return emb_df[["llm_model", "query_id", "agent_type", "self_consistency"]]
+
+
 with tab_analysis:
     try:
         raw_df = _load_analysis_df()
-        df_an = _prepare_df(raw_df)
+        df_an_base = _prepare_df(raw_df)
     except Exception as _err:
         st.error(f"❌ Failed to load analysis data: {_err}")
         st.stop()
 
     st.markdown("### 🔬 Evaluation Analysis")
+
+    # ── Global filters (pure df.loc — no BQ reload on change) ─────────────────
+    _all_datasets = sorted(df_an_base["dataset_name"].unique().tolist())
+    _all_models   = sorted(df_an_base["llm_model"].unique().tolist())
+    _all_qtypes   = sorted(df_an_base["q_type"].unique().tolist()) if "q_type" in df_an_base.columns else []
+
+    _fc1, _fc2, _fc3 = st.columns(3)
+    _sel_datasets = _fc1.multiselect("Dataset", _all_datasets, default=_all_datasets, key="an_f_ds")
+    _sel_models   = _fc2.multiselect("Model",   _all_models,   default=_all_models,   key="an_f_model")
+    _sel_qtypes   = _fc3.multiselect("Question type", _all_qtypes, default=_all_qtypes, key="an_f_qtype") if _all_qtypes else _all_qtypes
+
+    _mask = (
+        df_an_base["dataset_name"].isin(_sel_datasets or _all_datasets)
+        & df_an_base["llm_model"].isin(_sel_models or _all_models)
+    )
+    if _sel_qtypes and "q_type" in df_an_base.columns:
+        _mask = _mask & df_an_base["q_type"].isin(_sel_qtypes)
+    df_an = df_an_base.loc[_mask].reset_index(drop=True)
+
+    # ── Summary strip ─────────────────────────────────────────────────────────
     _c1, _c2, _c3, _c4 = st.columns(4)
     _c1.metric("Observations", f"{len(df_an):,}")
-    _c2.metric("Agent types", df_an["agent_type"].nunique())
-    _c3.metric("Models", df_an["llm_model"].nunique())
-    _c4.metric("Datasets", df_an["dataset_name"].nunique())
+    _c2.metric("Agent types",  df_an["agent_type"].nunique())
+    _c3.metric("Models",       df_an["llm_model"].nunique())
+    _c4.metric("Datasets",     df_an["dataset_name"].nunique())
 
     st.divider()
 
@@ -1132,9 +1186,10 @@ with tab_analysis:
         _stab_session,
         _stab_bert,
         _stab_resources,
+        _stab_cost,
         _stab_consistency,
         _stab_stats,
-    ) = st.tabs(["📊 Quality", "📈 By Session", "🔤 BERT", "⚡ Resources", "🔄 Consistency", "📐 Stats"])
+    ) = st.tabs(["📊 Quality", "📈 By Session", "🔤 BERT", "⚡ Resources", "💰 Cost", "🔄 Consistency", "📐 Stats"])
 
     # ── Quality ───────────────────────────────────────────────────────────────
     with _stab_quality:
@@ -1157,23 +1212,54 @@ with tab_analysis:
                 facet_col="llm_model", facet_col_wrap=2,
                 color_discrete_map=_AGENT_COLORS,
                 labels={"metric": "", "score": "Score", "agent_type": "Agent"},
-                range_y=[0, 1.05], text_auto=".3f",
+                range_y=[0, 1.15], text_auto=".3f",
                 title="DeepEval Metrics by Model and Agent Type",
-            ).update_layout(margin=dict(t=50, b=20)).update_traces(textposition="outside"),
+            )
+            .update_layout(height=600, margin=dict(t=60, b=20))
+            .update_traces(textposition="outside", textfont_size=11),
             use_container_width=True,
         )
 
         st.divider()
-        st.markdown("#### Success distribution")
-        _sc1, _sc2 = st.columns(2)
-        for _col, _atype in zip([_sc1, _sc2], ["custom", "baseline_rag"]):
+        # Success distribution and question-type metrics side by side
+        _col_success, _col_qtype = st.columns([0.4, 0.6])
+
+        with _col_success:
+            st.markdown("#### Success distribution")
             if "success" in df_an.columns:
-                _pie = df_an[df_an["agent_type"] == _atype]["success"].value_counts().reset_index()
-                _pie.columns = ["success", "count"]
-                _col.plotly_chart(
-                    px.pie(_pie, names="success", values="count",
-                           title=f"{_atype} — Success distribution",
-                           color_discrete_sequence=["#2ecc71", "#e74c3c"]),
+                _pie_cols = st.columns(2)
+                for _pcol, _atype in zip(_pie_cols, ["custom", "baseline_rag"]):
+                    _pie = df_an[df_an["agent_type"] == _atype]["success"].value_counts().reset_index()
+                    _pie.columns = ["success", "count"]
+                    _pcol.plotly_chart(
+                        px.pie(
+                            _pie, names="success", values="count",
+                            title=_atype,
+                            color_discrete_sequence=["#2ecc71", "#e74c3c"],
+                        ).update_layout(height=260, margin=dict(t=40, b=10, l=10, r=10), showlegend=False),
+                        use_container_width=True,
+                    )
+
+        with _col_qtype:
+            st.markdown("#### Metrics by question type")
+            if "q_type" in df_an.columns:
+                _qt_data = (
+                    df_an.groupby(["q_type", "agent_type"])[["correctness", "relevancy"]]
+                    .mean()
+                    .reset_index()
+                    .melt(id_vars=["q_type", "agent_type"], var_name="metric", value_name="score")
+                )
+                st.plotly_chart(
+                    px.bar(
+                        _qt_data, x="q_type", y="score", color="agent_type", barmode="group",
+                        facet_col="metric",
+                        color_discrete_map=_AGENT_COLORS,
+                        labels={"q_type": "Question type", "score": "Score", "agent_type": "Agent"},
+                        range_y=[0, 1.15], text_auto=".3f",
+                        title="Correctness & Relevancy by Question Type",
+                    )
+                    .update_layout(height=330, margin=dict(t=50, b=10))
+                    .update_traces(textposition="outside", textfont_size=10),
                     use_container_width=True,
                 )
 
@@ -1184,28 +1270,14 @@ with tab_analysis:
             c for c in ["correctness", "relevancy", "completeness", "bert_f1", "s_bert_similarity"]
             if c in _plot_df.columns
         ]
-        _sel_metric = st.selectbox("Metric", _available_metrics, key="an_session_metric")
-        _sel_dataset = st.selectbox(
-            "Dataset", ["All"] + sorted(df_an["dataset_name"].unique().tolist()),
-            key="an_session_dataset",
-        )
-
-        _filt = _plot_df if _sel_dataset == "All" else _plot_df[_plot_df["dataset_name"] == _sel_dataset]
-        st.plotly_chart(
-            _line_session(
-                _filt, _sel_metric,
-                title=f"{_sel_metric.capitalize()} over Session Progression",
-                facet="dataset_name" if _sel_dataset == "All" else None,
-            ),
-            use_container_width=True,
-        )
-
-        st.divider()
-        st.markdown("#### By dataset (side by side)")
-        for _m in _available_metrics[:3]:
-            st.plotly_chart(
+        # Quality metrics: 2-column grid
+        st.markdown("#### Quality metrics over sessions")
+        _sm_left, _sm_right = st.columns(2)
+        for _i, _m in enumerate(_available_metrics):
+            _target = _sm_left if _i % 2 == 0 else _sm_right
+            _target.plotly_chart(
                 _line_session(_plot_df, _m, facet="dataset_name",
-                              title=f"{_m.capitalize()} by Dataset"),
+                              title=_m.replace("_", " ").capitalize()),
                 use_container_width=True,
             )
 
@@ -1222,11 +1294,13 @@ with tab_analysis:
 
             st.divider()
             st.markdown("#### BERT metrics over sessions")
-            _plot_df = _session_agg(df_an)
-            for _m in [c for c in ["bert_f1", "s_bert_similarity"] if c in _plot_df.columns]:
-                st.plotly_chart(
-                    _line_session(_plot_df, _m, facet="dataset_name",
-                                  title=f"{_m} over Session by Dataset"),
+            _plot_df_bert = _session_agg(df_an)
+            _bl, _br = st.columns(2)
+            for _i, _m in enumerate([c for c in ["bert_f1", "s_bert_similarity"] if c in _plot_df_bert.columns]):
+                _target = _bl if _i % 2 == 0 else _br
+                _target.plotly_chart(
+                    _line_session(_plot_df_bert, _m, facet="dataset_name",
+                                  title=_m.replace("_", " ")),
                     use_container_width=True,
                 )
 
@@ -1240,11 +1314,13 @@ with tab_analysis:
 
         st.divider()
         st.markdown("#### Resource usage over sessions")
-        _plot_df = _session_agg(df_an)
-        for _m in _res_cols:
-            st.plotly_chart(
-                _line_session(_plot_df, _m, facet="dataset_name",
-                              title=f"{_m.replace('_', ' ').capitalize()} over Session"),
+        _plot_df_res = _session_agg(df_an)
+        _rl, _rr = st.columns(2)
+        for _i, _m in enumerate(_res_cols):
+            _target = _rl if _i % 2 == 0 else _rr
+            _target.plotly_chart(
+                _line_session(_plot_df_res, _m, facet="dataset_name",
+                              title=_m.replace("_", " ").capitalize()),
                 use_container_width=True,
             )
 
@@ -1255,36 +1331,155 @@ with tab_analysis:
                 px.scatter(
                     df_an, x="duration_seconds", y="correctness", color="agent_type",
                     color_discrete_map=_AGENT_COLORS,
-                    opacity=0.5, trendline="lowess",
+                    opacity=0.55,
+                    marginal_x="violin",
+                    marginal_y="violin",
                     labels={"duration_seconds": "Duration (s)", "correctness": "Correctness", "agent_type": "Agent"},
                     title="Duration vs. Correctness",
-                ),
+                ).update_layout(height=550),
                 use_container_width=True,
             )
 
+    # ── Cost ──────────────────────────────────────────────────────────────────
+    with _stab_cost:
+        _cost_df_prices = (
+            pd.DataFrame(_COST_TABLE).T
+            .reset_index()
+            .rename(columns={"index": "llm_model"})
+        )
+        _tokens_agg = (
+            df_an.groupby(["dataset_name", "llm_model", "agent_type"])
+            .agg(
+                input_tokens=("input_tokens", "mean"),
+                output_tokens=("output_tokens", "mean"),
+                correctness=("correctness", "mean"),
+                relevancy=("relevancy", "mean"),
+                completeness=("completeness", "mean"),
+            )
+            .reset_index()
+        )
+        _cost_merged = pd.merge(_tokens_agg, _cost_df_prices, on="llm_model")
+        _cost_merged["total_cost"] = (
+            _cost_merged["input_tokens"] * _cost_merged["in"] / 1000
+            + _cost_merged["output_tokens"] * _cost_merged["out"] / 1000
+        )
+        _cost_merged["rank_cost"] = _cost_merged.groupby("dataset_name")["total_cost"].transform(
+            lambda x: x.rank(pct=True)
+        )
+        _cost_merged["actual_in_cost"] = _cost_merged["in"] * _cost_merged["input_tokens"] / 1000
+        _cost_merged["actual_in_cost_rank"] = _cost_merged.groupby("dataset_name")["actual_in_cost"].transform(
+            lambda x: x.rank(pct=True)
+        )
+        _agg_cost = (
+            _cost_merged.groupby(["llm_model", "agent_type"])
+            .agg(
+                rank_cost=("rank_cost", "mean"),
+                correctness=("correctness", "mean"),
+                relevancy=("relevancy", "mean"),
+                completeness=("completeness", "mean"),
+                actual_in_cost_rank=("actual_in_cost_rank", "mean"),
+                price_in=("in", "mean"),
+            )
+            .reset_index()
+        )
+
+        st.markdown("#### Cost vs. quality metrics")
+        st.caption(
+            "Estimated cost ranked within each dataset to normalise for case length. "
+            "Single OLS regression across both agent types."
+        )
+        _cost_metric_cols = [c for c in ["correctness", "relevancy", "completeness"] if c in _agg_cost.columns]
+        _cm_left, _cm_right = st.columns(2)
+        for _i, _cm in enumerate(_cost_metric_cols):
+            _target = _cm_left if _i % 2 == 0 else _cm_right
+            _target.plotly_chart(
+                px.scatter(
+                    _agg_cost, x="rank_cost", y=_cm, color="agent_type",
+                    color_discrete_map=_AGENT_COLORS,
+                    text="llm_model",
+                    trendline="ols", trendline_scope="overall",
+                    trendline_color_override="black",
+                    labels={
+                        "rank_cost": "Estimated cost (ranked 0–1)",
+                        _cm: _cm.capitalize(),
+                        "agent_type": "Agent",
+                    },
+                    title=f"{_cm.capitalize()} vs. Estimated Cost",
+                )
+                .update_traces(textposition="top center")
+                .update_layout(height=380, margin=dict(t=50)),
+                use_container_width=True,
+            )
+
+        st.divider()
+        st.markdown("#### Actual input cost rank vs. advertised price per token")
+        st.caption("Dashed diagonal: perfect proportionality between price and actual spend.")
+        _plot_in_cost = (
+            _cost_merged.groupby(["llm_model", "agent_type"])
+            .agg(actual_in_cost_rank=("actual_in_cost_rank", "mean"), price_in=("in", "mean"))
+            .reset_index()
+        )
+        _in_fig = (
+            px.scatter(
+                _plot_in_cost, x="price_in", y="actual_in_cost_rank", color="agent_type",
+                color_discrete_map=_AGENT_COLORS,
+                text="llm_model",
+                labels={
+                    "price_in": "Advertised input price ($ / 1K tokens)",
+                    "actual_in_cost_rank": "Actual input cost (ranked 0–1)",
+                    "agent_type": "Agent",
+                },
+                title="Actual Input Cost Rank vs. Advertised Input Price",
+            )
+            .update_traces(textposition="top center")
+            .update_layout(height=420, margin=dict(t=50))
+        )
+        # diagonal reference line in data coordinates
+        _x_max = _plot_in_cost["price_in"].max() * 1.1
+        _in_fig.add_shape(
+            type="line", x0=0, y0=0, x1=_x_max, y1=_x_max,
+            line=dict(color="gray", dash="dash", width=1.5),
+        )
+        st.plotly_chart(_in_fig, use_container_width=True)
+
+        st.divider()
+        st.markdown("#### Aggregated cost & quality summary")
+        st.dataframe(
+            _agg_cost[["llm_model", "agent_type", "rank_cost", "correctness", "relevancy", "completeness"]]
+            .sort_values(["llm_model", "agent_type"])
+            .round(4),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.divider()
+        st.markdown("#### Per-dataset pivot: correctness, relevancy, completeness")
+        _pivot_data = (
+            df_an.groupby(["dataset_name", "llm_model", "agent_type"])
+            .agg(correctness=("correctness", "mean"), relevancy=("relevancy", "mean"), completeness=("completeness", "mean"))
+            .reset_index()
+        )
+        for _ds_name in sorted(_pivot_data["dataset_name"].unique()):
+            _ds_slice = _pivot_data[_pivot_data["dataset_name"] == _ds_name]
+            _pivot = _ds_slice.pivot_table(
+                index="llm_model", columns="agent_type",
+                values=["correctness", "relevancy", "completeness"],
+            ).round(4)
+            with st.expander(f"📋 {_ds_name}", expanded=True):
+                st.dataframe(_pivot, use_container_width=True)
+
     # ── Self-Consistency ───────────────────────────────────────────────────────
     with _stab_consistency:
-        if "embedded_actual_output" not in df_an.columns:
+        if "embedded_actual_output" not in df_an_base.columns:
             st.info("No `embedded_actual_output` column found — self-consistency not available.")
         else:
-            def _pairwise_cosine(embeddings):
-                embs = [ast.literal_eval(e) if isinstance(e, str) else e for e in embeddings]
-                arr = np.array(embs, dtype=float)
-                norms = np.linalg.norm(arr, axis=1, keepdims=True)
-                normed = arr / np.where(norms == 0, 1, norms)
-                sim = normed @ normed.T
-                idx = np.triu_indices_from(sim, k=1)
-                return float(sim[idx].mean()) if len(idx[0]) > 0 else 1.0
-
-            with st.spinner("Computing self-consistency scores..."):
-                _emb_df = (
-                    df_an.groupby(["llm_model", "query_id", "agent_type"])["embedded_actual_output"]
-                    .apply(list)
-                    .reset_index()
-                )
-                _emb_df["self_consistency"] = _emb_df["embedded_actual_output"].apply(
-                    lambda x: _pairwise_cosine(x) if len(x) >= 2 else 1.0
-                )
+            # Compute on full base df (cached) then filter to match current selection
+            with st.spinner("Computing self-consistency scores…"):
+                _emb_df_full = _compute_self_consistency(df_an_base)
+            _emb_df = _emb_df_full[
+                _emb_df_full["llm_model"].isin(df_an["llm_model"].unique())
+                & _emb_df_full["agent_type"].isin(df_an["agent_type"].unique())
+            ]
 
             st.markdown("#### Self-Consistency by Agent Type")
             _cc1, _cc2 = st.columns(2)
@@ -1311,7 +1506,7 @@ with tab_analysis:
             if c in df_an.columns
         ]
         _custom = df_an[df_an["agent_type"] == "custom"]
-        _rag = df_an[df_an["agent_type"] == "baseline_rag"]
+        _rag    = df_an[df_an["agent_type"] == "baseline_rag"]
 
         st.markdown("#### Metric distributions by agent type")
         _hist_sel = st.selectbox("Metric", _test_metrics, key="an_stats_hist")
@@ -1353,9 +1548,9 @@ with tab_analysis:
                 _mw_rows.append({
                     "Metric": _m,
                     "Custom mean ± std": f"{_a.mean():.4f} ± {_a.std():.4f}",
-                    "RAG mean ± std": f"{_b.mean():.4f} ± {_b.std():.4f}",
+                    "RAG mean ± std":    f"{_b.mean():.4f} ± {_b.std():.4f}",
                     "U-statistic": round(_u, 2),
-                    "p-value": round(_p, 4),
+                    "p-value":     round(_p, 4),
                     "Significant?": "✅" if _p < 0.05 else "❌",
                     "Alternative": _alt,
                 })
@@ -1374,13 +1569,38 @@ with tab_analysis:
                 _lev_rows.append({
                     "Metric": _m,
                     "Custom variance": round(float(np.var(_a)), 4),
-                    "RAG variance": round(float(np.var(_b)), 4),
-                    "Custom < RAG?": "✅" if np.var(_a) < np.var(_b) else "❌",
-                    "Levene stat": round(_stat, 4),
-                    "p-value": round(_p, 4),
+                    "RAG variance":    round(float(np.var(_b)), 4),
+                    "Custom < RAG?":   "✅" if np.var(_a) < np.var(_b) else "❌",
+                    "Levene stat":     round(_stat, 4),
+                    "p-value":         round(_p, 4),
                     "Sig. diff in variance?": "✅" if _p < 0.05 else "❌",
                 })
         st.dataframe(pd.DataFrame(_lev_rows), hide_index=True, use_container_width=True)
+
+        if "q_type" in df_an.columns:
+            st.divider()
+            st.markdown("#### Mann-Whitney U — summary questions only (custom > baseline_rag)")
+            _sum_custom = df_an[(df_an["agent_type"] == "custom")       & (df_an["q_type"] == "summary")]
+            _sum_rag    = df_an[(df_an["agent_type"] == "baseline_rag") & (df_an["q_type"] == "summary")]
+            _sum_rows = []
+            for _m in ["correctness", "relevancy"]:
+                if _m not in df_an.columns:
+                    continue
+                _a = _sum_custom[_m].dropna().values
+                _b = _sum_rag[_m].dropna().values
+                if len(_a) >= 3 and len(_b) >= 3:
+                    _u, _p = scipy_stats.mannwhitneyu(_a, _b, alternative="greater")
+                    _sum_rows.append({
+                        "Metric": _m,
+                        "Custom mean ± std": f"{_a.mean():.4f} ± {_a.std():.4f}",
+                        "RAG mean ± std":    f"{_b.mean():.4f} ± {_b.std():.4f}",
+                        "U-statistic": round(_u, 2),
+                        "p-value":     round(_p, 4),
+                        "Significant?": "✅" if _p < 0.05 else "❌",
+                    })
+            if _sum_rows:
+                st.dataframe(pd.DataFrame(_sum_rows), hide_index=True, use_container_width=True)
+
 # ════════════════════════════════════════════════════════════════════════════
 # TAB 4 — LLM-as-judge eval viewer
 # ════════════════════════════════════════════════════════════════════════════
