@@ -26,7 +26,7 @@ Conversation state is persisted using LangGraph's \texttt{AsyncPostgresSaver} ch
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.72\textwidth]{figures/agent_graph.png}
+    \includegraphics[width=0.9\textwidth]{figures/agent_graph.png}
     \caption{Agent graph: \texttt{init} $\to$ \texttt{call\_llm} with a conditional loop through \texttt{call\_tool}.}
     \label{fig:agent-graph}
 \end{figure}
@@ -347,7 +347,7 @@ graph, but a structured knowledge base with typed entities and cross-document
 connections, backed by semantic search for unstructured content.
 
 \paragraph{Vector Store and Embeddings:}
-Semantic retrieval relies on \textbf{Google's embedding model} (\texttt{gemini-embedding-001}). This model was specifically chosen for its strong multilingual capabilities; smaller and cheaper open-source models often struggle with RAG matching when queries or documents are not strictly in English, which is a critical requirement for handling Norwegian legal texts.
+Semantic retrieval relies on \textbf{Google's embedding model}\linebreak(\texttt{gemini-embedding-001}). This model was specifically chosen for its strong multilingual capabilities; smaller and cheaper open-source models often struggle with RAG matching when queries or documents are not strictly in English, which is a critical requirement for handling Norwegian legal texts.
 
 For the vector database, a two-tier approach is used. \textbf{ChromaDB} is utilized as an in-memory store for fast, session-scoped retrieval. For persistent, project-scoped retrieval, \textbf{BigQuery Vector Search} is employed. BigQuery was chosen because it is affordable and operates on an on-demand pricing model. The primary drawback of BigQuery is its high latency, meaning a significant amount of time is spent indexing and saving to the vector store. However, this trade-off is worthwhile: the alternative would require provisioning an always-running vector database server, which introduces high continuous costs and additional operational setup.
 
@@ -369,7 +369,7 @@ To prevent overloading external services, four independent \texttt{asyncio.Semap
 During project initialization, documents are grouped into batches before being dispatched for LLM analysis. Batching is driven by two configurable thresholds: a maximum byte-size per batch (\texttt{project.threshold}) and a maximum file count per batch (\texttt{project.max\_attachments} / \texttt{project.max\_emails}). Each batch is wrapped in an async task that acquires the LLM semaphore, and all tasks are dispatched concurrently via \texttt{asyncio.gather()}. The same chunk-wise strategy is applied during factsheet cleaning and deduplication: element lists (events, claims, damages, etc.) are split into fixed-size chunks (\texttt{project.clean.chunk\_size}), each chunk is cleaned by a separate concurrent LLM call, and results are merged after all tasks complete. This approach keeps individual prompts within token limits while maximising throughput.
 
 \paragraph{Rate limiting and 429 handling.}
-To comply with provider-imposed rate limits and avoid HTTP 429 (Too Many Requests) errors, each LLM instance is wrapped with LangChain's \texttt{InMemoryRateLimiter}. The limiter implements a token-bucket algorithm: tokens are refilled at a configurable rate (\texttt{async.llm.requests\_per\_second}) and a burst capacity (\texttt{async.llm.max\_burst\_size}) allows short spikes. A single stateful limiter instance is shared across all coroutines that use the same model, so the rate limit is enforced globally rather than per-request.
+To comply with provider-imposed rate limits and avoid HTTP 429 (Too Many Requests) errors, each LLM instance is wrapped with LangChain's\linebreak\texttt{InMemoryRateLimiter}. The limiter implements a token-bucket algorithm: tokens are refilled at a configurable rate\linebreak(\texttt{async.llm.requests\_per\_second}) and a burst capacity\linebreak(\texttt{async.llm.max\_burst\_size}) allows short spikes. A single stateful limiter instance is shared across all coroutines that use the same model, so the rate limit is enforced globally rather than per-request.
 
 \paragraph{Retry mechanism with exponential backoff.}
 Transient API errors (e.g.\ network timeouts or momentary 5xx responses) are handled by a dedicated \texttt{apply\_retry()} helper. It wraps any LangChain chain with \texttt{with\_retry()}, configuring a stop condition (\texttt{retry\_attempts} from config) and exponential backoff with random jitter (\texttt{wait\_exponential\_jitter=True}). The retry decorator is applied \emph{after} structured-output binding so that validation failures are also covered. If all retry attempts are exhausted, the error is propagated and logged.
@@ -555,7 +555,7 @@ A plain LLM baseline without document retrieval was considered but excluded from
 Since the scope of the thesis is not to evaluate the models themselves, but rather the design and architecture of the agent, a selection of four models is used for comparison. 
 These include both closed-source and open-source variants to ensure the agent's performance is consistent across different provider architectures.
 
-For open-source models, several were tested. Initial trials with smaller models, such as \texttt{Qwen3-Next-80B-A3B-Instruct} \cite{qwen3.5}, 
+For open-source models, several were tested. Initial trials with smaller models, such as\linebreak\texttt{Qwen3-Next-80B-A3B-Instruct} \cite{qwen3.5}, 
 demonstrated that they lacked the capacity to handle the complexity of the reasoning and extraction tasks, failing to produce coherent or useful outputs. 
 This became especially evident for the custom model, that heavily relies on the quality of the extracted entities. As a consequence, these smaller models were excluded from the evaluation.
 Consequently, the evaluation focused on two of the top-performing large-scale open-source models available at the time of writing: \texttt{Qwen 3.5} 
