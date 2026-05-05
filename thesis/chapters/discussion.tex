@@ -11,8 +11,8 @@ findings within the theoretical context established in Chapter~2.
 
 \paragraph{Main RQ: accuracy improvement without proportional cost.}
 The results support an affirmative answer. The custom agent achieves statistically
-significant improvements in correctness ($p = 8.5 \times 10^{-3}$) and relevancy
-($p = 3.4 \times 10^{-4}$) while consuming a statistically equivalent number of
+significant improvements in correctness ($p = 1.03 \times 10^{-2}$) and relevancy
+($p = 5.54 \times 10^{-5}$) while consuming a statistically equivalent number of
 tokens and inference time compared to the RAG-only baseline. The context compression
 mechanisms --- significance filtering and display shortening applied server-side before
 context injection --- are largely responsible for keeping token usage in check as the
@@ -167,7 +167,7 @@ Only two datasets are used in the evaluation, and their characteristics differ s
 Figure~\ref{fig:deepeval-barplot-llms} shows that the performance gap between the custom and baseline agents narrows as the underlying LLM becomes more capable: for the most advanced model tested (Gemini 2.5 Pro), the two configurations are nearly indistinguishable. This suggests two non-exclusive interpretations. First, a sufficiently capable model may compensate for the structural disadvantage of the baseline by inferring missing context or tolerating retrieval noise more robustly. Second, the evaluation queries and datasets may not be sufficiently demanding to expose the limits of a powerful model: the questions can largely be answered from the retrieved chunks even without the accumulated factsheet context. Conversely, the performance gap is most pronounced for the smaller models, for which structured, pre-digested context provides the greatest marginal benefit. This implies that the value of the custom architecture is not fixed but model-dependent: it acts as a capability amplifier that matters most when the underlying model has limited reasoning capacity or context-handling ability.
 
 \paragraph{Stochastic variability.}
-LLM outputs are inherently stochastic. Each evaluation set was run three times to reduce the impact of this variability, and the non-parametric Mann-Whitney U test is robust to the non-normal, left-skewed score distributions observed. Nevertheless, the total number of unique query-session combinations is constrained by the cost and time of running large-scale multi-model evaluations, and the reported p-values should be interpreted with awareness of the limited sample size. The significance of correctness ($p = 8.5 \times 10^{-3}$) and relevancy ($p = 3.4 \times 10^{-4}$) results are robust, but the borderline result for completeness ($p = 8.3 \times 10^{-2}$) should be treated cautiously.
+LLM outputs are inherently stochastic. Each evaluation set was run three times to reduce the impact of this variability, and the non-parametric Mann-Whitney U test is robust to the non-normal, left-skewed score distributions observed. Nevertheless, the total number of unique query-session combinations is constrained by the cost and time of running large-scale multi-model evaluations, and the reported p-values should be interpreted with awareness of the limited sample size. The significance of correctness ($p = 1.03 \times 10^{-2}$) and relevancy ($p = 5.54 \times 10^{-5}$) results are robust, but the borderline result for completeness ($p = 1.06 \times 10^{-1}$) should be treated cautiously.
 
 % -------------------------------------------------------
 \section{Overall Assessment}
